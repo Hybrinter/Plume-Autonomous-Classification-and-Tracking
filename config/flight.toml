@@ -1,0 +1,12 @@
+# PACT flight-specific configuration overrides
+# Merged on top of config/default.toml at load time by ops/config_loader.py.
+# Only fields that differ from default.toml appear here.
+# All other fields inherit from default.toml.
+
+# --- Flight-specific overrides ---
+
+[inference]
+# INT8 quantization enabled for Jetson Xavier flight deployment (TensorRT path).
+# Reduces inference latency and power draw at the cost of minor precision loss.
+# Validated against REQ-AIML-COMP-003 before enabling.
+use_int8 = true

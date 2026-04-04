@@ -1,0 +1,48 @@
+# PACT default configuration
+# All tunable parameters for every subsystem live here.
+# No magic numbers in source code — every threshold must reference this file.
+# Loaded once at startup by ops/config_loader.py into typed PactConfig dataclasses.
+
+[controller]
+confidence_gate = 0.55
+ema_alpha = 0.4
+min_deadband_px = 20
+max_deadband_px = 250
+max_deadband_strike_count = 3
+retarget_rate_limit_hz = 0.5
+max_slew_rate_deg_per_s = 2.0
+acquire_persistence_frames = 3
+release_persistence_frames = 5
+scan_entry_idle_seconds = 60.0
+scan_slew_rate_deg_per_s = 0.5
+blob_iou_match_threshold = 0.25
+min_blob_area_px = 15
+
+[inference]
+model_path = "data/models/active.pt"
+rollback_model_path = "data/models/rollback.pt"
+input_bands = ["B2", "B3", "B4", "B8"]
+input_height_px = 256
+input_width_px = 256
+use_int8 = false
+latency_budget_ms = 500.0   # TBD — update when Jetson Xavier benchmark is complete
+
+[comms]
+max_downlink_rate_bps = 5000000
+max_uplink_rate_bps = 2000000
+max_daily_downlink_bytes = 1073741824   # 1 GB
+max_daily_uplink_bytes = 104857600      # 100 MB
+comm_window_days = ["MON", "TUE", "WED", "THU", "FRI"]
+ccsds_apid = 1
+
+[storage]
+data_root = "data/flight"
+max_storage_bytes = 107374182400   # 100 GB placeholder
+checksum_algorithm = "sha256"
+
+[fault]
+watchdog_interval_s = 5.0
+watchdog_max_miss_count = 3
+inference_timeout_ms = 2000.0
+thermal_limit_c = 80.0
+power_limit_w = 55.0

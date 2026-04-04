@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/src/pact/storage/CLAUDE.md\":*)",
+      "Bash(python -c \"import ast; files = [''src/pact/__init__.py'', ''src/pact/types/enums.py'', ''src/pact/types/messages.py'', ''src/pact/types/config.py'', ''src/pact/types/__init__.py'']; [print\\(f''OK: {f}''\\) or ast.parse\\(open\\(f\\).read\\(\\)\\) for f in files]; print\\(''All files parse successfully''\\)\")",
+      "Bash(python3 -c \"import ast; files = [''src/pact/__init__.py'', ''src/pact/types/enums.py'', ''src/pact/types/messages.py'', ''src/pact/types/config.py'', ''src/pact/types/__init__.py'']; [print\\(f''OK: {f}''\\) or ast.parse\\(open\\(f\\).read\\(\\)\\) for f in files]; print\\(''All files parse successfully''\\)\")",
+      "Bash(py -3 -c \"import ast; files = [''src/pact/__init__.py'', ''src/pact/types/enums.py'', ''src/pact/types/messages.py'', ''src/pact/types/config.py'', ''src/pact/types/__init__.py'']; [print\\(f''OK: {f}''\\) or ast.parse\\(open\\(f\\).read\\(\\)\\) for f in files]; print\\(''All files parse successfully''\\)\")",
+      "Bash(\"/c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/src/pact/fault/CLAUDE.md\":*)",
+      "Bash(where python:*)",
+      "Bash(where python3:*)",
+      "Read(//c/Users/kampw/AppData/Local/Programs/Python//**)",
+      "Read(//usr/**)",
+      "Read(//c/Users/kampw/miniconda3/**)",
+      "Read(//c/Users/kampw/**)",
+      "Bash(\"/c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/src/pact/ops/CLAUDE.md\":*)",
+      "Bash(py --list)",
+      "Bash(py -3.12 -c \"import sys; sys.path.insert\\(0,''C:/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/src''\\); from pact.types.enums import FaultCode, Ok, Err; print\\(''import OK''\\)\")",
+      "Bash(python3 /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/src/pact/ops/config_loader.py)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(python -m py_compile tests/conftest.py tests/unit/model/test_architecture.py tests/unit/model/test_dataset.py tests/unit/model/test_evaluate.py tests/unit/preprocessing/test_band_select.py tests/unit/preprocessing/test_radiometric.py tests/unit/preprocessing/test_quality.py tests/unit/controller/test_arbiter.py tests/unit/controller/test_tracker.py tests/unit/controller/test_filter.py tests/unit/controller/test_safety.py tests/unit/comms/test_ccsds.py tests/unit/comms/test_scheduler.py tests/unit/storage/test_writer.py tests/unit/storage/test_manifest.py tests/unit/fault/test_detector.py tests/unit/fault/test_watchdog.py tests/integration/test_inference_pipeline.py tests/integration/test_controller_pipeline.py tests/integration/test_comms_pipeline.py tests/integration/e2e/test_full_pipeline_smoke.py scripts/download_dataset.py scripts/demo_inference.py scripts/demo_controller.py scripts/demo_ccsds.py scripts/demo_storage.py scripts/benchmark_inference.py)",
+      "Bash(python3 -m py_compile tests/conftest.py tests/unit/model/test_architecture.py tests/unit/model/test_evaluate.py tests/unit/preprocessing/test_band_select.py tests/unit/controller/test_arbiter.py tests/unit/controller/test_tracker.py tests/unit/controller/test_filter.py tests/unit/controller/test_safety.py tests/unit/comms/test_ccsds.py tests/unit/comms/test_scheduler.py tests/unit/storage/test_writer.py tests/unit/storage/test_manifest.py tests/unit/fault/test_detector.py tests/unit/fault/test_watchdog.py tests/integration/test_comms_pipeline.py tests/integration/e2e/test_full_pipeline_smoke.py scripts/download_dataset.py scripts/demo_controller.py scripts/demo_ccsds.py scripts/demo_storage.py scripts/benchmark_inference.py)",
+      "Bash(ls /usr/bin/python*)",
+      "Bash(py -3 -m py_compile /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/preprocessing/test_band_select.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/preprocessing/test_radiometric.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/preprocessing/test_quality.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/comms/test_ccsds.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/comms/test_scheduler.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/storage/test_writer.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/storage/test_manifest.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/fault/test_detector.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/fault/test_watchdog.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/unit/model/test_dataset.py)",
+      "Bash(/c/Users/kampw/AppData/Local/Microsoft/WindowsApps/python3 --version)",
+      "Bash(ls /c/Users/kampw/miniconda3/bin/python*)",
+      "Bash(py -3 -m py_compile /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/integration/test_inference_pipeline.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/integration/test_controller_pipeline.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/integration/test_comms_pipeline.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/integration/e2e/test_full_pipeline_smoke.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/scripts/download_dataset.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/scripts/demo_inference.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/scripts/demo_controller.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/scripts/demo_ccsds.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/scripts/demo_storage.py /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/scripts/benchmark_inference.py)",
+      "Bash(/c/Users/kampw/AppData/Local/Programs/Python/Python312/python.exe --version)",
+      "Bash(py -3 -c \":*)",
+      "Bash(py -3 -c \"import glob; files = glob.glob\\(''C:/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/tests/**/*.py'', recursive=True\\); print\\(len\\(files\\)\\); [print\\(f\\) for f in files[:3]]\")",
+      "Bash(ROOT=/c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking)",
+      "Read(//c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/$ROOT/src/pact/**)",
+      "Bash(PYTHON=/c/Users/kampw/AppData/Local/Programs/Python/Python312/python.exe)",
+      "Bash(ROOT=\"C:/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking\")",
+      "Bash(__NEW_LINE_f3a7e1876e8b94ce__ $PYTHON -c \"import sys; sys.path.insert\\(0,''$ROOT/src''\\); import pact; print\\(pact.__file__\\)\")",
+      "Bash(__NEW_LINE_f5e6d86f92eaff6d__ $PYTHON -c \":*)",
+      "Bash(ls /c/Users/kampw/.venv/Scripts/python*)",
+      "Bash(ls /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/.venv/Scripts/python*)"
+    ]
+  }
+}

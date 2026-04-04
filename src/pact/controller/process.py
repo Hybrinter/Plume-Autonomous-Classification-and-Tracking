@@ -45,6 +45,7 @@ from pact.types.messages import (
     HeartbeatMsg,
     InferenceResultMsg,
     TelemetryEventMsg,
+    utc_now_iso,
 )
 
 log = structlog.get_logger().bind(subsystem="controller")
@@ -116,7 +117,7 @@ def run_controller_process(
             heartbeat_queue.put(
                 HeartbeatMsg(
                     msg_type=MessageType.HEARTBEAT,
-                    timestamp_utc=_utc_now_iso(),
+                    timestamp_utc=utc_now_iso(),
                     subsystem="controller",
                     sequence=heartbeat_seq,
                 )
@@ -181,11 +182,3 @@ def run_controller_process(
     log.info("controller_process_stop")
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _utc_now_iso() -> str:
-    """Return current UTC time as ISO 8601 string with millisecond precision."""
-    import datetime
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"

@@ -172,6 +172,7 @@ def activate_staged_model(
     """
     try:
         if os.path.exists(active_path):
+            # On first deployment no active model exists yet — skip the rollback save.
             shutil.copy2(active_path, rollback_path)
             log.info("rollback_saved", rollback_path=rollback_path)
         shutil.move(staged_path, active_path)
@@ -204,13 +205,14 @@ def rollback_model(
         Ok(None) on success. Err(FaultCode.MODEL_CORRUPT) if rollback_path does not exist
         or cannot be copied.
     """
-    if not os.path.exists(rollback_path):
-        log.error("rollback_unavailable", rollback_path=rollback_path)
-        return Err(FaultCode.MODEL_CORRUPT)
     try:
         shutil.copy2(rollback_path, active_path)
         log.info("model_rolled_back", active_path=active_path, rollback_path=rollback_path)
         return Ok(None)
+    except FileNotFoundError:
+        # rollback_path does not exist — no prior activation has been performed.
+        log.error("rollback_unavailable", rollback_path=rollback_path)
+        return Err(FaultCode.MODEL_CORRUPT)
     except OSError as exc:
         log.error("rollback_failed", error=str(exc))
         return Err(FaultCode.MODEL_CORRUPT)

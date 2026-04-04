@@ -16,6 +16,7 @@ from __future__ import annotations
 
 # stdlib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 # third-party
 import numpy as np  # noqa: F401  (used in type comments)
@@ -29,6 +30,23 @@ from pact.types.enums import (
     MessageType,
     SystemMode,
 )
+
+
+# ---------------------------------------------------------------------------
+# Shared timestamp utility
+# ---------------------------------------------------------------------------
+
+
+def utc_now_iso() -> str:
+    """Return the current UTC time as an ISO 8601 string with millisecond precision.
+
+    Format: ``YYYY-MM-DDTHH:MM:SS.mmmZ``  (Z suffix, not +00:00, for compactness).
+
+    All subsystems that construct messages with a ``timestamp_utc`` field must use
+    this function to ensure a consistent format across the codebase. The Z suffix is
+    expected by ``storage/writer.py``'s ``_make_frame_dir()`` parser.
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 # ---------------------------------------------------------------------------

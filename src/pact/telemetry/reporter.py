@@ -38,6 +38,31 @@ log = structlog.get_logger().bind(subsystem="telemetry")
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_telemetry_ccsds_packet(apid: int, data: bytes) -> "CcsdsPacket":
+    """Build an unsegmented CCSDS telemetry packet from a pre-serialized payload.
+
+    Lazy-imports CcsdsPacket so this module loads even when pact.comms.ccsds is absent.
+    sequence_count is set to 0; the caller is responsible for incrementing it.
+    """
+    from pact.comms.ccsds import CcsdsPacket  # type: ignore[import]
+
+    return CcsdsPacket(
+        version=0,
+        packet_type=0,         # telemetry
+        sec_hdr_flag=0,
+        apid=apid,
+        sequence_flags=0b11,   # unsegmented
+        sequence_count=0,
+        data_length=len(data) - 1,
+        data=data,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Packet formatters
 # ---------------------------------------------------------------------------
 
@@ -46,14 +71,10 @@ def format_health_packet(snapshot: SystemHealthSnapshot, apid: int) -> "CcsdsPac
     """Serialise a SystemHealthSnapshot into a CCSDS telemetry packet.
 
     The snapshot is JSON-encoded and placed in the CCSDS data field.
-    sequence_count is set to 0; the caller is responsible for incrementing it.
 
     # TODO: replace JSON encoding with a compact binary format (TLM database) when the
     #        ground segment defines the packet ICD.
     """
-    # Lazy import so this module loads even when pact.comms.ccsds is not yet present.
-    from pact.comms.ccsds import CcsdsPacket  # type: ignore[import]
-
     payload: dict[str, object] = {
         "timestamp_utc": snapshot.timestamp_utc,
         "system_mode": snapshot.system_mode.value,
@@ -69,16 +90,7 @@ def format_health_packet(snapshot: SystemHealthSnapshot, apid: int) -> "CcsdsPac
         "storage_bytes_used": snapshot.storage_bytes_used,
     }
     data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    return CcsdsPacket(
-        version=0,
-        packet_type=0,         # telemetry
-        sec_hdr_flag=0,
-        apid=apid,
-        sequence_flags=0b11,   # unsegmented
-        sequence_count=0,      # caller should set the real counter
-        data_length=len(data) - 1,
-        data=data,
-    )
+    return _make_telemetry_ccsds_packet(apid, data)
 
 
 def format_telemetry_event(event: TelemetryEventMsg, apid: int) -> "CcsdsPacket":
@@ -86,8 +98,6 @@ def format_telemetry_event(event: TelemetryEventMsg, apid: int) -> "CcsdsPacket"
 
     # TODO: replace JSON encoding with a compact binary TLM format.
     """
-    from pact.comms.ccsds import CcsdsPacket  # type: ignore[import]
-
     payload: dict[str, object] = {
         "timestamp_utc": event.timestamp_utc,
         "subsystem": event.subsystem,
@@ -95,16 +105,7 @@ def format_telemetry_event(event: TelemetryEventMsg, apid: int) -> "CcsdsPacket"
         "payload": event.payload,
     }
     data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    return CcsdsPacket(
-        version=0,
-        packet_type=0,
-        sec_hdr_flag=0,
-        apid=apid,
-        sequence_flags=0b11,
-        sequence_count=0,
-        data_length=len(data) - 1,
-        data=data,
-    )
+    return _make_telemetry_ccsds_packet(apid, data)
 
 
 # ---------------------------------------------------------------------------

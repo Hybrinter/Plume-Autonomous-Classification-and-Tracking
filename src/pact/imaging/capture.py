@@ -10,7 +10,6 @@ Satisfies: REQ-AIML-IMAG-001, REQ-AIML-IMAG-002
 
 from __future__ import annotations
 
-import datetime
 import queue
 import time
 
@@ -18,8 +17,8 @@ import structlog
 
 from pact.imaging.camera import AbstractCamera
 from pact.types.config import FaultConfig
-from pact.types.enums import FaultCode, MessageType
-from pact.types.messages import FaultEventMsg, RawFrameMsg
+from pact.types.enums import FaultCode, MessageType, Ok
+from pact.types.messages import FaultEventMsg, RawFrameMsg, utc_now_iso
 
 log = structlog.get_logger().bind(subsystem="imaging")
 
@@ -63,8 +62,8 @@ def run_capture_loop(
     while not stop_event.is_set():  # type: ignore[union-attr]
         result = camera.acquire_frame()
 
-        if hasattr(result, "value"):  # Ok
-            frame: RawFrameMsg = result.value  # type: ignore[union-attr]
+        if isinstance(result, Ok):
+            frame: RawFrameMsg = result.value
             last_frame_time = time.monotonic()
             try:
                 out_queue.put_nowait(frame)
@@ -77,7 +76,7 @@ def run_capture_loop(
                 fault_queue.put(
                     FaultEventMsg(
                         msg_type=MessageType.FAULT_EVENT,
-                        timestamp_utc=_utc_now_iso(),
+                        timestamp_utc=utc_now_iso(),
                         fault_code=FaultCode.CAMERA_STALL,
                         subsystem="imaging",
                         detail=f"No frame received for {elapsed:.1f}s (limit {stall_timeout_s}s)",
@@ -88,6 +87,3 @@ def run_capture_loop(
     log.info("capture_loop_stop")
 
 
-def _utc_now_iso() -> str:
-    """Return current UTC time as ISO 8601 string with millisecond precision."""
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"

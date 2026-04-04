@@ -26,12 +26,13 @@ import structlog
 from pact.comms.downlink import DownlinkQueue
 from pact.comms.uplink import ModelUploadSession, process_uplink_chunk
 from pact.types.config import CommsConfig, FaultConfig
-from pact.types.enums import FaultCode, MessageType, ModelDeployState
+from pact.types.enums import FaultCode, MessageType, ModelDeployState, Ok
 from pact.types.messages import (
     DownlinkItemMsg,
     FaultEventMsg,
     HeartbeatMsg,
     UploadChunkMsg,
+    utc_now_iso,
 )
 
 log = structlog.get_logger().bind(subsystem="comms")
@@ -117,7 +118,7 @@ async def _comms_main(
             heartbeat_queue.put_nowait(
                 HeartbeatMsg(
                     msg_type=MessageType.HEARTBEAT,
-                    timestamp_utc=_utc_now_iso(),
+                    timestamp_utc=utc_now_iso(),
                     subsystem="comms",
                     sequence=heartbeat_seq,
                 )
@@ -143,14 +144,14 @@ async def _comms_main(
             chunk: UploadChunkMsg = uplink_queue.get_nowait()
             if upload_session is not None:
                 result = process_uplink_chunk(upload_session, chunk)
-                if hasattr(result, "value"):
-                    upload_session = result.value  # type: ignore[union-attr]
+                if isinstance(result, Ok):
+                    upload_session = result.value
                 else:
-                    log.error("uplink_chunk_failed", error=result.error)  # type: ignore[union-attr]
+                    log.error("uplink_chunk_failed", error=result.error)
                     fault_queue.put_nowait(
                         FaultEventMsg(
                             msg_type=MessageType.FAULT_EVENT,
-                            timestamp_utc=_utc_now_iso(),
+                            timestamp_utc=utc_now_iso(),
                             fault_code=FaultCode.MODEL_CORRUPT,
                             subsystem="comms",
                             detail="Uplink chunk CRC verification failed",
@@ -176,6 +177,3 @@ async def _transmit_downlink_item(item: DownlinkItemMsg) -> None:
     )
 
 
-def _utc_now_iso() -> str:
-    """Return current UTC time as ISO 8601 string with millisecond precision."""
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"

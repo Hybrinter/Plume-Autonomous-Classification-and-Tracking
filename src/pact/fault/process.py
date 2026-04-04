@@ -16,9 +16,9 @@ Satisfies: REQ-SAFE-HIGH-002, REQ-GIMB-HIGH-003, GOAL-006.
 from __future__ import annotations
 
 # stdlib
+import dataclasses
 import multiprocessing
 import time
-from datetime import datetime, timezone
 from typing import Optional
 
 # internal
@@ -95,11 +95,10 @@ def run_fault_process(
                 hb: HeartbeatMsg = heartbeat_queue.get_nowait()
                 if hb.subsystem in watchdog_entries:
                     entry = watchdog_entries[hb.subsystem]
-                    watchdog_entries[hb.subsystem] = WatchdogEntry(
-                        subsystem=entry.subsystem,
+                    watchdog_entries[hb.subsystem] = dataclasses.replace(
+                        entry,
                         last_heartbeat_time=time.monotonic(),
-                        max_interval_s=entry.max_interval_s,
-                        miss_count=0,   # reset miss count on receipt
+                        miss_count=0,
                     )
                     log.debug("heartbeat_received", subsystem=hb.subsystem, seq=hb.sequence)
             except Exception:

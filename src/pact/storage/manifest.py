@@ -15,28 +15,13 @@ Satisfies: REQ-IMAG-HIGH-003.
 from __future__ import annotations
 
 # stdlib
-import hashlib
 import json
 import os
 
 # internal
 from pact.types.enums import FaultCode
 from pact.types.enums import Ok, Err, Result  # type: ignore[attr-defined]
-from pact.storage.writer import StorageRecord
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _sha256_file(path: str) -> str:
-    """Compute SHA-256 hex digest of a file."""
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+from pact.storage.writer import StorageRecord, _sha256_file
 
 
 # ---------------------------------------------------------------------------

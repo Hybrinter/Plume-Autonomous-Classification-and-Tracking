@@ -34,7 +34,17 @@
       "Bash(__NEW_LINE_f3a7e1876e8b94ce__ $PYTHON -c \"import sys; sys.path.insert\\(0,''$ROOT/src''\\); import pact; print\\(pact.__file__\\)\")",
       "Bash(__NEW_LINE_f5e6d86f92eaff6d__ $PYTHON -c \":*)",
       "Bash(ls /c/Users/kampw/.venv/Scripts/python*)",
-      "Bash(ls /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/.venv/Scripts/python*)"
+      "Bash(ls /c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/.venv/Scripts/python*)",
+      "Bash(xargs -I{} sh -c \"echo \"\"\\\\n\\\\n### FILE: {} ###\"\"; cat \"\"{}\"\"\")",
+      "Bash(python -m py_compile src/pact/types/messages.py src/pact/storage/manifest.py src/pact/comms/uplink.py src/pact/fault/process.py src/pact/telemetry/reporter.py src/pact/imaging/capture.py src/pact/comms/process.py src/pact/controller/process.py)",
+      "Bash(py -3 -m py_compile \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\types\\\\messages.py\" \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\storage\\\\manifest.py\" \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\comms\\\\uplink.py\" \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\fault\\\\process.py\" \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\telemetry\\\\reporter.py\" \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\imaging\\\\capture.py\" \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\comms\\\\process.py\" \"C:\\\\Users\\\\kampw\\\\PycharmProjects\\\\Plume-Autonomous-Classification-and-Tracking\\\\src\\\\pact\\\\controller\\\\process.py\")",
+      "Bash(uv sync:*)",
+      "Bash(uv pip:*)",
+      "Bash(uv python:*)",
+      "Bash(uv add:*)",
+      "Bash(for v:*)",
+      "Bash(do echo:*)",
+      "Bash(done)"
     ]
   }
 }

@@ -47,7 +47,7 @@ def test_fresh_heartbeat_no_fault() -> None:
     now = 1004.0  # 4s after last heartbeat; interval = 5s — not yet overdue
     entries = {"inference": make_entry(last_heartbeat_time=1000.0, max_interval_s=5.0)}
 
-    updated_entries, faults = check_heartbeats(entries, now=now)
+    updated_entries, faults = check_heartbeats(entries, now=now, max_miss_count=3)
     assert faults == [], f"Expected no faults for fresh heartbeat, got {faults}"
     # miss_count must not increase for a fresh heartbeat
     assert updated_entries["inference"].miss_count == 0, (
@@ -67,7 +67,7 @@ def test_overdue_heartbeat_increments_miss_count() -> None:
         )
     }
 
-    updated_entries, faults = check_heartbeats(entries, now=now)
+    updated_entries, faults = check_heartbeats(entries, now=now, max_miss_count=3)
     assert updated_entries["inference"].miss_count == 1, (
         f"Expected miss_count=1 after one overdue check, "
         f"got {updated_entries['inference'].miss_count}"
@@ -90,7 +90,7 @@ def test_exceeded_miss_count_emits_fault() -> None:
         )
     }
 
-    updated_entries, faults = check_heartbeats(entries, now=now)
+    updated_entries, faults = check_heartbeats(entries, now=now, max_miss_count=3)
 
     fault_codes = [f.fault_code for f in faults]
     assert FaultCode.WATCHDOG_EXPIRE in fault_codes, (
@@ -111,7 +111,7 @@ def test_fresh_subsystem_no_miss_increment() -> None:
         ),
     }
 
-    updated_entries, _ = check_heartbeats(entries, now=now)
+    updated_entries, _ = check_heartbeats(entries, now=now, max_miss_count=3)
     assert updated_entries["inference"].miss_count == 1, "inference should be incremented"
     assert updated_entries["storage"].miss_count == 0, "storage should not be incremented"
 
@@ -122,7 +122,7 @@ def test_faults_are_fault_event_msgs() -> None:
     entries = {
         "inference": make_entry(last_heartbeat_time=1000.0, max_interval_s=5.0, miss_count=2)
     }
-    _, faults = check_heartbeats(entries, now=now)
+    _, faults = check_heartbeats(entries, now=now, max_miss_count=3)
     for fault in faults:
         assert isinstance(fault, FaultEventMsg), (
             f"Expected FaultEventMsg, got {type(fault)}: {fault}"
@@ -131,7 +131,7 @@ def test_faults_are_fault_event_msgs() -> None:
 
 def test_check_heartbeats_empty_entries() -> None:
     """check_heartbeats with no entries must return empty dict and no faults."""
-    updated, faults = check_heartbeats({}, now=1000.0)
+    updated, faults = check_heartbeats({}, now=1000.0, max_miss_count=3)
     assert updated == {}
     assert faults == []
 

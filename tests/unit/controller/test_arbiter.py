@@ -19,6 +19,7 @@ import pytest
 from pact.controller.arbiter import ArbiterState, GimbalArbiter
 
 # pact types
+from pact.types.config import PactConfig
 from pact.types.enums import GimbalState, MessageType
 from pact.types.messages import BlobMeta, InferenceResultMsg
 
@@ -76,12 +77,14 @@ _FAULT_FLAG: int = 0b00000001
 # ---------------------------------------------------------------------------
 
 
-def test_idle_to_acquiring_on_detection(arbiter_idle_state: ArbiterState) -> None:
+def test_idle_to_acquiring_on_detection(
+    arbiter_idle_state: ArbiterState, default_config: PactConfig
+) -> None:
     """One blob above threshold detected in IDLE → new state is ACQUIRING.
 
     The blob persistence_count=1 < acquire_persistence_frames=3, so we stay in ACQUIRING.
     """
-    arbiter = GimbalArbiter()
+    arbiter = GimbalArbiter(cfg=default_config.controller)
     blob = make_blob(persistence_count=1)
     result = make_inference_result(blobs=(blob,))
 
@@ -92,9 +95,11 @@ def test_idle_to_acquiring_on_detection(arbiter_idle_state: ArbiterState) -> Non
     )
 
 
-def test_acquiring_to_tracking_on_persistence(arbiter_idle_state: ArbiterState) -> None:
+def test_acquiring_to_tracking_on_persistence(
+    arbiter_idle_state: ArbiterState, default_config: PactConfig
+) -> None:
     """Blob with persistence_count >= 3 in ACQUIRING state → transitions to TRACKING."""
-    arbiter = GimbalArbiter()
+    arbiter = GimbalArbiter(cfg=default_config.controller)
 
     # Advance through IDLE → ACQUIRING first
     blob_p1 = make_blob(persistence_count=1)
@@ -112,9 +117,11 @@ def test_acquiring_to_tracking_on_persistence(arbiter_idle_state: ArbiterState) 
     )
 
 
-def test_tracking_to_idle_on_loss(arbiter_idle_state: ArbiterState) -> None:
+def test_tracking_to_idle_on_loss(
+    arbiter_idle_state: ArbiterState, default_config: PactConfig
+) -> None:
     """All blobs lost while in TRACKING → transitions to IDLE."""
-    arbiter = GimbalArbiter()
+    arbiter = GimbalArbiter(cfg=default_config.controller)
 
     # Build a TRACKING state directly
     tracking_state = ArbiterState(
@@ -134,9 +141,11 @@ def test_tracking_to_idle_on_loss(arbiter_idle_state: ArbiterState) -> None:
     )
 
 
-def test_idle_to_scan_on_timeout(arbiter_idle_state: ArbiterState) -> None:
+def test_idle_to_scan_on_timeout(
+    arbiter_idle_state: ArbiterState, default_config: PactConfig
+) -> None:
     """After idle_duration_s exceeds scan_entry_idle_seconds (60.0s), transition to SCAN."""
-    arbiter = GimbalArbiter()
+    arbiter = GimbalArbiter(cfg=default_config.controller)
 
     # Build a state that has been idle for > 60 seconds
     long_idle_state = ArbiterState(
@@ -155,9 +164,11 @@ def test_idle_to_scan_on_timeout(arbiter_idle_state: ArbiterState) -> None:
     )
 
 
-def test_any_to_safe_on_fault(arbiter_idle_state: ArbiterState) -> None:
+def test_any_to_safe_on_fault(
+    arbiter_idle_state: ArbiterState, default_config: PactConfig
+) -> None:
     """Fault signal in mode_flags causes any state to transition to SAFE."""
-    arbiter = GimbalArbiter()
+    arbiter = GimbalArbiter(cfg=default_config.controller)
 
     for start_state_name, start_state in [
         ("IDLE", arbiter_idle_state),

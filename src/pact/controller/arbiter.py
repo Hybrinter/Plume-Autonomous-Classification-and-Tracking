@@ -138,6 +138,22 @@ class GimbalArbiter:
         scan_pan = state.scan_pan_deg
         last_cmd_time = state.last_command_time
 
+        # Any non-zero mode_flags signals a fault — enter SAFE unconditionally.
+        if result.mode_flags != 0 and old_gs != GimbalState.SAFE:
+            new_state = replace(
+                state,
+                gimbal_state=GimbalState.SAFE,
+                tracked_blobs=blobs,
+            )
+            events.append(TelemetryEventMsg(
+                msg_type=MessageType.TELEMETRY_EVENT,
+                timestamp_utc=utc_now_iso(),
+                subsystem="controller",
+                event_name="state_transition",
+                payload={"from": old_gs.value, "to": GimbalState.SAFE.value},
+            ))
+            return new_state, None, events
+
         if old_gs == GimbalState.SAFE:
             # SAFE exits only via mode_queue (not handled here)
             new_gs = GimbalState.SAFE

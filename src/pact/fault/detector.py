@@ -12,6 +12,7 @@ Satisfies: REQ-SAFE-HIGH-002.
 from __future__ import annotations
 
 # stdlib
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -64,7 +65,8 @@ def detect_faults(
         )
 
     # --- latency timeout check ---
-    if inference_result.inference_ms > config.inference_timeout_ms:
+    elapsed_ms: float = (time.time() - inference_start_time) * 1000.0
+    if elapsed_ms > config.inference_timeout_ms:
         faults.append(
             FaultEventMsg(
                 msg_type=MessageType.FAULT_EVENT,
@@ -72,7 +74,7 @@ def detect_faults(
                 fault_code=FaultCode.INFERENCE_TIMEOUT,
                 subsystem="inference",
                 detail=(
-                    f"inference_ms={inference_result.inference_ms:.1f} exceeded "
+                    f"elapsed_ms={elapsed_ms:.1f} exceeded "
                     f"timeout={config.inference_timeout_ms:.1f} ms "
                     f"for frame_id={inference_result.frame_id}"
                 ),

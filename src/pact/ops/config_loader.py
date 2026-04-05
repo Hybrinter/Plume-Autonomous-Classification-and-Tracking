@@ -22,6 +22,7 @@ from pact.types.config import (
     FaultConfig,
     InferenceConfig,
     PactConfig,
+    PreprocessingConfig,
     StorageConfig,
 )
 from pact.types.enums import Ok, Err, Result  # type: ignore[attr-defined]
@@ -142,6 +143,16 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
             ctrl.get("blob_iou_match_threshold", ControllerConfig.blob_iou_match_threshold)
         ),
         min_blob_area_px=int(ctrl.get("min_blob_area_px", ControllerConfig.min_blob_area_px)),
+        kalman_dt_s=float(ctrl.get("kalman_dt_s", ControllerConfig.kalman_dt_s)),
+        kalman_process_noise=float(
+            ctrl.get("kalman_process_noise", ControllerConfig.kalman_process_noise)
+        ),
+        kalman_measurement_noise=float(
+            ctrl.get("kalman_measurement_noise", ControllerConfig.kalman_measurement_noise)
+        ),
+        lqr_Q_diag=tuple(float(v) for v in ctrl.get("lqr_Q_diag", list(ControllerConfig.lqr_Q_diag))),
+        lqr_R_diag=tuple(float(v) for v in ctrl.get("lqr_R_diag", list(ControllerConfig.lqr_R_diag))),
+        max_slew_deg_s=float(ctrl.get("max_slew_deg_s", ControllerConfig.max_slew_deg_s)),
     )
 
     inf = data.get("inference", {})
@@ -177,6 +188,9 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
             comms.get("comm_window_days", list(CommsConfig.comm_window_days))
         ),
         ccsds_apid=int(comms.get("ccsds_apid", CommsConfig.ccsds_apid)),
+        staged_model_path=str(
+            comms.get("staged_model_path", CommsConfig.staged_model_path)
+        ),
     )
 
     stor = data.get("storage", {})
@@ -205,10 +219,27 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         power_limit_w=float(flt.get("power_limit_w", FaultConfig.power_limit_w)),
     )
 
+    prep = data.get("preprocessing", {})
+    preprocessing_config = PreprocessingConfig(
+        saturation_fraction_threshold=float(
+            prep.get("saturation_fraction_threshold", PreprocessingConfig.saturation_fraction_threshold)
+        ),
+        nir_red_ratio_threshold=float(
+            prep.get("nir_red_ratio_threshold", PreprocessingConfig.nir_red_ratio_threshold)
+        ),
+        sunglint_nir_mean_threshold=float(
+            prep.get("sunglint_nir_mean_threshold", PreprocessingConfig.sunglint_nir_mean_threshold)
+        ),
+        motion_smear_exposure_us=float(
+            prep.get("motion_smear_exposure_us", PreprocessingConfig.motion_smear_exposure_us)
+        ),
+    )
+
     return PactConfig(
         controller=controller_config,
         inference=inference_config,
         comms=comms_config,
         storage=storage_config,
         fault=fault_config,
+        preprocessing=preprocessing_config,
     )

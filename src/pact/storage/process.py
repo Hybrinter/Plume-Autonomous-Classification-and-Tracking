@@ -11,9 +11,11 @@ from __future__ import annotations
 
 # stdlib
 import multiprocessing
+import pickle
 import queue
 import threading
 import time
+import zlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -119,13 +121,13 @@ def run_storage_process(
         log.info("frame_stored", frame_id=msg.frame_id, usability=record.usability.value)
 
         # --- enqueue downlink item ---
-        # TODO: serialise record into a proper CCSDS science data payload
+        payload_bytes: bytes = pickle.dumps(record)
         downlink_item = DownlinkItemMsg(
             msg_type=MessageType.DOWNLINK_ITEM,
             timestamp_utc=now_str,
             priority=DownlinkPriority.SCIENCE_DATA,
-            payload_bytes=b"",          # placeholder — see TODO above
-            crc32=0,                    # placeholder
+            payload_bytes=payload_bytes,
+            crc32=zlib.crc32(payload_bytes) & 0xFFFFFFFF,
             item_id=f"frame-{msg.frame_id:08d}",
         )
         try:

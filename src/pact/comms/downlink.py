@@ -48,18 +48,20 @@ class DownlinkQueue:
         allowed_comm_days: tuple[str, ...],
         maxsize: int = 256,
     ) -> None:
-        self._queue: "queue.PriorityQueue[tuple[int, DownlinkItemMsg]]" = (
+        self._queue: "queue.PriorityQueue[tuple[int, int, DownlinkItemMsg]]" = (
             queue.PriorityQueue(maxsize=maxsize)
         )
         self._daily_limit_bytes = daily_limit_bytes
         self._allowed_comm_days = allowed_comm_days
         self._bytes_used_today: int = 0
         self._current_day: Optional[int] = None  # UTC weekday (0=MON … 6=SUN)
+        self._enqueue_counter: int = 0  # FIFO tiebreaker: equal-priority items dequeue in order
 
     def enqueue(self, item: DownlinkItemMsg) -> None:
         """Add an item to the queue. Blocks if queue is full (maxsize reached).
 
         Priority is determined by item.priority.value (lower int = dequeued first).
+        Equal-priority items are dequeued in FIFO order (insertion sequence counter).
 
         Parameters
         ----------
@@ -67,7 +69,8 @@ class DownlinkQueue:
             DownlinkItemMsg to enqueue. Must have a valid priority field.
         """
         priority_key = item.priority.value  # int, lower = higher priority
-        self._queue.put((priority_key, item))
+        self._queue.put((priority_key, self._enqueue_counter, item))
+        self._enqueue_counter += 1
 
     def dequeue(self, utc_now: Optional[datetime] = None) -> Optional[DownlinkItemMsg]:
         """Remove and return the highest-priority item, subject to window and budget checks.
@@ -105,7 +108,7 @@ class DownlinkQueue:
 
         # Gate 3: queue empty check (non-blocking)
         try:
-            _priority, item = self._queue.get_nowait()
+            _priority, _counter, item = self._queue.get_nowait()
         except queue.Empty:
             return None
 

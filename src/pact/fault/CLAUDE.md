@@ -24,6 +24,13 @@ Monitor all processes via heartbeat, detect faults, invoke handlers, manage safe
   registered handler, or a handler that returns a ModeChangeMsg to SAFE).
 - The fault process runs in its own OS process, immune to GIL starvation caused by
   the inference or preprocessing subsystems. See `fault/adr/ADR-001`.
+- `run_fault_process()` accepts a `stop_event: multiprocessing.Event` argument — it exits
+  cleanly when the event is set, allowing graceful shutdown.
+- `check_thermal(temp_c, cfg) -> Optional[FaultEventMsg]` and
+  `check_power(watts, cfg) -> Optional[FaultEventMsg]` are implemented in `detector.py`.
+  They return `None` if below threshold, or a `FaultEventMsg` to emit directly. Both are
+  called each process iteration with mocked sensor values until hardware telemetry is
+  available.
 
 ## Concurrency
 `multiprocessing.Process` + `multiprocessing.Queue` — see `fault/adr/ADR-001`.
@@ -36,5 +43,7 @@ a long GPU kernel.
 - No automatic safe-mode exit — requires a ground command (out of scope Phase I). The
   `exit_safe_mode()` function exists but is only called when the ops process receives
   an explicit ground command (not yet implemented).
-- Thermal and power readings used in fault detection are stubbed; no hardware sensor
-  interface is available in Phase I.
+- Fault detection logic for thermal (`check_thermal`) and power (`check_power`) is
+  implemented in `detector.py`, but both are invoked with mocked constant values (0.0)
+  since no hardware sensor interface exists in Phase I. Real sensor readings require a
+  hardware abstraction layer (Phase II).

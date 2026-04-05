@@ -3,9 +3,8 @@
 Produces FaultEventMsg for:
   - INFERENCE_NAN:     output mask contains NaN or Inf values.
   - INFERENCE_TIMEOUT: inference wall-clock time exceeded config.inference_timeout_ms.
-
-This module does not handle thermal or power faults (those require hardware sensor
-data not yet available in Phase I — see fault/CLAUDE.md known gaps).
+  - THERMAL_OVER_LIMIT: temperature exceeds cfg.thermal_limit_c.
+  - POWER_OVER_LIMIT:   power draw exceeds cfg.power_limit_w.
 
 Satisfies: REQ-SAFE-HIGH-002.
 """
@@ -22,7 +21,7 @@ import numpy as np
 # internal
 from pact.types.config import FaultConfig
 from pact.types.enums import FaultCode, MessageType
-from pact.types.messages import FaultEventMsg, InferenceResultMsg
+from pact.types.messages import FaultEventMsg, InferenceResultMsg, utc_now_iso
 
 
 def detect_faults(
@@ -81,3 +80,39 @@ def detect_faults(
         )
 
     return faults
+
+
+def check_thermal(
+    temp_c: float, cfg: FaultConfig,
+) -> Optional[FaultEventMsg]:
+    """Return a FaultEventMsg if temp_c exceeds cfg.thermal_limit_c."""
+    if temp_c > cfg.thermal_limit_c:
+        return FaultEventMsg(
+            msg_type=MessageType.FAULT_EVENT,
+            timestamp_utc=utc_now_iso(),
+            fault_code=FaultCode.THERMAL_OVER_LIMIT,
+            subsystem="fault",
+            detail=(
+                f"thermal limit exceeded: "
+                f"{temp_c:.1f}C > {cfg.thermal_limit_c:.1f}C"
+            ),
+        )
+    return None
+
+
+def check_power(
+    watts: float, cfg: FaultConfig,
+) -> Optional[FaultEventMsg]:
+    """Return a FaultEventMsg if watts exceeds cfg.power_limit_w."""
+    if watts > cfg.power_limit_w:
+        return FaultEventMsg(
+            msg_type=MessageType.FAULT_EVENT,
+            timestamp_utc=utc_now_iso(),
+            fault_code=FaultCode.POWER_OVER_LIMIT,
+            subsystem="fault",
+            detail=(
+                f"power limit exceeded: "
+                f"{watts:.1f}W > {cfg.power_limit_w:.1f}W"
+            ),
+        )
+    return None

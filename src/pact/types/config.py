@@ -39,6 +39,14 @@ class ControllerConfig:
     scan_slew_rate_deg_per_s: float = 0.5        # slew rate during nadir scan
     blob_iou_match_threshold: float = 0.25       # minimum IoU for blob association across frames
     min_blob_area_px: int = 15                   # minimum blob area in pixels to accept
+    # Kalman filter parameters
+    kalman_dt_s: float = 0.1                     # state propagation timestep (seconds)
+    kalman_process_noise: float = 1e-2           # scalar process noise variance (Q = I * value)
+    kalman_measurement_noise: float = 1e-1       # scalar measurement noise variance (R = I * value)
+    # LQR controller parameters
+    lqr_Q_diag: tuple[float, ...] = (10.0, 10.0, 1.0, 1.0)  # state cost weights [pan, tilt, dpan, dtilt]
+    lqr_R_diag: tuple[float, ...] = (1.0, 1.0)              # control cost weights [pan_cmd, tilt_cmd]
+    max_slew_deg_s: float = 2.0                  # maximum LQR output clamp (deg/s)
 
 
 @dataclass(frozen=True)
@@ -64,6 +72,7 @@ class CommsConfig:
     max_daily_uplink_bytes: int = 104_857_600            # 100 MB daily uplink cap
     comm_window_days: tuple[str, ...] = ("MON", "TUE", "WED", "THU", "FRI")  # weekdays only
     ccsds_apid: int = 0x001                             # CCSDS Application Process Identifier
+    staged_model_path: str = "data/models/staged.pt"   # staging path for uploaded model chunks
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,16 @@ class StorageConfig:
     data_root: str = "data/flight"                      # root directory for all stored data
     max_storage_bytes: int = 107_374_182_400             # 100 GB storage limit (placeholder)
     checksum_algorithm: str = "sha256"                  # hash algorithm for file integrity
+
+
+@dataclass(frozen=True)
+class PreprocessingConfig:
+    """Configuration for the preprocessing quality-flag subsystem."""
+
+    saturation_fraction_threshold: float = 0.05   # fraction of pixels above 0.95 → SATURATED flag
+    nir_red_ratio_threshold: float = 3.0           # NIR/Red mean ratio above this → CLOUD_CONTAMINATED
+    sunglint_nir_mean_threshold: float = 0.6       # mean NIR above this → SUNGLINT flag
+    motion_smear_exposure_us: float = 5000.0       # exposure time above this (µs) → MOTION_SMEAR flag
 
 
 @dataclass(frozen=True)
@@ -99,3 +118,4 @@ class PactConfig:
     comms: CommsConfig = field(default_factory=CommsConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     fault: FaultConfig = field(default_factory=FaultConfig)
+    preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)

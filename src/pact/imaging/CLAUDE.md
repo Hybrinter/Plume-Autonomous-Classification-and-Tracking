@@ -39,3 +39,4 @@ large numpy frame arrays across process boundaries.
   Replace the stub body with real PySpin acquisition calls before hardware integration.
 - No hardware integration tests exist. The CI pipeline uses MockCamera exclusively.
 - Exposure and gain auto-tuning logic is not yet implemented (fixed values from config).
+- Heartbeat emission is now implemented. A daemon thread inside `run_imaging_process()` sends `HeartbeatMsg(subsystem="imaging")` every `fault_cfg.watchdog_interval_s` seconds. It uses a `threading.Event` (the same `stop_event` passed to the process) for clean shutdown.

@@ -108,10 +108,11 @@ async def _comms_main(
 
     upload_session: Optional[ModelUploadSession] = None
     heartbeat_seq: int = 0
-    last_heartbeat: float = asyncio.get_event_loop().time()
+    loop = asyncio.get_running_loop()
+    last_heartbeat: float = loop.time()
 
     while not stop_event.is_set():  # type: ignore[union-attr]
-        now = asyncio.get_event_loop().time()
+        now = loop.time()
 
         # --- Heartbeat ---
         if (now - last_heartbeat) >= fault_cfg.watchdog_interval_s:
@@ -142,12 +143,35 @@ async def _comms_main(
         # --- Process uplink chunks ---
         try:
             chunk: UploadChunkMsg = uplink_queue.get_nowait()
+            # chunk_index=0 implicitly starts a new session; any earlier index is dropped
+            # because out-of-order delivery corrupts reassembly (see uplink.py).
+            if upload_session is None and chunk.chunk_index == 0:
+                upload_session = ModelUploadSession(
+                    total_chunks=chunk.total_chunks,
+                    received_chunks=frozenset(),
+                    expected_crc32=chunk.expected_crc32,
+                    staged_path=comms_cfg.staged_model_path,
+                    deploy_state=ModelDeployState.STAGED,
+                )
+                log.info(
+                    "upload_session_initialized",
+                    total_chunks=chunk.total_chunks,
+                    staged_path=comms_cfg.staged_model_path,
+                )
+            elif upload_session is None:
+                log.warning(
+                    "upload_chunk_dropped_no_session",
+                    chunk_index=chunk.chunk_index,
+                    detail="chunk arrived before session init (chunk_index=0 not yet seen)",
+                )
+
             if upload_session is not None:
                 result = process_uplink_chunk(upload_session, chunk)
                 if isinstance(result, Ok):
                     upload_session = result.value
                 else:
                     log.error("uplink_chunk_failed", error=result.error)
+                    upload_session = None   # reset session on corrupt upload
                     fault_queue.put_nowait(
                         FaultEventMsg(
                             msg_type=MessageType.FAULT_EVENT,
@@ -160,7 +184,6 @@ async def _comms_main(
         except queue.Empty:
             pass
 
-        # Yield control to the event loop
         await asyncio.sleep(0.05)
 
 

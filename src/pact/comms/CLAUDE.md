@@ -30,6 +30,7 @@ with CRC verification, and communication pass window scheduling.
 - **CRC verified on every uplink chunk.** `process_uplink_chunk()` returns
   Err(FaultCode.MODEL_CORRUPT) on any CRC mismatch; no partial chunks are written.
 - See comms/adr/ADR-001 for the asyncio concurrency choice rationale.
+- `process_uplink_chunk` is a module-level function exported from `pact.comms.uplink`. Import it at the top of any consumer module — do not use an inline `from pact.comms.uplink import process_uplink_chunk` inside a loop body.
 
 ## Concurrency
 `asyncio` — the comms subsystem multiplexes many concurrent I/O waiters (radio socket,

@@ -61,3 +61,10 @@ PACT submodule is imported here, making it the dependency root.
   is declared as `enum.Enum` (not `IntEnum`). This is intentional — the integer value is used
   internally by `queue.PriorityQueue` but must not be serialised as a bare int in CCSDS
   packets. If direct int comparisons are needed, access `.value` explicitly.
+
+- `PactConfig` now includes `preprocessing: PreprocessingConfig` with the four quality-flag
+  thresholds (saturation_fraction_threshold, nir_red_ratio_threshold,
+  sunglint_nir_mean_threshold, motion_smear_exposure_us). `ControllerConfig` was extended
+  with Kalman filter fields (`kalman_dt_s`, `kalman_process_noise`, `kalman_measurement_noise`)
+  and LQR fields (`lqr_Q_diag`, `lqr_R_diag`, `max_slew_deg_s`). All defaults match
+  `config/default.toml`.

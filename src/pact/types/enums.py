@@ -99,6 +99,7 @@ class FrameUsabilityTag(enum.Enum):
     SUNGLINT = "SUNGLINT"
     SATURATED = "SATURATED"
     MOTION_SMEAR = "MOTION_SMEAR"
+    INCOMPLETE_METADATA = "INCOMPLETE_METADATA"
 
 
 class MessageType(enum.Enum):

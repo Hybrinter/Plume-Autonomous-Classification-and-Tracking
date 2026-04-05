@@ -147,3 +147,162 @@ def test_crc32_returns_int() -> None:
     """compute_crc32 must return an int."""
     crc = compute_crc32(b"test")
     assert isinstance(crc, int), f"Expected int, got {type(crc)}"
+
+
+# ---------------------------------------------------------------------------
+# APID boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("apid,should_raise", [
+    (0x000, False),   # valid minimum APID
+    (0x001, False),   # typical PACT APID
+    (0x7FE, False),   # one below idle
+    (0x7FF, False),   # CCSDS idle APID — valid maximum
+    (0x800, True),    # one over 11-bit max — must raise ValueError
+    (0xFFF, True),    # well over limit
+])
+def test_apid_boundaries(apid: int, should_raise: bool) -> None:
+    """encode_packet must accept valid 11-bit APIDs and raise ValueError for out-of-range values."""
+    packet = CcsdsPacket(
+        version=0,
+        packet_type=0,
+        sec_hdr_flag=0,
+        apid=apid,
+        sequence_flags=0b11,
+        sequence_count=0,
+        data_length=0,   # len(b"\x00") - 1 = 0
+        data=b"\x00",
+    )
+    if should_raise:
+        with pytest.raises(ValueError, match="apid"):
+            encode_packet(packet)
+    else:
+        encoded = encode_packet(packet)
+        result = decode_packet(encoded)
+        assert isinstance(result, Ok)
+        assert result.value.apid == apid
+
+
+def test_encode_decode_idle_packet() -> None:
+    """An idle APID (0x7FF) must encode and decode correctly."""
+    packet = CcsdsPacket(
+        version=0,
+        packet_type=0,
+        sec_hdr_flag=0,
+        apid=0x7FF,
+        sequence_flags=0b11,
+        sequence_count=0,
+        data_length=0,
+        data=b"\x00",
+    )
+    encoded = encode_packet(packet)
+    result = decode_packet(encoded)
+    assert isinstance(result, Ok)
+    assert result.value.apid == 0x7FF
+
+
+# ---------------------------------------------------------------------------
+# sequence_count boundary
+# ---------------------------------------------------------------------------
+
+
+def test_sequence_count_max() -> None:
+    """sequence_count at maximum value (16383 = 0x3FFF) must encode and decode correctly."""
+    packet = make_packet(sequence_count=0x3FFF)
+    encoded = encode_packet(packet)
+    result = decode_packet(encoded)
+    assert isinstance(result, Ok)
+    assert result.value.sequence_count == 0x3FFF, (
+        f"Expected 0x3FFF, got {result.value.sequence_count:#x}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# sequence_flags — all four values
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seq_flags", [0b00, 0b01, 0b10, 0b11])
+def test_sequence_flags_all_values(seq_flags: int) -> None:
+    """All four sequence_flags values must survive an encode/decode roundtrip."""
+    packet = CcsdsPacket(
+        version=0,
+        packet_type=0,
+        sec_hdr_flag=0,
+        apid=0x001,
+        sequence_flags=seq_flags,
+        sequence_count=0,
+        data_length=0,
+        data=b"\x00",
+    )
+    encoded = encode_packet(packet)
+    result = decode_packet(encoded)
+    assert isinstance(result, Ok)
+    assert result.value.sequence_flags == seq_flags, (
+        f"sequence_flags {seq_flags:#04b} not preserved through encode/decode"
+    )
+
+
+# ---------------------------------------------------------------------------
+# data_length consistency
+# ---------------------------------------------------------------------------
+
+
+def test_data_length_inconsistency_raises() -> None:
+    """encode_packet must raise ValueError when data_length does not equal len(data) - 1."""
+    packet = CcsdsPacket(
+        version=0,
+        packet_type=0,
+        sec_hdr_flag=0,
+        apid=0x001,
+        sequence_flags=0b11,
+        sequence_count=0,
+        data_length=99,   # wrong: data has 1 byte so data_length should be 0
+        data=b"\x00",
+    )
+    with pytest.raises(ValueError, match="data_length"):
+        encode_packet(packet)
+
+
+# ---------------------------------------------------------------------------
+# Truncated data field in decode
+# ---------------------------------------------------------------------------
+
+
+def test_decode_data_field_truncated_returns_err() -> None:
+    """decode_packet must return Err when the buffer is shorter than the declared data field.
+
+    Constructs a header declaring data_length=10 (11 data bytes) but provides only
+    4 data bytes in the buffer.
+    """
+    import struct
+
+    apid = 0x001
+    word1 = (0 << 13) | (0 << 12) | (0 << 11) | apid
+    word2 = (0b11 << 14) | 0
+    word3 = 10   # data_length=10 means the data field is 11 bytes
+    header = struct.pack(">HHH", word1, word2, word3)
+    truncated = header + b"\x00" * 4   # only 4 data bytes, but 11 declared
+
+    result = decode_packet(truncated)
+
+    assert isinstance(result, Err), (
+        "Expected Err for truncated data field, got Ok"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Telecommand packet_type
+# ---------------------------------------------------------------------------
+
+
+def test_encode_telecommand_packet_type() -> None:
+    """packet_type=1 (telecommand) must survive an encode/decode roundtrip."""
+    packet = make_packet(packet_type=1, data=b"telecommand payload")
+    encoded = encode_packet(packet)
+    result = decode_packet(encoded)
+    assert isinstance(result, Ok)
+    assert result.value.packet_type == 1, (
+        f"Expected packet_type=1 (telecommand), got {result.value.packet_type}"
+    )

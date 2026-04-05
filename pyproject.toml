@@ -23,6 +23,8 @@ dependencies = [
     "shapely>=2.0",
     "requests>=2.28",
     "tqdm>=4.65",
+    "openpyxl>=3.1.5",
+    "python-docx>=1.2.0",
 ]
 
 [project.optional-dependencies]

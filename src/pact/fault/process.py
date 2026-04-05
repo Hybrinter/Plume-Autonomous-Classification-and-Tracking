@@ -18,6 +18,7 @@ from __future__ import annotations
 # stdlib
 import dataclasses
 import multiprocessing
+import threading
 import time
 from typing import Optional
 
@@ -25,6 +26,7 @@ from typing import Optional
 from pact.types.config import FaultConfig
 from pact.types.enums import FaultCode, MessageType
 from pact.types.messages import FaultEventMsg, HeartbeatMsg, ModeChangeMsg
+from pact.fault.detector import check_power, check_thermal
 from pact.fault.handlers import FAULT_HANDLERS
 from pact.fault.watchdog import WatchdogEntry, check_heartbeats
 
@@ -49,6 +51,7 @@ def run_fault_process(
     heartbeat_queue: "multiprocessing.Queue[HeartbeatMsg]",
     fault_queue: "multiprocessing.Queue[FaultEventMsg]",
     mode_queue: "multiprocessing.Queue[ModeChangeMsg]",
+    stop_event: Optional[threading.Event] = None,
 ) -> None:
     """Fault process main loop.
 
@@ -84,9 +87,11 @@ def run_fault_process(
         for name in MONITORED_SUBSYSTEMS
     }
 
+    _stop = stop_event if stop_event is not None else threading.Event()
+
     log.info("fault_process_started", monitored=MONITORED_SUBSYSTEMS)
 
-    while True:
+    while not _stop.is_set():
         loop_start = time.monotonic()
 
         # --- 1. drain heartbeats ---
@@ -129,7 +134,24 @@ def run_fault_process(
             except Exception:
                 break   # queue.Empty
 
-        # --- 3. watchdog check ---
+        # --- 3. thermal / power checks (stub sensor values) ---
+        thermal_fault = check_thermal(0.0, config)
+        if thermal_fault is not None:
+            handler = FAULT_HANDLERS.get(thermal_fault.fault_code)
+            if handler is not None:
+                result = handler(thermal_fault)
+                if result is not None:
+                    mode_queue.put(result)
+
+        power_fault = check_power(0.0, config)
+        if power_fault is not None:
+            handler = FAULT_HANDLERS.get(power_fault.fault_code)
+            if handler is not None:
+                result = handler(power_fault)
+                if result is not None:
+                    mode_queue.put(result)
+
+        # --- 4. watchdog check ---
         now = time.monotonic()
         watchdog_entries, watchdog_faults = check_heartbeats(
             watchdog_entries, now, config.watchdog_max_miss_count
@@ -141,8 +163,8 @@ def run_fault_process(
                 if result is not None:
                     mode_queue.put(result)
 
-        # --- 4. sleep for remainder of interval ---
+        # --- 5. sleep for remainder of interval ---
         elapsed = time.monotonic() - loop_start
         sleep_s = max(0.0, config.watchdog_interval_s - elapsed)
         if sleep_s > 0:
-            time.sleep(sleep_s)
+            _stop.wait(timeout=sleep_s)

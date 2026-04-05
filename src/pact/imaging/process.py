@@ -20,9 +20,39 @@ import structlog
 from pact.imaging.camera import AbstractCamera, FlirBlackflyCamera
 from pact.imaging.capture import run_capture_loop
 from pact.types.config import FaultConfig
-from pact.types.messages import FaultEventMsg, HeartbeatMsg, RawFrameMsg
+from pact.types.enums import MessageType
+from pact.types.messages import (
+    FaultEventMsg,
+    HeartbeatMsg,
+    RawFrameMsg,
+    utc_now_iso,
+)
 
 log = structlog.get_logger().bind(subsystem="imaging")
+
+_heartbeat_sequence: int = 0
+
+
+def _heartbeat_loop(
+    heartbeat_queue: "queue.Queue[HeartbeatMsg]",
+    fault_cfg: FaultConfig,
+    stop_event: threading.Event,
+) -> None:
+    """Send HeartbeatMsg every watchdog_interval_s until stop_event is set."""
+    global _heartbeat_sequence
+    while not stop_event.is_set():
+        msg = HeartbeatMsg(
+            msg_type=MessageType.HEARTBEAT,
+            timestamp_utc=utc_now_iso(),
+            subsystem="imaging",
+            sequence=_heartbeat_sequence,
+        )
+        _heartbeat_sequence += 1
+        try:
+            heartbeat_queue.put_nowait(msg)
+        except queue.Full:
+            pass
+        stop_event.wait(timeout=fault_cfg.watchdog_interval_s)
 
 
 def run_imaging_process(
@@ -79,9 +109,17 @@ def run_imaging_process(
     capture_thread.start()
     log.info("capture_thread_started")
 
-    # TODO: stub — add heartbeat loop here (threading.Timer or sleep loop)
-    # Heartbeat should be sent every fault_cfg.watchdog_interval_s
+    heartbeat_thread = threading.Thread(
+        target=_heartbeat_loop,
+        args=(heartbeat_queue, fault_cfg, stop_event),
+        daemon=True,
+        name="imaging-heartbeat",
+    )
+    heartbeat_thread.start()
+    log.info("heartbeat_thread_started")
 
     capture_thread.join()
+    stop_event.set()
+    heartbeat_thread.join(timeout=2.0)
     active_camera.stop_acquisition()
     log.info("imaging_process_stop")

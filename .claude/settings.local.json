@@ -44,7 +44,13 @@
       "Bash(uv add:*)",
       "Bash(for v:*)",
       "Bash(do echo:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(uv run:*)",
+      "Bash(python -m pytest tests/unit/comms/test_downlink.py -v)",
+      "Skill(update-config)"
     ]
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }

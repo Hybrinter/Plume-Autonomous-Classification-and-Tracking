@@ -28,8 +28,13 @@ from typing import Optional
 
 import structlog
 
-from pact.controller.arbiter import ArbiterState, GimbalArbiter
+import numpy as np
+
+from pact.controller.arbiter import ArbiterState, GimbalArbiter, PIXEL_TO_DEG
 from pact.controller.filter import EmaFilterState, ema_update
+from pact.controller.kalman import KalmanFilter, KalmanState, predict as kalman_predict
+from pact.controller.kalman import update as kalman_update
+from pact.controller.lqr import LqrController, compute_control
 from pact.controller.safety import (
     apply_confidence_gate,
     apply_min_area_gate,
@@ -38,7 +43,7 @@ from pact.controller.safety import (
 )
 from pact.controller.tracker import match_blobs
 from pact.types.config import ControllerConfig, FaultConfig
-from pact.types.enums import FaultCode, GimbalState, MessageType
+from pact.types.enums import FaultCode, GimbalState, MessageType, Ok
 from pact.types.messages import (
     FaultEventMsg,
     GimbalCommandMsg,
@@ -97,7 +102,7 @@ def run_controller_process(
     """
     log.info("controller_process_start")
 
-    arbiter = GimbalArbiter()
+    arbiter = GimbalArbiter(controller_cfg)
     state = ArbiterState(
         gimbal_state=GimbalState.IDLE,
         tracked_blobs=(),
@@ -106,6 +111,11 @@ def run_controller_process(
         current_target_id=None,
     )
     ema_state = EmaFilterState(centroid=(0.0, 0.0), initialized=False)
+
+    # Kalman filter and LQR controller initialised from config
+    kf: KalmanFilter = KalmanFilter.from_config(controller_cfg)
+    lqr: LqrController = LqrController.from_config(controller_cfg)
+    kalman_state: KalmanState = KalmanFilter.initial_state(0.0, 0.0)
 
     last_heartbeat_time: float = time.monotonic()
     heartbeat_seq: int = 0
@@ -140,19 +150,30 @@ def run_controller_process(
         gated_blobs = apply_min_area_gate(gated_blobs, controller_cfg.min_blob_area_px)
 
         # Step 3: Blob tracker (IoU association)
-        matched_blobs = match_blobs(
+        matched_blobs: tuple[object, ...] = match_blobs(
             state.tracked_blobs,
-            gated_blobs,
+            tuple(gated_blobs),
             controller_cfg.blob_iou_match_threshold,
         )
 
         # Step 4: EMA filter — update on primary target if one exists
         if matched_blobs:
-            primary = matched_blobs[0]
-            ema_state = ema_update(ema_state, primary.centroid_raw, controller_cfg.ema_alpha)
+            primary = matched_blobs[0]  # type: ignore[index]
+            ema_state = ema_update(ema_state, primary.centroid_raw, controller_cfg.ema_alpha)  # type: ignore[union-attr]
         else:
             # Reset EMA when no blobs present
             ema_state = EmaFilterState(centroid=(0.0, 0.0), initialized=False)
+
+        # Step 4b: Kalman filter — predict and update with EMA centroid (in degrees)
+        kalman_state = kalman_predict(kf, kalman_state)
+        if ema_state.initialized:
+            obs = np.array(
+                [ema_state.centroid[0] * PIXEL_TO_DEG, ema_state.centroid[1] * PIXEL_TO_DEG],
+                dtype=np.float64,
+            )
+            update_result = kalman_update(kf, kalman_state, obs)
+            if isinstance(update_result, Ok):
+                kalman_state = update_result.value
 
         # Step 5 & 6: Deadband and rate limit (checked inside arbiter.step() via the
         # pre-filtered blob list — deadband/rate-limit decisions require frame center
@@ -162,7 +183,7 @@ def run_controller_process(
         # the arbiter's responsibility.
 
         # Step 7: Arbiter state machine (pure function)
-        # Build a new InferenceResultMsg with the matched/filtered blobs substituted in.
+        # Build a new InferenceResultMsg with the matched/filtered blobs as a tuple.
         filtered_result = dataclasses.replace(result, blobs=matched_blobs)
         new_state, command, telemetry_events = arbiter.step(
             state=state,
@@ -171,7 +192,20 @@ def run_controller_process(
         )
         state = new_state
 
-        # Step 8: Send gimbal command (hardware stub)
+        # Step 8: LQR refinement — override arbiter deltas with optimal control output.
+        # The arbiter decides WHEN to command; LQR decides HOW MUCH.
+        if command is not None and ema_state.initialized:
+            # Desired state: blob centroid at image centre (zero pointing error).
+            # Kalman state = [pan_deg, tilt_deg, pan_rate, tilt_rate]; desired = [0,0,0,0].
+            state_error: np.ndarray = np.array(kalman_state.x, dtype=np.float64)
+            u = compute_control(lqr, state_error)  # [pan_delta_deg_s, tilt_delta_deg_s]
+            cmd_interval_s: float = 1.0 / max(controller_cfg.retarget_rate_limit_hz, 1e-6)
+            command = dataclasses.replace(
+                command,
+                az_delta_deg=float(u[0]) * cmd_interval_s,
+                el_delta_deg=float(u[1]) * cmd_interval_s,
+            )
+
         if command is not None:
             send_gimbal_command(command)
 

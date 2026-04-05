@@ -94,4 +94,62 @@ def match_blobs(
     tuple[BlobMeta, ...]
         New blobs with updated blob_ids and persistence_counts.
     """
-    ...
+    if not new_blobs:
+        return ()
+
+    # Build IoU cost matrix: (len(prev_blobs), len(new_blobs))
+    n_prev = len(prev_blobs)
+    n_new = len(new_blobs)
+
+    # Collect all (iou, prev_idx, new_idx) pairs above threshold
+    candidates: list[tuple[float, int, int]] = []
+    for pi in range(n_prev):
+        for ni in range(n_new):
+            iou = compute_iou(prev_blobs[pi].bbox, new_blobs[ni].bbox)
+            if iou >= iou_threshold:
+                candidates.append((iou, pi, ni))
+
+    # Greedy matching: highest IoU first
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    matched_prev: set[int] = set()
+    matched_new: set[int] = set()
+    # Map new_idx -> matched prev blob
+    new_to_prev: dict[int, int] = {}
+
+    for iou, pi, ni in candidates:
+        if pi in matched_prev or ni in matched_new:
+            continue
+        matched_prev.add(pi)
+        matched_new.add(ni)
+        new_to_prev[ni] = pi
+
+    # Determine next_id from existing blobs
+    all_ids = [b.blob_id for b in prev_blobs] + [b.blob_id for b in new_blobs]
+    next_id = max(all_ids, default=0) + 1
+
+    # Build result
+    result: list[BlobMeta] = []
+    for ni in range(n_new):
+        blob = new_blobs[ni]
+        if ni in new_to_prev:
+            prev = prev_blobs[new_to_prev[ni]]
+            result.append(BlobMeta(
+                blob_id=prev.blob_id,
+                bbox=blob.bbox,
+                centroid_raw=blob.centroid_raw,
+                pixel_area=blob.pixel_area,
+                mean_confidence=blob.mean_confidence,
+                persistence_count=prev.persistence_count + 1,
+            ))
+        else:
+            result.append(BlobMeta(
+                blob_id=next_id,
+                bbox=blob.bbox,
+                centroid_raw=blob.centroid_raw,
+                pixel_area=blob.pixel_area,
+                mean_confidence=blob.mean_confidence,
+                persistence_count=1,
+            ))
+            next_id += 1
+
+    return tuple(result)

@@ -16,8 +16,11 @@ Persist raw frames, processed tensors, and inference metadata with checksums and
 - `StorageWriteMsg` — from inference process via `storage_queue`
 
 ## Key Invariants
-- Every file is checksummed (SHA-256) after write and verified before the manifest entry is
-  written. A write that fails checksum verification is treated as a STORAGE_FULL fault.
+- Every raw/tensor file is checksummed (SHA-256) after write and verified before the manifest
+  entry is written. Downlink payload bytes are checksummed with `zlib.crc32` (interim — full
+  CCSDS CRC-16/CCITT is Phase II). SHA-256 is for on-disk file integrity; CRC-32 is for
+  in-flight packet verification. A write that fails checksum verification is treated as a
+  STORAGE_FULL fault.
 - Manifest is append-only (open in 'a' mode) and is owned by a single thread — no concurrent
   writers. This is enforced by the single-threaded `run_storage_process()` design.
 - Directory structure is `{data_root}/{YYYY-MM-DD}/{frame_id:08d}/`.
@@ -36,3 +39,5 @@ inference process (a separate OS process) to the storage thread.
   significantly but is deferred to Phase II.
 - No eviction policy when storage is full — the process emits a STORAGE_FULL fault and halts
   further writes. An LRU eviction policy is out of scope for Phase I.
+- Downlink payload serialization uses `pickle.dumps` (interim). Full CCSDS binary framing with
+  proper packet structure is Phase II.

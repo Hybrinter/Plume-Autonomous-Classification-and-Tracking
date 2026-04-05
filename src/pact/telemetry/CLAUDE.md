@@ -32,5 +32,4 @@ is sufficient; no CPU-heavy loops occur in this subsystem.
 ## Known Gaps / TODOs
 - Thermal and power readings in `SystemHealthSnapshot` are placeholders (0.0). There is
   no hardware sensor interface yet; a hardware abstraction layer is needed for Phase II.
-- `format_health_packet()` uses a placeholder byte serialisation. Full CCSDS packet
-  encoding awaits the `pact.comms.ccsds` encode implementation.
+- Rolling `SystemHealthSnapshot` accumulation is implemented in `reporter.py`. The snapshot is emitted as a `DownlinkItemMsg` at `DownlinkPriority.HEALTH_TELEMETRY` on a periodic basis. The byte-level packet encoding uses `struct.pack` as a placeholder; full CCSDS space packet framing is Phase II.

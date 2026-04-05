@@ -61,21 +61,18 @@ def train_epoch(
     Returns:
         Mean training loss over all batches in the epoch (float).
     """
-    # TODO: implement training loop
-    # Pseudocode:
-    #   model.train()
-    #   total_loss = 0.0
-    #   for batch_tensor, batch_mask in loader:
-    #       batch_tensor = batch_tensor.to(device)     # (B, 4, H, W) float32
-    #       batch_mask   = batch_mask.to(device)       # (B, 1, H, W) float32
-    #       optimizer.zero_grad()
-    #       logits = model(batch_tensor)               # (B, 1, H, W)
-    #       loss = criterion(logits, batch_mask)
-    #       loss.backward()
-    #       optimizer.step()
-    #       total_loss += loss.item()
-    #   return total_loss / len(loader)
-    ...
+    model.train()
+    total_loss = 0.0
+    for batch_tensor, batch_mask in loader:
+        batch_tensor = batch_tensor.to(device)  # (B, 4, H, W) float32
+        batch_mask = batch_mask.to(device)      # (B, 1, H, W) float32
+        optimizer.zero_grad()
+        logits = model(batch_tensor)            # (B, 1, H, W)
+        loss = criterion(logits, batch_mask)
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    return total_loss / max(len(loader), 1)
 
 
 def validate_epoch(
@@ -95,16 +92,13 @@ def validate_epoch(
     Returns:
         Mean validation loss over all batches in the epoch (float).
     """
-    # TODO: implement validation loop
-    # Pseudocode:
-    #   model.eval()
-    #   total_loss = 0.0
-    #   with torch.no_grad():
-    #       for batch_tensor, batch_mask in loader:
-    #           batch_tensor = batch_tensor.to(device)
-    #           batch_mask   = batch_mask.to(device)
-    #           logits = model(batch_tensor)
-    #           loss = criterion(logits, batch_mask)
-    #           total_loss += loss.item()
-    #   return total_loss / len(loader)
-    ...
+    model.eval()
+    total_loss = 0.0
+    with torch.no_grad():
+        for batch_tensor, batch_mask in loader:
+            batch_tensor = batch_tensor.to(device)  # (B, 4, H, W)
+            batch_mask = batch_mask.to(device)      # (B, 1, H, W)
+            logits = model(batch_tensor)            # (B, 1, H, W)
+            loss = criterion(logits, batch_mask)
+            total_loss += loss.item()
+    return total_loss / max(len(loader), 1)

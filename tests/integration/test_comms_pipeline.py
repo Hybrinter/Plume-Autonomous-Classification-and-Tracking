@@ -5,24 +5,32 @@ REQ-COMM-HIGH-001, REQ-COMM-HIGH-002, REQ-AIML-HIGH-004, REQ-AIML-HIGH-005
 
 Note: The comms upload session test (3-chunk upload with CRC) is implemented as a
 unit-style test without process spawning, since process_uplink_chunk() is a pure function.
-The full comms process integration test (run_comms_process() in a subprocess) is stubbed
-and skipped until process wiring is complete.
+The full comms process integration test (run_comms_process() in a subprocess) is implemented
+in test_comms_process_downlink_window and test_first_chunk_initializes_session below.
 """
 
 from __future__ import annotations
 
 # stdlib
-import zlib
+import queue
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 # third-party
 import pytest
 
 # module under test — pure function, no subprocess required
 from pact.comms.uplink import ModelUploadSession, process_uplink_chunk
+from pact.comms.ccsds import compute_crc32
+from pact.comms.process import run_comms_process
 
 # pact types
-from pact.types.enums import Err, FaultCode, MessageType, ModelDeployState, Ok
-from pact.types.messages import UploadChunkMsg
+from pact.types.config import CommsConfig, FaultConfig
+from pact.types.enums import DownlinkPriority, Err, FaultCode, MessageType, ModelDeployState, Ok
+from pact.types.messages import DownlinkItemMsg, UploadChunkMsg
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +79,7 @@ def test_three_chunk_upload_completes_with_staged_state() -> None:
     """
     # Simulate a 3-chunk model file
     full_payload = b"chunk_0_data" + b"chunk_1_data" + b"chunk_2_data"
-    crc = zlib.crc32(full_payload) & 0xFFFFFFFF
+    crc = compute_crc32(full_payload)
 
     session = make_empty_session(
         total_chunks=3,
@@ -105,7 +113,7 @@ def test_crc_mismatch_on_final_chunk_returns_err() -> None:
     are received. A mismatch signals model corruption.
     """
     full_payload = b"chunk_0_data" + b"chunk_1_data" + b"chunk_2_data"
-    correct_crc = zlib.crc32(full_payload) & 0xFFFFFFFF
+    correct_crc = compute_crc32(full_payload)
     wrong_crc = correct_crc ^ 0xDEADBEEF  # deliberately corrupted
 
     session = make_empty_session(
@@ -146,7 +154,7 @@ def test_crc_mismatch_on_final_chunk_returns_err() -> None:
 
 def test_duplicate_chunk_is_idempotent() -> None:
     """Receiving the same chunk twice must not cause a fault or double-count the chunk."""
-    crc = zlib.crc32(b"data0data1data2") & 0xFFFFFFFF
+    crc = compute_crc32(b"data0data1data2")
     session = make_empty_session(total_chunks=3, expected_crc32=crc, staged_path="/tmp/staged.pt")
 
     chunk_0 = make_chunk(0, 3, b"data0", crc)
@@ -170,19 +178,138 @@ def test_duplicate_chunk_is_idempotent() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="integration: requires subprocess setup — implement after run_comms_process() is complete")
-def test_comms_process_downlink_window() -> None:
-    """Test that the comms process only dequeues DownlinkItemMsg during allowed comm windows.
+def _make_dl_item(priority: DownlinkPriority, payload: bytes, item_id: str) -> DownlinkItemMsg:
+    """Construct a DownlinkItemMsg for integration tests."""
+    return DownlinkItemMsg(
+        msg_type=MessageType.DOWNLINK_ITEM,
+        timestamp_utc="2026-04-06T12:00:00.000Z",
+        priority=priority,
+        payload_bytes=payload,
+        crc32=compute_crc32(payload),
+        item_id=item_id,
+    )
 
-    Setup:
-    - run_comms_process() started in a subprocess.
-    - Mock datetime injected to simulate a weekday vs weekend.
-    - DownlinkItemMsg placed on the downlink queue.
 
-    Assertions:
-    - On a weekday, items are dequeued and 'transmitted' (to a mock sink).
-    - On a weekend, items remain queued.
+@pytest.mark.timeout(5)
+def test_comms_process_downlink_window(tmp_path: Path) -> None:
+    """run_comms_process must transmit queued items during an open comm window (weekday).
 
-    TODO: implement when run_comms_process() entry point is complete.
+    Injects one DownlinkItemMsg, patches datetime.utcnow to Monday, patches
+    _transmit_downlink_item to record calls, and asserts the item is transmitted.
     """
-    pass
+    downlink_in_q: queue.Queue[DownlinkItemMsg] = queue.Queue()
+    uplink_q: queue.Queue[UploadChunkMsg] = queue.Queue()
+    fault_q: queue.Queue = queue.Queue()
+    heartbeat_q: queue.Queue = queue.Queue()
+    stop_event = threading.Event()
+
+    comms_cfg = CommsConfig()
+    fault_cfg = FaultConfig(watchdog_interval_s=10.0)   # suppress heartbeat noise
+
+    payload = b"health telemetry data"
+    item = _make_dl_item(DownlinkPriority.HEALTH_TELEMETRY, payload, item_id="integ-001")
+    downlink_in_q.put(item)
+
+    transmitted: list[DownlinkItemMsg] = []
+
+    async def _capture_transmit(dl_item: DownlinkItemMsg) -> None:
+        transmitted.append(dl_item)
+
+    monday = datetime(2026, 4, 6, 12, 0, 0, tzinfo=timezone.utc)
+
+    with (
+        patch("pact.comms.process._transmit_downlink_item", side_effect=_capture_transmit),
+        patch("pact.comms.process.datetime") as mock_dt,
+    ):
+        mock_dt.datetime.utcnow.return_value = monday
+
+        t = threading.Thread(
+            target=run_comms_process,
+            args=(comms_cfg, fault_cfg, downlink_in_q, uplink_q, fault_q, heartbeat_q, stop_event),
+            daemon=True,
+        )
+        t.start()
+
+        # Wait up to 2 s for transmission
+        deadline = time.monotonic() + 2.0
+        while not transmitted and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        stop_event.set()
+        t.join(timeout=2.0)
+
+    assert len(transmitted) >= 1, (
+        "Expected at least one item to be transmitted on a weekday comm window"
+    )
+    assert transmitted[0].item_id == item.item_id
+
+
+@pytest.mark.timeout(5)
+def test_first_chunk_initializes_session(tmp_path: Path) -> None:
+    """A chunk_index=0 arriving when no upload session exists must auto-initialize one.
+
+    The session is derived from the chunk's total_chunks and expected_crc32, then the
+    chunk is routed to process_uplink_chunk() as normal.
+    """
+    downlink_in_q: queue.Queue[DownlinkItemMsg] = queue.Queue()
+    uplink_q: queue.Queue[UploadChunkMsg] = queue.Queue()
+    fault_q: queue.Queue = queue.Queue()
+    heartbeat_q: queue.Queue = queue.Queue()
+    stop_event = threading.Event()
+
+    staged_path = str(tmp_path / "staged.pt")
+    comms_cfg = CommsConfig(staged_model_path=staged_path)
+    fault_cfg = FaultConfig(watchdog_interval_s=10.0)
+
+    full_payload = b"model weights"
+    crc = compute_crc32(full_payload)
+    chunk = UploadChunkMsg(
+        msg_type=MessageType.UPLINK_CHUNK,
+        timestamp_utc="2026-04-06T12:00:00.000Z",
+        chunk_index=0,
+        total_chunks=1,
+        data=full_payload,
+        expected_crc32=crc,
+    )
+    uplink_q.put(chunk)
+
+    processed_sessions: list = []
+
+    from pact.comms import uplink as uplink_mod
+    original_fn = uplink_mod.process_uplink_chunk
+
+    def _recording(session, ch):
+        processed_sessions.append(session)
+        return original_fn(session, ch)
+
+    monday = datetime(2026, 4, 6, 12, 0, 0, tzinfo=timezone.utc)
+
+    with (
+        patch("pact.comms.process.process_uplink_chunk", side_effect=_recording),
+        patch("pact.comms.process._transmit_downlink_item", AsyncMock()),
+        patch("pact.comms.process.datetime") as mock_dt,
+    ):
+        mock_dt.datetime.utcnow.return_value = monday
+
+        t = threading.Thread(
+            target=run_comms_process,
+            args=(comms_cfg, fault_cfg, downlink_in_q, uplink_q, fault_q, heartbeat_q, stop_event),
+            daemon=True,
+        )
+        t.start()
+
+        # Wait up to 2 s for the chunk to be routed
+        deadline = time.monotonic() + 2.0
+        while not processed_sessions and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        stop_event.set()
+        t.join(timeout=2.0)
+
+    assert len(processed_sessions) >= 1, (
+        "process_uplink_chunk should have been called after chunk_index=0 initialised a session"
+    )
+    session = processed_sessions[0]
+    assert session.total_chunks == 1
+    assert session.expected_crc32 == crc
+    assert session.staged_path == staged_path

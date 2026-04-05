@@ -171,10 +171,13 @@ def activate_staged_model(
         Ok(None) on success. Err(FaultCode.MODEL_CORRUPT) on any filesystem error.
     """
     try:
-        if os.path.exists(active_path):
-            # On first deployment no active model exists yet — skip the rollback save.
+        # Save current active as rollback. On first deployment the file won't exist —
+        # FileNotFoundError is expected and safe to skip.
+        try:
             shutil.copy2(active_path, rollback_path)
             log.info("rollback_saved", rollback_path=rollback_path)
+        except FileNotFoundError:
+            log.info("no_prior_active_model", detail="first deployment; skipping rollback save")
         shutil.move(staged_path, active_path)
         log.info("model_activated", active_path=active_path)
         return Ok(None)

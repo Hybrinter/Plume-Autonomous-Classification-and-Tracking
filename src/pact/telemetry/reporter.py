@@ -12,18 +12,27 @@ from __future__ import annotations
 
 # stdlib
 import json
+import pickle
 import queue
 import time
+import zlib
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 # internal
-from pact.types.enums import DownlinkPriority, MessageType
+from pact.types.enums import (
+    DownlinkPriority,
+    GimbalState,
+    MessageType,
+    ModelDeployState,
+    SystemMode,
+)
 from pact.types.messages import (
     DownlinkItemMsg,
     FaultEventMsg,
     HeartbeatMsg,
     TelemetryEventMsg,
+    utc_now_iso,
 )
 from pact.telemetry.health import SystemHealthSnapshot
 
@@ -134,22 +143,63 @@ def run_telemetry_process(
     # TODO: implement CRC-32 of the serialised packet payload before enqueueing.
     """
     HEARTBEAT_INTERVAL_S: float = 5.0
+    HEALTH_EMIT_INTERVAL_S: float = 60.0
     last_heartbeat: float = time.monotonic()
+    _last_health_emit_time: float = time.monotonic()
     sequence: int = 0
+
+    # Valid keys for the health snapshot accumulator.
+    _SNAPSHOT_KEYS: frozenset[str] = frozenset({
+        "system_mode", "gimbal_state", "active_faults",
+        "frames_captured_today", "bytes_downlinked_today",
+        "bytes_remaining_today", "model_version",
+        "model_deploy_state", "inference_latency_ms_mean",
+        "inference_latency_ms_max", "storage_bytes_used",
+    })
+
+    _health_accumulator: dict[str, object] = {
+        "system_mode": SystemMode.IDLE,
+        "gimbal_state": GimbalState.IDLE,
+        "active_faults": [],
+        "frames_captured_today": 0,
+        "bytes_downlinked_today": 0,
+        "bytes_remaining_today": 0,
+        "model_version": "unknown",
+        "model_deploy_state": ModelDeployState.ACTIVE,
+        "inference_latency_ms_mean": 0.0,
+        "inference_latency_ms_max": 0.0,
+        "storage_bytes_used": 0,
+    }
 
     log.info("telemetry_process_started", apid=apid)
 
     while True:
         try:
-            event: TelemetryEventMsg = telemetry_queue.get(timeout=1.0)
+            event: TelemetryEventMsg = telemetry_queue.get(
+                timeout=1.0,
+            )
         except queue.Empty:
-            _maybe_send_heartbeat(heartbeat_queue, last_heartbeat, HEARTBEAT_INTERVAL_S, sequence)
+            _maybe_send_heartbeat(
+                heartbeat_queue, last_heartbeat,
+                HEARTBEAT_INTERVAL_S, sequence,
+            )
+            # Check if health snapshot is due even on empty queue.
+            if (time.monotonic() - _last_health_emit_time
+                    >= HEALTH_EMIT_INTERVAL_S):
+                _last_health_emit_time = _emit_health_snapshot(
+                    _health_accumulator, downlink_queue,
+                )
             continue
 
-        now_str = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        now_str = datetime.now(timezone.utc).isoformat(
+            timespec="milliseconds",
+        )
 
-        # TODO: call format_telemetry_event() once comms.ccsds is implemented;
-        #       for now, serialise directly to bytes to avoid import dependency.
+        # Update health accumulator from event payload.
+        for key, val in event.payload.items():
+            if key in _SNAPSHOT_KEYS:
+                _health_accumulator[key] = val
+
         payload_bytes = json.dumps(
             {
                 "timestamp_utc": event.timestamp_utc,
@@ -165,13 +215,25 @@ def run_telemetry_process(
             timestamp_utc=now_str,
             priority=DownlinkPriority.HEALTH_TELEMETRY,
             payload_bytes=payload_bytes,
-            crc32=0,                    # TODO: compute real CRC-32
-            item_id=f"telemetry-{event.subsystem}-{event.event_name}-{now_str}",
+            crc32=zlib.crc32(payload_bytes) & 0xFFFFFFFF,
+            item_id=(
+                f"telemetry-{event.subsystem}"
+                f"-{event.event_name}-{now_str}"
+            ),
         )
         try:
             downlink_queue.put_nowait(downlink_item)
         except queue.Full:
-            log.warning("downlink_queue_full", subsystem=event.subsystem)
+            log.warning(
+                "downlink_queue_full", subsystem=event.subsystem,
+            )
+
+        # Periodic health snapshot emission.
+        if (time.monotonic() - _last_health_emit_time
+                >= HEALTH_EMIT_INTERVAL_S):
+            _last_health_emit_time = _emit_health_snapshot(
+                _health_accumulator, downlink_queue,
+            )
 
         now_mono = time.monotonic()
         if now_mono - last_heartbeat >= HEARTBEAT_INTERVAL_S:
@@ -179,7 +241,62 @@ def run_telemetry_process(
             last_heartbeat = now_mono
             sequence += 1
 
-        log.debug("telemetry_event_processed", subsystem=event.subsystem, event=event.event_name)
+        log.debug(
+            "telemetry_event_processed",
+            subsystem=event.subsystem,
+            event=event.event_name,
+        )
+
+
+def _emit_health_snapshot(
+    accumulator: dict[str, object],
+    downlink_queue: "queue.Queue[DownlinkItemMsg]",
+) -> float:
+    """Build and enqueue a SystemHealthSnapshot. Returns monotonic time."""
+    snapshot = SystemHealthSnapshot(
+        timestamp_utc=utc_now_iso(),
+        system_mode=accumulator["system_mode"],  # type: ignore[arg-type]
+        gimbal_state=accumulator["gimbal_state"],  # type: ignore[arg-type]
+        active_faults=frozenset(
+            accumulator["active_faults"],  # type: ignore[arg-type]
+        ),
+        frames_captured_today=accumulator[  # type: ignore[arg-type]
+            "frames_captured_today"
+        ],
+        bytes_downlinked_today=accumulator[  # type: ignore[arg-type]
+            "bytes_downlinked_today"
+        ],
+        bytes_remaining_today=accumulator[  # type: ignore[arg-type]
+            "bytes_remaining_today"
+        ],
+        model_version=accumulator["model_version"],  # type: ignore[arg-type]
+        model_deploy_state=accumulator[  # type: ignore[arg-type]
+            "model_deploy_state"
+        ],
+        inference_latency_ms_mean=accumulator[  # type: ignore[arg-type]
+            "inference_latency_ms_mean"
+        ],
+        inference_latency_ms_max=accumulator[  # type: ignore[arg-type]
+            "inference_latency_ms_max"
+        ],
+        storage_bytes_used=accumulator[  # type: ignore[arg-type]
+            "storage_bytes_used"
+        ],
+    )
+    payload_bytes: bytes = pickle.dumps(snapshot)
+    item = DownlinkItemMsg(
+        msg_type=MessageType.DOWNLINK_ITEM,
+        timestamp_utc=utc_now_iso(),
+        priority=DownlinkPriority.HEALTH_TELEMETRY,
+        payload_bytes=payload_bytes,
+        crc32=zlib.crc32(payload_bytes) & 0xFFFFFFFF,
+        item_id=f"health-snapshot-{utc_now_iso()}",
+    )
+    try:
+        downlink_queue.put_nowait(item)
+    except queue.Full:
+        log.warning("downlink_queue_full_health_snapshot")
+    return time.monotonic()
 
 
 def _emit_heartbeat(

@@ -24,6 +24,8 @@ multispectral VNIR plume detection.
   structurally; see the note in `inference.py` about the mutable-module exception.
 - Preprocessing runs inside the inference process as a plain function call — not a separate
   process or thread. See `preprocessing/adr/ADR-001` for the rationale.
+- `InferenceEngine` has field `config: InferenceConfig` (not `cfg`). The `run()` method takes
+  a single `ProcessedFrameMsg` argument — not bare keyword arguments for bands, frame_id, etc.
 
 ## Concurrency
 `multiprocessing.Process` with `multiprocessing.Queue` (see `model/adr/ADR-001`).
@@ -37,4 +39,10 @@ provides this and satisfies REQ-AIML-COMP-002.
   training is run against the HSG-AIML dataset (see `dataset.py` and `train.py`).
 - `latency_budget_ms = 500.0` in `InferenceConfig` is a placeholder pending a real
   Jetson Xavier NX/AGX benchmark with the trained model.
-- `download_dataset()` in `dataset.py` is a stub — Zenodo fetch not yet implemented.
+- `download_dataset()` streams from `zenodo.org/record/4250706/files/hsg-aiml.zip` using
+  `urllib.request` with `tqdm` progress reporting, then extracts the zip. Skips download if
+  `data/raw/images/` already exists.
+- `InferenceEngine.run(frame: ProcessedFrameMsg)` is fully implemented: shape validation →
+  torch.Tensor conversion → forward pass → sigmoid → NaN/Inf check → latency check vs
+  `config.latency_budget_ms` → `scipy.ndimage.label` blob extraction → `BlobMeta`
+  construction → `Ok(InferenceResultMsg)`.

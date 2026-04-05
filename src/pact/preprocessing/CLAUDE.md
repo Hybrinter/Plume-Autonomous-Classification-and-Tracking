@@ -28,6 +28,15 @@ quality flags that gate downstream inference.
 - Functions that can fail return `Result[T, FaultCode]` — they do NOT raise exceptions.
 - `apply_calibration()` returns `Err(FaultCode.INFERENCE_NAN)` if output contains NaN
   after dark-frame subtraction and flat-field correction.
+- `compute_quality_flags()` current signature (note: `gain_db` parameter no longer exists):
+  ```python
+  compute_quality_flags(
+      bands: object,           # np.ndarray[float32, (C, H, W)]
+      exposure_us: float,
+      utc_timestamp: str,
+      cfg: PreprocessingConfig,
+  ) -> frozenset[FrameUsabilityTag]
+  ```
 
 ## Concurrency
 None — the preprocessing module runs synchronously inside the inference
@@ -36,9 +45,5 @@ None — the preprocessing module runs synchronously inside the inference
 ## Known Gaps / TODOs
 - `MOTION_SMEAR` flag in `quality.py` is a placeholder. It is raised based on gimbal
   slew rate but the actual motion estimation is not yet implemented.
-- `CLOUD_CONTAMINATED` and `SUNGLINT` thresholds in `quality.py` use hard-coded
-  constants with `# TODO: move to config` comments. These need empirical tuning from
-  real on-orbit imagery before flight.
-- Quality thresholds (`SATURATION_FRACTION_THRESHOLD`, `NIR_RED_RATIO_THRESHOLD`,
-  `SUNGLINT_NIR_MEAN_THRESHOLD`) are not yet part of `PactConfig` — they will be
-  added when the preprocessing config dataclass is introduced.
+- `INCOMPLETE_METADATA` flag is now implemented: raised when `exposure_us <= 0` or
+  `utc_timestamp` is empty/falsy.

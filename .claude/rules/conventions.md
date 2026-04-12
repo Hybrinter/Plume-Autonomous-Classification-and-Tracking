@@ -1,0 +1,8 @@
+- Line length: 100 characters
+- Imports grouped at top: stdlib -> third-party -> internal; no interleaving
+- No circular imports; layered dependency order is enforced (types < model/preprocessing/imaging < controller < storage/telemetry/comms < fault < ops)
+- No `**kwargs`; no `*args` except in test helpers
+- Enum string values must mirror the member name for log readability: `IDLE = "IDLE"`
+- Numpy arrays: annotate dtype and shape in a comment at the declaration site -- `# np.ndarray[float32, (C, H, W)]`
+- Logging: use `structlog` everywhere; JSON renderer for flight, console renderer for development; every log entry must include `subsystem` (str) and `event` (snake_case str) as structured fields
+- Module docstrings must include the requirement IDs satisfied by the module (e.g. `# Satisfies: REQ-AIML-COMP-001`)

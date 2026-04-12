@@ -1,0 +1,4 @@
+- For non-engineering related variables (such as p for pressure), use snake_case
+- Use ASCII characters only
+- Prefer modular design
+- Avoid long (3+ lines) in-function notes/comments, write in the respective docstring instead

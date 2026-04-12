@@ -1,0 +1,3 @@
+- Only use SI units
+- Avoid tabulated arrays
+- Prefer all inputs that are equation-defined

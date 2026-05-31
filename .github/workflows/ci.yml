@@ -25,4 +25,6 @@ jobs:
       - name: Import layering
         run: uv run lint-imports
       - name: Tests
-        run: uv run pytest -m "not e2e"
+        # Scoped to packages/ while legacy src/pact is migrated in. Widen to the full suite
+        # ("uv run pytest -m 'not e2e'") once src/pact and its tests are removed.
+        run: uv run pytest packages -m "not e2e"

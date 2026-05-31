@@ -1,0 +1,46 @@
+[importlinter]
+root_packages =
+    flight
+    sim
+    tools
+
+[importlinter:contract:flight-isolation]
+name = Flight must not import sim or tools
+type = forbidden
+source_modules =
+    flight
+forbidden_modules =
+    sim
+    tools
+
+[importlinter:contract:sim-isolation]
+name = Sim must not import tools
+type = forbidden
+source_modules =
+    sim
+forbidden_modules =
+    tools
+
+[importlinter:contract:flight-layers]
+name = Flight layered architecture
+type = layers
+layers =
+    flight.core
+    flight.payload | flight.thermal | flight.electrical | flight.mechanical | flight.iss_iface | flight.fault
+    flight.hal.interfaces
+    flight.libs
+
+[importlinter:contract:drivers-from-composition-roots-only]
+name = Concrete drivers are reachable only from composition roots
+type = forbidden
+source_modules =
+    flight.payload
+    flight.thermal
+    flight.electrical
+    flight.mechanical
+    flight.iss_iface
+    flight.fault
+    flight.libs
+forbidden_modules =
+    flight.hal.drivers_real
+    flight.hal.drivers_sim

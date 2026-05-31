@@ -16,7 +16,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev
       - name: Ruff lint
-        run: uv run ruff check .
+        # Scoped to packages/ while legacy src/pact is migrated in. Widen to "." once src/pact is removed.
+        run: uv run ruff check packages
       - name: Ruff format check
         run: uv run ruff format --check packages
       - name: Type check

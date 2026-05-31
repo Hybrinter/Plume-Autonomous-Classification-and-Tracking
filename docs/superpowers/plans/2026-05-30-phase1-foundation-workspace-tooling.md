@@ -501,3 +501,30 @@ git commit -m "ci: add GitHub Actions quality gates"
 - **Spec coverage (Section 11 tooling + Section 4 layering):** uv workspace (Task 1), lean flight vs heavy tools split via per-member deps (Tasks 2-3), ruff/mypy/pytest (Tasks 1, 5), import-linter contracts for the full dependency spine -- flight isolation, sim isolation, app independence + layering, driver visibility (Task 4), CI (Task 6). The config-default-vs-TOML check (Section 9) is **deferred** to the `libs`/config phase, where the config dataclasses and `config/default.toml` actually exist -- there is nothing to check until then. Noted here so it is not forgotten.
 - **Placeholder scan:** no TBD/TODO; every file has complete contents; every command has expected output.
 - **Type/name consistency:** import package names `flight`/`sim`/`twin`/etc. are used identically in the package tree, the tests, and the `.importlinter` contracts; `flight_version()` is defined and consumed with the same signature.
+
+---
+
+## Execution notes (applied during the Phase 1 run, 2026-05-30)
+
+The plan executed successfully with these necessary amendments, all confined to the root
+`pyproject.toml` and CI config (no `src/pact` changes):
+
+- **Workspace member install:** `uv sync --extra dev` alone did not install the members.
+  Added `[tool.uv.sources]` (each member `{ workspace = true }`) and listed `pact-flight` /
+  `pact-sim` / `pact-tools` in the `dev` extra so the members install editable.
+- **pytest/mypy basename clash:** the two `test_import.py` files collide under pytest's
+  default import mode and under mypy. Set `[tool.pytest.ini_options] addopts =
+  "--import-mode=importlib"` and `pythonpath = ["."]` (the latter keeps the spawn-based
+  legacy test working), and added `namespace_packages = true` + `explicit_package_bases =
+  true` to `[tool.mypy]`.
+- **uv.lock tracking:** `uv.lock` was gitignored; it is now tracked (removed from
+  `.gitignore`) and committed for reproducible CI installs.
+- **CI ruff scope:** the `Ruff lint` step is `ruff check packages` (not `.`) because ~286
+  pre-existing violations live in legacy `src/`, `tests/`, `scripts/`. Widen to `.` once
+  `src/pact` is removed.
+- **Deferred to the HAL phase:** add `flight.hal.interfaces` to the
+  `drivers-from-composition-roots-only` contract's `source_modules` once the HAL has content.
+
+Verified green locally: pytest (194 passed, plus the 3 new smoke tests), `mypy packages`,
+`ruff check packages`, `ruff format --check packages`, `lint-imports` (4/4 kept). Not yet
+validated: CI on real Linux py3.14 runners (requires a push).

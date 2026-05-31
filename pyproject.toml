@@ -39,12 +39,26 @@ dev = [
     "mypy>=1.5",
     "ruff>=0.1",
     "import-linter>=2.0",
+    # Workspace members installed editable so `uv sync --extra dev` (root-only
+    # sync, as used by CI) makes flight/sim/tools importable for the smoke
+    # tests, mypy, and import-linter. Without these, a root-only sync leaves the
+    # members uninstalled.
+    "pact-flight",
+    "pact-sim",
+    "pact-tools",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pact"]
 
 [tool.pytest.ini_options]
+# import-mode=importlib lets the two workspace-member smoke tests share the
+# basename test_import.py without an __init__.py-induced module collision with
+# the root tests/ package. pythonpath=["."] keeps the repo root importable so
+# multiprocessing spawn subprocesses (e.g. tests/integration) can still resolve
+# the tests package under importlib mode.
+addopts = "--import-mode=importlib"
+pythonpath = ["."]
 testpaths = [
     "tests",
     "packages/flight/tests",
@@ -59,6 +73,11 @@ markers = [
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
+# The two workspace-member smoke tests share the basename test_import.py.
+# namespace_packages + explicit_package_bases let mypy map them to distinct
+# src-layout module paths instead of colliding on a single "test_import" name.
+namespace_packages = true
+explicit_package_bases = true
 
 [tool.ruff]
 line-length = 100
@@ -71,6 +90,11 @@ target-version = "py314"
 
 [tool.uv.workspace]
 members = ["packages/flight", "packages/sim", "packages/tools"]
+
+[tool.uv.sources]
+pact-flight = { workspace = true }
+pact-sim = { workspace = true }
+pact-tools = { workspace = true }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ANN"]

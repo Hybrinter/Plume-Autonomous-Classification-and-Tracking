@@ -44,3 +44,10 @@ source_modules =
 forbidden_modules =
     flight.hal.drivers_real
     flight.hal.drivers_sim
+
+[importlinter:contract:libs-layers]
+name = Libs internal layering (messages depend on types; config and telemetry are independent)
+type = layers
+layers =
+    flight.libs.messages
+    flight.libs.types

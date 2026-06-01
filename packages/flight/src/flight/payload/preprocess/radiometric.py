@@ -44,8 +44,8 @@ class RadiometricCalibration:
                     Values should be close to 1.0. Zero values cause NaN in output.
     """
 
-    dark_frame: np.ndarray    # (C, H, W) float32
-    flat_field: np.ndarray    # (C, H, W) float32, values ~1.0
+    dark_frame: np.ndarray  # (C, H, W) float32
+    flat_field: np.ndarray  # (C, H, W) float32, values ~1.0
 
 
 def apply_calibration(

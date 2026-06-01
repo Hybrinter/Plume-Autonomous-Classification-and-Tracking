@@ -18,9 +18,9 @@ import numpy as np
 
 
 def crop_to_roi(
-    bands: np.ndarray,              # (C, H, W) float32
+    bands: np.ndarray,  # (C, H, W) float32
     center_px: tuple[int, int],
-    output_size: tuple[int, int],   # (H_out, W_out)
+    output_size: tuple[int, int],  # (H_out, W_out)
 ) -> tuple[np.ndarray, tuple[int, int]]:
     """Crop a multispectral array to a fixed-size ROI centred at center_px.
 

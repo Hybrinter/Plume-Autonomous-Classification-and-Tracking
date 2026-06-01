@@ -27,17 +27,17 @@ import numpy as np
 # Indices 1,2,3,7 -> B2 (490 nm), B3 (560 nm), B4 (665 nm), B8 (842 nm).
 # These match the indices used in HsgAimlDataset.__getitem__().
 BAND_INDICES: Final[dict[str, int]] = {
-    "B2": 0,   # 490 nm -- blue
-    "B3": 1,   # 560 nm -- green
-    "B4": 2,   # 665 nm -- red
-    "B8": 3,   # 842 nm -- near-infrared (NIR)
+    "B2": 0,  # 490 nm -- blue
+    "B3": 1,  # 560 nm -- green
+    "B4": 2,  # 665 nm -- red
+    "B8": 3,  # 842 nm -- near-infrared (NIR)
 }
 
 
 def select_bands(
-    raw: np.ndarray,              # (C_total, H, W) float32
+    raw: np.ndarray,  # (C_total, H, W) float32
     band_names: tuple[str, ...],
-) -> np.ndarray:                  # (len(band_names), H, W) float32
+) -> np.ndarray:  # (len(band_names), H, W) float32
     """Select named bands from a raw multispectral array.
 
     Looks up each name in BAND_INDICES and gathers the corresponding slices.

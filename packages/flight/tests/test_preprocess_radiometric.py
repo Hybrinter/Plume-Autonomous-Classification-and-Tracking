@@ -60,9 +60,7 @@ def test_calibration_nan_returns_err() -> None:
     cal = RadiometricCalibration(dark_frame=dark, flat_field=flat)
     result = apply_calibration(raw, cal)
     assert isinstance(result, Err), "Expected Err, got Ok"
-    assert result.error == FaultCode.INFERENCE_NAN, (
-        f"Expected INFERENCE_NAN, got {result.error}"
-    )
+    assert result.error == FaultCode.INFERENCE_NAN, f"Expected INFERENCE_NAN, got {result.error}"
 
 
 def test_dark_frame_subtraction_output_shape() -> None:

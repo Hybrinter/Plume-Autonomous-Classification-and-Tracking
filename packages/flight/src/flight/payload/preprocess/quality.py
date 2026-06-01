@@ -37,7 +37,7 @@ SATURATION_PIXEL_LEVEL: Final[float] = 0.95  # normalised DN units
 
 
 def compute_quality_flags(
-    bands: object,           # np.ndarray[float32, (C, H, W)]
+    bands: object,  # np.ndarray[float32, (C, H, W)]
     exposure_us: float,
     utc_timestamp: str,
     cfg: PreprocessingConfig,
@@ -69,9 +69,7 @@ def compute_quality_flags(
     bands_arr: np.ndarray = bands  # type: ignore[assignment]
     n_pixels: int = bands_arr.shape[1] * bands_arr.shape[2]
     for c in range(bands_arr.shape[0]):
-        saturated_count: int = int(
-            (bands_arr[c] > SATURATION_PIXEL_LEVEL).sum()
-        )
+        saturated_count: int = int((bands_arr[c] > SATURATION_PIXEL_LEVEL).sum())
         if saturated_count / n_pixels > cfg.saturation_fraction_threshold:
             flags.add(FrameUsabilityTag.SATURATED)
             break
@@ -85,9 +83,7 @@ def compute_quality_flags(
     red_band: np.ndarray = bands_arr[2]  # np.ndarray[float32, (H, W)]
     nir_band: np.ndarray = bands_arr[3]  # np.ndarray[float32, (H, W)]
     epsilon: float = 1e-6
-    nir_red_ratio: float = (
-        float(nir_band.mean()) / (float(red_band.mean()) + epsilon)
-    )
+    nir_red_ratio: float = float(nir_band.mean()) / (float(red_band.mean()) + epsilon)
     if nir_red_ratio > cfg.nir_red_ratio_threshold:
         flags.add(FrameUsabilityTag.CLOUD_CONTAMINATED)
 

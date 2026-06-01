@@ -70,12 +70,18 @@ def test_saturated_flag_raised() -> None:
     )
 
 
-@pytest.mark.parametrize("fraction,expect_saturated", [
-    (0.01, False),   # well below 5% threshold
-    (0.049, False),  # just below 5% (4.9%) -- should NOT trigger
-    (0.05, False),   # at 5% threshold exactly -- implementation uses strict >, so does NOT trigger
-    (0.10, True),    # well above 5% -- definitely triggers
-])
+@pytest.mark.parametrize(
+    "fraction,expect_saturated",
+    [
+        (0.01, False),  # well below 5% threshold
+        (0.049, False),  # just below 5% (4.9%) -- should NOT trigger
+        (
+            0.05,
+            False,
+        ),  # at 5% threshold exactly -- implementation uses strict >, so does NOT trigger
+        (0.10, True),  # well above 5% -- definitely triggers
+    ],
+)
 def test_saturated_flag_boundary(fraction: float, expect_saturated: bool) -> None:
     """Parametrized boundary test for the SATURATED flag at the 5% pixel threshold.
 

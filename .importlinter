@@ -51,3 +51,19 @@ type = layers
 layers =
     flight.libs.messages
     flight.libs.types
+
+[importlinter:contract:drivers-independent]
+name = Real and sim drivers must not import each other
+type = forbidden
+source_modules =
+    flight.hal.drivers_real
+forbidden_modules =
+    flight.hal.drivers_sim
+
+[importlinter:contract:drivers-independent-reverse]
+name = Sim drivers must not import real drivers
+type = forbidden
+source_modules =
+    flight.hal.drivers_sim
+forbidden_modules =
+    flight.hal.drivers_real

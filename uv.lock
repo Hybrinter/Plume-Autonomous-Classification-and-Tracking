@@ -954,12 +954,14 @@ version = "0.1.0"
 source = { editable = "packages/flight" }
 dependencies = [
     { name = "numpy" },
+    { name = "scipy" },
     { name = "structlog" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=1.24" },
+    { name = "scipy", specifier = ">=1.11" },
     { name = "structlog", specifier = ">=23.0" },
 ]
 

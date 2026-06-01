@@ -9,6 +9,7 @@ description = "PACT flight software (lean flight image)"
 requires-python = ">=3.14"
 dependencies = [
     "numpy>=1.24",
+    "scipy>=1.11",
     "structlog>=23.0",
 ]
 

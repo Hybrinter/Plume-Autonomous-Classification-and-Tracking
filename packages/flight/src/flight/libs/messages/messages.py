@@ -183,6 +183,25 @@ class ModeChangeMsg:
 
 
 @dataclass(frozen=True)
+class CommandMsg:
+    """Ground/station command routed via iss_iface to a target subsystem.
+
+    The standard command envelope: the station/ground sends a CommandMsg to iss_iface,
+    which publishes it onto the bus for the core/target app to act on. params holds only
+    JSON-serializable primitives. seq is a monotonic per-source counter for ordering and
+    de-duplication.
+    """
+
+    msg_type: MessageType  # must be MessageType.COMMAND
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    target: str  # destination subsystem name (e.g. "payload", "fault")
+    command_id: str  # command identifier / opcode (e.g. "set_mode")
+    params: dict[str, str | int | float | bool]  # serializable command parameters only
+    source: str  # command origin (e.g. "ground", "station_ops")
+    seq: int  # monotonic per-source command sequence number
+
+
+@dataclass(frozen=True)
 class StorageWriteMsg:
     """Bundle of a full frame's data for the storage writer process.
 

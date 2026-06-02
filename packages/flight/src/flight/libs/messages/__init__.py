@@ -6,6 +6,7 @@ from `flight.libs.messages`.
 
 from flight.libs.messages.messages import (
     BlobMeta,
+    CommandMsg,
     DownlinkItemMsg,
     FaultEventMsg,
     GimbalCommandMsg,
@@ -22,6 +23,7 @@ from flight.libs.messages.messages import (
 
 __all__ = [
     "BlobMeta",
+    "CommandMsg",
     "DownlinkItemMsg",
     "FaultEventMsg",
     "GimbalCommandMsg",

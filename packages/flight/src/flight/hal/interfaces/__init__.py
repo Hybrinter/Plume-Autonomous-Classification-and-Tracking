@@ -4,5 +4,6 @@ concrete drivers; the composition root injects the implementation.
 
 from flight.hal.interfaces.gimbal import GimbalActuator, GimbalPosition
 from flight.hal.interfaces.sensor import ImagingSensor
+from flight.hal.interfaces.station import StationLink
 
-__all__ = ["GimbalActuator", "GimbalPosition", "ImagingSensor"]
+__all__ = ["GimbalActuator", "GimbalPosition", "ImagingSensor", "StationLink"]

@@ -6,5 +6,6 @@ lazily imports PySpin and raises ImportError if it is absent.
 
 from flight.hal.drivers_real.gimbal import RealGimbal
 from flight.hal.drivers_real.sensor import RealSensor
+from flight.hal.drivers_real.station import RealStationLink
 
-__all__ = ["RealGimbal", "RealSensor"]
+__all__ = ["RealGimbal", "RealSensor", "RealStationLink"]

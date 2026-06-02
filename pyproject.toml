@@ -78,6 +78,13 @@ ignore_missing_imports = true
 # src-layout module paths instead of colliding on a single "test_import" name.
 namespace_packages = true
 explicit_package_bases = true
+# Resolve cross-package `flight.*` / `sim.*` / `tools.*` imports to the workspace
+# SOURCE trees rather than the editable-installed (py.typed-less) packages. Without
+# this, mypy falls back to Any for every cross-package symbol, silently disabling
+# strict checking across modules (e.g. a function returning dict[str, WatchdogEntry]
+# would collapse to dict[str, Any]). With these src dirs on the path, strict
+# type-checking holds across the whole workspace.
+mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src"]
 
 [tool.ruff]
 line-length = 100

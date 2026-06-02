@@ -1,6 +1,7 @@
 """Tests for the pure heartbeat watchdog."""
 
 from flight.fault.watchdog import build_entries, check_heartbeats
+from flight.libs.messages import FaultEventMsg
 from flight.libs.types import FaultCode
 
 
@@ -30,7 +31,7 @@ def test_threshold_emits_watchdog_expire() -> None:
     """Reaching max_miss_count consecutive overdue intervals emits WATCHDOG_EXPIRE."""
     entries = build_entries(("payload",), max_interval_s=5.0, now=0.0)
     now = 0.0
-    faults = []
+    faults: list[FaultEventMsg] = []
     for _ in range(3):  # max_miss_count = 3
         now += 6.0
         entries, faults = check_heartbeats(entries, now, max_miss_count=3, now_iso="t")

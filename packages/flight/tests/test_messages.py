@@ -20,7 +20,10 @@ def test_heartbeat_is_frozen() -> None:
         sequence=1,
     )
     try:
-        hb.sequence = 2  # frozen: reassignment raises AttributeError at runtime
+        # setattr (not direct assignment) so mypy does not statically reject writing
+        # the read-only field; frozen dataclasses raise FrozenInstanceError (an
+        # AttributeError subclass) at runtime.
+        setattr(hb, "sequence", 2)  # noqa: B010
     except AttributeError:
         return
     raise AssertionError("HeartbeatMsg should be frozen")

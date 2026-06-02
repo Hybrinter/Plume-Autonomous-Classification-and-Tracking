@@ -42,9 +42,7 @@ class Scheduler:
     def start(self) -> None:
         """Launch each app's run(stop_event) in a named daemon thread."""
         for name, app in self._apps:
-            thread = threading.Thread(
-                target=app.run, args=(self._stop,), name=name, daemon=True
-            )
+            thread = threading.Thread(target=app.run, args=(self._stop,), name=name, daemon=True)
             thread.start()
             self._threads.append(thread)
 

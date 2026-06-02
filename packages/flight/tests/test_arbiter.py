@@ -144,7 +144,7 @@ def test_idle_to_scan_on_timeout(
     long_idle_state = ArbiterState(
         gimbal_state=GimbalState.IDLE,
         tracked_blobs=(),
-        idle_duration_s=61.0,       # exceeds scan_entry_idle_seconds=60.0
+        idle_duration_s=61.0,  # exceeds scan_entry_idle_seconds=60.0
         last_command_time=0.0,
         current_target_id=None,
     )
@@ -157,35 +157,42 @@ def test_idle_to_scan_on_timeout(
     )
 
 
-def test_any_to_safe_on_fault(
-    arbiter_idle_state: ArbiterState, default_config: PactConfig
-) -> None:
+def test_any_to_safe_on_fault(arbiter_idle_state: ArbiterState, default_config: PactConfig) -> None:
     """Fault signal in mode_flags causes any state to transition to SAFE."""
     arbiter = GimbalArbiter(cfg=default_config.controller)
 
     for start_state_name, start_state in [
         ("IDLE", arbiter_idle_state),
-        ("ACQUIRING", ArbiterState(
-            gimbal_state=GimbalState.ACQUIRING,
-            tracked_blobs=(make_blob(persistence_count=1),),
-            idle_duration_s=0.0,
-            last_command_time=0.0,
-            current_target_id=None,
-        )),
-        ("TRACKING", ArbiterState(
-            gimbal_state=GimbalState.TRACKING,
-            tracked_blobs=(make_blob(persistence_count=5),),
-            idle_duration_s=0.0,
-            last_command_time=0.0,
-            current_target_id=1,
-        )),
-        ("SCAN", ArbiterState(
-            gimbal_state=GimbalState.SCAN,
-            tracked_blobs=(),
-            idle_duration_s=65.0,
-            last_command_time=0.0,
-            current_target_id=None,
-        )),
+        (
+            "ACQUIRING",
+            ArbiterState(
+                gimbal_state=GimbalState.ACQUIRING,
+                tracked_blobs=(make_blob(persistence_count=1),),
+                idle_duration_s=0.0,
+                last_command_time=0.0,
+                current_target_id=None,
+            ),
+        ),
+        (
+            "TRACKING",
+            ArbiterState(
+                gimbal_state=GimbalState.TRACKING,
+                tracked_blobs=(make_blob(persistence_count=5),),
+                idle_duration_s=0.0,
+                last_command_time=0.0,
+                current_target_id=1,
+            ),
+        ),
+        (
+            "SCAN",
+            ArbiterState(
+                gimbal_state=GimbalState.SCAN,
+                tracked_blobs=(),
+                idle_duration_s=65.0,
+                last_command_time=0.0,
+                current_target_id=None,
+            ),
+        ),
     ]:
         fault_result = make_inference_result(blobs=(), mode_flags=_FAULT_FLAG)
         new_state, _, _ = arbiter.step(start_state, fault_result, now=1.0)
@@ -220,8 +227,7 @@ def test_valid_transitions_exhaustive() -> None:
         for from_state, to_states in expected_transitions.items():
             actual = vt.get(from_state, frozenset())
             assert to_states.issubset(actual), (
-                f"VALID_TRANSITIONS[{from_state}] missing expected targets: "
-                f"{to_states - actual}"
+                f"VALID_TRANSITIONS[{from_state}] missing expected targets: {to_states - actual}"
             )
     else:
         # No VALID_TRANSITIONS attribute -- skip structural check with a note

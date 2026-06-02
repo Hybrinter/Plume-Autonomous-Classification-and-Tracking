@@ -56,8 +56,8 @@ def test_iou_no_overlap() -> None:
 
 def test_iou_partial_overlap() -> None:
     """Partially overlapping boxes must return IoU strictly between 0 and 1."""
-    box_a = (0, 0, 10, 10)   # area = 100
-    box_b = (5, 5, 15, 15)   # area = 100; overlap = (5,5,10,10) = 25
+    box_a = (0, 0, 10, 10)  # area = 100
+    box_b = (5, 5, 15, 15)  # area = 100; overlap = (5,5,10,10) = 25
     score = compute_iou(box_a, box_b)
     assert 0.0 < score < 1.0
     # intersection=25, union=175, IoU ~= 25/175
@@ -153,7 +153,7 @@ def test_match_blobs_empty_new() -> None:
 def test_match_blobs_unmatched_prev_dropped() -> None:
     """Previous blobs with no IoU match to any new blob must be dropped from the result."""
     prev = (
-        make_blob(blob_id=1, bbox=(0, 0, 10, 10)),   # will match
+        make_blob(blob_id=1, bbox=(0, 0, 10, 10)),  # will match
         make_blob(blob_id=2, bbox=(200, 200, 210, 210)),  # far away, no match
     )
     new = (make_blob(blob_id=99, bbox=(0, 0, 10, 10)),)  # matches blob_id=1 only

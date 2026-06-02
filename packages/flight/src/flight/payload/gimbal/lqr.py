@@ -33,24 +33,30 @@ class LqrController:
         B = [[0,0],[0,0],[dt,0],[0,dt]] (4x2 control input).
         """
         dt = cfg.kalman_dt_s
-        A = np.array([  # noqa: N806
-            [1, 0, dt, 0],
-            [0, 1, 0, dt],
-            [0, 0, 1,  0],
-            [0, 0, 0,  1],
-        ], dtype=np.float64)
-        B = np.array([  # noqa: N806
-            [0,  0],
-            [0,  0],
-            [dt, 0],
-            [0, dt],
-        ], dtype=np.float64)
+        A = np.array(  # noqa: N806
+            [
+                [1, 0, dt, 0],
+                [0, 1, 0, dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ],
+            dtype=np.float64,
+        )
+        B = np.array(  # noqa: N806
+            [
+                [0, 0],
+                [0, 0],
+                [dt, 0],
+                [0, dt],
+            ],
+            dtype=np.float64,
+        )
         Q = np.diag(np.array(cfg.lqr_Q_diag, dtype=np.float64))  # noqa: N806
         R = np.diag(np.array(cfg.lqr_R_diag, dtype=np.float64))  # noqa: N806
         try:
             P = scipy.linalg.solve_discrete_are(A, B, Q, R)  # noqa: N806
             K = np.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)  # noqa: N806
-        except (ValueError, np.linalg.LinAlgError):
+        except ValueError, np.linalg.LinAlgError:
             # Fallback to proportional control if DARE fails
             K = np.zeros((2, 4), dtype=np.float64)  # noqa: N806
             K[0, 0] = 1.0  # pan proportional
@@ -68,6 +74,8 @@ def compute_control(
     """
     u = -controller.K @ state_error
     clamped: np.ndarray = np.clip(
-        u, -controller.max_slew_deg_s, controller.max_slew_deg_s,
+        u,
+        -controller.max_slew_deg_s,
+        controller.max_slew_deg_s,
     )
     return clamped

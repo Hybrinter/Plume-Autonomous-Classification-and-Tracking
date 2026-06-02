@@ -144,13 +144,15 @@ class GimbalArbiter:
                 gimbal_state=GimbalState.SAFE,
                 tracked_blobs=blobs,
             )
-            events.append(TelemetryEventMsg(
-                msg_type=MessageType.TELEMETRY_EVENT,
-                timestamp_utc=utc_now_iso(),
-                subsystem="controller",
-                event_name="state_transition",
-                payload={"from": old_gs.value, "to": GimbalState.SAFE.value},
-            ))
+            events.append(
+                TelemetryEventMsg(
+                    msg_type=MessageType.TELEMETRY_EVENT,
+                    timestamp_utc=utc_now_iso(),
+                    subsystem="controller",
+                    event_name="state_transition",
+                    payload={"from": old_gs.value, "to": GimbalState.SAFE.value},
+                )
+            )
             return new_state, None, events
 
         if old_gs == GimbalState.SAFE:
@@ -194,16 +196,18 @@ class GimbalArbiter:
 
         # Emit telemetry on every state transition
         if new_gs != old_gs:
-            events.append(TelemetryEventMsg(
-                msg_type=MessageType.TELEMETRY_EVENT,
-                timestamp_utc=utc_now_iso(),
-                subsystem="controller",
-                event_name="state_transition",
-                payload={
-                    "from": old_gs.value,
-                    "to": new_gs.value,
-                },
-            ))
+            events.append(
+                TelemetryEventMsg(
+                    msg_type=MessageType.TELEMETRY_EVENT,
+                    timestamp_utc=utc_now_iso(),
+                    subsystem="controller",
+                    event_name="state_transition",
+                    payload={
+                        "from": old_gs.value,
+                        "to": new_gs.value,
+                    },
+                )
+            )
 
         # Generate commands based on new state
         if new_gs == GimbalState.TRACKING and has_blobs:
@@ -226,10 +230,7 @@ class GimbalArbiter:
 
         elif new_gs == GimbalState.SCAN:
             if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                scan_step = (
-                    cfg.scan_slew_rate_deg_per_s
-                    * (1.0 / cfg.retarget_rate_limit_hz)
-                )
+                scan_step = cfg.scan_slew_rate_deg_per_s * (1.0 / cfg.retarget_rate_limit_hz)
                 scan_pan = scan_pan + scan_step
                 if scan_pan > 30.0:
                     scan_pan = 30.0
@@ -265,10 +266,7 @@ def _any_acquired(
     cfg: ControllerConfig,
 ) -> bool:
     """Return True if any blob has persistence >= acquire threshold."""
-    return any(
-        b.persistence_count >= cfg.acquire_persistence_frames
-        for b in blobs
-    )
+    return any(b.persistence_count >= cfg.acquire_persistence_frames for b in blobs)
 
 
 def _select_best_target(blobs: tuple[BlobMeta, ...]) -> BlobMeta:
@@ -280,7 +278,9 @@ def _select_best_target(blobs: tuple[BlobMeta, ...]) -> BlobMeta:
 
 
 def _rate_ok(
-    last_cmd_time: float, now: float, rate_hz: float,
+    last_cmd_time: float,
+    now: float,
+    rate_hz: float,
 ) -> bool:
     """Check if enough time elapsed for a new command."""
     if rate_hz <= 0.0:

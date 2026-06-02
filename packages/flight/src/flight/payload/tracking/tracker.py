@@ -131,23 +131,27 @@ def match_blobs(
         blob = new_blobs[ni]
         if ni in new_to_prev:
             prev = prev_blobs[new_to_prev[ni]]
-            result.append(BlobMeta(
-                blob_id=prev.blob_id,
-                bbox=blob.bbox,
-                centroid_raw=blob.centroid_raw,
-                pixel_area=blob.pixel_area,
-                mean_confidence=blob.mean_confidence,
-                persistence_count=prev.persistence_count + 1,
-            ))
+            result.append(
+                BlobMeta(
+                    blob_id=prev.blob_id,
+                    bbox=blob.bbox,
+                    centroid_raw=blob.centroid_raw,
+                    pixel_area=blob.pixel_area,
+                    mean_confidence=blob.mean_confidence,
+                    persistence_count=prev.persistence_count + 1,
+                )
+            )
         else:
-            result.append(BlobMeta(
-                blob_id=next_id,
-                bbox=blob.bbox,
-                centroid_raw=blob.centroid_raw,
-                pixel_area=blob.pixel_area,
-                mean_confidence=blob.mean_confidence,
-                persistence_count=1,
-            ))
+            result.append(
+                BlobMeta(
+                    blob_id=next_id,
+                    bbox=blob.bbox,
+                    centroid_raw=blob.centroid_raw,
+                    pixel_area=blob.pixel_area,
+                    mean_confidence=blob.mean_confidence,
+                    persistence_count=1,
+                )
+            )
             next_id += 1
 
     return tuple(result)

@@ -46,27 +46,35 @@ class KalmanFilter:
         q = cfg.kalman_process_noise
         r = cfg.kalman_measurement_noise
         # Constant-velocity model: position updated by velocity * dt
-        F = np.array([  # noqa: N806
-            [1, 0, dt, 0],
-            [0, 1, 0, dt],
-            [0, 0, 1,  0],
-            [0, 0, 0,  1],
-        ], dtype=np.float64)
-        H = np.array([  # noqa: N806
-            [1, 0, 0, 0],
-            [0, 1, 0, 0],
-        ], dtype=np.float64)
+        F = np.array(  # noqa: N806
+            [
+                [1, 0, dt, 0],
+                [0, 1, 0, dt],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ],
+            dtype=np.float64,
+        )
+        H = np.array(  # noqa: N806
+            [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+            ],
+            dtype=np.float64,
+        )
         Q = np.eye(4, dtype=np.float64) * q  # noqa: N806
         R = np.eye(2, dtype=np.float64) * r  # noqa: N806
         return KalmanFilter(F=F, H=H, Q=Q, R=R)
 
     @staticmethod
     def initial_state(
-        pan_deg: float, tilt_deg: float,
+        pan_deg: float,
+        tilt_deg: float,
     ) -> KalmanState:
         """Create an initial Kalman state at a given position."""
         x = np.array(
-            [pan_deg, tilt_deg, 0.0, 0.0], dtype=np.float64,
+            [pan_deg, tilt_deg, 0.0, 0.0],
+            dtype=np.float64,
         )
         P = np.eye(4, dtype=np.float64) * 1.0  # noqa: N806
         return KalmanState(x=x, P=P)

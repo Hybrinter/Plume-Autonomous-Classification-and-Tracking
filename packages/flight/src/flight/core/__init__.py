@@ -1,10 +1,18 @@
-"""Compute / C&DH host (composition root, config loading, scheduling).
+"""Compute / C&DH host: config loading, the composition root, and scheduling."""
 
-This phase populates only config loading; the composition root, scheduler, bus
-router wiring, storage, telemetry aggregator, and FDIR coordinator are added as
-the subsystem apps come online.
-"""
-
+from flight.core.composition import MONITORED_SUBSYSTEMS, Drivers, SystemApps, build_apps
 from flight.core.config_loader import load_config
+from flight.core.main import build_flight_system, main
+from flight.core.scheduler import RunnableApp, Scheduler
 
-__all__ = ["load_config"]
+__all__ = [
+    "MONITORED_SUBSYSTEMS",
+    "Drivers",
+    "RunnableApp",
+    "Scheduler",
+    "SystemApps",
+    "build_apps",
+    "build_flight_system",
+    "load_config",
+    "main",
+]

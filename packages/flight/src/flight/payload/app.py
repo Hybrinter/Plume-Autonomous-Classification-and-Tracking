@@ -207,9 +207,7 @@ class PayloadApp:
 
         detect_result = self.detector.detect(processed)
         if isinstance(detect_result, Err):
-            self._publish_fault(
-                detect_result.error, f"detection failed frame_id={raw.frame_id}"
-            )
+            self._publish_fault(detect_result.error, f"detection failed frame_id={raw.frame_id}")
             return state, self._fault_outcome(raw.frame_id, detect_result.error, state)
         inference = detect_result.value
         self.bus.publish(inference)
@@ -288,9 +286,7 @@ class PayloadApp:
             )
         )
 
-    def _fault_outcome(
-        self, frame_id: int, code: FaultCode, state: ControlState
-    ) -> TickOutcome:
+    def _fault_outcome(self, frame_id: int, code: FaultCode, state: ControlState) -> TickOutcome:
         """Build a TickOutcome for a frame that faulted before control ran.
 
         Args:

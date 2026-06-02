@@ -89,9 +89,7 @@ class ElectricalApp:
                     timestamp_utc=self.clock.wall_clock_iso(),
                     fault_code=FaultCode.POWER_OVER_LIMIT,
                     subsystem=SUBSYSTEM,
-                    detail=(
-                        f"power {power_w:.1f}W exceeds limit {self.cfg.power_limit_w:.1f}W"
-                    ),
+                    detail=(f"power {power_w:.1f}W exceeds limit {self.cfg.power_limit_w:.1f}W"),
                 )
             )
 

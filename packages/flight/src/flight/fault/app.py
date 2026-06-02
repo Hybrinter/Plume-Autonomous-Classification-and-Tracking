@@ -79,9 +79,10 @@ class FaultApp:
 
     def initial_entries(self) -> dict[str, WatchdogEntry]:
         """Seed the watchdog entries dict for all monitored subsystems at the current time."""
-        return build_entries(
+        entries: dict[str, WatchdogEntry] = build_entries(
             self.monitored, self.cfg.watchdog_interval_s, self.clock.monotonic_s()
         )
+        return entries
 
     def tick(self, entries: dict[str, WatchdogEntry], now: float) -> dict[str, WatchdogEntry]:
         """Run one watchdog + fault-routing cycle, publishing any mode changes.
@@ -113,6 +114,7 @@ class FaultApp:
             if change is not None:
                 self.bus.publish(change)
 
+        updated: dict[str, WatchdogEntry]
         updated, watchdog_faults = check_heartbeats(
             working, now, self.cfg.watchdog_max_miss_count, self.clock.wall_clock_iso()
         )

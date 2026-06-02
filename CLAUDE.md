@@ -2,131 +2,180 @@
 
 This file contains non-obvious, cross-cutting patterns for the PACT codebase.
 These apply project-wide and cannot be derived by reading individual files.
-For system architecture and design rationale, see `docs/architecture.md`.
+For system architecture and design rationale, see `docs/architecture.md` and the design spec
+`docs/superpowers/specs/2026-05-30-pact-iss-payload-fsw-structure-design.md`.
 
 ---
 
-## Rust-Migration Contract
+## Where the Code Lives
 
-Every Python design choice optimizes for mechanical translation to Rust. The codebase is
-written Rust-idiomatically (frozen dataclasses, enum discriminants, `Result[T,E]` error
-handling, no dynamic dispatch) so that the translation is a structural mapping, not a
-rewrite. The typing rules themselves are in `.claude/rules/strong_typing.md`.
+The flight software is the `uv` workspace under `packages/`:
 
-The one intentional exception: `InferenceEngine` is `@dataclass(frozen=True)` but holds a
-mutable `torch.nn.Module`. The frozen constraint prevents field *reassignment* -- it cannot
-prevent in-place weight mutation. Weights must not change after construction; this is
-enforced by convention only.
+- `packages/flight/` (`pact-flight`) -- the flight software (lean deps: numpy, scipy, structlog).
+- `packages/sim/` (`pact-sim`) -- SIL harness, scene generation, digital twin (depends on flight).
+- `packages/tools/` (`pact-tools`) -- training/eval/export; heavy deps (torch etc.) live here only.
+
+**`src/pact/` is LEGACY.** It is the pre-restructure multiprocessing/`ops/main.py` codebase,
+retained for reference while it is retired. Do not build new work against it; do not assume its
+patterns apply to `packages/flight`. (PACT is an ISS-attached payload; the earlier Rust-migration
+plan is dropped -- the codebase is Python-only.)
+
+Run gates with `uv run <tool> packages` (ruff, ruff format --check, mypy, lint-imports, pytest).
+CI gates are scoped to `packages/`; widen them to the whole tree only after `src/pact` is removed.
+
+---
+
+## Subsystem-App + Bus Contract
+
+Each subsystem under `packages/flight/src/flight/` is an isolated **app**: a thin imperative shell
+around a pure core, talking to other apps **only** over the typed `MessageBus`
+(`flight.libs.bus`). No app imports or references another app. Peer apps
+(`payload`/`fault`/`iss_iface`/`thermal`/`electrical`) must never cross-import -- this is enforced
+by the `flight-layers` import-linter contract (layer order: `core` > apps > `hal.interfaces` >
+`libs`).
+
+**Invariant:** if a new inter-subsystem channel is needed, it is a message type in
+`flight.libs.messages` published/subscribed on the bus -- never a direct call or a queue an app
+constructs itself.
+
+---
+
+## Composition-Root Ownership
+
+`flight.core` is the only composition root for flight (and `sim.sil` for SIL). It alone:
+constructs the `MessageBus`, the `Clock`, and the concrete HAL drivers; calls
+`flight.core.composition.build_apps(config, bus, clock, drivers, monitored)` to wire every app;
+and runs them via `flight.core.scheduler.Scheduler` (one daemon thread per app's
+`run(stop_event)`).
+
+**Invariants:**
+- Only composition roots construct the bus and the drivers. Apps receive injected bus
+  subscriptions + driver Protocols as constructor arguments. Pure cores touch neither.
+- `build_apps` and `flight.core.scheduler` must stay **driver-agnostic** -- they import only HAL
+  Protocols and apps, never `flight.hal.drivers_real`/`drivers_sim`. Only `flight.core.main`
+  imports concrete real drivers. This is enforced by the `drivers-from-composition-roots-only`
+  import-linter contract; keeping `build_apps` driver-free is what lets the SIL reuse it verbatim.
 
 ---
 
 ## Preprocessing Co-Location Invariant
 
-Preprocessing runs as a plain function call inside `_run_inference_process()` in
-`ops/main.py`, not as a separate process or thread. This is the most non-obvious
-structural decision in the codebase.
+Preprocessing runs as plain function calls inside `PayloadApp.process_frame()`
+(`flight/payload/app.py`), not as a separate process/thread and not across the bus.
 
-**Why:** Preprocessing outputs a `(C, H, W)` float32 numpy array. Passing this through a
-`multiprocessing.Queue` requires pickling -- a significant serialization cost on every
-frame. As a function call, it has zero overhead.
+**Why:** preprocessing outputs a `(C, H, W)` float32 numpy array. Putting it on the bus (or any
+queue) requires pickling -- a per-frame serialization cost. As an in-function value it has zero
+overhead.
 
-**Invariant:** Never move preprocessing to a separate process or thread. Never add a
-`ProcessedFrameMsg` queue between preprocessing and inference. If you're adding
-preprocessing logic, it goes in `src/pact/preprocessing/` as a pure function, called from
-`_run_inference_process()`.
+**Invariant:** never publish `ProcessedFrameMsg` to the bus; never add a process/thread boundary
+between preprocessing and inference. New preprocessing logic goes in `flight/payload/preprocess/`
+as a pure function called from `process_frame()`. (Large artifacts -- tensors, masks -- never go
+on the bus; only compact records do.)
 
 ---
 
-## Pure-Function Arbiter Contract
+## Pure-Core Contract (controller, arbiter, tracking, watchdog, policy)
 
-`GimbalArbiter.step(state, result, now)` is a pure function -- no side effects, no I/O,
-no queue access, no logging. It maps inputs to outputs deterministically.
+The decision cores are **pure functions**: no I/O, no bus access, no clock reads, no logging. They
+map inputs (including `now` and current state) to outputs (new state + messages) deterministically.
+This holds for `PayloadController.step`, `GimbalArbiter.step`, the tracking estimators
+(`ema_update`, Kalman `predict`/`update`, `match_blobs`), the LQR law, and the FDIR
+`check_heartbeats` / `decide_mode_change`.
 
-**Why:** Pure functions are trivially unit-testable, replayable from logs, and translatable
-to Rust without concurrency concerns. All mutable state lives in `ArbiterState` (passed in,
-returned out). The caller (`controller/process.py`) owns the queues, the clock, and the
-state.
+**Why:** pure cores are trivially unit-testable, replayable from logs, and free of concurrency
+concerns. All mutable state is threaded in and out (passed in, returned out); the app shell owns
+the bus, the clock, and the state variable.
 
-**Invariant:** Never add I/O, queue access, or side effects to `GimbalArbiter`. Never move
-the clock source inside the arbiter. Any new arbiter logic must be expressible as a pure
-state transformation.
+**Invariant:** never add I/O, bus access, side effects, or a clock source inside a pure core. Time
+is passed in as a `now: float` argument (monotonic seconds). Any new core logic must be expressible
+as a pure state transformation.
 
 ---
 
 ## Result[T, E] Usage Contract
 
-Library code returns `Result[T, E]` -- it never raises. Process entry points may raise for
-unrecoverable startup failures only.
+Library code returns `Result[T, E]` (`Ok` | `Err`, from `flight.libs.types`) -- it never raises.
+Process entry points may raise for unrecoverable startup failures only (e.g. bad config in
+`main`).
 
-**The distinction:** if a caller can meaningfully handle the failure (retry, degrade, emit
-a fault), it's a `Result`. If the system cannot continue without human intervention (bad
-config, missing model file), it's a startup exception.
+**The distinction:** if a caller can meaningfully handle the failure (retry, degrade, emit a
+fault), it is a `Result`. If the system cannot continue without human intervention, it is a startup
+exception.
 
 **Pattern:**
 
 ```python
 result = some_library_function(...)
-match result:
-    case Ok(value):
-        # use value
-    case Err(fault_code):
-        fault_queue.put(FaultEventMsg(..., fault_code=fault_code))
+if isinstance(result, Err):
+    bus.publish(FaultEventMsg(..., fault_code=result.error))
+    return
+value = result.value  # safe: narrowed to Ok
 ```
 
-Do not call `.value` without checking `isinstance(result, Ok)` first.
+Never read `.value` without an `isinstance(result, Ok)` (or `Err`) check first.
 
 ---
 
-## Queue Ownership
+## HAL Protocol + Lazy-SDK Contract
 
-All inter-process queues are created in `ops/main.py:main()` and passed as constructor
-arguments to each subsystem's process entry point. No subsystem creates its own queues.
+Every device class is a `@runtime_checkable` `Protocol` in `flight.hal.interfaces`, returning
+`Result[..., FaultCode]`. Real drivers (`drivers_real`) and sim drivers (`drivers_sim`) implement
+it structurally; the composition root injects the choice and **apps never know which they got**.
 
-**Why:** Keeping queue creation in one place makes the full process topology visible without
-reading 10 files. It also prevents a subsystem from silently creating a local queue that
-never reaches its intended consumer.
-
-**Invariant:** Never create a `multiprocessing.Queue` or `queue.Queue` inside a subsystem
-module. If a new inter-subsystem channel is needed, add it to `ops/main.py`.
+Hardware/ML SDK imports are **lazy** -- inside `__init__`/`detect`, not at module top. Importing a
+driver module never requires its SDK; only constructing the real driver does (`RealSensor` ->
+PySpin, `OnnxDetector` -> onnxruntime). This keeps CI and the lean flight image SDK-free. The real
+and sim driver sets must not import each other (`drivers-independent` contracts).
 
 ---
 
 ## Config Distribution
 
-`ops/config_loader.py` loads `config/default.toml` (merged with `config/flight.toml` if
-present) once at startup, producing a frozen `PactConfig` instance. Each subsystem receives
-its typed config dataclass as an argument -- no subsystem reads TOML directly.
+`flight.core.config_loader.load_config()` loads `config/default.toml` (merged with an override if
+present) once at startup, producing a frozen `PactConfig`. Each subsystem's `from_config` receives
+the typed config it needs -- no subsystem reads TOML directly.
 
-**Invariant:** Default field values in `src/pact/types/config.py` must match
-`config/default.toml` exactly. There is no CI check for this yet -- divergence is a silent
-bug that affects test reproducibility.
+**Invariant:** default field values in `flight/libs/config/config.py` must match
+`config/default.toml` exactly (a divergence is a silent test-reproducibility bug; the
+`test_config_defaults` test guards this).
 
 ---
 
-## Heartbeat Contract
+## Heartbeat / Watchdog Contract
 
-Every subsystem that runs as a persistent process or thread sends `HeartbeatMsg` periodically
-to `heartbeat_queue`. The fault watchdog expects a heartbeat every `watchdog_interval_s`
-(default 5 s); three consecutive misses triggers `FaultCode.PROCESS_DIED`.
+Every app that runs a persistent loop emits `HeartbeatMsg` periodically (in its `run()` loop, every
+`watchdog_interval_s`, default 5 s). The FDIR watchdog (`flight.fault`) monitors the subsystems in
+`flight.core.composition.MONITORED_SUBSYSTEMS` and emits `WATCHDOG_EXPIRE` after
+`watchdog_max_miss_count` (default 3) consecutive misses; `flight.fault.policy` routes that (and
+the other SAFE-triggering faults) to `ModeChangeMsg(SAFE)`.
 
-**Implementation pattern:** use `threading.Event.wait(timeout=watchdog_interval_s)` not
-`time.sleep(watchdog_interval_s)`. The `wait()` call exits immediately when `stop_event` is
-set, enabling clean shutdown without waiting out the full interval.
+**Implementation pattern:** loops use `stop_event.wait(timeout=interval)`, not `time.sleep`, so
+shutdown is immediate. The deterministic SIL harness stands in for these per-app heartbeats by
+publishing them itself each step.
+
+---
+
+## Strong Typing + mypy_path
+
+mypy runs `--strict`. The root `pyproject.toml` sets
+`mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src"]` so cross-package
+`flight.*`/`sim.*`/`tools.*` imports resolve to the workspace **source** trees. **Do not remove
+it** -- without it those imports fall back to `Any` (the editable installs have no `py.typed`),
+silently disabling strict checking across modules. Polymorphism is expressed with statically-typed
+`Protocol` interfaces (the relaxed form of the "no dynamic dispatch" rule); avoid callable dispatch
+tables and duck typing. See `.claude/rules/strong_typing.md`.
 
 ---
 
 ## Subsystem Context Files
 
-Detailed non-obvious context for each subsystem. Not auto-loaded -- read on demand when
-working in a subsystem.
+Detailed non-obvious context per subsystem (read on demand when working in one):
 
-- `src/pact/types/CONTEXT.md`
-- `src/pact/model/CONTEXT.md`
-- `src/pact/preprocessing/CONTEXT.md`
-- `src/pact/controller/CONTEXT.md`
-- `src/pact/imaging/CONTEXT.md`
-- `src/pact/comms/CONTEXT.md`
-- `src/pact/storage/CONTEXT.md`
-- `src/pact/telemetry/CONTEXT.md`
-- `src/pact/fault/CONTEXT.md`
-- `src/pact/ops/CONTEXT.md`
+- `packages/flight/src/flight/libs/CONTEXT.md`
+- `packages/flight/src/flight/hal/CONTEXT.md`
+- `packages/flight/src/flight/core/CONTEXT.md`
+- `packages/flight/src/flight/payload/CONTEXT.md`
+- `packages/flight/src/flight/fault/CONTEXT.md`
+- `packages/flight/src/flight/iss_iface/CONTEXT.md`
+- `packages/flight/src/flight/thermal/CONTEXT.md` (also covers `electrical`)
+- `packages/sim/src/sim/CONTEXT.md`

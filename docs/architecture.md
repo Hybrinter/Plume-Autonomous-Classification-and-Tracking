@@ -1,314 +1,278 @@
-# PACT Software Architecture
+# PACT Flight Software Architecture
+
+> **Status (2026-06-01):** This document describes the current `packages/flight` subsystem-app
+> architecture on branch `fsw-restructure`. The legacy `src/pact/` tree (multiprocessing +
+> `ops/main.py`) is retained for reference and is being retired; do not build new work against it.
+> The design rationale lives in
+> `docs/superpowers/specs/2026-05-30-pact-iss-payload-fsw-structure-design.md`.
 
 ## System Overview
 
-PACT (Plume Autonomous Capture Technology) autonomously detects industrial smoke-stack plumes
-in multispectral VNIR imagery, drives an active gimbal to track detected plumes, stores
-imagery and metadata with integrity checksums, and downlinks data for ground-based ML
-retraining -- all with no real-time ground-in-the-loop control.
+PACT (Plume Autonomous Capture/Classification Technology) is an **ISS-attached external payload**.
+It autonomously detects industrial plumes in multispectral VNIR imagery from orbit, drives a
+pointing gimbal to track them, and hands telemetry + downlink products to the station. The ISS
+provides the bus services PACT does not implement itself -- primary power, thermal sink, attitude,
+and the downlink path to the ground -- so PACT is **not** a free-flyer and implements no RF stack.
 
-The software is organized into ten subsystems, each running as an independent process or
-thread. All inter-subsystem data passes through typed, frozen-dataclass messages on named
-queues. The codebase is Python written in a Rust-idiomatic style (`frozen=True` dataclasses,
-`enum.Enum` discriminants, `Result[T,E]` error handling) to enable mechanical translation
-to Rust once behavior is verified.
+Because the payload is continuously commandable and recoverable from the ground through the
+station, the software reliability posture is **fail-safe / ground-recoverable / graceful
+degradation** rather than fully autonomous fault recovery. Hazardous functions still honor NASA
+payload safety inhibits.
 
-**Phase I scope:** pretrained model inference, gimbal control, on-board storage, CCSDS
-downlink, safe model uplink with rollback, and fault detection. Phase II items are called
-out explicitly throughout.
-
----
-
-## Subsystems
-
-| Subsystem        | Role                                                                       |
-|------------------|----------------------------------------------------------------------------|
-| **types**        | Dependency root: all enums, frozen message dataclasses, config dataclasses |
-| **model**        | U-Net/ResNet-34 segmentation -- forward pass, blob extraction, training    |
-| **preprocessing**| Band selection, radiometric calibration, quality flagging, ROI crop        |
-| **controller**   | Gimbal arbiter state machine, blob tracker, EMA filter, Kalman + LQR      |
-| **imaging**      | FLIR Blackfly S GigE Vision interface, frame acquisition, stall detection  |
-| **comms**        | CCSDS encoding, priority downlink queue, chunked uplink, staged model deploy|
-| **storage**      | Frame persistence with SHA-256 checksums and append-only manifests         |
-| **telemetry**    | Health event aggregation and CCSDS telemetry packet formatting              |
-| **fault**        | Heartbeat watchdog, fault detection, safe-mode entry                       |
-| **ops**          | Process orchestrator: queue creation, config loading, mode FSM             |
+The system is a **Python-only** monorepo (the earlier Rust-migration plan is dropped). Heavy
+training/tooling code is kept out of the flight image entirely.
 
 ---
 
-## Process Topology
+## Workspace Layout
 
-All queues are created in `ops/main.py` and passed as arguments to each subsystem.
-No subsystem creates its own queues.
+A `uv` workspace with three packages keeps the flight image lean (no torch/onnxruntime in the
+flight dependency set):
 
 ```
-imaging_process        --[raw_frame_queue: RawFrameMsg]-->        inference_process
-                                                                   (preprocessing runs here)
-inference_process      --[inference_queue: InferenceResultMsg]--> controller_process
-controller_process     --[gimbal_queue: GimbalCommandMsg]-->       (hardware gimbal stub)
-controller_process     --[telemetry_queue: TelemetryEventMsg]-->   telemetry_process
-inference_process      --[storage_queue: StorageWriteMsg]-->       storage_process
-storage_process        --[downlink_queue: DownlinkItemMsg]-->       comms_process
-telemetry_process      --[downlink_queue: DownlinkItemMsg]-->       comms_process
-comms_process          --[uplink_queue: UploadChunkMsg]-->          ops/main.py
-any subsystem          --[fault_queue: FaultEventMsg]-->            fault_process
-any subsystem          --[heartbeat_queue: HeartbeatMsg]-->         fault_process
-fault_process          --[mode_queue: ModeChangeMsg]-->             ops/main.py
+packages/
+  flight/   # the flight software: pact-flight (deps: numpy, scipy, structlog)
+  sim/      # SIL harness, scene generation, digital twin: pact-sim (deps: numpy, pact-flight)
+  tools/    # training, evaluation, model export (heavy deps live here): pact-tools
 ```
 
-**Preprocessing co-location:** preprocessing runs as a plain function call inside the
-inference process (`_run_inference_process()` in `ops/main.py`), not as a separate process.
-This avoids serializing large numpy arrays over a `multiprocessing.Queue` on the hot path.
-The `RawFrameMsg -> ProcessedFrameMsg` transformation is a function call, not a queue hop.
+`import-linter` (`.importlinter`) enforces package isolation and layering; `mypy --strict`,
+`ruff`, and `pytest` round out the gates. CI (`.github/workflows/ci.yml`) runs all gates scoped to
+`packages/` on Linux + Python 3.14.
 
 ---
 
-## Concurrency Model
+## The Subsystem-App Model
 
-| Subsystem   | Primitive                          | Rationale                                               |
-|-------------|------------------------------------|---------------------------------------------------------|
-| imaging     | `threading.Thread` + `queue.Queue` | I/O-bound GigE Vision DMA; GIL not a bottleneck         |
-| inference   | `multiprocessing.Process`          | GPU-bound; requires true process isolation (REQ-AIML-COMP-002) |
-| controller  | `multiprocessing.Process`          | CPU-bound; isolated from GIL for deterministic scheduling |
-| storage     | `threading.Thread` + `queue.Queue` | I/O-bound disk writes                                   |
-| comms       | `asyncio`                          | Many concurrent I/O waiters; no CPU-heavy loops         |
-| telemetry   | `threading.Thread` + `queue.Queue` | I/O-bound serialization and queue puts                  |
-| fault       | `multiprocessing.Process`          | GIL immunity: watchdog must fire during GPU kernels     |
-| ops         | Main process                       | Spawns all others; runs mode FSM loop                   |
+Each subsystem under `packages/flight/src/flight/` is an isolated **app**: a thin imperative
+shell wrapping a pure decision core, communicating with other apps **only** over a typed pub/sub
+message bus. No app holds a reference to another app. The composition root (`flight.core`) owns
+the bus, the clock, the drivers, and the scheduler.
+
+| Layer | Package | Role |
+|-------|---------|------|
+| **core** | `flight.core` | Composition root: config load, `build_apps`, the thread `Scheduler`, the flight `main()` entry. |
+| **payload** | `flight.payload` | The science pipeline: acquire -> preprocess -> infer -> track -> gimbal-arbitrate. |
+| **fault** | `flight.fault` | FDIR: heartbeat watchdog + fault-to-mode policy -> SAFE. |
+| **iss_iface** | `flight.iss_iface` | Station bridge: inbound `CommandMsg`, outbound downlink items. |
+| **thermal** | `flight.thermal` | Housekeeping: temperature telemetry + `THERMAL_OVER_LIMIT` self-report. |
+| **electrical** | `flight.electrical` | Housekeeping: power telemetry + `POWER_OVER_LIMIT` self-report. |
+| **mechanical** | `flight.mechanical` | Scaffold only (no concrete device yet). |
+| **libs** | `flight.libs` | Shared foundations: `types`, `messages`, `config`, `bus`, `time`, `telemetry`. |
+| **hal** | `flight.hal` | Hardware abstraction: `interfaces` (Protocols) + `drivers_real` + `drivers_sim`. |
 
 ---
 
-## Dependency Layer Order
+## Dependency Layering
 
-The import graph is strictly layered. Lower layers must never import from higher layers;
-a circular import is a build-breaking bug.
+Enforced by the `flight-layers` import-linter contract (higher imports lower; never the reverse):
 
 ```
-types                           <- dependency root; imports only Python stdlib
+flight.core                                                      (composition root)
   |
   v
-model / preprocessing / imaging <- import from types only
+flight.{payload, thermal, electrical, mechanical, iss_iface, fault}   (peer apps; no cross-imports)
   |
   v
-controller                      <- imports from types + preprocessing
+flight.hal.interfaces                                            (HAL Protocols)
   |
   v
-storage / telemetry / comms     <- import from types + model
-  |
-  v
-fault                           <- imports from types + all subsystem message types
-  |
-  v
-ops                             <- imports everything; orchestration layer
+flight.libs                                                      (types < messages; config/bus/time/telemetry)
 ```
+
+Additional contracts: `flight` must not import `sim`/`tools`; `sim` must not import `tools`;
+concrete drivers (`drivers_real`/`drivers_sim`) are reachable **only** from composition roots
+(`flight.core` and `sim.sil`) -- apps depend solely on the HAL Protocols; the real and sim driver
+sets must not import each other.
 
 ---
 
-## State Machines
+## The Message Bus
 
-### Gimbal Arbiter (controller/)
+`flight.libs.bus.MessageBus` is a typed pub/sub bus routed by **exact message type**:
+`subscribe(MsgType)` returns a `Subscription[MsgType]`; `publish(msg)` delivers a copy to every
+subscription registered for `type(msg)`. Transport is in-process `queue.Queue` (what the SIL and
+unit tests use); a multiprocessing-backed transport can replace the queue factory later without
+touching app code.
 
-Five states. Transitions are evaluated once per `InferenceResultMsg`. The arbiter is a
-pure function -- all state is explicit in `ArbiterState`.
+**Queue-ownership invariant:** only the composition root constructs the bus and injects
+subscriptions into apps. Apps never construct queues; pure cores never touch the bus.
 
-```
-                  blob detected, confidence gate passed,
-                  persistence_count < acquire_persistence_frames
-IDLE ------------------------------------------------------------> ACQUIRING
-  ^                                                                    |
-  |   consecutive_miss >= release_persistence_frames                  | persistence_count >=
-  <----------------------- TRACKING <---------------------------------+  acquire_persistence_frames
-  |                             |
-  |   consecutive_miss >=       | blob detected
-  |   release_persistence       | (resets miss counter)
-  |   frames                    |
-  <-----------------------------+
+Three standard envelopes give the "everything is commandable, everything is telemetered" property:
 
-IDLE ---- idle_seconds > scan_entry_idle_seconds --------------> SCAN
-SCAN ---- blob detected ----------------------------------------> ACQUIRING
+- `CommandMsg{target, command_id, params, source, seq}` -- station/ground -> `iss_iface` -> bus -> target app.
+- `TelemetryEventMsg{subsystem, event_name, payload}` -- app -> bus -> downlink/storage.
+- `FaultEventMsg` / `HeartbeatMsg` / `ModeChangeMsg` -- the FDIR event envelopes.
 
-any state ---- FaultEventMsg received -------------------------> SAFE
-SAFE ---- ground command (Phase II) ---------------------------> IDLE
-```
-
-**Guards applied before arbiter is called (in `process.py`):**
-- `apply_confidence_gate`: mean blob confidence >= `confidence_gate` (default 0.55)
-- `apply_min_area_gate`: blob area >= `min_blob_area_px` (default 15 px)
-- `check_deadband`: displacement in `[min_deadband_px, max_deadband_px]`; > max -> `GIMBAL_RUNAWAY`
-- `check_rate_limit`: enforce <= `retarget_rate_limit_hz` (default 0.5 Hz) between commands
-
-### Ops Mode FSM (ops/)
-
-```
-IDLE ---- first blob tracked ----------------------------------> ACTIVE
-ACTIVE ---- idle_seconds > scan_entry_idle_seconds ------------> SCAN
-SCAN ---- blob detected ----------------------------------------> ACTIVE
-ACTIVE/SCAN ---- FaultEventMsg ---------------------------------> SAFE
-SAFE ---- ground command (Phase II) ---------------------------> IDLE
-```
-
-Mode transitions are applied in `ops/main.py` by draining `mode_queue` each iteration.
+**Large artifacts never go on the bus.** `(C, H, W)` tensors and masks stay in-process (see the
+preprocessing co-location invariant); the bus carries compact records only.
 
 ---
 
-## Critical-Path Data Flow
+## The HAL
 
-The path from raw frame to gimbal command and stored artifact:
+Each device class is a `@runtime_checkable` `Protocol` in `flight.hal.interfaces`, returning
+`Result[T, FaultCode]`:
+
+| Protocol | Real driver | Sim driver |
+|----------|-------------|------------|
+| `ImagingSensor` | `RealSensor` (lazy PySpin) | `SimSensor` (replays frames) |
+| `GimbalActuator` | `RealGimbal` (stub) | `SimGimbal` (integrates deltas) |
+| `StationLink` | `RealStationLink` (stub) | `SimStationLink` (scripted in/records out) |
+| `ScalarSensor` | `RealScalarSensor` (0.0 stub) | `SimScalarSensor` (replays readings) |
+
+The detector backend is a parallel swap behind `flight.payload.model.DetectorBackend`:
+`OnnxDetector` (lazy `onnxruntime`, frozen `.onnx` artifact) for flight, `ScriptedDetector`
+(fixed probability mask) for SIL/tests. SDK imports are **lazy** -- importing a driver module
+never requires its SDK; only constructing the real driver does. This keeps CI and the lean flight
+image SDK-free.
+
+The composition root selects the implementation; **apps never know whether they got a real or sim
+driver.**
+
+---
+
+## Inside the Payload App
+
+The payload's stages are internal stages of one app, so a float32 `(C, H, W)` tensor is never
+pickled across a process boundary (the **preprocessing co-location invariant**):
 
 ```
-1. imaging_process
-   +-- FlirBlackflyCamera.acquire_frame()    ->  RawFrameMsg
-       +-- raw_frame_queue.put(msg)
-
-2. _run_inference_process()  [ops/main.py -- same process as inference]
-   +-- raw_frame_queue.get()                 ->  RawFrameMsg
-   +-- apply_calibration(bands)              ->  calibrated bands (function call)
-   +-- select_bands(calibrated)              ->  4-band tensor (function call)
-   +-- compute_quality_flags(...)            ->  frozenset[FrameUsabilityTag]
-   +-- ProcessedFrameMsg(...)                ->  in-memory object (no queue)
-   +-- InferenceEngine.run(processed)        ->  Ok(InferenceResultMsg)
-   +-- inference_queue.put(inference_result) ->  to controller_process
-   +-- storage_queue.put(StorageWriteMsg)    ->  to storage_process
-
-3. controller_process
-   +-- inference_queue.get()                 ->  InferenceResultMsg
-   +-- apply_safety_gates(blobs)             ->  filtered blobs
-   +-- GimbalArbiter.step(state, result, now) -> (new_state, GimbalCommandMsg, events)
-   +-- gimbal_queue.put(command)             ->  to hardware stub
-   +-- telemetry_queue.put(events)           ->  to telemetry_process
-
-4. storage_process  [concurrent with step 3]
-   +-- storage_queue.get()                   ->  StorageWriteMsg
-   +-- write raw_bands.npy + sha256 verify
-   +-- write processed_tensor.pt + sha256 verify
-   +-- manifest.append(JSON line)            ->  atomic commit point
-   +-- downlink_queue.put(DownlinkItemMsg)   ->  to comms_process
+flight/payload/
+  app.py         # PayloadApp: the loop shell (acquire -> publish), holds injected drivers + bus
+  preprocess/    # pure fns: select_bands -> radiometric -> quality flags -> ProcessedFrameMsg
+  model/         # DetectorBackend: OnnxDetector | ScriptedDetector; shared extract_blobs
+  tracking/      # pure: EMA filter, constant-velocity Kalman, IoU blob matcher
+  gimbal/        # pure: GimbalArbiter FSM (the resolver), LQR control law, safety gates
+  control.py     # PayloadController: the pure composition of tracking + gimbal into one step
 ```
 
----
+Per-frame flow inside `PayloadApp.process_frame(raw, state, now)`:
 
-## Design Decisions
+```
+raw frame
+  -> apply_calibration (identity) -> select_bands (B2,B3,B4,B8) -> compute_quality_flags
+  -> ProcessedFrameMsg            [co-located, no queue]
+  -> detector.detect(processed)   -> InferenceResultMsg  (published)
+  -> PayloadController.step(state, result, now):
+        confidence/area gates -> match_blobs (IoU) -> EMA -> Kalman predict/update
+        -> arbiter.step (FSM) -> LQR refinement
+     -> (new ControlState, GimbalCommandMsg | None, telemetry events)
+  -> gimbal.send_command(cmd) + bus.publish(cmd) + publish telemetry
+```
 
-### Preprocessing inside inference process
+`PayloadController` and every tracking/gimbal function are **pure** -- they take state + inputs
+and return new state + outputs, with no I/O, no clock access (time is passed in as `now`), and no
+bus access. This makes them deterministic, replayable from logs, and trivially unit-testable.
 
-Preprocessing runs as a plain function call inside `_run_inference_process()` in `ops/main.py`.
-Moving it to a separate process would require serializing `(C, H, W)` float32 numpy arrays
-through `multiprocessing.Queue` (pickle round-trip) on every frame -- unacceptable on the
-hot path. The function-call approach has zero serialization cost.
+### The gimbal arbiter
 
-### Pure-function gimbal arbiter
-
-`GimbalArbiter.step()` is a pure function with no side effects. This makes the arbiter
-deterministic, trivially unit-testable (no mocks needed), and replay-able from logs. All
-mutable state lives in `ArbiterState`, which is passed in and returned. The caller
-(`process.py`) owns the queue, the clock, and the state variable.
-
-### Greedy IoU blob matching
-
-Blob matching uses greedy intersection-over-union (descending sort, first match wins) rather
-than optimal Hungarian assignment. For the expected case of < 10 blobs per frame, greedy
-matching is O(n^2) with negligible cost and is fully deterministic. Hungarian assignment
-would add a scipy dependency and complexity for no practical benefit at this blob count.
-
-### EMA asymmetric initialization
-
-The EMA centroid filter returns the raw observation unmodified on the first frame
-(`initialized = False` -> return new_centroid). This avoids a "phantom history" effect where
-the first smoothed output is biased toward an arbitrary initial state. Behavior differs
-between frame 1 and all subsequent frames.
-
-### Comm window as weekday gate
-
-The TDRSS comm window is enforced as a UTC weekday check (`MON-FRI`). This is not an
-approximation -- ISS data dumps are constrained to weekdays by the ISS-ground interface
-protocol, and the dump schedule is fixed. No orbital contact prediction is needed or correct.
-
-### Shared downlink queue
-
-Both storage and telemetry write to the same `downlink_queue` (a `queue.PriorityQueue`).
-The queue is thread-safe; no synchronization is needed. A single queue keeps priority
-ordering global -- telemetry health packets at priority 0 always drain before imagery at
-priority 2 or 3.
-
-### Config loaded once at startup
-
-`ops/config_loader.py` loads and merges `config/default.toml` + `config/flight.toml` once
-at startup, producing frozen `PactConfig` dataclass instances distributed to each subsystem
-as constructor arguments. No subsystem reads TOML at runtime. No dynamic reconfiguration --
-changes require restart. This guarantees all processes see consistent configuration.
+The `GimbalArbiter` is the pure FSM resolver over five states (IDLE / ACQUIRING / TRACKING / SCAN
+/ SAFE). The tracking controller is a *command source* (it requests pointing); the arbiter is the
+*resolver* (it decides whether and how much to command, subject to persistence, rate limit, and
+safety gates). Both stay pure; `PayloadController` composes them.
 
 ---
 
-## Configuration Reference
+## FDIR
 
-Key non-obvious parameters. Full defaults in `config/default.toml`.
+`flight.fault` is the failure-detection/isolation/recovery app:
 
-| Section         | Key                           | Default       | Effect |
-|-----------------|-------------------------------|---------------|--------|
-| `[controller]`  | `confidence_gate`             | 0.55          | Min mean blob confidence (post-sigmoid). Blobs below this are filtered before the arbiter. |
-| `[controller]`  | `ema_alpha`                   | 0.4           | EMA smoothing: 0.4 x new + 0.6 x prev. Higher = more responsive, less filtering. |
-| `[controller]`  | `min_deadband_px`             | 20            | Displacements < 20 px produce no gimbal command (jitter suppression). |
-| `[controller]`  | `max_deadband_px`             | 250           | Displacements > 250 px trigger `GIMBAL_RUNAWAY` fault. |
-| `[controller]`  | `retarget_rate_limit_hz`      | 0.5           | Max gimbal command rate (1 command / 2 s). Prevents motor overload. |
-| `[controller]`  | `acquire_persistence_frames`  | 3             | Consecutive frames with blob before ACQUIRING -> TRACKING. |
-| `[controller]`  | `release_persistence_frames`  | 5             | Consecutive misses before TRACKING -> IDLE. |
-| `[inference]`   | `latency_budget_ms`           | 500.0         | **Placeholder** -- pending Jetson Xavier benchmark. `InferenceEngine.run()` returns `Err(INFERENCE_TIMEOUT)` if exceeded. |
-| `[fault]`       | `watchdog_interval_s`         | 5.0           | Heartbeat send interval per subsystem. |
-| `[fault]`       | `watchdog_max_miss_count`     | 3             | Missed heartbeats before `PROCESS_DIED` fault (15 s total). |
-| `[comms]`       | `max_daily_downlink_bytes`    | 1073741824    | 1 GB/day cap enforced by `DownlinkQueue.dequeue()`. |
+- **Watchdog** (`watchdog.py`, pure): one `WatchdogEntry` per monitored subsystem;
+  `check_heartbeats` increments misses for overdue subsystems and emits `WATCHDOG_EXPIRE` at the
+  threshold (`watchdog_max_miss_count`, default 3 misses of `watchdog_interval_s`, default 5 s).
+- **Policy** (`policy.py`, pure): a `frozenset` `SAFE_TRIGGERING_FAULTS` + `decide_mode_change` map
+  a `FaultEventMsg` to a `ModeChangeMsg(SAFE)` or `None`. This replaces the legacy per-`FaultCode`
+  callable dispatch table (dynamic dispatch is disallowed); the SAFE-triggering set is preserved
+  exactly.
+- **App** (`app.py`): subscribes to `HeartbeatMsg` + `FaultEventMsg`, runs the watchdog each tick,
+  and publishes `ModeChangeMsg`.
 
----
-
-## Test Strategy
-
-Three tiers, all in `tests/`:
-
-**Unit tests** -- isolated, pure-function tests with no real processes. MockCamera replaces
-`FlirBlackflyCamera`. All threshold-sensitive functions are parameterized with below/at/above
-boundary values. Result types are unwrapped with `assert isinstance(result, Ok)` before
-accessing `.value`. Fixture catalogue in `tests/conftest.py`.
-
-**Integration tests** -- multi-subsystem pipeline tests:
-- `test_inference_pipeline`: full preprocessing + inference chain with a synthetic frame
-- `test_controller_pipeline`: `InferenceResultMsg` -> safety gates -> arbiter -> command
-- `test_comms_pipeline`: downlink queue priority ordering + CCSDS packet round-trip
-
-**E2E smoke test** (`tests/e2e/test_full_pipeline_smoke.py`) -- all processes spawned
-simultaneously. Synthetic `InferenceResultMsg` is injected onto the inference queue for the
-first 3 frames to force ACQUIRING/TRACKING transitions (the untrained model produces random
-output). Marked `@pytest.mark.e2e`, 60-second timeout.
+Each producing subsystem **self-reports** its faults (the payload emits `INFERENCE_NAN`; thermal/
+electrical emit their over-limit codes), so the FDIR app only watches heartbeats and routes
+already-raised faults -- no central sensor polling.
 
 ---
 
-## Known Gaps / Phase II
+## Time
 
-| Subsystem    | What's Stubbed                                   | Impact |
-|--------------|--------------------------------------------------|--------|
-| imaging      | `FlirBlackflyCamera` PySpin integration          | All CI runs use `MockCamera`; no hardware path exercised |
-| model        | TensorRT INT8 quantization (`quantize.py`)       | Inference runs in FP32; Jetson latency uncharacterized |
-| model        | `latency_budget_ms` (500 ms placeholder)         | Timeout fault threshold is unvalidated |
-| preprocessing| `MOTION_SMEAR` detection                         | Always absent from quality flags |
-| comms        | TDRSS modem hardware interface                   | Downlink writes to file/socket only |
-| comms        | CCSDS secondary headers + CRC-16/CCITT           | Primary header only; payload uses `pickle.dumps` |
-| comms        | Uplink chunk reassembly timeout                  | Incomplete uplinks accumulate indefinitely |
-| storage      | Compression for raw `.npy` files                 | High disk consumption per frame |
-| storage      | LRU eviction on storage full                     | `STORAGE_FULL` fault halts all writes permanently |
-| telemetry    | Thermal/power sensor HAL                         | Both fields are hardcoded `0.0` |
-| fault        | Safe-mode exit via ground command                | System cannot exit safe mode autonomously |
-| ops          | Process restart on crash                         | Crashed subsystem transitions system to safe mode; no recovery |
+`flight.libs.time.Clock` separates **monotonic** time (control intervals, timeouts, rate limits)
+from **wall-clock** time (ISO 8601 message timestamps). Pure cores and app shells receive a
+`Clock`; the composition root owns the concrete instance (`RealClock` in flight, `ManualClock` in
+SIL/tests). Pure step functions take `now: float` explicitly so they remain deterministic.
 
 ---
 
-## Planned Subsystems (Phase II)
+## Composition Root + Scheduler
 
-### Power / Thermal Management
+`flight.core.composition.build_apps(config, bus, clock, drivers, monitored)` is the single,
+**driver-agnostic** wiring point: it constructs all five apps from a `Drivers` bundle (HAL
+Protocols + detector) over one shared bus + clock. It imports only Protocols and apps -- never a
+concrete driver -- so the identical wiring serves both the flight entry and the SIL.
 
-The Jetson Xavier reports real-time power draw via the INA3221 sensor on the carrier board.
-Power consumption is a reliable proxy for thermal load. A future `power/` subsystem would:
-- Poll Xavier power draw periodically via the system power sensor interface
-- Feed real watt readings into `fault/detector.py` `check_power()` and `check_thermal()`
-  (currently called with mocked `0.0` values)
-- Replace the placeholder thermal limits in `fault/` with real thresholds derived from
-  Xavier thermal envelope specifications
+`flight.core.scheduler.Scheduler` runs each app's `run(stop_event)` in a daemon thread (the bus is
+in-process, so threads share it); `start()` launches, `stop()` signals + joins.
 
-This removes the last two mocked fault detectors and completes the fault detection loop.
+`flight.core.main` is the flight composition root: it constructs the real drivers + the ONNX
+detector, calls `build_apps`, and runs the scheduler. It executes only on flight hardware (real
+drivers + `onnxruntime` are absent in CI), so the driver-agnostic `build_apps` is what is
+unit-tested.
+
+---
+
+## Software-in-the-Loop (SIL)
+
+`packages/sim` stands up the **real flight apps** against sim drivers via the same `build_apps`:
+
+- `sim.scene.plume` -- synthetic zeroed `(4, 256, 256)` frames + a `ScriptedDetector` whose fixed
+  mask yields one stable central plume blob.
+- `sim.sil.build_sil_system` -- constructs the sim drivers, bundles `Drivers`, and calls
+  `build_apps` (the exact flight wiring).
+- `sim.sil.SilHarness` -- a deterministic single-threaded stepper (no scheduler threads): each
+  step acquires + processes one frame, samples housekeeping, pumps the ISS bridge, publishes
+  per-subsystem liveness heartbeats, then runs the FDIR tick -- all over the shared bus with `now`
+  advanced explicitly.
+
+Two integration tests prove the closed loop and run in the default CI gate (not `e2e`):
+1. **Nominal data path:** a plume scene drives payload detection -> a gimbal command (the SimGimbal
+   moves off origin) + telemetry, with no spurious SAFE.
+2. **FDIR path:** a 95 C reading exceeds the 80 C limit -> `THERMAL_OVER_LIMIT` -> the FDIR app
+   publishes `ModeChangeMsg(SAFE)`.
+
+The digital twin (`sim.twin`) is a deferred scaffold; `SimGimbal`'s delta integration is
+sufficient pointing dynamics for the current SIL.
+
+---
+
+## Conventions (summary)
+
+Full rules live in `.claude/rules/`. The load-bearing ones:
+
+- **Result, not exceptions.** Library code returns `Result[T, E]`; process entry points may raise
+  only for unrecoverable startup failures. Never read `.value` without an `Ok`/`Err` check first.
+- **Frozen dataclasses** (`slots=True` for pure data structs); construct modified copies with
+  `dataclasses.replace()`. No dynamic dispatch; statically-typed `Protocol` interfaces only.
+- **Strong typing everywhere**, mypy `--strict`. `mypy_path` resolves cross-package imports to the
+  workspace src trees (without it, `flight.*` collapses to `Any` and strict checking degrades).
+- **Enum values mirror member names** (`IDLE = "IDLE"`); numpy arrays carry a shape/dtype comment;
+  `structlog` everywhere with `subsystem` + `event` fields; line length 100; PEP 758 parenless
+  `except A, B:` is the ruff-format-normalized idiom on Python 3.14.
+
+---
+
+## Status & Remaining Work
+
+Built and CI-green end-to-end: tooling, `libs`, `hal`, `core` foundations, the full `payload`
+pipeline, `fault`, `iss_iface`, `thermal`, `electrical`, the composition root + scheduler, and the
+SIL closed-loop integration. Open items:
+
+- **Retire `src/pact/`** (legacy tree) and then widen the CI gates from `packages/` to the whole
+  repo. This is a deliberate, user-gated deletion step.
+- **`mechanical`** subsystem -- build when a concrete mechanism device is identified.
+- **`tools/` migration** -- move the legacy torch training/inference (`InferenceEngine`, dataset,
+  train, quantize, model export-to-ONNX) into `pact-tools`.
+- **Real driver integration** -- `RealSensor` (PySpin), `RealGimbal`, `RealStationLink`,
+  `RealScalarSensor` are stubs pending the flight hardware + ISS avionics interface.
+- **Model-upload transport** -- chunked model upload (legacy `comms/uplink.py`) as a future
+  consumer of the `iss_iface` command/downlink transport.
+- **CI housekeeping** -- bump `actions/checkout`/`setup-uv` off the deprecated Node 20 runtime.

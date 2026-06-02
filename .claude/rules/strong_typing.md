@@ -1,5 +1,5 @@
-- Include strong typing everywhere, no gaps
-- Use ```@dataclass(slots=True)``` for all data-carrying structs
+- Include strong typing everywhere, no gaps (mypy --strict; `mypy_path` resolves cross-package imports to source -- do not remove it)
+- Use ```@dataclass(slots=True)``` for all data-carrying structs (service/holder dataclasses that carry Protocol-typed fields may use `frozen=True` without `slots`)
 - Use ```dataclasses.replace()``` to construct modified parameter copies
-- No dynamic dispatch
-- No duck typing
+- Express polymorphism with statically-typed, `@runtime_checkable` `Protocol` interfaces -- no callable dispatch tables, no `getattr`-style dynamic dispatch
+- No duck typing: depend on declared `Protocol` types, not on incidental attribute presence

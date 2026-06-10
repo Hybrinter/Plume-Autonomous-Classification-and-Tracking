@@ -645,7 +645,7 @@ git commit -m "feat(preprocess): DN full-scale normalization"
 - Create: `data/calibration/README.md`
 - Test: `packages/flight/tests/test_calibration_io.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for calibration artifact loading and the identity builder."""
@@ -717,12 +717,12 @@ def test_identity_calibration_shape() -> None:
     assert not cal.bad_pixel_mask.any()
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_calibration_io.py -v`
 Expected: FAIL (module missing).
 
-- [ ] **Step 3: Implement `calibration_io.py`**
+- [x] **Step 3: Implement `calibration_io.py`**
 
 ```python
 """Startup-time loading of mosaic calibration artifacts (checksummed .npy files).
@@ -810,12 +810,12 @@ Create `data/calibration/README.md` documenting the manifest format, that artifa
 sensor characterization (HIL phase), that nothing binary is committed, and that an empty
 `SensorConfig.calibration_dir` selects the identity calibration (SIL/dev only).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_calibration_io.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/payload/calibration_io.py data/calibration/README.md packages/flight/tests/test_calibration_io.py

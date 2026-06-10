@@ -23,6 +23,7 @@ from flight.libs.config import (
     InferenceConfig,
     PactConfig,
     PreprocessingConfig,
+    SensorConfig,
     StorageConfig,
 )
 from flight.libs.types import Err, Ok, Result
@@ -225,6 +226,25 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         motion_smear_exposure_us=float(
             prep.get("motion_smear_exposure_us", PreprocessingConfig.motion_smear_exposure_us)
         ),
+        max_motion_smear_px=float(
+            prep.get("max_motion_smear_px", PreprocessingConfig.max_motion_smear_px)
+        ),
+    )
+
+    sens = data.get("sensor", {})
+    sensor_config = SensorConfig(
+        width_px=int(sens.get("width_px", SensorConfig.width_px)),
+        height_px=int(sens.get("height_px", SensorConfig.height_px)),
+        bit_depth=int(sens.get("bit_depth", SensorConfig.bit_depth)),
+        mosaic_layout=tuple(
+            str(v) for v in sens.get("mosaic_layout", list(SensorConfig.mosaic_layout))
+        ),
+        ifov_deg_per_px=float(sens.get("ifov_deg_per_px", SensorConfig.ifov_deg_per_px)),
+        default_exposure_us=float(
+            sens.get("default_exposure_us", SensorConfig.default_exposure_us)
+        ),
+        default_gain_db=float(sens.get("default_gain_db", SensorConfig.default_gain_db)),
+        calibration_dir=str(sens.get("calibration_dir", SensorConfig.calibration_dir)),
     )
 
     return PactConfig(
@@ -234,4 +254,5 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         storage=storage_config,
         fault=fault_config,
         preprocessing=preprocessing_config,
+        sensor=sensor_config,
     )

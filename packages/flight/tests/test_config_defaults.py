@@ -16,6 +16,7 @@ from flight.libs.config import (
     FaultConfig,
     InferenceConfig,
     PreprocessingConfig,
+    SensorConfig,
     StorageConfig,
 )
 
@@ -29,6 +30,7 @@ _SECTION_TO_DATACLASS = {
     "storage": StorageConfig,
     "preprocessing": PreprocessingConfig,
     "fault": FaultConfig,
+    "sensor": SensorConfig,
 }
 
 

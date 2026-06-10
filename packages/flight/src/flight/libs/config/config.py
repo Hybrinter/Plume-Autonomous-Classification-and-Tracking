@@ -84,6 +84,29 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
+class SensorConfig:
+    """Configuration for the imaging sensor and its 2x2 mosaic filter optics.
+
+    Geometry and optics constants for the FLIR Blackfly S (12-bit Sony IMX-class)
+    behind a custom 2x2 mosaic filter (Sentinel-2 B2/B3/B4/B8 passbands).
+    These values drive demosaic, normalization, quality gates, and the composition
+    root's calibration-load decision.
+
+    Satisfies: REQ-AIML-IMAG-001.
+    """
+
+    width_px: int = 512  # mosaic plane width in pixels (must be even)
+    height_px: int = 512  # mosaic plane height in pixels (must be even)
+    bit_depth: int = 12  # ADC bit depth; full scale = 2**bit_depth - 1 DN
+    # Row-major band name per 2x2 cell: (0,0), (0,1), (1,0), (1,1).
+    mosaic_layout: tuple[str, ...] = ("BLUE", "GREEN", "RED", "NIR")
+    ifov_deg_per_px: float = 0.04  # instantaneous field of view per band-plane pixel
+    default_exposure_us: float = 1000.0  # exposure commanded at startup
+    default_gain_db: float = 0.0  # gain commanded at startup
+    calibration_dir: str = ""  # dir of dark/flat/bad-pixel artifacts; "" -> identity (SIL only)
+
+
+@dataclass(frozen=True)
 class PreprocessingConfig:
     """Configuration for the preprocessing quality-flag subsystem."""
 
@@ -91,6 +114,7 @@ class PreprocessingConfig:
     nir_red_ratio_threshold: float = 3.0  # NIR/Red mean ratio above this -> CLOUD_CONTAMINATED
     sunglint_nir_mean_threshold: float = 0.6  # mean NIR above this -> SUNGLINT flag
     motion_smear_exposure_us: float = 5000.0  # exposure time above this (us) -> MOTION_SMEAR flag
+    max_motion_smear_px: float = 1.0  # predicted smear (slew x exposure / IFOV) above this -> flag
 
 
 @dataclass(frozen=True)
@@ -118,3 +142,4 @@ class PactConfig:
     storage: StorageConfig = field(default_factory=StorageConfig)
     fault: FaultConfig = field(default_factory=FaultConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
+    sensor: SensorConfig = field(default_factory=SensorConfig)

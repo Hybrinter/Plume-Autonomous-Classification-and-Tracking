@@ -54,6 +54,17 @@ saturation_fraction_threshold = 0.05
 nir_red_ratio_threshold = 3.0
 sunglint_nir_mean_threshold = 0.6
 motion_smear_exposure_us = 5000.0
+max_motion_smear_px = 1.0
+
+[sensor]
+width_px = 512
+height_px = 512
+bit_depth = 12
+mosaic_layout = ["BLUE", "GREEN", "RED", "NIR"]
+ifov_deg_per_px = 0.04
+default_exposure_us = 1000.0
+default_gain_db = 0.0
+calibration_dir = ""
 
 [fault]
 watchdog_interval_s = 5.0

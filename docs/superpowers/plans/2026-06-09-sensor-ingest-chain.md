@@ -186,7 +186,7 @@ git commit -m "feat(types): Band vocabulary, MosaicFrame value type, ingest faul
 Note: `PreprocessingConfig.motion_smear_exposure_us` is NOT removed here (quality.py still uses
 it until Task 7). This task is purely additive so the tree stays green.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Extend `test_config_loader.py` with (match existing test style):
 
@@ -208,12 +208,12 @@ Extend `test_config_defaults.py` to cover the `[sensor]` section and
 `preprocessing.max_motion_smear_px`, following exactly the file's existing
 defaults-vs-TOML comparison pattern.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_config_loader.py packages/flight/tests/test_config_defaults.py -v`
 Expected: FAIL (`PactConfig` has no `sensor`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `config.py` add (before `PactConfig`):
 
@@ -260,12 +260,12 @@ pattern of the other sections (str/int/float/tuple coercions matching the datacl
 `SensorConfig`, and pass `sensor=sensor_config` into the returned `PactConfig`. Also map
 `max_motion_smear_px` in the preprocessing block.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_config_loader.py packages/flight/tests/test_config_defaults.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/libs/config/config.py config/default.toml packages/flight/src/flight/core/config_loader.py packages/flight/tests/test_config_loader.py packages/flight/tests/test_config_defaults.py

@@ -29,3 +29,16 @@ def test_missing_file_returns_err() -> None:
     """A missing config path returns Err, not an exception."""
     result = load_config(str(_REPO_ROOT / "config" / "does_not_exist.toml"))
     assert isinstance(result, Err)
+
+
+def test_sensor_section_loads() -> None:
+    """[sensor] TOML section maps into SensorConfig."""
+    result = load_config(_DEFAULT_TOML)
+    assert isinstance(result, Ok)
+    sensor = result.value.sensor
+    assert sensor.width_px == 512
+    assert sensor.height_px == 512
+    assert sensor.bit_depth == 12
+    assert sensor.mosaic_layout == ("BLUE", "GREEN", "RED", "NIR")
+    assert sensor.ifov_deg_per_px == 0.04
+    assert sensor.calibration_dir == ""

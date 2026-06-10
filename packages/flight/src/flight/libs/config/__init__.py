@@ -11,6 +11,7 @@ from flight.libs.config.config import (
     InferenceConfig,
     PactConfig,
     PreprocessingConfig,
+    SensorConfig,
     StorageConfig,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "InferenceConfig",
     "PactConfig",
     "PreprocessingConfig",
+    "SensorConfig",
     "StorageConfig",
 ]

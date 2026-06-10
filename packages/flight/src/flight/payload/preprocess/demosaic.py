@@ -76,14 +76,13 @@ def interleave_bands(planes: np.ndarray) -> Result[np.ndarray, FaultCode]:
     Notes:
         Used by the sim scene renderer to build raw mosaic frames from per-band signal
         maps, and by round-trip unit tests to verify that separate_bands is lossless.
-        If any of the four planes overlap a cell that is already populated (which cannot
-        happen with CELL_OFFSETS), the last write wins -- but this is not possible with
-        the fixed 2x2 layout.
+        The four CELL_OFFSETS partition the 2x2 tile, so every mosaic cell is written
+        exactly once and the empty allocation is fully overwritten.
     """
     if planes.ndim != 3 or planes.shape[0] != 4:
         return Err(FaultCode.FRAME_MALFORMED)
     h, w = planes.shape[1], planes.shape[2]
-    mosaic = np.empty((2 * h, 2 * w), dtype=planes.dtype)  # np.ndarray[float32, (H, W)]
+    mosaic = np.empty((2 * h, 2 * w), dtype=planes.dtype)  # np.ndarray[planes.dtype, (2*h, 2*w)]
     for k, (r, c) in enumerate(CELL_OFFSETS):
         mosaic[r::2, c::2] = planes[k]
     return Ok(mosaic)

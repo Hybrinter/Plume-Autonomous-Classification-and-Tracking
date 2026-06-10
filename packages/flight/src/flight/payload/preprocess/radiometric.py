@@ -1,5 +1,5 @@
 """
-pact.preprocessing.radiometric -- Radiometric calibration for PACT raw frames.
+flight.payload.preprocess.radiometric -- Radiometric calibration for PACT raw frames.
 
 Satisfies: REQ-AIML-PREP-002
 
@@ -43,7 +43,7 @@ import numpy as np
 from flight.libs.types import Err, FaultCode, Ok, Result
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RadiometricCalibration:
     """Calibration frames for dark-frame subtraction and flat-field correction.
 
@@ -103,7 +103,7 @@ def apply_calibration(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MosaicCalibration:
     """Per-pixel calibration for the RAW mosaic plane (pre-demosaic).
 
@@ -173,12 +173,11 @@ def calibrate_mosaic(
             all of shape (H, W).
 
     Returns:
-        Ok(np.ndarray[float32, (H, W)]) -- calibrated DN values. Non-finite inputs
-            from dark subtraction overshoot are acceptable; only the division by a
-            zero flat-field pixel triggers the INFERENCE_NAN fault.
+        Ok(np.ndarray[float32, (H, W)]) -- calibrated DN values, all finite.
         Err(FaultCode.FRAME_MALFORMED) -- mosaic.shape != cal.dark_frame.shape.
-        Err(FaultCode.INFERENCE_NAN) -- any output pixel is non-finite (e.g. a zero
-            flat-field element produced a division-by-zero NaN).
+        Err(FaultCode.INFERENCE_NAN) -- any output pixel is non-finite. This covers a
+            division by a zero flat-field element as well as a non-finite value already
+            present in the input mosaic.
 
     Notes:
         Clipping of calibrated values to [0, full_scale] is NOT performed here; that
@@ -187,7 +186,8 @@ def calibrate_mosaic(
     if mosaic.shape != cal.dark_frame.shape:
         return Err(FaultCode.FRAME_MALFORMED)
     repaired = correct_bad_pixels(mosaic, cal.bad_pixel_mask)
-    corrected = (repaired - cal.dark_frame) / cal.flat_field  # np.ndarray[float32, (H, W)]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        corrected = (repaired - cal.dark_frame) / cal.flat_field  # np.ndarray[float32, (H, W)]
     if not np.isfinite(corrected).all():
         return Err(FaultCode.INFERENCE_NAN)
     return Ok(corrected)

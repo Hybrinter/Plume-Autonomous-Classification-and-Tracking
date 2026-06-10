@@ -102,7 +102,6 @@ class FrameUsabilityTag(enum.Enum):
 class MessageType(enum.Enum):
     """Discriminant for all inter-process messages."""
 
-    RAW_FRAME = "RAW_FRAME"
     PROCESSED_FRAME = "PROCESSED_FRAME"
     INFERENCE_RESULT = "INFERENCE_RESULT"
     GIMBAL_COMMAND = "GIMBAL_COMMAND"

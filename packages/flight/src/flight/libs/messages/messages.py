@@ -9,6 +9,10 @@ queue.Queue, or asyncio.Queue) are defined here. Every message:
 
 Migrated from pact.types.messages; enums are imported from flight.libs.types.
 
+Note: RawFrameMsg was removed in the raw-mosaic ingest contract change (spec Section 3).
+Frames are passed by direct call from the sensor driver to the payload app (co-location
+invariant); they never ride the bus. Use MosaicFrame from flight.libs.types instead.
+
 Satisfies: REQ-AIML-COMP-001, REQ-AIML-COMP-002 (typed message-passing between processes).
 """
 
@@ -75,27 +79,11 @@ class BlobMeta:
 
 
 @dataclass(frozen=True)
-class RawFrameMsg:
-    """Raw multispectral frame from imaging to preprocessing.
-
-    raw_bands shape: (C, H, W) float32, where C = number of camera bands.
-    """
-
-    msg_type: MessageType  # must be MessageType.RAW_FRAME
-    timestamp_utc: str  # ISO 8601, millisecond precision
-    frame_id: int  # uint32 monotonic frame counter
-    raw_bands: object  # np.ndarray[float32, (C, H, W)]
-    exposure_us: float  # camera exposure time in microseconds
-    gain_db: float  # camera gain in dB
-    gimbal_az_deg: float  # gimbal azimuth at capture time (degrees)
-    gimbal_el_deg: float  # gimbal elevation at capture time (degrees)
-
-
-@dataclass(frozen=True)
 class ProcessedFrameMsg:
     """Preprocessed, band-selected, calibrated tensor from preprocessing to inference.
 
-    tensor shape: (4, H, W) float32, bands B2/B3/B4/B8 in that order.
+    tensor shape: (4, H, W) float32, bands per InferenceConfig.input_bands
+    (BLUE/GREEN/RED/NIR), H/W = sensor size / 2.
     """
 
     msg_type: MessageType  # must be MessageType.PROCESSED_FRAME

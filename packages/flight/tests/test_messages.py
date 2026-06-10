@@ -58,3 +58,11 @@ def test_utc_now_iso_format() -> None:
     """utc_now_iso returns an ISO 8601 UTC timestamp ending in Z."""
     stamp = utc_now_iso()
     assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$", stamp)
+
+
+def test_raw_frame_msg_removed() -> None:
+    """Frames never ride the bus: RawFrameMsg and RAW_FRAME no longer exist."""
+    import flight.libs.messages as messages
+
+    assert not hasattr(messages, "RawFrameMsg")
+    assert not hasattr(MessageType, "RAW_FRAME")

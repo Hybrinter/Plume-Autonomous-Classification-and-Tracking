@@ -1106,7 +1106,7 @@ git commit -m "feat(ingest)!: raw-mosaic sensor contract end-to-end (demosaic in
 - Modify: `packages/flight/src/flight/libs/types/enums.py` (delete `MessageType.RAW_FRAME`)
 - Test: `packages/flight/tests/test_messages.py`, `packages/flight/tests/test_enums.py`
 
-- [ ] **Step 1: Write the failing test** -- in `test_messages.py`:
+- [x] **Step 1: Write the failing test** -- in `test_messages.py`:
 
 ```python
 def test_raw_frame_msg_removed() -> None:
@@ -1117,20 +1117,20 @@ def test_raw_frame_msg_removed() -> None:
     assert not hasattr(MessageType, "RAW_FRAME")
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `uv run pytest packages/flight/tests/test_messages.py -v` -- Expected: FAIL.
 
-- [ ] **Step 3: Implement** -- delete the class, the enum member, the exports, and any
+- [x] **Step 3: Implement** -- delete the class, the enum member, the exports, and any
 remaining `RawFrameMsg`/`RAW_FRAME` references in `test_messages.py`/`test_enums.py`
 (`uv run python -c "..."` grep equivalent: `rg "RawFrameMsg|RAW_FRAME" packages` must return
 only this plan's history). 
 
-- [ ] **Step 4: Run the full gates**
+- [x] **Step 4: Run the full gates**
 
 Run: `uv run pytest packages` and `uv run mypy packages` -- Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A packages

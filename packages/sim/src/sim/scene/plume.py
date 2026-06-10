@@ -79,7 +79,7 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
         noise = rng.normal(0.0, _NOISE_SIGMA_DN, size=signal.shape).astype(
             np.float32
         )  # np.ndarray[float32, (4, 256, 256)]
-        planes: np.ndarray = (signal + noise).astype(np.float32)  # (4, 256, 256) float32
+        planes = signal + noise  # np.ndarray[float32, (4, 256, 256)]
         mosaic_result = interleave_bands(planes)
         assert isinstance(mosaic_result, Ok)  # geometry is fixed; cannot fail
         mosaic = np.clip(mosaic_result.value, 0.0, _FULL_SCALE).astype(
@@ -100,10 +100,7 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
 def plume_detector() -> ScriptedDetector:
     """Build a ScriptedDetector whose fixed mask yields one strong, stable central blob.
 
-    Inputs:
-        None.
-
-    Outputs:
+    Returns:
         ScriptedDetector: With a 50x50 unit-probability square (area 2500 px, confidence
         1.0) centered in a 256x256 mask -- above the default gates. The mask resolution
         matches the demosaicked band planes (sensor size / 2).

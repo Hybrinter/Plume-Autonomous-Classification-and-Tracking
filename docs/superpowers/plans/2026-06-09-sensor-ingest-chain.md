@@ -412,7 +412,7 @@ git commit -m "feat(preprocess): 2x2 CFA separation with interleave inverse"
 - Modify: `packages/flight/src/flight/payload/preprocess/__init__.py` (export)
 - Test: `packages/flight/tests/test_preprocess_mosaic_calibration.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for mosaic-plane calibration: bad-pixel repair then dark/flat correction."""
@@ -474,12 +474,12 @@ def test_calibrate_mosaic_nonfinite_is_inference_nan() -> None:
     assert result.error == FaultCode.INFERENCE_NAN
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_preprocess_mosaic_calibration.py -v`
 Expected: FAIL (`ImportError: MosaicCalibration`).
 
-- [ ] **Step 3: Implement (append to `radiometric.py`)**
+- [x] **Step 3: Implement (append to `radiometric.py`)**
 
 ```python
 @dataclass(frozen=True)
@@ -539,12 +539,12 @@ Update the module docstring to describe both the legacy (C, H, W) path (marked: 
 ingest switchover) and the new mosaic-plane path. Export the three new names from
 `preprocess/__init__.py`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_preprocess_mosaic_calibration.py packages/flight/tests/test_preprocess_radiometric.py -v`
 Expected: PASS (old tests still green -- additive change).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/payload/preprocess packages/flight/tests/test_preprocess_mosaic_calibration.py

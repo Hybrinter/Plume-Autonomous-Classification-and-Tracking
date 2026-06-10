@@ -560,7 +560,7 @@ git commit -m "feat(preprocess): mosaic-plane calibration with bad-pixel repair"
 - Modify: `packages/flight/src/flight/payload/preprocess/__init__.py` (export)
 - Test: `packages/flight/tests/test_preprocess_normalize.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for DN -> [0, 1] normalization."""
@@ -585,12 +585,12 @@ def test_normalize_clips_out_of_range() -> None:
     np.testing.assert_allclose(out, [[[0.0, 1.0]]])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_preprocess_normalize.py -v`
 Expected: FAIL (`ImportError: normalize_dn`).
 
-- [ ] **Step 3: Implement `normalize.py`**
+- [x] **Step 3: Implement `normalize.py`**
 
 ```python
 """DN -> [0, 1] normalization for calibrated band planes.
@@ -623,12 +623,12 @@ def normalize_dn(planes: np.ndarray, bit_depth: int) -> np.ndarray:
     return np.clip(planes / full_scale, 0.0, 1.0).astype(np.float32)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_preprocess_normalize.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/payload/preprocess packages/flight/tests/test_preprocess_normalize.py

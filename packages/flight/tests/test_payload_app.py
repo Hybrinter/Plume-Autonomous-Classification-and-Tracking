@@ -6,25 +6,23 @@ import numpy as np
 from flight.hal.drivers_sim import SimGimbal, SimSensor
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import GimbalCommandMsg, InferenceResultMsg, RawFrameMsg
+from flight.libs.messages import GimbalCommandMsg, InferenceResultMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, MessageType, Ok
+from flight.libs.types import GimbalState, MosaicFrame, Ok
 from flight.payload.app import PayloadApp, TickOutcome
+from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.model import ScriptedDetector
 
 
-def _raw_frame(frame_id: int) -> RawFrameMsg:
-    """Build a (4, 256, 256) zero-band raw frame matching the identity calibration."""
-    raw_bands = np.zeros((4, 256, 256), dtype=np.float32)  # np.ndarray[float32, (C, H, W)]
-    return RawFrameMsg(
-        msg_type=MessageType.RAW_FRAME,
+def _mosaic_frame(frame_id: int) -> MosaicFrame:
+    """Build a zeroed (512, 512) uint16 mosaic frame matching the default sensor geometry."""
+    mosaic = np.zeros((512, 512), dtype=np.uint16)  # np.ndarray[uint16, (H, W)]
+    return MosaicFrame(
         timestamp_utc="2026-06-01T00:00:00.000Z",
         frame_id=frame_id,
-        raw_bands=raw_bands,
+        mosaic=mosaic,
         exposure_us=1000.0,
         gain_db=0.0,
-        gimbal_az_deg=0.0,
-        gimbal_el_deg=0.0,
     )
 
 
@@ -41,8 +39,17 @@ def _build_app(detector: ScriptedDetector) -> tuple[PayloadApp, MessageBus, SimG
     bus = MessageBus()
     gimbal = SimGimbal()
     sensor = SimSensor([])  # frames are fed directly to process_frame in these tests
-    app = PayloadApp.from_config(cfg, sensor, gimbal, detector, bus, ManualClock())
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(cfg, sensor, gimbal, detector, bus, ManualClock(), calib)
     return app, bus, gimbal
+
+
+def test_process_frame_demosaics_to_half_resolution() -> None:
+    """A 512x512 mosaic yields a (4, 256, 256) tensor for the detector."""
+    app, _bus, _gimbal = _build_app(_plume_detector())
+    frame = _mosaic_frame(1)
+    state, outcome = app.process_frame(frame, app.controller.initial_state(), now=1.0)
+    assert outcome.fault is None
 
 
 def test_persistent_plume_drives_gimbal_through_app() -> None:
@@ -56,7 +63,7 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
     now = 0.0
     for frame_id in range(1, 9):
         now += 1.0
-        state, outcome = app.process_frame(_raw_frame(frame_id), state, now)
+        state, outcome = app.process_frame(_mosaic_frame(frame_id), state, now)
         outcomes.append(outcome)
 
     assert state.arbiter.gimbal_state is GimbalState.TRACKING
@@ -86,7 +93,7 @@ def test_no_detection_publishes_inference_but_no_command() -> None:
     now = 0.0
     for frame_id in range(1, 6):
         now += 1.0
-        state, outcome = app.process_frame(_raw_frame(frame_id), state, now)
+        state, outcome = app.process_frame(_mosaic_frame(frame_id), state, now)
         assert outcome.command_issued is False
 
     assert state.arbiter.gimbal_state is GimbalState.IDLE

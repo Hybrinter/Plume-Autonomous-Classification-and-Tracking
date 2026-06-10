@@ -2,22 +2,18 @@
 
 import numpy as np
 from flight.hal.drivers_sim import SimSensor
-from flight.libs.messages import RawFrameMsg
-from flight.libs.types import Err, FaultCode, MessageType, Ok
+from flight.libs.types import Err, FaultCode, MosaicFrame, Ok
 
 
-def _frame(frame_id: int) -> RawFrameMsg:
-    """Build a minimal RawFrameMsg with a (4, 8, 8) float32 band stack."""
-    raw_bands = np.zeros((4, 8, 8), dtype=np.float32)  # np.ndarray[float32, (C, H, W)]
-    return RawFrameMsg(
-        msg_type=MessageType.RAW_FRAME,
+def _frame(frame_id: int) -> MosaicFrame:
+    """Build a minimal MosaicFrame with a (8, 8) uint16 mosaic plane."""
+    mosaic = np.zeros((8, 8), dtype=np.uint16)  # np.ndarray[uint16, (H, W)]
+    return MosaicFrame(
         timestamp_utc="2026-05-31T00:00:00.000Z",
         frame_id=frame_id,
-        raw_bands=raw_bands,
+        mosaic=mosaic,
         exposure_us=10_000.0,
         gain_db=0.0,
-        gimbal_az_deg=0.0,
-        gimbal_el_deg=0.0,
     )
 
 

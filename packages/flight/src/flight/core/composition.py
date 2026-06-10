@@ -27,6 +27,7 @@ from flight.libs.config import PactConfig
 from flight.libs.time import Clock
 from flight.payload.app import PayloadApp
 from flight.payload.model import DetectorBackend
+from flight.payload.preprocess import MosaicCalibration
 from flight.thermal.app import ThermalApp
 
 # The subsystems that run persistent loops and emit heartbeats; the FDIR watchdog
@@ -67,6 +68,7 @@ def build_apps(
     clock: Clock,
     drivers: Drivers,
     monitored: tuple[str, ...],
+    calib: MosaicCalibration,
 ) -> SystemApps:
     """Construct every subsystem app wired to the shared bus and clock.
 
@@ -76,13 +78,16 @@ def build_apps(
         clock: The injected Clock (RealClock in flight, ManualClock in SIL/tests).
         drivers: The HAL driver bundle (real or sim) plus the detector backend.
         monitored: Subsystem names the FDIR watchdog should watch (use MONITORED_SUBSYSTEMS).
+        calib: The MosaicCalibration the payload app applies to the raw mosaic plane
+            (loaded from artifacts in flight; identity in SIL). Constructed by the
+            composition root and injected here so build_apps stays driver-agnostic.
 
     Returns:
         A SystemApps with all five apps constructed.
     """
     return SystemApps(
         payload=PayloadApp.from_config(
-            config, drivers.sensor, drivers.gimbal, drivers.detector, bus, clock
+            config, drivers.sensor, drivers.gimbal, drivers.detector, bus, clock, calib
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored),
         iss_iface=IssIfaceApp.from_config(config, bus, clock, drivers.station),

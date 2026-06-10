@@ -1,23 +1,31 @@
-"""
-pact.preprocessing.quality -- Per-frame quality flag computation for PACT inference gating.
+"""flight.payload.preprocess.quality -- Per-frame quality flag computation for inference gating.
 
 Satisfies: REQ-AIML-IMAG-002, REQ-AIML-DATA-003
 
-Computes a frozenset of FrameUsabilityTag flags for each calibrated frame. These flags
-are attached to ProcessedFrameMsg and used downstream to decide whether to run inference
-and how to classify the frame for dataset curation (training vs. tracking vs. invalid).
+Computes a frozenset of FrameUsabilityTag flags for each calibrated, normalized frame.
+These flags are attached to ProcessedFrameMsg and used downstream to decide whether to
+run inference and how to classify the frame for dataset curation (training vs. tracking
+vs. invalid).
 
-Flag conditions (all thresholds marked TODO: move to config):
-    SATURATED           -- any band has > 5% of pixels above 0.95 (post-normalisation)
-    MOTION_SMEAR        -- placeholder; raised when exposure time implies smear at ISS speed
-    CLOUD_CONTAMINATED  -- NIR/Red ratio heuristic exceeds threshold
-    SUNGLINT            -- mean NIR band intensity exceeds threshold
+Flag conditions:
+    SATURATED           -- any band has > saturation_fraction_threshold of pixels above
+                           SATURATION_PIXEL_LEVEL (post-normalisation).
+    MOTION_SMEAR        -- physical: predicted smear length in band-plane pixels,
+                           smear_px = slew_rate_deg_per_s * (exposure_us * 1e-6) / IFOV,
+                           exceeds cfg.max_motion_smear_px.
+    CLOUD_CONTAMINATED  -- NIR/Red mean ratio exceeds cfg.nir_red_ratio_threshold.
+    SUNGLINT            -- mean NIR band intensity exceeds cfg.sunglint_nir_mean_threshold.
+    INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
 
-Band index assumptions (for a (4, H, W) array after select_bands):
-    index 0 -> B2 (blue)
-    index 1 -> B3 (green)
-    index 2 -> B4 (red)
-    index 3 -> B8 (NIR)
+Band index assumptions (for a (C, H, W) array after select_bands), order
+[BLUE, GREEN, RED, NIR]:
+    index 0 -> BLUE
+    index 1 -> GREEN
+    index 2 -> RED
+    index 3 -> NIR
+
+Contains:
+  - compute_quality_flags: evaluate the heuristics and return the raised-flag frozenset.
 """
 
 from __future__ import annotations
@@ -37,26 +45,37 @@ SATURATION_PIXEL_LEVEL: Final[float] = 0.95  # normalised DN units
 
 
 def compute_quality_flags(
-    bands: object,  # np.ndarray[float32, (C, H, W)]
+    bands: object,  # np.ndarray[float32, (C, H, W)], order [BLUE, GREEN, RED, NIR]
     exposure_us: float,
+    slew_rate_deg_per_s: float,
+    ifov_deg_per_px: float,
     utc_timestamp: str,
     cfg: PreprocessingConfig,
 ) -> frozenset[FrameUsabilityTag]:
-    """Compute per-frame quality flags for a calibrated multispectral frame.
+    """Compute per-frame quality flags for a calibrated, normalized multispectral frame.
 
-    Evaluates five independent heuristic conditions and returns the set of
-    flags that are raised. An empty frozenset means the frame is clean.
+    Evaluates independent heuristic conditions and returns the set of flags raised. An
+    empty frozenset means the frame is clean and inference-ready.
 
-    Args:
-        bands:         Calibrated and normalised band array, shape (C, H, W),
-                       float32. C >= 4, band ordering [B2, B3, B4, B8].
-        exposure_us:   Camera exposure time in microseconds.
-        utc_timestamp: ISO 8601 timestamp string from the frame metadata.
-        cfg:           PreprocessingConfig with quality-flag thresholds.
+    Inputs:
+        bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised band array.
+            C >= 4, band ordering [BLUE, GREEN, RED, NIR].
+        exposure_us (float): Camera exposure time in microseconds.
+        slew_rate_deg_per_s (float): Commanded/observed gimbal slew rate in degrees per
+            second over the exposure (0.0 when unknown -- the smear gate degrades to
+            never-flag).
+        ifov_deg_per_px (float): Instantaneous field of view per band-plane pixel,
+            degrees per pixel (SensorConfig.ifov_deg_per_px).
+        utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
+        cfg (PreprocessingConfig): Quality-flag thresholds.
 
-    Returns:
-        frozenset of FrameUsabilityTag flags raised for this frame.
-        An empty frozenset indicates a clean, inference-ready frame.
+    Outputs:
+        frozenset[FrameUsabilityTag]: The flags raised for this frame; empty if clean.
+
+    Notes:
+        MOTION_SMEAR is physically grounded: it converts the angular blur during the
+        exposure into a length in band-plane pixels via the IFOV, rather than gating on
+        exposure time alone.
     """
     flags: set[FrameUsabilityTag] = set()
 
@@ -74,12 +93,13 @@ def compute_quality_flags(
             flags.add(FrameUsabilityTag.SATURATED)
             break
 
-    # --- MOTION_SMEAR (placeholder) ---
-    if exposure_us > cfg.motion_smear_exposure_us:
+    # --- MOTION_SMEAR: predicted smear length in band-plane pixels ---
+    smear_px = slew_rate_deg_per_s * (exposure_us * 1e-6) / ifov_deg_per_px
+    if smear_px > cfg.max_motion_smear_px:
         flags.add(FrameUsabilityTag.MOTION_SMEAR)
 
     # --- CLOUD_CONTAMINATED ---
-    # Band index 2 = B4 (Red), index 3 = B8 (NIR).
+    # Band index 2 = RED, index 3 = NIR.
     red_band: np.ndarray = bands_arr[2]  # np.ndarray[float32, (H, W)]
     nir_band: np.ndarray = bands_arr[3]  # np.ndarray[float32, (H, W)]
     epsilon: float = 1e-6

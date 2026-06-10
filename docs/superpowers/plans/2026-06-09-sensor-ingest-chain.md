@@ -855,18 +855,18 @@ the order given; run the full gates only at the end (intermediate states do not 
   `test_composition.py`; `packages/sim/tests/test_scene.py`, `test_sil_closed_loop.py`
   (check `conftest.py` and `test_real_drivers.py` for incidental references and fix)
 
-- [ ] **Step 1: HAL Protocol** -- `interfaces/sensor.py`: `acquire_frame` returns
+- [x] **Step 1: HAL Protocol** -- `interfaces/sensor.py`: `acquire_frame` returns
 `Result[MosaicFrame, FaultCode]`; import `MosaicFrame` from `flight.libs.types` (drop the
 `flight.libs.messages` import). Docstring: drivers ACQUIRE ONLY -- no demosaic, no calibration,
 no normalization inside any driver (ADR: raw-mosaic ingest contract). Other methods unchanged.
 
-- [ ] **Step 2: SimSensor** -- `drivers_sim/sensor.py`: replays `list[MosaicFrame]`; only the
+- [x] **Step 2: SimSensor** -- `drivers_sim/sensor.py`: replays `list[MosaicFrame]`; only the
 type annotations and docstrings change (replay/stall logic identical).
 
-- [ ] **Step 3: RealSensor (stub)** -- `drivers_real/sensor.py`: same lazy-PySpin `__init__`;
+- [x] **Step 3: RealSensor (stub)** -- `drivers_real/sensor.py`: same lazy-PySpin `__init__`;
 `acquire_frame` returns `Err(FaultCode.CAMERA_STALL)` typed as `Result[MosaicFrame, FaultCode]`.
 
-- [ ] **Step 4: band_select rewrite** (full file body below; module docstring rewritten to the
+- [x] **Step 4: band_select rewrite** (full file body below; module docstring rewritten to the
 BLUE/GREEN/RED/NIR vocabulary with the Sentinel-2 correspondence note; `BAND_INDICES` deleted):
 
 ```python
@@ -896,7 +896,7 @@ def select_bands(
     return Ok(planes[indices, :, :])  # np.ndarray[float32, (len(band_names), H, W)]
 ```
 
-- [ ] **Step 5: quality rework** -- new signature and smear model; saturation/cloud/sunglint
+- [x] **Step 5: quality rework** -- new signature and smear model; saturation/cloud/sunglint
 heuristics keep their current logic but the band-order comments now read
 `[BLUE, GREEN, RED, NIR]` (red index 2, NIR index 3 -- unchanged numerically):
 
@@ -923,13 +923,13 @@ MOTION_SMEAR becomes physical (replaces the exposure-only placeholder):
 Remove `motion_smear_exposure_us` from `PreprocessingConfig`, `config/default.toml`, and the
 loader mapping (and from `test_config_defaults.py` if listed there explicitly).
 
-- [ ] **Step 6: delete legacy radiometric path** -- remove `RadiometricCalibration` and
+- [x] **Step 6: delete legacy radiometric path** -- remove `RadiometricCalibration` and
 `apply_calibration` from `radiometric.py`; clean the module docstring; update
 `preprocess/__init__.py` exports (final export set: `CELL_OFFSETS`, `MosaicCalibration`,
 `backproject_pixel`, `calibrate_mosaic`, `compute_quality_flags`, `correct_bad_pixels`,
 `crop_to_roi`, `interleave_bands`, `normalize_dn`, `select_bands`, `separate_bands`).
 
-- [ ] **Step 7: app.py rework** -- `PayloadApp` field changes: `calib: MosaicCalibration`,
+- [x] **Step 7: app.py rework** -- `PayloadApp` field changes: `calib: MosaicCalibration`,
 new `sensor_cfg: SensorConfig`; delete the local `build_identity_calibration`. `from_config`
 gains a `calib: MosaicCalibration` argument and validates geometry at startup (raising
 `ValueError` -- composition-root startup is the one place raising is correct):
@@ -1016,7 +1016,7 @@ when a read fails -- the smear gate degrades gracefully):
 (`import math`; import `GimbalPosition` from `flight.hal.interfaces`; drop the now-unused
 `RawFrameMsg`/`ProcessedFrameMsg` imports as applicable; module header updated.)
 
-- [ ] **Step 8: composition + main** -- `composition.py`: `build_apps(config, bus, clock,
+- [x] **Step 8: composition + main** -- `composition.py`: `build_apps(config, bus, clock,
 drivers, monitored, calib)` with `calib: MosaicCalibration` (import from
 `flight.payload.preprocess`), passed to `PayloadApp.from_config`. `main.py`
 `build_flight_system(config, bus, clock, calib)`; in `main()` after config load:
@@ -1033,14 +1033,14 @@ drivers, monitored, calib)` with `calib: MosaicCalibration` (import from
         calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
 ```
 
-- [ ] **Step 9: sim callers** -- `plume.py`: `build_frames` returns zeroed mosaic
+- [x] **Step 9: sim callers** -- `plume.py`: `build_frames` returns zeroed mosaic
 `MosaicFrame`s (`FRAME_SIZE = 512`; `np.zeros((512, 512), dtype=np.uint16)`; drop
 `RawFrameMsg`/`MessageType` imports; the 256x256 `plume_detector` mask is already the band-plane
 size -- unchanged). `runner.py`: `frames: list[MosaicFrame]` (import from `flight.libs.types`);
 `build_sil_system` passes `calib=build_identity_calibration(config.sensor.height_px,
 config.sensor.width_px)` into `build_apps` (import from `flight.payload.calibration_io`).
 
-- [ ] **Step 10: rework the affected tests** -- update fixtures/builders that construct
+- [x] **Step 10: rework the affected tests** -- update fixtures/builders that construct
 `RawFrameMsg` to build `MosaicFrame(timestamp_utc=..., frame_id=..., mosaic=np.zeros((512, 512),
 dtype=np.uint16), exposure_us=1000.0, gain_db=0.0)` (smaller geometries are fine where the test
 also shrinks the config); update `select_bands`/`compute_quality_flags` call sites to the new
@@ -1080,14 +1080,14 @@ def test_process_frame_demosaics_to_half_resolution() -> None:
 
 Delete `test_preprocess_radiometric.py`. Update `test_composition.py` for the `calib` parameter.
 
-- [ ] **Step 11: Run the full gates**
+- [x] **Step 11: Run the full gates**
 
 Run: `uv run pytest packages` then `uv run ruff check packages` then
 `uv run ruff format --check packages` then `uv run mypy packages` then `uv run lint-imports`
 Expected: all green. Fix fallout before committing (grep for remaining `RawFrameMsg`
 constructions outside `flight.libs.messages` -- there must be none).
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add -A packages config

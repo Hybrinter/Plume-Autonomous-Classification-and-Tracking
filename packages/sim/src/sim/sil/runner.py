@@ -24,9 +24,10 @@ from flight.fault.watchdog import WatchdogEntry
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import CommandMsg, HeartbeatMsg, RawFrameMsg
+from flight.libs.messages import CommandMsg, HeartbeatMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import MessageType, Ok
+from flight.libs.types import MessageType, MosaicFrame, Ok
+from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.control import ControlState
 from flight.payload.model import ScriptedDetector
 
@@ -48,7 +49,7 @@ class SilSystem:
 def build_sil_system(
     config: PactConfig,
     clock: ManualClock,
-    frames: list[RawFrameMsg],
+    frames: list[MosaicFrame],
     detector: ScriptedDetector,
     inbound_commands: list[CommandMsg],
     thermal_readings: list[float],
@@ -59,7 +60,7 @@ def build_sil_system(
     Args:
         config: The PactConfig to wire the apps with.
         clock: The ManualClock shared by all apps (timestamps; the harness advances `now`).
-        frames: Raw frames the SimSensor replays.
+        frames: Raw mosaic frames the SimSensor replays.
         detector: The ScriptedDetector backing the payload.
         inbound_commands: Commands the SimStationLink delivers via the ISS bridge.
         thermal_readings: Temperature readings the thermal sensor replays (Celsius).
@@ -82,7 +83,8 @@ def build_sil_system(
         thermal_sensor=thermal_sensor,
         power_sensor=power_sensor,
     )
-    apps = build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS)
+    calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
+    apps = build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib)
     return SilSystem(
         apps=apps,
         bus=bus,

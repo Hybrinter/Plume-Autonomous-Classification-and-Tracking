@@ -1,60 +1,60 @@
-"""
-pact.preprocessing.band_select -- Sentinel-2 band selection for PACT inference input.
+"""flight.payload.preprocess.band_select -- reorder demosaicked band planes for inference.
 
 Satisfies: REQ-AIML-PREP-001, REQ-AIML-IMAG-001
 
-Selects bands B2 (490 nm), B3 (560 nm), B4 (665 nm), and B8 (842 nm) from a raw
-multispectral frame. These four VNIR bands are the input to the U-Net/ResNet-34 model.
+After CFA separation the band planes arrive in SensorConfig.mosaic_layout (row-major
+2x2 cell) order. select_bands reorders them into the InferenceConfig.input_bands order
+the model expects. The band vocabulary is BLUE/GREEN/RED/NIR (the 2x2 mosaic filter
+passbands), which approximate Sentinel-2 B2 (~490 nm) / B3 (~560 nm) / B4 (~665 nm) /
+B8 (~842 nm) so Sentinel-2-derived training data remains a valid domain (spec Section 2).
 
-Note on indexing: The raw camera produces frames with C_total bands in a fixed ordering
-defined by the sensor configuration. BAND_INDICES maps the logical band name to its
-zero-based index in the raw (C_total, H, W) array. The current values (0,1,2,3) assume
-the camera has already been configured to deliver exactly these four bands in order.
-If the sensor delivers a superset of bands, update BAND_INDICES accordingly.
-TODO: confirm band ordering with FLIR Blackfly S multispectral filter wheel configuration.
+This module is layout-agnostic: it only matches names, it does not assume any fixed
+index, so the legacy fixed BAND_INDICES table is gone.
+
+Contains:
+  - select_bands: gather/reorder layout-ordered planes into the requested band order,
+    returning Err(FRAME_MALFORMED) on a plane-count or unknown-name mismatch.
 """
 
 from __future__ import annotations
 
-# stdlib
-from typing import Final
-
 # third-party
 import numpy as np
 
-# Maps logical Sentinel-2 band names to zero-based indices in the raw sensor output.
-# Sentinel-2 13-band canonical ordering: B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12
-# Indices 1,2,3,7 -> B2 (490 nm), B3 (560 nm), B4 (665 nm), B8 (842 nm).
-# These match the indices used in HsgAimlDataset.__getitem__().
-BAND_INDICES: Final[dict[str, int]] = {
-    "B2": 0,  # 490 nm -- blue
-    "B3": 1,  # 560 nm -- green
-    "B4": 2,  # 665 nm -- red
-    "B8": 3,  # 842 nm -- near-infrared (NIR)
-}
+# internal
+from flight.libs.types import Err, FaultCode, Ok, Result
 
 
 def select_bands(
-    raw: np.ndarray,  # (C_total, H, W) float32
+    planes: np.ndarray,  # np.ndarray[float32, (4, H, W)], in mosaic_layout cell order
+    layout: tuple[str, ...],
     band_names: tuple[str, ...],
-) -> np.ndarray:  # (len(band_names), H, W) float32
-    """Select named bands from a raw multispectral array.
+) -> Result[np.ndarray, FaultCode]:
+    """Reorder demosaicked band planes from layout order into band_names order.
 
-    Looks up each name in BAND_INDICES and gathers the corresponding slices.
-    The output channel order matches the order of band_names.
+    Inputs:
+        planes (np.ndarray[float32, (len(layout), H, W)]): Band planes in
+            SensorConfig.mosaic_layout (row-major 2x2 cell) order.
+        layout (tuple[str, ...]): The band name of each plane, e.g.
+            ("BLUE", "GREEN", "RED", "NIR").
+        band_names (tuple[str, ...]): Requested output order
+            (InferenceConfig.input_bands).
 
-    Args:
-        raw:        Raw multispectral frame. Shape (C_total, H, W), dtype float32.
-                    C_total must be >= max(BAND_INDICES.values()) + 1.
-        band_names: Ordered tuple of band names to select, e.g. ("B2", "B3", "B4", "B8").
-                    All names must be keys in BAND_INDICES.
+    Outputs:
+        Result[np.ndarray, FaultCode]:
+            Ok(np.ndarray[float32, (len(band_names), H, W)]) with channels in
+            band_names order;
+            Err(FaultCode.FRAME_MALFORMED) if a requested name is absent from layout,
+            if planes is not 3-D, or if the plane count disagrees with layout.
 
-    Returns:
-        Selected bands as np.ndarray of shape (len(band_names), H, W), float32.
-
-    Raises:
-        KeyError:      If any name in band_names is not in BAND_INDICES.
-        IndexError:    If any resolved index is out of range for raw.shape[0].
+    Notes:
+        Pure gather by integer index; no copy of pixel data beyond numpy's fancy-index
+        result. The output channel order follows band_names exactly, not layout order.
     """
-    indices: list[int] = [BAND_INDICES[name] for name in band_names]
-    return raw[indices, :, :]  # np.ndarray[float32, (len(band_names), H, W)]
+    if planes.ndim != 3 or planes.shape[0] != len(layout):
+        return Err(FaultCode.FRAME_MALFORMED)
+    try:
+        indices = [layout.index(name) for name in band_names]
+    except ValueError:
+        return Err(FaultCode.FRAME_MALFORMED)
+    return Ok(planes[indices, :, :])  # np.ndarray[float32, (len(band_names), H, W)]

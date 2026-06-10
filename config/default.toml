@@ -29,7 +29,7 @@ max_slew_deg_s = 2.0
 [inference]
 model_path = "data/models/active.pt"
 rollback_model_path = "data/models/rollback.pt"
-input_bands = ["B2", "B3", "B4", "B8"]
+input_bands = ["BLUE", "GREEN", "RED", "NIR"]
 input_height_px = 256
 input_width_px = 256
 use_int8 = false
@@ -53,7 +53,6 @@ checksum_algorithm = "sha256"
 saturation_fraction_threshold = 0.05
 nir_red_ratio_threshold = 3.0
 sunglint_nir_mean_threshold = 0.6
-motion_smear_exposure_us = 5000.0
 max_motion_smear_px = 1.0
 
 [sensor]

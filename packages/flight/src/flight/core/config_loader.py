@@ -223,9 +223,6 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         sunglint_nir_mean_threshold=float(
             prep.get("sunglint_nir_mean_threshold", PreprocessingConfig.sunglint_nir_mean_threshold)
         ),
-        motion_smear_exposure_us=float(
-            prep.get("motion_smear_exposure_us", PreprocessingConfig.motion_smear_exposure_us)
-        ),
         max_motion_smear_px=float(
             prep.get("max_motion_smear_px", PreprocessingConfig.max_motion_smear_px)
         ),

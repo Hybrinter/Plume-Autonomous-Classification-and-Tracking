@@ -25,16 +25,22 @@ from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.time import Clock, RealClock
 from flight.libs.types import Ok
+from flight.payload.calibration_io import build_identity_calibration, load_calibration
 from flight.payload.model import OnnxDetector
+from flight.payload.preprocess import MosaicCalibration
 
 
-def build_flight_system(config: PactConfig, bus: MessageBus, clock: Clock) -> SystemApps:
+def build_flight_system(
+    config: PactConfig, bus: MessageBus, clock: Clock, calib: MosaicCalibration
+) -> SystemApps:
     """Construct the real-driver Drivers bundle and wire the SystemApps.
 
     Args:
         config: The validated PactConfig.
         bus: The shared MessageBus.
         clock: The injected Clock (RealClock in production).
+        calib: The MosaicCalibration to inject into the payload app (loaded from
+            checksummed artifacts, or identity when no calibration_dir is configured).
 
     Returns:
         The wired SystemApps.
@@ -52,7 +58,7 @@ def build_flight_system(config: PactConfig, bus: MessageBus, clock: Clock) -> Sy
         thermal_sensor=RealScalarSensor(),
         power_sensor=RealScalarSensor(),
     )
-    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS)
+    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib)
 
 
 def main(config_path: str = "config/default.toml") -> None:
@@ -62,16 +68,27 @@ def main(config_path: str = "config/default.toml") -> None:
         config_path: Path to the TOML config file.
 
     Raises:
-        SystemExit: If config loading fails (unrecoverable startup error).
+        SystemExit: If config loading or calibration loading fails (unrecoverable
+            startup errors).
     """
     result = load_config(config_path)
     if not isinstance(result, Ok):
         raise SystemExit(f"config load failed: {result.error}")
     config = result.value
 
+    if config.sensor.calibration_dir:
+        cal_result = load_calibration(
+            config.sensor.calibration_dir, config.sensor.height_px, config.sensor.width_px
+        )
+        if not isinstance(cal_result, Ok):
+            raise SystemExit(f"calibration load failed: {cal_result.error}")
+        calib = cal_result.value
+    else:
+        calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
+
     bus = MessageBus()
     clock: Clock = RealClock()
-    apps = build_flight_system(config, bus, clock)
+    apps = build_flight_system(config, bus, clock, calib)
 
     scheduler = Scheduler(
         [

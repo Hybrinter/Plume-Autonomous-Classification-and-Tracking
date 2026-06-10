@@ -54,7 +54,7 @@ class InferenceConfig:
 
     model_path: str = "data/models/active.pt"  # path to active model checkpoint
     rollback_model_path: str = "data/models/rollback.pt"  # path to rollback model checkpoint
-    input_bands: tuple[str, ...] = ("B2", "B3", "B4", "B8")  # spectral bands to select
+    input_bands: tuple[str, ...] = ("BLUE", "GREEN", "RED", "NIR")  # bands to select
     input_height_px: int = 256  # model input height in pixels
     input_width_px: int = 256  # model input width in pixels
     use_int8: bool = False  # enable INT8 quantization (flight only)
@@ -88,7 +88,7 @@ class SensorConfig:
     """Configuration for the imaging sensor and its 2x2 mosaic filter optics.
 
     Geometry and optics constants for the FLIR Blackfly S (12-bit Sony IMX-class)
-    behind a custom 2x2 mosaic filter (Sentinel-2 B2/B3/B4/B8 passbands).
+    behind a custom 2x2 mosaic filter (BLUE/GREEN/RED/NIR ~ Sentinel-2 B2/B3/B4/B8).
     These values drive demosaic, normalization, quality gates, and the composition
     root's calibration-load decision.
 
@@ -113,7 +113,6 @@ class PreprocessingConfig:
     saturation_fraction_threshold: float = 0.05  # fraction of pixels above 0.95 -> SATURATED flag
     nir_red_ratio_threshold: float = 3.0  # NIR/Red mean ratio above this -> CLOUD_CONTAMINATED
     sunglint_nir_mean_threshold: float = 0.6  # mean NIR above this -> SUNGLINT flag
-    motion_smear_exposure_us: float = 5000.0  # exposure time above this (us) -> MOTION_SMEAR flag
     max_motion_smear_px: float = 1.0  # predicted smear (slew x exposure / IFOV) above this -> flag
 
 

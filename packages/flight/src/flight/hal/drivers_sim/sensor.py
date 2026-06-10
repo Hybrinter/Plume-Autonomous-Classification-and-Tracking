@@ -1,29 +1,44 @@
 """Simulated imaging sensor.
 
-Replays a fixed list of frames in order, returning Err(CAMERA_STALL) once exhausted
-(matching real stall semantics). Satisfies the ImagingSensor protocol structurally.
-Used by SIL; later it can be fed by the scene generator.
+Replays a fixed list of raw MosaicFrame frames in order, returning Err(CAMERA_STALL)
+once exhausted (matching real stall semantics). Satisfies the ImagingSensor protocol
+structurally. Frames are rendered by sim.scene; the driver itself does no image
+processing (acquire-only contract).
+
+Contains:
+  - SimSensor: replays pre-loaded MosaicFrame frames one per acquire_frame() call.
 """
 
-from flight.libs.messages import RawFrameMsg
-from flight.libs.types import Err, FaultCode, Ok, Result
+from flight.libs.types import Err, FaultCode, MosaicFrame, Ok, Result
 
 
 class SimSensor:
-    """Imaging sensor that returns pre-loaded frames in order (sim/SIL driver)."""
+    """Imaging sensor that returns pre-loaded mosaic frames in order (sim/SIL driver)."""
 
-    def __init__(self, frames: list[RawFrameMsg]) -> None:
+    def __init__(self, frames: list[MosaicFrame]) -> None:
         """Initialize with the ordered frames to replay.
 
-        Args:
-            frames: Frames returned one per acquire_frame() call, in order.
+        Inputs:
+            frames (list[MosaicFrame]): Raw mosaic frames returned one per
+                acquire_frame() call, in order.
+
+        Outputs:
+            None.
         """
         self._frames = frames
         self._index = 0
         self._acquiring = False
 
-    def acquire_frame(self) -> Result[RawFrameMsg, FaultCode]:
-        """Return the next frame, or Err(CAMERA_STALL) once exhausted."""
+    def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
+        """Return the next mosaic frame, or Err(CAMERA_STALL) once exhausted.
+
+        Inputs:
+            None.
+
+        Returns:
+            Result[MosaicFrame, FaultCode]: Ok(frame) while frames remain;
+            Err(FaultCode.CAMERA_STALL) after the replay list is exhausted.
+        """
         if self._index >= len(self._frames):
             return Err(FaultCode.CAMERA_STALL)
         frame = self._frames[self._index]
@@ -31,19 +46,47 @@ class SimSensor:
         return Ok(frame)
 
     def set_exposure_us(self, exposure: float) -> Result[None, FaultCode]:
-        """No-op for the simulated sensor."""
+        """No-op for the simulated sensor.
+
+        Inputs:
+            exposure (float): Exposure time in microseconds (ignored).
+
+        Returns:
+            Result[None, FaultCode]: Ok(None) always.
+        """
         return Ok(None)
 
     def set_gain_db(self, gain: float) -> Result[None, FaultCode]:
-        """No-op for the simulated sensor."""
+        """No-op for the simulated sensor.
+
+        Inputs:
+            gain (float): Analogue gain in dB (ignored).
+
+        Returns:
+            Result[None, FaultCode]: Ok(None) always.
+        """
         return Ok(None)
 
     def start_acquisition(self) -> Result[None, FaultCode]:
-        """Mark the simulated sensor as acquiring."""
+        """Mark the simulated sensor as acquiring.
+
+        Inputs:
+            None.
+
+        Returns:
+            Result[None, FaultCode]: Ok(None) always.
+        """
         self._acquiring = True
         return Ok(None)
 
     def stop_acquisition(self) -> Result[None, FaultCode]:
-        """Mark the simulated sensor as stopped."""
+        """Mark the simulated sensor as stopped.
+
+        Inputs:
+            None.
+
+        Returns:
+            Result[None, FaultCode]: Ok(None) always.
+        """
         self._acquiring = False
         return Ok(None)

@@ -16,10 +16,11 @@ from flight.libs.types import FrameUsabilityTag
 # module under test
 from flight.payload.preprocess import compute_quality_flags
 
-# Shared test constants -- keep exposure_us below motion_smear threshold (default 5000us)
-# and set a high motion_smear threshold so saturation tests isolate only SATURATED flag.
+# Shared test constants. slew_rate 0.0 keeps the physical smear gate inactive so the
+# saturation tests isolate only the SATURATED flag.
 _TS: str = "2026-04-03T00:00:00.000Z"
-_CFG: PreprocessingConfig = PreprocessingConfig(motion_smear_exposure_us=20_000.0)
+_CFG: PreprocessingConfig = PreprocessingConfig()
+_IFOV: float = 0.04  # degrees per band-plane pixel
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ def _inject_saturation(
 def test_no_flags_clean_frame() -> None:
     """A zeros array must return an empty frozenset (no flags raised)."""
     bands = _make_bands(value=0.0)
-    flags = compute_quality_flags(bands, exposure_us=10_000.0, utc_timestamp=_TS, cfg=_CFG)
+    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
     assert flags == frozenset(), f"Expected no flags for clean frame, got {flags}"
 
 
@@ -64,7 +65,7 @@ def test_saturated_flag_raised() -> None:
     bands = _make_bands(value=0.0)
     # Inject 10% saturated pixels -- well above the 5% threshold
     bands = _inject_saturation(bands, fraction=0.10, sat_value=1.0)
-    flags = compute_quality_flags(bands, exposure_us=10_000.0, utc_timestamp=_TS, cfg=_CFG)
+    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
     assert FrameUsabilityTag.SATURATED in flags, (
         f"Expected SATURATED flag for 10% saturated pixels, got {flags}"
     )
@@ -85,13 +86,12 @@ def test_saturated_flag_raised() -> None:
 def test_saturated_flag_boundary(fraction: float, expect_saturated: bool) -> None:
     """Parametrized boundary test for the SATURATED flag at the 5% pixel threshold.
 
-    Note: the arch spec says '>5%'. Whether the boundary is strict or inclusive
-    depends on the implementation. The test at 0.05 will reveal the actual boundary.
-    Adjust expected value if implementation uses '>=' vs '>'.
+    Note: the arch spec says '>5%'. The implementation uses strict '>', so 0.05 exactly
+    does not trigger.
     """
     bands = _make_bands(value=0.0)
     bands = _inject_saturation(bands, fraction=fraction, sat_value=1.0)
-    flags = compute_quality_flags(bands, exposure_us=10_000.0, utc_timestamp=_TS, cfg=_CFG)
+    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
     if expect_saturated:
         assert FrameUsabilityTag.SATURATED in flags, (
             f"Expected SATURATED at fraction={fraction}, but flag was absent. Flags: {flags}"
@@ -102,17 +102,29 @@ def test_saturated_flag_boundary(fraction: float, expect_saturated: bool) -> Non
         )
 
 
+def test_motion_smear_from_slew_and_exposure() -> None:
+    """smear_px = slew * exposure / IFOV; above max_motion_smear_px raises the flag."""
+    bands = np.zeros((4, 8, 8), dtype=np.float32)
+    cfg = PreprocessingConfig()  # max_motion_smear_px = 1.0
+    # 2 deg/s * 0.05 s / 0.04 deg/px = 2.5 px > 1.0 -> flagged
+    flags = compute_quality_flags(bands, 50_000.0, 2.0, 0.04, "2026-06-09T00:00:00.000Z", cfg)
+    assert FrameUsabilityTag.MOTION_SMEAR in flags
+    # 0 deg/s -> no smear
+    flags = compute_quality_flags(bands, 50_000.0, 0.0, 0.04, "2026-06-09T00:00:00.000Z", cfg)
+    assert FrameUsabilityTag.MOTION_SMEAR not in flags
+
+
 def test_quality_flags_returns_frozenset() -> None:
     """compute_quality_flags must always return a frozenset."""
     bands = _make_bands()
-    flags = compute_quality_flags(bands, exposure_us=10_000.0, utc_timestamp=_TS, cfg=_CFG)
+    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
     assert isinstance(flags, frozenset), f"Expected frozenset, got {type(flags)}"
 
 
 def test_flags_contain_only_usability_tags() -> None:
     """All elements in the returned frozenset must be FrameUsabilityTag members."""
     bands = _inject_saturation(_make_bands(), fraction=0.10)
-    flags = compute_quality_flags(bands, exposure_us=10_000.0, utc_timestamp=_TS, cfg=_CFG)
+    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
     for flag in flags:
         assert isinstance(flag, FrameUsabilityTag), (
             f"Non-FrameUsabilityTag found in quality flags: {flag!r}"

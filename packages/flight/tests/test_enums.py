@@ -1,6 +1,6 @@
 """Smoke tests for the migrated flight enums."""
 
-from flight.libs.types import Band, FaultCode, GimbalState, SystemMode
+from flight.libs.types import Band, FaultCode, GimbalCommandMode, GimbalState, SystemMode
 
 
 def test_enum_value_mirrors_name() -> None:
@@ -25,3 +25,15 @@ def test_new_fault_codes_exist() -> None:
     """Ingest-chain fault codes are defined with name-mirroring values."""
     assert FaultCode.CALIBRATION_INVALID.value == "CALIBRATION_INVALID"
     assert FaultCode.FRAME_MALFORMED.value == "FRAME_MALFORMED"
+
+
+def test_gimbal_command_mode_values_mirror_names() -> None:
+    """GimbalCommandMode string values must mirror member names."""
+    for member in GimbalCommandMode:
+        assert member.value == member.name
+    assert {m.name for m in GimbalCommandMode} == {"RATE", "ABSOLUTE", "STOW", "HOME"}
+
+
+def test_gimbal_fault_code_exists() -> None:
+    """Driver-level gimbal failures have their own fault code."""
+    assert FaultCode.GIMBAL_FAULT.value == "GIMBAL_FAULT"

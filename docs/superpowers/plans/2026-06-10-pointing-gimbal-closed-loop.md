@@ -62,7 +62,7 @@ mechanism, not photometric loop closure); fault-ledger persistence (data-system 
 - Test: `packages/flight/tests/test_enums.py` (extend), `packages/flight/tests/test_fault_policy.py` (extend)
 - Test: `packages/flight/tests/test_gimbal_request.py` (new)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `test_enums.py`:
 
@@ -105,12 +105,12 @@ def test_gimbal_request_carries_mode_and_values() -> None:
     assert req.az_deg == 1.5
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_enums.py packages/flight/tests/test_fault_policy.py packages/flight/tests/test_gimbal_request.py -v`
 Expected: FAIL (`GimbalCommandMode`, `GIMBAL_FAULT`, `GimbalRequest` missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `enums.py` add to `FaultCode`: `GIMBAL_FAULT = "GIMBAL_FAULT"`, and a new enum:
 
@@ -172,12 +172,12 @@ class GimbalRequest:
     reason: str
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_enums.py packages/flight/tests/test_fault_policy.py packages/flight/tests/test_gimbal_request.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/libs/types packages/flight/src/flight/fault/policy.py packages/flight/src/flight/payload/gimbal packages/flight/tests/test_enums.py packages/flight/tests/test_fault_policy.py packages/flight/tests/test_gimbal_request.py

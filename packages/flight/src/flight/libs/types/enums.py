@@ -7,8 +7,9 @@ flight.libs.types.result).
 Includes:
 - SystemMode: top-level operational mode transitions.
 - GimbalState: four-state arbiter for gimbal control.
+- GimbalCommandMode: interpretation of gimbal command axis values (RATE/ABSOLUTE/STOW/HOME).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
-  (CALIBRATION_INVALID, FRAME_MALFORMED) added for the mosaic sensor ingest chain.
+  (CALIBRATION_INVALID, FRAME_MALFORMED) and driver-level gimbal fault (GIMBAL_FAULT).
 - Band: physical 2x2 mosaic-filter band vocabulary (BLUE/GREEN/RED/NIR).
 - FrameUsabilityTag: per-frame quality classification.
 - MessageType: typed discriminant for all bus messages.
@@ -51,6 +52,23 @@ class GimbalState(enum.Enum):
     SAFE = "SAFE"
 
 
+class GimbalCommandMode(enum.Enum):
+    """How a gimbal command's axis values are interpreted.
+
+    RATE: az/el are rates in deg/s (TRACKING). ABSOLUTE: az/el are target angles in
+    degrees (SCAN, acquisition repositioning). STOW/HOME: axis values are ignored;
+    the driver resolves the configured stow/home pose.
+
+    String values mirror member names (log readability convention).
+    Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
+    """
+
+    RATE = "RATE"
+    ABSOLUTE = "ABSOLUTE"
+    STOW = "STOW"
+    HOME = "HOME"
+
+
 class FaultCode(enum.Enum):
     """Enumerated fault conditions."""
 
@@ -68,6 +86,7 @@ class FaultCode(enum.Enum):
     PROCESS_DIED = "PROCESS_DIED"
     CALIBRATION_INVALID = "CALIBRATION_INVALID"
     FRAME_MALFORMED = "FRAME_MALFORMED"
+    GIMBAL_FAULT = "GIMBAL_FAULT"
 
 
 class Band(enum.Enum):

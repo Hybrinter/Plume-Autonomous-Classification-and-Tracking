@@ -50,3 +50,8 @@ def test_safe_triggering_set_membership() -> None:
     assert FaultCode.WATCHDOG_EXPIRE in SAFE_TRIGGERING_FAULTS
     assert FaultCode.NONE not in SAFE_TRIGGERING_FAULTS
     assert FaultCode.INFERENCE_TIMEOUT not in SAFE_TRIGGERING_FAULTS
+
+
+def test_gimbal_fault_triggers_safe() -> None:
+    """A gimbal driver fault routes to SAFE (stow may be impossible; annunciate loudly)."""
+    assert FaultCode.GIMBAL_FAULT in SAFE_TRIGGERING_FAULTS

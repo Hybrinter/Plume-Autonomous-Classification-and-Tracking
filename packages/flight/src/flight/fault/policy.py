@@ -6,8 +6,10 @@ pure decide_mode_change() that returns a ModeChangeMsg(SAFE) for those codes and
 for the rest. This removes dynamic dispatch (a function-pointer table) in favor of a
 direct membership test while preserving the exact partition of faults the legacy
 handlers used: SAFE-triggering = {INFERENCE_NAN, CAMERA_STALL, THERMAL_OVER_LIMIT,
-POWER_OVER_LIMIT, GIMBAL_RUNAWAY, WATCHDOG_EXPIRE, MODEL_CORRUPT, PROCESS_DIED};
-log-and-continue = {NONE, INFERENCE_TIMEOUT, STORAGE_FULL, COMM_TIMEOUT}.
+POWER_OVER_LIMIT, GIMBAL_RUNAWAY, GIMBAL_FAULT, WATCHDOG_EXPIRE, MODEL_CORRUPT,
+PROCESS_DIED}; log-and-continue = {NONE, INFERENCE_TIMEOUT, STORAGE_FULL, COMM_TIMEOUT}.
+GIMBAL_FAULT is included because a driver-level hardware fault may render stowing
+impossible and requires loud annunciation.
 
 Contains:
   - SAFE_TRIGGERING_FAULTS: the FaultCodes that require a transition to SystemMode.SAFE.
@@ -29,6 +31,7 @@ SAFE_TRIGGERING_FAULTS: frozenset[FaultCode] = frozenset(
         FaultCode.THERMAL_OVER_LIMIT,
         FaultCode.POWER_OVER_LIMIT,
         FaultCode.GIMBAL_RUNAWAY,
+        FaultCode.GIMBAL_FAULT,
         FaultCode.WATCHDOG_EXPIRE,
         FaultCode.MODEL_CORRUPT,
         FaultCode.PROCESS_DIED,

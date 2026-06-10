@@ -4,8 +4,8 @@ Other flight modules import these from `flight.libs.types`, never from the
 submodules, so the internal split stays refactorable.
 
 Exports:
-- Enumerations: Band, DownlinkPriority, FaultCode, FrameUsabilityTag, GimbalState,
-  MessageType, ModelDeployState, SystemMode.
+- Enumerations: Band, DownlinkPriority, FaultCode, FrameUsabilityTag, GimbalCommandMode,
+  GimbalState, MessageType, ModelDeployState, SystemMode.
 - Result types: Err, Ok, Result.
 - Frame types: MosaicFrame.
 """
@@ -15,6 +15,7 @@ from flight.libs.types.enums import (
     DownlinkPriority,
     FaultCode,
     FrameUsabilityTag,
+    GimbalCommandMode,
     GimbalState,
     MessageType,
     ModelDeployState,
@@ -29,6 +30,7 @@ __all__ = [
     "Err",
     "FaultCode",
     "FrameUsabilityTag",
+    "GimbalCommandMode",
     "GimbalState",
     "MessageType",
     "ModelDeployState",

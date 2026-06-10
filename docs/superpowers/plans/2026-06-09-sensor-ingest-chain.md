@@ -1562,7 +1562,7 @@ git commit -m "feat(sim): radiometrically-plausible raw-mosaic plume scene"
 - Modify: `packages/flight/src/flight/payload/CONTEXT.md`, `packages/flight/src/flight/hal/CONTEXT.md`,
   `packages/flight/src/flight/libs/CONTEXT.md`, `packages/sim/src/sim/CONTEXT.md`
 
-- [ ] **Step 1: Write the ADR** -- context (sensor-domain mismatch, baseline Section 4.4),
+- [x] **Step 1: Write the ADR** -- context (sensor-domain mismatch, baseline Section 4.4),
 decision (raw-mosaic HAL contract; demosaic + calibration + normalization in preprocess as pure
 functions; BLUE/GREEN/RED/NIR vocabulary with Sentinel-2 correspondence; checksummed calibration
 artifacts; frames never on the bus; drivers acquire only), consequences (HAL/driver/SIL all
@@ -1570,17 +1570,17 @@ exercise one ingest path; model input domain defined by `normalize_dn`; band pla
 half-resolution; calibration is a startup gate). Reference spec Section 3 and the 2026-06-06
 baseline.
 
-- [ ] **Step 2: Update the four CONTEXT.md files** -- payload: the new pipeline order +
+- [x] **Step 2: Update the four CONTEXT.md files** -- payload: the new pipeline order +
 calibration injection + slew-rate smear input; hal: the acquire-only contract + MosaicFrame +
 fake-PySpin test pattern; libs: Band/MosaicFrame/new FaultCodes + RawFrameMsg removal; sim: the
 rendered mosaic scene + identity calibration in SIL.
 
-- [ ] **Step 3: Run the full gates one final time**
+- [x] **Step 3: Run the full gates one final time**
 
 Run: `uv run pytest packages; uv run ruff check packages; uv run ruff format --check packages; uv run mypy packages; uv run lint-imports`
 Expected: all green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/adr packages

@@ -23,6 +23,20 @@ individual files or their docstrings.
   cases: `DownlinkPriority` uses ints `0..3` (lower == higher priority; consumed directly by
   `queue.PriorityQueue` via `.value`). It is `enum.Enum`, not `IntEnum`, so it never
   serializes as a bare int into CCSDS packets.
+- **`Band` enum** (added 2026-06-09): `BLUE/GREEN/RED/NIR` replaces the legacy `B2/B3/B4/B8`
+  Sentinel-2 band IDs. Passbands approximate Sentinel-2 B2/B3/B4/B8 (490/560/665/842 nm) so
+  the training dataset remains a valid domain; using sensor-vocabulary names decouples PACT's
+  band names from the origin dataset.
+- **`MosaicFrame`** (added 2026-06-09): raw-frame value type passed from the imaging HAL to
+  the payload app. Fields: `timestamp_utc`, `frame_id`, `mosaic` (`np.ndarray[uint16, (H, W)]`
+  raw 2x2-CFA plane), `exposure_us`, `gain_db`. NOT a bus message; frames are passed by direct
+  call (co-location invariant).
+- **Ingest fault codes** (added 2026-06-09): `CALIBRATION_INVALID` (any startup calibration
+  integrity failure -- shape mismatch, checksum mismatch, missing file) and `FRAME_MALFORMED`
+  (a per-frame geometry violation in demosaic or band selection).
+- **`RawFrameMsg` removed** (2026-06-09, ADR 0007): there is no bus message for raw or
+  separated band stacks. `MessageType.RAW_FRAME` is likewise removed. If you search for either
+  name in the codebase and find hits outside `flight.libs.messages`, that is a bug.
 
 ## messages
 

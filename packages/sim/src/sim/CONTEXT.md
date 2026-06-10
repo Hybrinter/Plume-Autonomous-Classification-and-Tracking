@@ -25,13 +25,25 @@ heartbeats** -- so the harness manually publishes one liveness `HeartbeatMsg` pe
 watchdog trips `PROCESS_DIED` within three steps. The harness must stay synchronized with
 `MONITORED_SUBSYSTEMS`; a new monitored subsystem needs a matching heartbeat here.
 
-## Scene is intentionally degenerate
+## Scene renders radiometrically-plausible mosaic frames (as of 2026-06-09)
 
-`scene/plume.py` emits **zeroed** `(4, 256, 256)` frames. `ScriptedDetector` ignores tensor
-content entirely and detects from its fixed probability mask, so a zero scene plus a central
-unit-probability square yields the same strong blob every frame -- enough to push the gimbal
-arbiter to TRACKING deterministically. The mask square / gate thresholds are tuned to clear the
-detector's blob-area and confidence gates; they are test fixtures, not physical models.
+`scene/plume.py:build_frames(num_frames, seed)` renders **raw 512x512 uint16 mosaic frames**:
+background + Gaussian plume in band-plane space, interleaved back into the 2x2 CFA mosaic via
+`interleave_bands`, quantized to 12-bit. The NIR plane is brighter inside the plume region
+(smoke reflects strongly in NIR), matching the Sentinel-2-derived training domain. The scene
+is deterministic for a given `seed`.
+
+The SIL closed-loop tests now run real signal through the full ingest path:
+`calibrate_mosaic -> separate_bands -> normalize_dn -> select_bands -> compute_quality_flags ->
+ScriptedDetector`. `ScriptedDetector` still detects from its fixed probability mask (not tensor
+content), so the closed-loop test result is unchanged; the value is that domain drift in the
+ingest path becomes visible in the SIL rather than only at HIL.
+
+**Identity calibration in SIL:** `build_sil_system` builds a `MosaicCalibration` with zero
+dark / unit flat / no bad pixels via `calibration_io.build_identity_calibration`, then passes it
+into `build_apps` as `calib=`. `SensorConfig.calibration_dir = ""` in the default TOML selects
+this path; flight sets a real directory. Do not supply a real `calibration_dir` in SIL/tests
+unless you also provision the artifact files.
 
 ## SIL closed-loop tests are in the default CI gate
 

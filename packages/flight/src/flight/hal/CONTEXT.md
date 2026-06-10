@@ -42,9 +42,30 @@ from the individual files or their docstrings.
   - `SimStationLink`: returns `Ok(None)` once inbound is drained (empty inbound queue).
 - `SimStationLink.downlinked` is a test/SIL inspection hook with no real-driver counterpart.
 
+## Acquire-only contract for ImagingSensor (ADR 0007)
+
+- `ImagingSensor.acquire_frame()` returns a `MosaicFrame` (raw `(H, W)` uint16 2x2-CFA
+  mosaic plane plus `timestamp_utc`, `frame_id`, `exposure_us`, `gain_db`). Drivers acquire
+  only -- no demosaic, calibration, or normalization inside any driver. Those stages are pure
+  functions in `flight.payload.preprocess`.
+- `MosaicFrame` is NOT a bus message: it is passed by direct call from the injected sensor
+  driver to the payload app. Frames never cross the bus (co-location invariant; large arrays
+  never go on the bus).
+- `RawFrameMsg` and `MessageType.RAW_FRAME` were removed in 2026-06-09 as part of the mosaic
+  contract switchover (ADR 0007). There is no bus message for raw or separated band stacks.
+
+## Fake-PySpin test pattern
+
+- `RealSensor` is tested in CI without the FLIR Spinnaker SDK by injecting a fake `PySpin`
+  module via `monkeypatch.setitem(sys.modules, "PySpin", fake)` before constructing the
+  sensor. This exercises the lazy-import contract (the SDK is only imported inside
+  `__init__`, not at module top) and all driver behavior (acquire, incomplete image, timeout,
+  exposure/gain writes). See `packages/flight/tests/test_real_sensor_pyspin.py`.
+
 ## Real drivers are safe-default stubs
 
 - Every real driver is a stub pending hardware: methods return `Ok(...)` / safe defaults
   (`RealGimbal.read_position` -> origin; `RealScalarSensor.read` -> 0.0; `RealStationLink`
-  inert) except `RealSensor.acquire_frame`, which returns `Err(CAMERA_STALL)` so a
-  mis-wired flight build fails loudly rather than feeding fake frames downstream.
+  inert). `RealSensor` is the one fully-implemented real driver (PySpin acquisition + control
+  plane, with the fake-SDK CI tests described above). Construction of `RealSensor` raises
+  `ImportError` if PySpin is absent; all other methods are safe to call in tests via the fake.

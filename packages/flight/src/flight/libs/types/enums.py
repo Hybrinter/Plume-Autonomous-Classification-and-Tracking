@@ -4,6 +4,17 @@ Defines all enumerations used as discriminants and state values across the fligh
 software. Migrated from pact.types.enums (the Ok/Err/Result types live in
 flight.libs.types.result).
 
+Includes:
+- SystemMode: top-level operational mode transitions.
+- GimbalState: four-state arbiter for gimbal control.
+- FaultCode: all enumerated fault conditions, including ingest-chain codes
+  (CALIBRATION_INVALID, FRAME_MALFORMED) added for the mosaic sensor ingest chain.
+- Band: physical 2x2 mosaic-filter band vocabulary (BLUE/GREEN/RED/NIR).
+- FrameUsabilityTag: per-frame quality classification.
+- MessageType: typed discriminant for all bus messages.
+- DownlinkPriority: downlink queue priority.
+- ModelDeployState: model deployment lifecycle state.
+
 Satisfies: REQ-AIML-COMP-001, REQ-AIML-COMP-002 (type-safety foundation for all subsystems).
 
 No other flight module is imported here. This module is a dependency root.
@@ -55,6 +66,24 @@ class FaultCode(enum.Enum):
     WATCHDOG_EXPIRE = "WATCHDOG_EXPIRE"
     MODEL_CORRUPT = "MODEL_CORRUPT"
     PROCESS_DIED = "PROCESS_DIED"
+    CALIBRATION_INVALID = "CALIBRATION_INVALID"
+    FRAME_MALFORMED = "FRAME_MALFORMED"
+
+
+class Band(enum.Enum):
+    """Physical 2x2 mosaic-filter band names.
+
+    Passbands approximate Sentinel-2: BLUE ~490 nm (B2), GREEN ~560 nm (B3),
+    RED ~665 nm (B4), NIR ~842 nm (B8) -- chosen so Sentinel-2-derived training
+    data remains a valid domain (spec Section 2).
+
+    String values mirror member names (log readability convention).
+    """
+
+    BLUE = "BLUE"
+    GREEN = "GREEN"
+    RED = "RED"
+    NIR = "NIR"
 
 
 class FrameUsabilityTag(enum.Enum):

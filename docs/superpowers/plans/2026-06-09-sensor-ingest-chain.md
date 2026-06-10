@@ -48,7 +48,7 @@ stamping of frames (gimbal phase).
 - Test: `packages/flight/tests/test_enums.py` (extend)
 - Test: `packages/flight/tests/test_frames.py` (new)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `packages/flight/tests/test_enums.py` (follow its existing style):
 
@@ -89,12 +89,12 @@ def test_mosaic_frame_holds_uint16_plane() -> None:
     assert np.asarray(frame.mosaic).dtype == np.uint16
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_enums.py packages/flight/tests/test_frames.py -v`
 Expected: FAIL (`ImportError`/`AttributeError`: `Band`, `MosaicFrame`, new FaultCodes missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `enums.py`, add to `FaultCode` (after `PROCESS_DIED`):
 
@@ -160,12 +160,12 @@ class MosaicFrame:
 Export `Band`, `MosaicFrame`, and the new FaultCodes implicitly via `flight/libs/types/__init__.py`
 (add `Band` and `MosaicFrame` to its imports + `__all__`, matching its existing pattern).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_enums.py packages/flight/tests/test_frames.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/libs/types packages/flight/tests/test_enums.py packages/flight/tests/test_frames.py

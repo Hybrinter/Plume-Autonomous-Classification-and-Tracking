@@ -281,7 +281,7 @@ git commit -m "feat(config): SensorConfig (mosaic geometry + optics) and smear t
 - Modify: `packages/flight/src/flight/payload/preprocess/__init__.py` (export)
 - Test: `packages/flight/tests/test_preprocess_demosaic.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for 2x2 CFA separation and interleave round-trip."""
@@ -325,12 +325,12 @@ def test_interleave_is_inverse_of_separate() -> None:
     np.testing.assert_array_equal(rebuilt.value, mosaic)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_preprocess_demosaic.py -v`
 Expected: FAIL (`ImportError: separate_bands`).
 
-- [ ] **Step 3: Implement `demosaic.py`**
+- [x] **Step 3: Implement `demosaic.py`**
 
 ```python
 """2x2 CFA separation: raw mosaic plane <-> registered band planes.
@@ -390,12 +390,12 @@ def interleave_bands(planes: np.ndarray) -> Result[np.ndarray, FaultCode]:
 
 Export both functions from `preprocess/__init__.py`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_preprocess_demosaic.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/payload/preprocess packages/flight/tests/test_preprocess_demosaic.py

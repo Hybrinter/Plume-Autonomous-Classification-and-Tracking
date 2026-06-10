@@ -2,6 +2,7 @@
 
 import re
 
+import flight.libs.messages as messages
 from flight.libs.messages import (
     BlobMeta,
     FaultEventMsg,
@@ -62,7 +63,5 @@ def test_utc_now_iso_format() -> None:
 
 def test_raw_frame_msg_removed() -> None:
     """Frames never ride the bus: RawFrameMsg and RAW_FRAME no longer exist."""
-    import flight.libs.messages as messages
-
     assert not hasattr(messages, "RawFrameMsg")
     assert not hasattr(MessageType, "RAW_FRAME")

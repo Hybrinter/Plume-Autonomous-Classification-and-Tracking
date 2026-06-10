@@ -89,7 +89,8 @@ def load_calibration(
         Ok(MosaicCalibration) -- all artifacts pass integrity and shape checks.
         Err(FaultCode.CALIBRATION_INVALID) -- on any of: directory or manifest
             missing/unreadable, malformed manifest JSON, missing artifact key or
-            subfield, missing .npy file, sha256 mismatch, wrong array shape.
+            subfield, missing or unreadable .npy file, sha256 mismatch, malformed
+            .npy payload (e.g. truncated past the digest check), wrong array shape.
 
     Notes:
         The sha256 is computed over the raw bytes of the .npy file (including the
@@ -117,7 +118,10 @@ def load_calibration(
             return Err(FaultCode.CALIBRATION_INVALID)
         if hashlib.sha256(blob).hexdigest() != entry["sha256"]:
             return Err(FaultCode.CALIBRATION_INVALID)
-        arrays[name] = np.load(fpath)
+        try:
+            arrays[name] = np.load(fpath)
+        except OSError, ValueError:
+            return Err(FaultCode.CALIBRATION_INVALID)
 
     if any(arrays[n].shape != (height_px, width_px) for n in _ARTIFACT_NAMES):
         return Err(FaultCode.CALIBRATION_INVALID)

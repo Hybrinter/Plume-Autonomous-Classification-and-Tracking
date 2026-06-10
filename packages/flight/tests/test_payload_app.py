@@ -6,12 +6,12 @@ import numpy as np
 from flight.hal.drivers_sim import SimGimbal, SimSensor
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import GimbalCommandMsg, InferenceResultMsg
+from flight.libs.messages import GimbalCommandMsg, InferenceResultMsg, ProcessedFrameMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, MosaicFrame, Ok
+from flight.libs.types import FaultCode, GimbalState, MosaicFrame, Ok, Result
 from flight.payload.app import PayloadApp, TickOutcome
 from flight.payload.calibration_io import build_identity_calibration
-from flight.payload.model import ScriptedDetector
+from flight.payload.model import DetectorBackend, ScriptedDetector
 
 
 def _mosaic_frame(frame_id: int) -> MosaicFrame:
@@ -33,7 +33,7 @@ def _plume_detector() -> ScriptedDetector:
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 
-def _build_app(detector: ScriptedDetector) -> tuple[PayloadApp, MessageBus, SimGimbal]:
+def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGimbal]:
     """Assemble a PayloadApp over sim drivers, the given detector, and a fresh bus."""
     cfg = PactConfig()
     bus = MessageBus()
@@ -46,10 +46,24 @@ def _build_app(detector: ScriptedDetector) -> tuple[PayloadApp, MessageBus, SimG
 
 def test_process_frame_demosaics_to_half_resolution() -> None:
     """A 512x512 mosaic yields a (4, 256, 256) tensor for the detector."""
-    app, _bus, _gimbal = _build_app(_plume_detector())
-    frame = _mosaic_frame(1)
-    state, outcome = app.process_frame(frame, app.controller.initial_state(), now=1.0)
+    captured: list[tuple[int, ...]] = []
+
+    class _CapturingDetector:
+        """Records the tensor shape it receives, then delegates to the plume detector."""
+
+        def __init__(self) -> None:
+            self._inner = _plume_detector()
+
+        def detect(self, frame: ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode]:
+            """Capture the band tensor shape, then run the wrapped detector."""
+            captured.append(np.asarray(frame.tensor).shape)
+            return self._inner.detect(frame)
+
+    app, _bus, _gimbal = _build_app(_CapturingDetector())
+    _state, outcome = app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0)
+
     assert outcome.fault is None
+    assert captured == [(4, 256, 256)]  # 4 demosaicked bands at sensor size / 2
 
 
 def test_persistent_plume_drives_gimbal_through_app() -> None:

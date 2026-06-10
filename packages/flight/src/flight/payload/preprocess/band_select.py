@@ -26,7 +26,7 @@ from flight.libs.types import Err, FaultCode, Ok, Result
 
 
 def select_bands(
-    planes: np.ndarray,  # np.ndarray[float32, (4, H, W)], in mosaic_layout cell order
+    planes: np.ndarray,  # np.ndarray[float32, (len(layout), H, W)], in mosaic_layout cell order
     layout: tuple[str, ...],
     band_names: tuple[str, ...],
 ) -> Result[np.ndarray, FaultCode]:

@@ -1148,7 +1148,7 @@ git commit -m "refactor(messages)!: remove RawFrameMsg -- frames never ride the 
 - Test: `packages/flight/tests/test_real_sensor_pyspin.py` (new, fake-SDK)
 - Test: `packages/flight/tests/test_real_drivers.py` (keep the no-SDK ImportError test green)
 
-- [ ] **Step 1: Write the failing tests** -- inject a fake `PySpin` module so the lazy import
+- [x] **Step 1: Write the failing tests** -- inject a fake `PySpin` module so the lazy import
 inside `__init__` resolves to it:
 
 ```python
@@ -1290,12 +1290,12 @@ def test_set_exposure_writes_node(monkeypatch: pytest.MonkeyPatch) -> None:
     assert camera.ExposureTime.GetValue() == 2500.0
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_real_sensor_pyspin.py -v`
 Expected: FAIL (`RealSensor.__init__` does not accept `clock`; behavior missing).
 
-- [ ] **Step 3: Implement RealSensor**
+- [x] **Step 3: Implement RealSensor**
 
 ```python
 """Real FLIR Blackfly S imaging-sensor driver (reference camera, spec Section 2).
@@ -1425,11 +1425,11 @@ Check `test_real_drivers.py`: the existing assert-ImportError-without-SDK test m
 (construction args changed -- update the call to `RealSensor(clock=RealClock())` equivalent
 used there).
 
-- [ ] **Step 4: Run the full gates**
+- [x] **Step 4: Run the full gates**
 
 Run: `uv run pytest packages` and `uv run mypy packages` -- Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/hal/drivers_real/sensor.py packages/flight/src/flight/core/main.py packages/flight/tests/test_real_sensor_pyspin.py packages/flight/tests/test_real_drivers.py

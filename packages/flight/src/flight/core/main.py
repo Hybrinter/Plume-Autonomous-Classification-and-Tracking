@@ -45,13 +45,25 @@ def build_flight_system(
     Returns:
         The wired SystemApps.
 
+    Raises:
+        SystemExit: If the startup exposure/gain tuning fails (camera unusable at
+            startup is unrecoverable).
+
     Notes:
         RealSensor lazily imports PySpin and OnnxDetector lazily imports onnxruntime;
         both raise ImportError if the SDK is absent. This function therefore runs only
-        on flight hardware.
+        on flight hardware. The startup exposure/gain are commanded from config.sensor
+        before the apps are wired.
     """
+    sensor = RealSensor(clock=clock)
+    exposure_result = sensor.set_exposure_us(config.sensor.default_exposure_us)
+    if not isinstance(exposure_result, Ok):
+        raise SystemExit(f"camera exposure setup failed: {exposure_result.error}")
+    gain_result = sensor.set_gain_db(config.sensor.default_gain_db)
+    if not isinstance(gain_result, Ok):
+        raise SystemExit(f"camera gain setup failed: {gain_result.error}")
     drivers = Drivers(
-        sensor=RealSensor(),
+        sensor=sensor,
         gimbal=RealGimbal(),
         detector=OnnxDetector(config.inference.model_path),
         station=RealStationLink(),

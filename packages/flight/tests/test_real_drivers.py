@@ -5,6 +5,7 @@ import importlib.util
 import pytest
 from flight.hal.drivers_real import RealGimbal, RealSensor
 from flight.libs.messages import GimbalCommandMsg
+from flight.libs.time import RealClock
 from flight.libs.types import GimbalState, MessageType, Ok
 
 
@@ -15,7 +16,7 @@ from flight.libs.types import GimbalState, MessageType, Ok
 def test_real_sensor_requires_pyspin_when_absent() -> None:
     """Constructing RealSensor without PySpin raises a helpful ImportError."""
     with pytest.raises(ImportError):
-        RealSensor()
+        RealSensor(clock=RealClock())
 
 
 def test_real_gimbal_stub_constructs_and_reads() -> None:

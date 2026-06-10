@@ -1445,7 +1445,7 @@ git commit -m "feat(hal): real PySpin acquisition + control plane for RealSensor
 - Test: `packages/sim/tests/test_scene.py` (extend)
 - Test: `packages/sim/tests/test_sil_closed_loop.py` (verify still green on rendered frames)
 
-- [ ] **Step 1: Write the failing tests** -- extend `test_scene.py`:
+- [x] **Step 1: Write the failing tests** -- extend `test_scene.py`:
 
 ```python
 def test_build_frames_renders_uint16_mosaic() -> None:
@@ -1474,12 +1474,12 @@ def test_plume_brightens_nir_at_center() -> None:
     assert float(nir[110:140, 110:140].mean()) > float(nir[:40, :40].mean())
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest packages/sim/tests/test_scene.py -v`
 Expected: FAIL (`build_frames` has no `seed`; zeroed mosaics fail the brightness test).
 
-- [ ] **Step 3: Implement** -- rewrite `build_frames` in `plume.py` (module docstring updated:
+- [x] **Step 3: Implement** -- rewrite `build_frames` in `plume.py` (module docstring updated:
 the scene now renders signal through the full ingest path; `plume_detector` unchanged):
 
 ```python
@@ -1540,12 +1540,12 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
 `flight.payload.preprocess`.) Update SIL tests' `build_frames(...)` calls if they pass
 positional args.
 
-- [ ] **Step 4: Run the full gates**
+- [x] **Step 4: Run the full gates**
 
 Run: `uv run pytest packages` -- Expected: PASS, including both SIL closed-loop tests now
 running real signal through calibrate -> demosaic -> normalize -> select -> quality.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/sim

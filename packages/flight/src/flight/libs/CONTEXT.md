@@ -35,8 +35,9 @@ individual files or their docstrings.
   integrity failure -- shape mismatch, checksum mismatch, missing file) and `FRAME_MALFORMED`
   (a per-frame geometry violation in demosaic or band selection).
 - **`RawFrameMsg` removed** (2026-06-09, ADR 0007): there is no bus message for raw or
-  separated band stacks. `MessageType.RAW_FRAME` is likewise removed. If you search for either
-  name in the codebase and find hits outside `flight.libs.messages`, that is a bug.
+  separated band stacks. `MessageType.RAW_FRAME` is likewise removed. A live reference to either
+  name -- an import, construction, or `MessageType` lookup -- is a bug; the only remaining
+  mentions are the removal test (`tests/test_messages.py`), this ADR, and these CONTEXT notes.
 
 ## messages
 

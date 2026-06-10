@@ -2,6 +2,9 @@
 
 **Status:** Accepted (2026-06-09)
 
+**Implements:** spec Section 3 (Sensor ingest chain) of
+`docs/superpowers/specs/2026-06-09-pact-flight-final-state-design.md`.
+
 ## Context
 
 The 2026-06-06 baseline (docs/superpowers/baseline/2026-06-06-pact-flight-parity-baseline.md,
@@ -21,8 +24,9 @@ Two design questions had to be resolved before implementation:
 
 1. **Where does demosaic live -- driver or preprocess?** The driver option (returning
    already-separated bands) would make calibration ambiguous: dark/flat correction physically
-   belongs on the raw mosaic plane (it corrects per-pixel sensor response, not per-band reflectance),
-   and putting calibration inside the driver violates the acquire-only driver contract. Preprocess
+   belongs on the raw mosaic plane (it corrects per-pixel sensor response, not per-band
+   reflectance), and putting calibration inside the driver violates the acquire-only driver
+   contract. Preprocess
    is the correct home: pure, testable, replayable, and exercised by the SIL through the full
    ingest path.
 
@@ -94,8 +98,9 @@ behavior are verified without the physical SDK.
   the gate by setting `calibration_dir = ""`.
 
 - **`RawFrameMsg` and `MessageType.RAW_FRAME` are removed.** Downstream consumers that depended
-  on them must migrate to the processed output (`ProcessedFrameMsg`) or subscribe to a
-  bus-published summary. Large tensors never go on the bus.
+  on them must instead read the in-process `ProcessedFrameMsg` (a payload-internal value, never
+  published) or subscribe to the compact detection/telemetry records the payload already puts on
+  the bus. Large tensors never go on the bus.
 
 - **`SensorConfig` added to `PactConfig`.** Mosaic geometry (`width_px`, `height_px`,
   `bit_depth`, `mosaic_layout`), optics (`ifov_deg_per_px`), startup tuning

@@ -628,7 +628,7 @@ git commit -m "feat(hal): closed-loop gimbal surface + SimGimbal first-order dyn
 - Modify: `packages/flight/src/flight/payload/gimbal/__init__.py` (export)
 - Test: `packages/flight/tests/test_pointing.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for boresight-relative pointing geometry."""
@@ -691,12 +691,12 @@ def test_displacement_is_full_frame_euclidean_pixels() -> None:
     assert abs(d - expected) < 1e-9
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_pointing.py -v`
 Expected: FAIL (module missing).
 
-- [ ] **Step 3: Implement `pointing.py`**
+- [x] **Step 3: Implement `pointing.py`**
 
 ```python
 """Boresight-relative pointing geometry: tensor pixels -> angular error.
@@ -761,11 +761,11 @@ def target_displacement_px(
     return math.hypot(full_x - plane_width_px / 2.0, full_y - plane_height_px / 2.0)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_pointing.py -v` -- Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/payload/gimbal packages/flight/tests/test_pointing.py

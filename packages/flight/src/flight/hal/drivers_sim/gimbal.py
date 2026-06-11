@@ -103,11 +103,10 @@ class SimGimbal:
             self._el += min(max(self._rate_el * dt, -max_step), max_step)
         elif self._mode is not None:
             alpha = 1.0 - math.exp(-dt / cfg.sim_time_constant_s)
-            for axis in ("az", "el"):
-                pos = getattr(self, f"_{axis}")
-                err = getattr(self, f"_target_{axis}") - pos
-                step = min(max(err * alpha, -max_step), max_step)
-                setattr(self, f"_{axis}", pos + step)
+            az_step = (self._target_az - self._az) * alpha
+            el_step = (self._target_el - self._el) * alpha
+            self._az += min(max(az_step, -max_step), max_step)
+            self._el += min(max(el_step, -max_step), max_step)
         self._clamp_travel()
 
     def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:

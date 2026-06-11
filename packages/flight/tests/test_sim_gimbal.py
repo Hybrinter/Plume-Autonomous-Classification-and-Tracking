@@ -6,9 +6,12 @@ from flight.libs.time import ManualClock
 from flight.libs.types import Ok
 
 
-def _gimbal(clock: ManualClock, **cfg_overrides: float | int | str) -> SimGimbal:
+def _gimbal(clock: ManualClock, **cfg_overrides: float) -> SimGimbal:
     """Construct a noiseless SimGimbal with optional GimbalConfig overrides."""
-    return SimGimbal(clock=clock, cfg=GimbalConfig(sim_encoder_noise_deg=0.0, **cfg_overrides))  # type: ignore[arg-type]
+    # cfg_overrides only ever carries float fields; the ignore covers GimbalConfig's
+    # heterogeneous (int/str) fields that the **splat cannot narrow.
+    cfg = GimbalConfig(sim_encoder_noise_deg=0.0, **cfg_overrides)  # type: ignore[arg-type]
+    return SimGimbal(clock=clock, cfg=cfg)
 
 
 def test_goto_angle_approaches_target_with_lag() -> None:

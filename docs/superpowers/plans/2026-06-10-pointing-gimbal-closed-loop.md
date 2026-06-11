@@ -195,7 +195,7 @@ git commit -m "feat(types): GimbalCommandMode, GIMBAL_FAULT, GimbalRequest core 
 - Modify: `packages/flight/src/flight/core/config_loader.py`
 - Test: `packages/flight/tests/test_config_defaults.py`, `packages/flight/tests/test_config_loader.py` (extend per existing patterns)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Extend `test_config_loader.py` (use the existing `_DEFAULT_TOML` absolute-path style):
 
@@ -226,12 +226,12 @@ def test_controller_runaway_fields_load() -> None:
 Extend `test_config_defaults.py` to cover the `[gimbal]` section and the two new
 `[controller]` keys, following its existing defaults-vs-TOML comparison pattern.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_config_loader.py packages/flight/tests/test_config_defaults.py -v`
 Expected: FAIL (`PactConfig` has no `gimbal`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `config.py` add (before `PactConfig`):
 
@@ -290,12 +290,12 @@ counts_per_deg = 77.6
 In `config_loader.py` add the `gimbal` block following the exact `.get()` pattern of the other
 sections, map the two new controller keys, import `GimbalConfig`, pass `gimbal=gimbal_config`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_config_loader.py packages/flight/tests/test_config_defaults.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/libs/config config/default.toml packages/flight/src/flight/core/config_loader.py packages/flight/tests/test_config_loader.py packages/flight/tests/test_config_defaults.py

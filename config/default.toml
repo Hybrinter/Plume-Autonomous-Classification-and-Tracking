@@ -25,6 +25,8 @@ kalman_measurement_noise = 0.1
 lqr_Q_diag = [10.0, 10.0, 1.0, 1.0]
 lqr_R_diag = [1.0, 1.0]
 max_slew_deg_s = 2.0
+runaway_rate_tolerance_deg_per_s = 1.0
+runaway_strike_count = 3
 
 [inference]
 model_path = "data/models/active.pt"
@@ -71,3 +73,20 @@ watchdog_max_miss_count = 3
 inference_timeout_ms = 2000.0
 thermal_limit_c = 80.0
 power_limit_w = 55.0
+
+[gimbal]
+az_min_deg = -90.0
+az_max_deg = 90.0
+el_min_deg = -45.0
+el_max_deg = 45.0
+max_hw_slew_rate_deg_per_s = 10.0
+stow_az_deg = 0.0
+stow_el_deg = -45.0
+home_az_deg = 0.0
+home_el_deg = 0.0
+sim_time_constant_s = 0.2
+sim_encoder_noise_deg = 0.005
+sim_seed = 0
+serial_port = ""
+serial_baud = 9600
+counts_per_deg = 77.6

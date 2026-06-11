@@ -20,6 +20,7 @@ from flight.libs.config import (
     CommsConfig,
     ControllerConfig,
     FaultConfig,
+    GimbalConfig,
     InferenceConfig,
     PactConfig,
     PreprocessingConfig,
@@ -158,6 +159,15 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
             float(v) for v in ctrl.get("lqr_R_diag", list(ControllerConfig.lqr_R_diag))
         ),
         max_slew_deg_s=float(ctrl.get("max_slew_deg_s", ControllerConfig.max_slew_deg_s)),
+        runaway_rate_tolerance_deg_per_s=float(
+            ctrl.get(
+                "runaway_rate_tolerance_deg_per_s",
+                ControllerConfig.runaway_rate_tolerance_deg_per_s,
+            )
+        ),
+        runaway_strike_count=int(
+            ctrl.get("runaway_strike_count", ControllerConfig.runaway_strike_count)
+        ),
     )
 
     inf = data.get("inference", {})
@@ -244,6 +254,31 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         calibration_dir=str(sens.get("calibration_dir", SensorConfig.calibration_dir)),
     )
 
+    gimb = data.get("gimbal", {})
+    gimbal_config = GimbalConfig(
+        az_min_deg=float(gimb.get("az_min_deg", GimbalConfig.az_min_deg)),
+        az_max_deg=float(gimb.get("az_max_deg", GimbalConfig.az_max_deg)),
+        el_min_deg=float(gimb.get("el_min_deg", GimbalConfig.el_min_deg)),
+        el_max_deg=float(gimb.get("el_max_deg", GimbalConfig.el_max_deg)),
+        max_hw_slew_rate_deg_per_s=float(
+            gimb.get("max_hw_slew_rate_deg_per_s", GimbalConfig.max_hw_slew_rate_deg_per_s)
+        ),
+        stow_az_deg=float(gimb.get("stow_az_deg", GimbalConfig.stow_az_deg)),
+        stow_el_deg=float(gimb.get("stow_el_deg", GimbalConfig.stow_el_deg)),
+        home_az_deg=float(gimb.get("home_az_deg", GimbalConfig.home_az_deg)),
+        home_el_deg=float(gimb.get("home_el_deg", GimbalConfig.home_el_deg)),
+        sim_time_constant_s=float(
+            gimb.get("sim_time_constant_s", GimbalConfig.sim_time_constant_s)
+        ),
+        sim_encoder_noise_deg=float(
+            gimb.get("sim_encoder_noise_deg", GimbalConfig.sim_encoder_noise_deg)
+        ),
+        sim_seed=int(gimb.get("sim_seed", GimbalConfig.sim_seed)),
+        serial_port=str(gimb.get("serial_port", GimbalConfig.serial_port)),
+        serial_baud=int(gimb.get("serial_baud", GimbalConfig.serial_baud)),
+        counts_per_deg=float(gimb.get("counts_per_deg", GimbalConfig.counts_per_deg)),
+    )
+
     return PactConfig(
         controller=controller_config,
         inference=inference_config,
@@ -252,4 +287,5 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         fault=fault_config,
         preprocessing=preprocessing_config,
         sensor=sensor_config,
+        gimbal=gimbal_config,
     )

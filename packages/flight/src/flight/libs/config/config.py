@@ -46,6 +46,9 @@ class ControllerConfig:
     lqr_Q_diag: tuple[float, ...] = (10.0, 10.0, 1.0, 1.0)  # noqa: N815  state cost weights
     lqr_R_diag: tuple[float, ...] = (1.0, 1.0)  # noqa: N815  control cost weights
     max_slew_deg_s: float = 2.0  # maximum LQR output clamp (deg/s)
+    # Encoder-runaway tuning
+    runaway_rate_tolerance_deg_per_s: float = 1.0  # commanded-vs-encoder rate divergence limit
+    runaway_strike_count: int = 3  # consecutive divergent frames before GIMBAL_RUNAWAY
 
 
 @dataclass(frozen=True)
@@ -128,6 +131,33 @@ class FaultConfig:
 
 
 @dataclass(frozen=True)
+class GimbalConfig:
+    """Configuration for the gimbal hardware envelope, poses, sim dynamics, and link.
+
+    Fields cover the travel limits, configured stow/home poses, SimGimbal first-order
+    dynamics parameters for SIL, and the serial link for the real PTU driver.
+
+    Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
+    """
+
+    az_min_deg: float = -90.0  # travel limit, azimuth minimum
+    az_max_deg: float = 90.0  # travel limit, azimuth maximum
+    el_min_deg: float = -45.0  # travel limit, elevation minimum
+    el_max_deg: float = 45.0  # travel limit, elevation maximum
+    max_hw_slew_rate_deg_per_s: float = 10.0  # hardware slew envelope (driver-enforced)
+    stow_az_deg: float = 0.0  # stow pose azimuth (inside travel limits)
+    stow_el_deg: float = -45.0  # stow pose elevation (inside travel limits)
+    home_az_deg: float = 0.0  # home pose azimuth
+    home_el_deg: float = 0.0  # home pose elevation
+    sim_time_constant_s: float = 0.2  # SimGimbal first-order response time constant
+    sim_encoder_noise_deg: float = 0.005  # SimGimbal encoder read noise (1-sigma)
+    sim_seed: int = 0  # SimGimbal noise RNG seed (SIL determinism)
+    serial_port: str = ""  # PTU serial port; "" -> RealGimbal unavailable (startup error)
+    serial_baud: int = 9600  # PTU serial baud rate
+    counts_per_deg: float = 77.6  # PTU encoder counts per degree (E46-class resolution)
+
+
+@dataclass(frozen=True)
 class PactConfig:
     """Top-level PACT configuration. Composes all per-subsystem configs.
 
@@ -142,3 +172,4 @@ class PactConfig:
     fault: FaultConfig = field(default_factory=FaultConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     sensor: SensorConfig = field(default_factory=SensorConfig)
+    gimbal: GimbalConfig = field(default_factory=GimbalConfig)

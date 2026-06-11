@@ -14,6 +14,7 @@ from flight.libs.config import (
     CommsConfig,
     ControllerConfig,
     FaultConfig,
+    GimbalConfig,
     InferenceConfig,
     PreprocessingConfig,
     SensorConfig,
@@ -31,6 +32,7 @@ _SECTION_TO_DATACLASS = {
     "preprocessing": PreprocessingConfig,
     "fault": FaultConfig,
     "sensor": SensorConfig,
+    "gimbal": GimbalConfig,
 }
 
 

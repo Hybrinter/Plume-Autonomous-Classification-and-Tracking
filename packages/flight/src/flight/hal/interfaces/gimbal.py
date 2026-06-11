@@ -4,8 +4,9 @@ Defines the GimbalActuator protocol that formalizes the closed-loop gimbal comma
 set (absolute angle, rate, home, stow, encoder readback, stow switch), plus the
 GimbalPosition readback type carrying a monotonic encoder timestamp.
 
-send_command (delta path) is retained temporarily as a deprecated legacy method;
-it is removed by the pointing switchover in Task 6.
+The driver enforces the hardware envelope (travel/slew limits); the arbiter enforces
+the mission envelope (defense in depth). The legacy send_command delta path was removed
+by the pointing switchover -- actuation flows through the typed command methods.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001, REQ-GIMB-HIGH-002.
 """
@@ -17,7 +18,6 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 # internal
-from flight.libs.messages import GimbalCommandMsg
 from flight.libs.types import FaultCode, Result
 
 
@@ -41,9 +41,8 @@ class GimbalActuator(Protocol):
     """Hardware abstraction for the payload pointing gimbal.
 
     The closed-loop surface covers absolute-angle, rate, home, and stow commands,
-    plus encoder position readback and stow-switch sensing. The legacy send_command
-    delta path is kept temporarily for backward compatibility during the task-6
-    pointing switchover.
+    plus encoder position readback and stow-switch sensing. The driver enforces the
+    hardware envelope; the arbiter enforces the mission envelope (defense in depth).
     """
 
     def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
@@ -70,8 +69,4 @@ class GimbalActuator(Protocol):
 
     def read_stow_switch(self) -> Result[bool, FaultCode]:
         """Read the stow switch: True when mechanically at the stow pose."""
-        ...
-
-    def send_command(self, command: GimbalCommandMsg) -> Result[None, FaultCode]:
-        """DEPRECATED legacy delta path; removed by the pointing switchover (Task 6)."""
         ...

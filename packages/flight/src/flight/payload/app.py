@@ -44,7 +44,7 @@ import numpy as np
 
 # internal
 from flight.hal.interfaces import GimbalActuator, GimbalPosition, ImagingSensor
-from flight.libs.bus import MessageBus
+from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import (
     FaultConfig,
     InferenceConfig,
@@ -54,11 +54,23 @@ from flight.libs.config import (
 )
 from flight.libs.messages import (
     FaultEventMsg,
+    GimbalCommandMsg,
     HeartbeatMsg,
+    ModeChangeMsg,
     ProcessedFrameMsg,
 )
 from flight.libs.time import Clock
-from flight.libs.types import Band, Err, FaultCode, GimbalState, MessageType, MosaicFrame, Ok
+from flight.libs.types import (
+    Band,
+    Err,
+    FaultCode,
+    GimbalCommandMode,
+    GimbalState,
+    MessageType,
+    MosaicFrame,
+    Ok,
+    SystemMode,
+)
 from flight.payload.control import ControlState, PayloadController
 from flight.payload.model import DetectorBackend
 from flight.payload.preprocess import (
@@ -109,6 +121,7 @@ class PayloadApp:
         inference_cfg: InferenceConfig (band selection + input geometry).
         preprocessing_cfg: PreprocessingConfig (quality thresholds).
         fault_cfg: FaultConfig (heartbeat interval).
+        mode_sub: Subscription to ModeChangeMsg; drained each frame for SAFE entry/exit.
     """
 
     sensor: ImagingSensor
@@ -122,6 +135,7 @@ class PayloadApp:
     inference_cfg: InferenceConfig
     preprocessing_cfg: PreprocessingConfig
     fault_cfg: FaultConfig
+    mode_sub: Subscription[ModeChangeMsg]
 
     @staticmethod
     def from_config(
@@ -174,7 +188,7 @@ class PayloadApp:
             sensor=sensor,
             gimbal=gimbal,
             detector=detector,
-            controller=PayloadController.from_config(cfg.controller),
+            controller=PayloadController.from_config(cfg.controller, cfg.sensor),
             bus=bus,
             clock=clock,
             calib=calib,
@@ -182,7 +196,28 @@ class PayloadApp:
             inference_cfg=cfg.inference,
             preprocessing_cfg=cfg.preprocessing,
             fault_cfg=cfg.fault,
+            mode_sub=bus.subscribe(ModeChangeMsg),
         )
+
+    def poll_mode_changes(self) -> tuple[bool, bool]:
+        """Drain pending ModeChangeMsg; return (safe_commanded, safe_cleared).
+
+        SAFE requests latch the payload via the arbiter; any non-SAFE mode message is the
+        ground-commanded recovery signal. Both may be True in one drain (last writer wins
+        downstream: the arbiter applies safe_commanded first).
+
+        Outputs:
+            tuple[bool, bool]: (safe_commanded, safe_cleared) over all drained messages.
+        """
+        safe_commanded = False
+        safe_cleared = False
+        while not self.mode_sub.empty():
+            msg = self.mode_sub.get_nowait()
+            if msg.new_mode is SystemMode.SAFE:
+                safe_commanded = True
+            else:
+                safe_cleared = True
+        return safe_commanded, safe_cleared
 
     def process_frame(
         self,
@@ -190,14 +225,19 @@ class PayloadApp:
         state: ControlState,
         now: float,
         slew_rate_deg_per_s: float = 0.0,
+        gimbal_pos: GimbalPosition | None = None,
+        safe_commanded: bool = False,
+        safe_cleared: bool = False,
     ) -> tuple[ControlState, TickOutcome]:
         """Process one raw mosaic frame end-to-end: preprocess -> detect -> control -> actuate.
 
         Runs the co-located preprocessing pipeline (calibrate the raw mosaic plane ->
         CFA-separate -> normalize -> select bands -> quality flags), then the detector,
         then the pure PayloadController. Publishes InferenceResultMsg and each arbiter
-        TelemetryEventMsg; when a command is issued it is both sent to the gimbal HAL and
-        published. On a preprocessing or detection fault the state is returned unchanged,
+        TelemetryEventMsg; when a request is issued it is mapped onto the GimbalActuator HAL
+        (set_rate/goto_angle/stow/home by mode) and a GimbalCommandMsg telemetry record is
+        published. A control fault (deadband strike or encoder runaway) publishes a
+        FaultEventMsg. On a preprocessing or detection fault the state is returned unchanged,
         a FaultEventMsg is published, and outcome.fault is set.
 
         Inputs:
@@ -207,6 +247,9 @@ class PayloadApp:
             now (float): Monotonic seconds for the arbiter (interval/rate-limit deltas).
             slew_rate_deg_per_s (float): Gimbal slew rate over the exposure for the
                 MOTION_SMEAR gate; defaults to 0.0 (never-flag).
+            gimbal_pos (GimbalPosition | None): Latest encoder read for the runaway monitor.
+            safe_commanded (bool): True to latch SAFE and stow this frame.
+            safe_cleared (bool): True to exit SAFE to IDLE this frame.
 
         Outputs:
             tuple[ControlState, TickOutcome]: (new_state, outcome). new_state is unchanged
@@ -257,22 +300,44 @@ class PayloadApp:
         inference = detect_result.value
         self.bus.publish(inference)
 
-        new_state, command, telemetry = self.controller.step(state, inference, now)
+        new_state, request, telemetry, ctrl_fault = self.controller.step(
+            state, inference, now, gimbal_pos, safe_commanded, safe_cleared
+        )
         for event in telemetry:
             self.bus.publish(event)
+        if ctrl_fault is not None:
+            self._publish_fault(ctrl_fault, f"control fault frame_id={raw.frame_id}")
 
-        if command is not None:
-            send_result = self.gimbal.send_command(command)
+        if request is not None:
+            if request.mode is GimbalCommandMode.RATE:
+                send_result = self.gimbal.set_rate(request.az_deg, request.el_deg)
+            elif request.mode is GimbalCommandMode.ABSOLUTE:
+                send_result = self.gimbal.goto_angle(request.az_deg, request.el_deg)
+            elif request.mode is GimbalCommandMode.STOW:
+                send_result = self.gimbal.stow()
+            else:
+                send_result = self.gimbal.home()
             if isinstance(send_result, Err):
                 self._publish_fault(
-                    send_result.error, f"gimbal command failed frame_id={raw.frame_id}"
+                    send_result.error, f"gimbal actuation failed frame_id={raw.frame_id}"
                 )
-            self.bus.publish(command)
+            self.bus.publish(
+                GimbalCommandMsg(
+                    msg_type=MessageType.GIMBAL_COMMAND,
+                    timestamp_utc=self.clock.wall_clock_iso(),
+                    frame_id=raw.frame_id,
+                    mode=request.mode,
+                    az_value_deg=request.az_deg,
+                    el_value_deg=request.el_deg,
+                    state=new_state.arbiter.gimbal_state,
+                    reason=request.reason,
+                )
+            )
 
         outcome = TickOutcome(
             frame_id=raw.frame_id,
             fault=None,
-            command_issued=command is not None,
+            command_issued=request is not None,
             gimbal_state=new_state.arbiter.gimbal_state,
         )
         return new_state, outcome
@@ -296,7 +361,10 @@ class PayloadApp:
             The slew rate is the angular speed between the previous and current gimbal
             positions divided by the elapsed monotonic seconds; it is 0.0 on the first
             frame, when no time has elapsed, or when the position read fails, so the
-            MOTION_SMEAR gate degrades gracefully.
+            MOTION_SMEAR gate degrades gracefully. SAFE/recovery mode messages are drained
+            each iteration via poll_mode_changes and threaded into process_frame. As a
+            shell-level safety fallback, if SAFE is commanded while frame acquisition fails,
+            stow() is called directly so a stalled camera cannot prevent mechanical safing.
         """
         self.sensor.start_acquisition()
         state = self.controller.initial_state()
@@ -318,20 +386,27 @@ class PayloadApp:
                     )
                     heartbeat_seq += 1
                     last_heartbeat = now
+                safe_commanded, safe_cleared = self.poll_mode_changes()
                 acq = self.sensor.acquire_frame()
                 if isinstance(acq, Ok):
                     slew_rate = 0.0
+                    pos: GimbalPosition | None = None
                     pos_res = self.gimbal.read_position()
                     if isinstance(pos_res, Ok):
+                        pos = pos_res.value
                         if prev_pos is not None and now > prev_pos_now:
                             d_az = pos_res.value.az_deg - prev_pos.az_deg
                             d_el = pos_res.value.el_deg - prev_pos.el_deg
                             slew_rate = math.hypot(d_az, d_el) / (now - prev_pos_now)
                         prev_pos = pos_res.value
                         prev_pos_now = now
-                    state, _outcome = self.process_frame(acq.value, state, now, slew_rate)
+                    state, _outcome = self.process_frame(
+                        acq.value, state, now, slew_rate, pos, safe_commanded, safe_cleared
+                    )
                 else:
                     self._publish_fault(acq.error, "imaging sensor stall")
+                    if safe_commanded:
+                        self.gimbal.stow()
         finally:
             self.sensor.stop_acquisition()
 

@@ -1,4 +1,4 @@
-"""Integration tests for the payload application shell (acquire->...->command)."""
+"""Integration tests for the payload application shell (acquire->...->actuate)."""
 
 import threading
 
@@ -6,9 +6,23 @@ import numpy as np
 from flight.hal.drivers_sim import SimGimbal, SimSensor
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import GimbalCommandMsg, InferenceResultMsg, ProcessedFrameMsg
+from flight.libs.messages import (
+    GimbalCommandMsg,
+    InferenceResultMsg,
+    ModeChangeMsg,
+    ProcessedFrameMsg,
+)
 from flight.libs.time import ManualClock
-from flight.libs.types import FaultCode, GimbalState, MosaicFrame, Ok, Result
+from flight.libs.types import (
+    FaultCode,
+    GimbalCommandMode,
+    GimbalState,
+    MessageType,
+    MosaicFrame,
+    Ok,
+    Result,
+    SystemMode,
+)
 from flight.payload.app import PayloadApp, TickOutcome
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.model import DetectorBackend, ScriptedDetector
@@ -27,13 +41,17 @@ def _mosaic_frame(frame_id: int) -> MosaicFrame:
 
 
 def _plume_detector() -> ScriptedDetector:
-    """Scripted detector whose mask yields one strong, stable central blob each frame."""
+    """Scripted detector whose mask yields one strong, stable off-boresight blob each frame.
+
+    The blob is offset from the band-plane center (128, 128) so its boresight displacement
+    clears the minimum deadband, letting TRACKING issue RATE commands.
+    """
     mask = np.zeros((256, 256), dtype=np.float32)  # np.ndarray[float32, (H, W)]
-    mask[100:150, 100:150] = 1.0
+    mask[180:230, 180:230] = 1.0  # centroid ~ (204.5, 204.5), ~108 px off boresight
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 
-def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGimbal]:
+def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGimbal, ManualClock]:
     """Assemble a PayloadApp over sim drivers, the given detector, and a fresh bus."""
     cfg = PactConfig()
     bus = MessageBus()
@@ -42,7 +60,7 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     sensor = SimSensor([])  # frames are fed directly to process_frame in these tests
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     app = PayloadApp.from_config(cfg, sensor, gimbal, detector, bus, clock, calib)
-    return app, bus, gimbal
+    return app, bus, gimbal, clock
 
 
 def test_process_frame_demosaics_to_half_resolution() -> None:
@@ -60,7 +78,7 @@ def test_process_frame_demosaics_to_half_resolution() -> None:
             captured.append(np.asarray(frame.tensor).shape)
             return self._inner.detect(frame)
 
-    app, _bus, _gimbal = _build_app(_CapturingDetector())
+    app, _bus, _gimbal, _clock = _build_app(_CapturingDetector())
     _state, outcome = app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0)
 
     assert outcome.fault is None
@@ -69,7 +87,7 @@ def test_process_frame_demosaics_to_half_resolution() -> None:
 
 def test_persistent_plume_drives_gimbal_through_app() -> None:
     """A stable plume across frames drives the app to TRACKING and moves the gimbal."""
-    app, bus, gimbal = _build_app(_plume_detector())
+    app, bus, gimbal, clock = _build_app(_plume_detector())
     cmd_sub = bus.subscribe(GimbalCommandMsg)
     inf_sub = bus.subscribe(InferenceResultMsg)
 
@@ -78,6 +96,7 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
     now = 0.0
     for frame_id in range(1, 9):
         now += 1.0
+        clock.advance(1.0)  # let SimGimbal integrate commanded motion between frames
         state, outcome = app.process_frame(_mosaic_frame(frame_id), state, now)
         outcomes.append(outcome)
 
@@ -101,7 +120,7 @@ def test_no_detection_publishes_inference_but_no_command() -> None:
     empty_detector = ScriptedDetector(
         np.zeros((256, 256), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
     )
-    app, bus, _gimbal = _build_app(empty_detector)
+    app, bus, _gimbal, _clock = _build_app(empty_detector)
     cmd_sub = bus.subscribe(GimbalCommandMsg)
 
     state = app.controller.initial_state()
@@ -115,9 +134,42 @@ def test_no_detection_publishes_inference_but_no_command() -> None:
     assert cmd_sub.empty()
 
 
+def test_mode_change_safe_issues_stow_actuation() -> None:
+    """A ModeChangeMsg(SAFE) on the bus makes the next frame issue a STOW actuation."""
+    app, bus, gimbal, clock = _build_app(_plume_detector())
+    cmd_sub = bus.subscribe(GimbalCommandMsg)
+
+    bus.publish(
+        ModeChangeMsg(
+            msg_type=MessageType.MODE_CHANGE,
+            timestamp_utc="2026-06-01T00:00:00.000Z",
+            new_mode=SystemMode.SAFE,
+            requested_by="ground",
+        )
+    )
+    safe_commanded, safe_cleared = app.poll_mode_changes()
+    assert safe_commanded is True
+    assert safe_cleared is False
+
+    state = app.controller.initial_state()
+    state, outcome = app.process_frame(
+        _mosaic_frame(1), state, now=1.0, safe_commanded=safe_commanded
+    )
+    assert outcome.command_issued is True
+    assert state.arbiter.gimbal_state is GimbalState.SAFE
+
+    published = cmd_sub.get_nowait()
+    assert published.mode is GimbalCommandMode.STOW
+
+    clock.advance(60.0)  # let the gimbal reach the stow pose
+    switch = gimbal.read_stow_switch()
+    assert isinstance(switch, Ok)
+    assert switch.value is True
+
+
 def test_run_loop_starts_and_stops_cleanly() -> None:
     """run() returns promptly when stop_event is pre-set, exercising acquisition glue."""
-    app, bus, _gimbal = _build_app(_plume_detector())
+    app, bus, _gimbal, _clock = _build_app(_plume_detector())
     cmd_sub = bus.subscribe(GimbalCommandMsg)
 
     stop = threading.Event()

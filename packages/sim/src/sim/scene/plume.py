@@ -102,9 +102,14 @@ def plume_detector() -> ScriptedDetector:
 
     Returns:
         ScriptedDetector: With a 50x50 unit-probability square (area 2500 px, confidence
-        1.0) centered in a 256x256 mask -- above the default gates. The mask resolution
-        matches the demosaicked band planes (sensor size / 2).
+        1.0) offset from the 256x256 mask center -- above the default gates. The mask
+        resolution matches the demosaicked band planes (sensor size / 2).
+
+    Notes:
+        The square is offset from the band-plane boresight (128, 128) so the target's
+        boresight displacement (~108 px) clears the minimum deadband, letting TRACKING
+        issue RATE commands that move the gimbal off the origin in the closed loop.
     """
     mask = np.zeros((DETECTOR_SIZE, DETECTOR_SIZE), dtype=np.float32)  # np.ndarray[float32, (H, W)]
-    mask[100:150, 100:150] = 1.0
+    mask[180:230, 180:230] = 1.0  # centroid ~ (204.5, 204.5), ~108 px off boresight
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)

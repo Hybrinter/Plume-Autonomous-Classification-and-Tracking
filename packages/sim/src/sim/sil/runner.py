@@ -123,10 +123,18 @@ class SilHarness:
         system = self._system
         apps = system.apps
 
+        safe_commanded, safe_cleared = apps.payload.poll_mode_changes()
         acquired = system.sensor.acquire_frame()
         if isinstance(acquired, Ok):
+            pos = system.gimbal.read_position()
             self._payload_state, _ = apps.payload.process_frame(
-                acquired.value, self._payload_state, now
+                acquired.value,
+                self._payload_state,
+                now,
+                0.0,
+                pos.value if isinstance(pos, Ok) else None,
+                safe_commanded,
+                safe_cleared,
             )
 
         apps.thermal.handle_commands()
@@ -149,7 +157,11 @@ class SilHarness:
         self._fault_entries = apps.fault.tick(self._fault_entries, now)
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:
-        """Run count deterministic steps, advancing `now` by dt seconds each step.
+        """Run count deterministic steps, advancing `now` and the shared clock by dt each step.
+
+        Advancing the shared ManualClock each step is what lets the SimGimbal first-order
+        dynamics integrate between steps (it integrates lazily on clock-time elapsed), so
+        commanded motion actually moves the gimbal across steps.
 
         Args:
             count: Number of steps to run.
@@ -158,4 +170,5 @@ class SilHarness:
         now = 0.0
         for _ in range(count):
             now += dt
+            self._system.clock.advance(dt)
             self.step(now)

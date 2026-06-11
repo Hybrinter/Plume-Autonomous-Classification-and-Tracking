@@ -6,8 +6,7 @@ threaded flight loop (RealClock) and the stepped SIL (ManualClock). ABSOLUTE/STO
 approach their target with a first-order exponential response clamped to the hardware
 slew envelope; RATE integrates the clamped commanded rates. Position is clamped to the
 travel limits after every update. Encoder reads add seeded Gaussian noise and carry
-the monotonic read timestamp. send_command (delta) is retained temporarily for the
-legacy path and is removed by the pointing switchover.
+the monotonic read timestamp.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-002.
 """
@@ -23,7 +22,6 @@ import numpy as np
 # internal
 from flight.hal.interfaces.gimbal import GimbalPosition
 from flight.libs.config import GimbalConfig
-from flight.libs.messages import GimbalCommandMsg
 from flight.libs.time import Clock
 from flight.libs.types import FaultCode, GimbalCommandMode, Ok, Result
 
@@ -199,18 +197,3 @@ class SimGimbal:
             and abs(self._el - self._cfg.stow_el_deg) < _STOW_TOLERANCE_DEG
         )
         return Ok(self._stow_commanded and at_pose)
-
-    def send_command(self, command: GimbalCommandMsg) -> Result[None, FaultCode]:
-        """DEPRECATED legacy delta path (removed by the pointing switchover).
-
-        Args:
-            command: Legacy GimbalCommandMsg with az_delta_deg/el_delta_deg.
-
-        Returns:
-            Ok(None) always.
-        """
-        self._integrate()
-        self._az += command.az_delta_deg
-        self._el += command.el_delta_deg
-        self._clamp_travel()
-        return Ok(None)

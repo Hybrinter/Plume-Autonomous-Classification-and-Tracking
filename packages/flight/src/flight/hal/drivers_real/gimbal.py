@@ -14,7 +14,6 @@ from __future__ import annotations
 
 # internal
 from flight.hal.interfaces.gimbal import GimbalPosition
-from flight.libs.messages import GimbalCommandMsg
 from flight.libs.types import FaultCode, Ok, Result
 
 
@@ -91,14 +90,3 @@ class RealGimbal:
             Ok(False) always (stub).
         """
         return Ok(False)
-
-    def send_command(self, command: GimbalCommandMsg) -> Result[None, FaultCode]:
-        """DEPRECATED legacy delta path; removed by the pointing switchover (Task 6).
-
-        Args:
-            command: Legacy GimbalCommandMsg with az/el deltas.
-
-        Returns:
-            Ok(None) always (stub).
-        """
-        return Ok(None)

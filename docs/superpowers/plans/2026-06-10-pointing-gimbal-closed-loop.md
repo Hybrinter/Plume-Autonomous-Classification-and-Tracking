@@ -960,7 +960,7 @@ nontrivial was unit-tested in Tasks 1-5. Work the files in order; run the full g
   `test_hal_interfaces.py`, `test_sim_gimbal.py` (drop send_command test),
   `packages/sim/tests/test_sil_closed_loop.py`
 
-- [ ] **Step 1: Messages.** `GimbalCommandMsg` becomes the telemetry record of an issued
+- [x] **Step 1: Messages.** `GimbalCommandMsg` becomes the telemetry record of an issued
 request (delta fields die):
 
 ```python
@@ -983,7 +983,7 @@ class GimbalCommandMsg:
 detector backends copy them from the `ProcessedFrameMsg`:
 `crop_origin_px=frame.crop_origin_px, scale_factor=frame.scale_factor`.
 
-- [ ] **Step 2: Arbiter rework** (`arbiter.py`). Delete `PIXEL_TO_DEG`. `ArbiterState` gains
+- [x] **Step 2: Arbiter rework** (`arbiter.py`). Delete `PIXEL_TO_DEG`. `ArbiterState` gains
 `scan_direction: float = 1.0` and `miss_count: int = 0` (docstring updated: miss_count is the
 TRACKING release-hysteresis counter). New step signature and behavior:
 
@@ -1027,7 +1027,7 @@ request and latches; safe_cleared returns to IDLE; release hysteresis holds TRAC
 `release_persistence_frames - 1` misses; SCAN reverses direction at the +30/-30 boundary;
 TRACKING emits RATE requests with the proportional clip.
 
-- [ ] **Step 3: Control rework** (`control.py`). Delete `PIXEL_TO_DEG`. `ControlState` gains
+- [x] **Step 3: Control rework** (`control.py`). Delete `PIXEL_TO_DEG`. `ControlState` gains
 `runaway: RunawayState`, `deadband_strikes: int`, `commanded_az_rate_deg_per_s: float`,
 `commanded_el_rate_deg_per_s: float`. `PayloadController` gains `plane_width_px: int`,
 `plane_height_px: int`, `ifov_deg_per_px: float`;
@@ -1146,7 +1146,7 @@ strike-count fault above `max_deadband_px` for `max_deadband_strike_count` frame
 propagates from a stalled encoder while rates are commanded; SAFE entry produces the STOW
 request and a latched state.
 
-- [ ] **Step 4: App rework** (`app.py`). `PayloadApp` gains `mode_sub:
+- [x] **Step 4: App rework** (`app.py`). `PayloadApp` gains `mode_sub:
 Subscription[ModeChangeMsg]` (created in `from_config` via `bus.subscribe(ModeChangeMsg)`).
 New helper:
 
@@ -1218,18 +1218,18 @@ safing.
 
 `TickOutcome.command_issued` stays (request is not None).
 
-- [ ] **Step 5: HAL cleanup.** Delete `send_command` from the `GimbalActuator` protocol and
+- [x] **Step 5: HAL cleanup.** Delete `send_command` from the `GimbalActuator` protocol and
 both drivers (and its `GimbalCommandMsg` imports). The protocol docstring now states drivers
 enforce the hardware envelope and the arbiter enforces the mission envelope (defense in depth).
 
-- [ ] **Step 6: SIL runner/harness.** `SilHarness.step(now)`: before processing the frame,
+- [x] **Step 6: SIL runner/harness.** `SilHarness.step(now)`: before processing the frame,
 `safe_commanded, safe_cleared = apps.payload.poll_mode_changes()`; read
 `pos = system.gimbal.read_position()`; call `process_frame(acquired.value,
 self._payload_state, now, 0.0, pos.value if isinstance(pos, Ok) else None, safe_commanded,
 safe_cleared)`. `run_steps` must also advance the shared `ManualClock` by `dt` each step (use
 the advance API confirmed in Task 3) so SimGimbal dynamics integrate.
 
-- [ ] **Step 7: Test sweep.** Rework the listed test files to the new signatures/shapes. The
+- [x] **Step 7: Test sweep.** Rework the listed test files to the new signatures/shapes. The
 SIL nominal closed-loop test's "gimbal moved off origin" assertion now requires TRACKING to
 issue RATE commands and SimGimbal to integrate them across steps (positions change between
 steps). Add to `test_payload_app.py`: a `ModeChangeMsg(SAFE)` published on the bus causes the
@@ -1237,12 +1237,12 @@ next processed frame to issue a STOW actuation (assert via SimGimbal `read_stow_
 advancing the clock, or assert the published `GimbalCommandMsg.mode is STOW`).
 `rg "PIXEL_TO_DEG|az_delta_deg|send_command" packages` must return no live hits.
 
-- [ ] **Step 8: Run the full gates**
+- [x] **Step 8: Run the full gates**
 
 Run: `uv run pytest packages; uv run ruff check packages; uv run ruff format --check packages; uv run mypy packages; uv run lint-imports`
 Expected: all green.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/flight/src packages/sim/src packages/flight/tests packages/sim/tests

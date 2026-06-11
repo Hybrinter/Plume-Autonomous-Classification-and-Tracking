@@ -30,6 +30,7 @@ from flight.libs.types import (
     DownlinkPriority,
     FaultCode,
     FrameUsabilityTag,
+    GimbalCommandMode,
     GimbalState,
     MessageType,
     SystemMode,
@@ -110,17 +111,27 @@ class InferenceResultMsg:
     model_version: str  # model checkpoint identifier string
     inference_ms: float  # wall-clock inference duration in ms
     mode_flags: int  # uint8 bitmask; semantics defined in config
+    crop_origin_px: tuple[int, int]  # (x, y) preprocess crop origin the blobs live in
+    scale_factor: float  # preprocess decimation scale the blobs live in (tensor_px = plane_px * s)
 
 
 @dataclass(frozen=True)
 class GimbalCommandMsg:
-    """Gimbal slew command from controller to gimbal hardware interface."""
+    """Telemetry record of a gimbal command issued by the payload app.
+
+    Reshaped from the legacy delta command into a typed telemetry record of the
+    GimbalRequest the payload app issued onto the GimbalActuator HAL: mode plus the
+    two axis values (interpreted per the mode), the arbiter state at the time, and a
+    human-readable reason. This is a downlink/log record -- it is no longer the
+    actuation vehicle (actuation flows through the HAL methods directly).
+    """
 
     msg_type: MessageType  # must be MessageType.GIMBAL_COMMAND
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # frame that triggered this command
-    az_delta_deg: float  # azimuth delta to command (degrees)
-    el_delta_deg: float  # elevation delta to command (degrees)
+    mode: GimbalCommandMode  # RATE / ABSOLUTE / STOW / HOME
+    az_value_deg: float  # rate (deg/s) for RATE; target angle (deg) for ABSOLUTE; 0 otherwise
+    el_value_deg: float  # rate (deg/s) for RATE; target angle (deg) for ABSOLUTE; 0 otherwise
     state: GimbalState  # arbiter state at time of command
     reason: str  # human-readable reason code for logging
 

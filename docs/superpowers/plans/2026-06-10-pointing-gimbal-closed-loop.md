@@ -781,7 +781,7 @@ git commit -m "feat(pointing): boresight-relative error via IFOV with crop backp
 - Modify: `packages/flight/src/flight/payload/gimbal/__init__.py` (export)
 - Test: `packages/flight/tests/test_runaway.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 """Tests for the encoder-divergence runaway monitor."""
@@ -841,11 +841,11 @@ def test_no_rate_mode_or_missing_data_resets() -> None:
     assert new_state.last_pos is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_runaway.py -v` -- Expected: FAIL.
 
-- [ ] **Step 3: Implement `runaway.py`**
+- [x] **Step 3: Implement `runaway.py`**
 
 ```python
 """Encoder-divergence runaway monitor (pure).
@@ -921,11 +921,11 @@ def check_runaway(
     return (RunawayState(last_pos=pos, strike_count=strikes), fault)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest packages/flight/tests/test_runaway.py -v` -- Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/payload/gimbal packages/flight/tests/test_runaway.py

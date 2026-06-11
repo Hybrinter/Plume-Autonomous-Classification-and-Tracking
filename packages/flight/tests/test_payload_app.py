@@ -37,10 +37,11 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     """Assemble a PayloadApp over sim drivers, the given detector, and a fresh bus."""
     cfg = PactConfig()
     bus = MessageBus()
-    gimbal = SimGimbal()
+    clock = ManualClock()
+    gimbal = SimGimbal(clock=clock)
     sensor = SimSensor([])  # frames are fed directly to process_frame in these tests
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
-    app = PayloadApp.from_config(cfg, sensor, gimbal, detector, bus, ManualClock(), calib)
+    app = PayloadApp.from_config(cfg, sensor, gimbal, detector, bus, clock, calib)
     return app, bus, gimbal
 
 

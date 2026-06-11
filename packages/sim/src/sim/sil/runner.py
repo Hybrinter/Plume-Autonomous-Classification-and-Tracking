@@ -71,7 +71,7 @@ def build_sil_system(
     """
     bus = MessageBus()
     sensor = SimSensor(frames)
-    gimbal = SimGimbal()
+    gimbal = SimGimbal(clock=clock, cfg=config.gimbal)
     station = SimStationLink(inbound_commands)
     thermal_sensor = SimScalarSensor(thermal_readings)
     power_sensor = SimScalarSensor(power_readings)

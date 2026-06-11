@@ -321,7 +321,7 @@ Task 6) so the tree stays green. `GimbalPosition` gains an encoder timestamp.
   `test_real_drivers.py` (extend), `test_payload_app.py`/`test_composition.py` (touch only if
   their fixtures construct `SimGimbal()` -- add the clock argument)
 
-- [ ] **Step 1: Write the failing tests** (rework `test_sim_gimbal.py`)
+- [x] **Step 1: Write the failing tests** (rework `test_sim_gimbal.py`)
 
 ```python
 """Tests for SimGimbal first-order dynamics, limits, and the closed-loop HAL surface."""
@@ -407,12 +407,12 @@ def test_read_position_is_timestamped() -> None:
 (If `ManualClock` has a different advance API after reading the time lib, adapt the tests to it
 -- the assertions stand.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_sim_gimbal.py -v`
 Expected: FAIL (`SimGimbal.__init__` takes no clock; new methods missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `interfaces/gimbal.py` -- `GimbalPosition` gains `timestamp_s: float` (monotonic seconds at the
 encoder read); protocol gains (keep `send_command` for now, documented as deprecated pending
@@ -607,12 +607,12 @@ return `Ok(None)`; `read_position` returns the origin with `timestamp_s=0.0`;
 `sim/sil/runner.py` -- `SimGimbal(clock, cfg=config.gimbal)`. Update any other
 `SimGimbal()`/`GimbalPosition(...)` constructions in tests to the new signatures.
 
-- [ ] **Step 4: Run the full gates**
+- [x] **Step 4: Run the full gates**
 
 Run: `uv run pytest packages` and `uv run mypy packages`
 Expected: PASS (legacy delta path still wired; new surface tested).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/hal packages/flight/src/flight/libs/time packages/sim/src/sim/sil/runner.py packages/flight/tests

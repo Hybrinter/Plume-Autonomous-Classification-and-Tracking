@@ -33,3 +33,18 @@ def test_real_gimbal_stub_constructs_and_reads() -> None:
     )
     assert isinstance(gimbal.send_command(command), Ok)
     assert isinstance(gimbal.read_position(), Ok)
+
+
+def test_real_gimbal_stub_new_surface_returns_ok() -> None:
+    """RealGimbal stubs for goto_angle, set_rate, home, stow, and read_stow_switch all return Ok."""
+    gimbal = RealGimbal()
+    assert isinstance(gimbal.goto_angle(10.0, 5.0), Ok)
+    assert isinstance(gimbal.set_rate(2.0, -1.0), Ok)
+    assert isinstance(gimbal.home(), Ok)
+    assert isinstance(gimbal.stow(), Ok)
+    pos_result = gimbal.read_position()
+    assert isinstance(pos_result, Ok)
+    assert pos_result.value.timestamp_s == 0.0
+    switch_result = gimbal.read_stow_switch()
+    assert isinstance(switch_result, Ok)
+    assert switch_result.value is False

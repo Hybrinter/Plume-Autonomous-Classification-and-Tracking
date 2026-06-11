@@ -3,6 +3,7 @@
 from flight.hal.drivers_real import RealGimbal
 from flight.hal.drivers_sim import SimGimbal, SimSensor
 from flight.hal.interfaces import GimbalActuator, ImagingSensor
+from flight.libs.time import ManualClock
 
 
 def test_sim_sensor_satisfies_imaging_sensor() -> None:
@@ -13,7 +14,7 @@ def test_sim_sensor_satisfies_imaging_sensor() -> None:
 
 def test_sim_gimbal_satisfies_gimbal_actuator() -> None:
     """SimGimbal conforms to GimbalActuator."""
-    gimbal: GimbalActuator = SimGimbal()
+    gimbal: GimbalActuator = SimGimbal(clock=ManualClock())
     assert isinstance(gimbal, GimbalActuator)
 
 

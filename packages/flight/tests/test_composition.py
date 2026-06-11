@@ -20,7 +20,7 @@ def _drivers() -> Drivers:
     """Bundle sim drivers + a scripted detector for composition testing."""
     return Drivers(
         sensor=SimSensor([]),
-        gimbal=SimGimbal(),
+        gimbal=SimGimbal(clock=ManualClock()),
         detector=ScriptedDetector(np.zeros((256, 256), dtype=np.float32)),
         station=SimStationLink([]),
         thermal_sensor=SimScalarSensor([20.0]),

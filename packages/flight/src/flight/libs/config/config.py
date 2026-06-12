@@ -98,12 +98,13 @@ class SensorConfig:
     Satisfies: REQ-AIML-IMAG-001.
     """
 
-    width_px: int = 512  # mosaic plane width in pixels (must be even)
-    height_px: int = 512  # mosaic plane height in pixels (must be even)
+    width_px: int = 1024  # mosaic plane width in pixels (must be even)
+    height_px: int = 1024  # mosaic plane height in pixels (must be even)
     bit_depth: int = 12  # ADC bit depth; full scale = 2**bit_depth - 1 DN
     # Row-major band name per 2x2 cell: (0,0), (0,1), (1,0), (1,1).
     mosaic_layout: tuple[str, ...] = ("BLUE", "GREEN", "RED", "NIR")
-    ifov_deg_per_px: float = 0.04  # instantaneous field of view per band-plane pixel
+    # Per band-plane pixel; 1024 @ 0.02 keeps FOV parity with the previous 512 @ 0.04.
+    ifov_deg_per_px: float = 0.02  # instantaneous field of view per band-plane pixel
     default_exposure_us: float = 1000.0  # exposure commanded at startup
     default_gain_db: float = 0.0  # gain commanded at startup
     calibration_dir: str = ""  # dir of dark/flat/bad-pixel artifacts; "" -> identity (SIL only)

@@ -1265,7 +1265,7 @@ full-resolution ROI around the Kalman-estimated target.
 - Test: `packages/flight/tests/test_payload_app.py` (extend), `packages/flight/tests/test_config_defaults.py`,
   `packages/sim/tests/test_scene.py`, `packages/sim/tests/test_sil_closed_loop.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test_payload_app.py` (using the existing app fixture pattern, sensor now 1024):
 
@@ -1289,12 +1289,12 @@ def test_tracking_mode_crops_full_resolution_roi() -> None:
 In `test_scene.py`: mosaic shape becomes `(1024, 1024)`; the plume brightness check moves to the
 region around plane (340, 340) (see Step 3 geometry).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_payload_app.py packages/sim/tests/test_scene.py -v`
 Expected: FAIL (sensor still 512; no ROI logic).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Config: `SensorConfig.width_px = 1024`, `height_px = 1024`, `ifov_deg_per_px = 0.02` (+ TOML;
 field comment notes FOV parity with the previous 512 x 0.04 geometry).
@@ -1352,11 +1352,11 @@ above `min_deadband_px=20`, below `max_deadband_px=250`, so TRACKING commands fl
 `mask[145:195, 145:195]` (tensor-space center ~170, matching the scene in decimated search
 mode). Update SIL closed-loop assertions accordingly.
 
-- [ ] **Step 4: Run the full gates**
+- [x] **Step 4: Run the full gates**
 
 Run: `uv run pytest packages` and `uv run mypy packages` -- Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src packages/sim/src config packages/flight/tests packages/sim/tests

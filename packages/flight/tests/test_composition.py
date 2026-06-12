@@ -29,8 +29,8 @@ def _drivers() -> Drivers:
 
 
 def _calib() -> MosaicCalibration:
-    """Identity mosaic calibration sized to the default 512x512 sensor geometry."""
-    return build_identity_calibration(512, 512)
+    """Identity mosaic calibration sized to the default 1024x1024 sensor geometry."""
+    return build_identity_calibration(1024, 1024)
 
 
 def test_build_apps_wires_all_five_subsystems() -> None:

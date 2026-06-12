@@ -22,8 +22,11 @@ Contains:
 Non-obvious notes:
   - The arbiter `now` is sourced from Clock.monotonic_s() (it consumes `now` only as
     interval/rate-limit deltas); message timestamps use Clock.wall_clock_iso().
-  - No crop is applied (crop_origin_px=(0, 0), scale_factor=1.0); the demosaicked band
-    planes are already half the mosaic resolution (sensor size / 2).
+  - The inference ROI is mode-dependent: outside TRACKING the full band plane is
+    decimated to the inference input size (crop_origin_px=(0, 0), scale_factor=1/factor);
+    in TRACKING with an initialized estimator a full-resolution ROI is cropped around the
+    Kalman-estimated target (scale_factor=1.0). Quality flags always run on the full
+    plane before the ROI is taken.
   - The MOTION_SMEAR quality gate consumes a slew rate; run() derives it from consecutive
     gimbal encoder reads and degrades to 0.0 (never-flag) on the first frame or a failed
     read.
@@ -77,6 +80,7 @@ from flight.payload.preprocess import (
     MosaicCalibration,
     calibrate_mosaic,
     compute_quality_flags,
+    crop_to_roi,
     normalize_dn,
     select_bands,
     separate_bands,
@@ -167,19 +171,24 @@ class PayloadApp:
             PayloadApp: A fully constructed payload app.
 
         Raises:
-            ValueError: If the sensor mosaic dimensions are odd, the inference input size
-                is not the sensor size halved, the mosaic_layout does not name each Band
-                exactly once, or input_bands is not a subset of mosaic_layout. Raising is
-                correct here: composition-root startup is the one place a bad config is
-                unrecoverable.
+            ValueError: If the sensor mosaic dimensions are odd, the band plane is smaller
+                than the inference input, the plane is not an equal integer multiple of the
+                inference input on both axes (required for uniform search-mode decimation),
+                the mosaic_layout does not name each Band exactly once, or input_bands is
+                not a subset of mosaic_layout. Raising is correct here: composition-root
+                startup is the one place a bad config is unrecoverable.
         """
         if cfg.sensor.width_px % 2 or cfg.sensor.height_px % 2:
             raise ValueError("sensor mosaic dimensions must be even")
-        if (cfg.inference.input_height_px, cfg.inference.input_width_px) != (
-            cfg.sensor.height_px // 2,
-            cfg.sensor.width_px // 2,
+        plane_h, plane_w = cfg.sensor.height_px // 2, cfg.sensor.width_px // 2
+        if plane_h < cfg.inference.input_height_px or plane_w < cfg.inference.input_width_px:
+            raise ValueError("band plane must be at least the inference input size")
+        if (
+            plane_h % cfg.inference.input_height_px
+            or plane_w % cfg.inference.input_width_px
+            or plane_h // cfg.inference.input_height_px != plane_w // cfg.inference.input_width_px
         ):
-            raise ValueError("inference input size must equal sensor size / 2")
+            raise ValueError("plane size must be an integer multiple of the inference input")
         if sorted(cfg.sensor.mosaic_layout) != sorted(b.value for b in Band):
             raise ValueError("mosaic_layout must name each Band exactly once")
         if any(b not in cfg.sensor.mosaic_layout for b in cfg.inference.input_bands):
@@ -232,13 +241,15 @@ class PayloadApp:
         """Process one raw mosaic frame end-to-end: preprocess -> detect -> control -> actuate.
 
         Runs the co-located preprocessing pipeline (calibrate the raw mosaic plane ->
-        CFA-separate -> normalize -> select bands -> quality flags), then the detector,
-        then the pure PayloadController. Publishes InferenceResultMsg and each arbiter
-        TelemetryEventMsg; when a request is issued it is mapped onto the GimbalActuator HAL
-        (set_rate/goto_angle/stow/home by mode) and a GimbalCommandMsg telemetry record is
-        published. A control fault (deadband strike or encoder runaway) publishes a
-        FaultEventMsg. On a preprocessing or detection fault the state is returned unchanged,
-        a FaultEventMsg is published, and outcome.fault is set.
+        CFA-separate -> normalize -> select bands -> quality flags -> mode-dependent ROI:
+        decimated full plane in search, full-resolution Kalman-centered crop in TRACKING),
+        then the detector, then the pure PayloadController. Publishes InferenceResultMsg
+        and each arbiter TelemetryEventMsg; when a request is issued it is mapped onto
+        the GimbalActuator HAL (set_rate/goto_angle/stow/home by mode) and a
+        GimbalCommandMsg telemetry record is published. A control fault (deadband strike
+        or encoder runaway) publishes a FaultEventMsg. On a preprocessing or detection
+        fault the state is returned unchanged, a FaultEventMsg is published, and
+        outcome.fault is set.
 
         Inputs:
             raw (MosaicFrame): Raw mosaic frame; raw.mosaic must match the calibration
@@ -283,14 +294,36 @@ class PayloadApp:
             raw.timestamp_utc,
             self.preprocessing_cfg,
         )
+
+        plane_h, plane_w = selected.value.shape[1], selected.value.shape[2]
+        in_tracking = state.arbiter.gimbal_state is GimbalState.TRACKING and state.ema.initialized
+        if in_tracking:
+            # Full-resolution ROI centered on the Kalman-estimated boresight-error target.
+            est_az = float(state.kalman.x[0])
+            est_el = float(state.kalman.x[1])
+            center_x = int(plane_w / 2 + est_az / self.sensor_cfg.ifov_deg_per_px)
+            center_y = int(plane_h / 2 - est_el / self.sensor_cfg.ifov_deg_per_px)
+            tensor, crop_origin = crop_to_roi(
+                selected.value,
+                (center_x, center_y),
+                (self.inference_cfg.input_height_px, self.inference_cfg.input_width_px),
+            )
+            scale = 1.0
+        else:
+            # Decimated full-plane search mode.
+            factor = plane_h // self.inference_cfg.input_height_px
+            tensor = selected.value[:, ::factor, ::factor]
+            crop_origin = (0, 0)
+            scale = 1.0 / factor
+
         processed = ProcessedFrameMsg(
             msg_type=MessageType.PROCESSED_FRAME,
             timestamp_utc=raw.timestamp_utc,
             frame_id=raw.frame_id,
-            tensor=selected.value,  # np.ndarray[float32, (len(input_bands), H/2, W/2)]
+            tensor=tensor,  # np.ndarray[float32, (len(input_bands), input_h, input_w)]
             quality_flags=quality_flags,
-            crop_origin_px=(0, 0),
-            scale_factor=1.0,
+            crop_origin_px=crop_origin,
+            scale_factor=scale,
         )
 
         detect_result = self.detector.detect(processed)

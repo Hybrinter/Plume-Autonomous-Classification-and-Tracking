@@ -7,8 +7,8 @@ from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import FaultCode, GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import ControlState, PayloadController
 
-# Default geometry: 512 sensor -> 256 plane, boresight at (128, 128).
-_BORESIGHT = 128.0
+# Default geometry: 1024 sensor -> 512 plane, boresight at (256, 256).
+_BORESIGHT = 256.0
 
 
 def _controller() -> PayloadController:

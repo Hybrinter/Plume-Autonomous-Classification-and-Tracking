@@ -58,11 +58,12 @@ sunglint_nir_mean_threshold = 0.6
 max_motion_smear_px = 1.0
 
 [sensor]
-width_px = 512
-height_px = 512
+width_px = 1024
+height_px = 1024
 bit_depth = 12
 mosaic_layout = ["BLUE", "GREEN", "RED", "NIR"]
-ifov_deg_per_px = 0.04
+# 1024 @ 0.02 deg/px keeps FOV parity with the previous 512 @ 0.04 geometry.
+ifov_deg_per_px = 0.02
 default_exposure_us = 1000.0
 default_gain_db = 0.0
 calibration_dir = ""

@@ -48,12 +48,14 @@ def build_flight_system(
     Raises:
         SystemExit: If the startup exposure/gain tuning fails (camera unusable at
             startup is unrecoverable).
+        ValueError: If config.gimbal.serial_port is empty (RealGimbal cannot open its
+            link; a misconfigured gimbal port is an unrecoverable startup failure).
 
     Notes:
-        RealSensor lazily imports PySpin and OnnxDetector lazily imports onnxruntime;
-        both raise ImportError if the SDK is absent. This function therefore runs only
-        on flight hardware. The startup exposure/gain are commanded from config.sensor
-        before the apps are wired.
+        RealSensor lazily imports PySpin, RealGimbal lazily imports pyserial, and
+        OnnxDetector lazily imports onnxruntime; each raises ImportError if its SDK is
+        absent. This function therefore runs only on flight hardware. The startup
+        exposure/gain are commanded from config.sensor before the apps are wired.
     """
     sensor = RealSensor(clock=clock)
     exposure_result = sensor.set_exposure_us(config.sensor.default_exposure_us)
@@ -64,7 +66,7 @@ def build_flight_system(
         raise SystemExit(f"camera gain setup failed: {gain_result.error}")
     drivers = Drivers(
         sensor=sensor,
-        gimbal=RealGimbal(),
+        gimbal=RealGimbal(clock=clock, cfg=config.gimbal),
         detector=OnnxDetector(config.inference.model_path),
         station=RealStationLink(),
         thermal_sensor=RealScalarSensor(),

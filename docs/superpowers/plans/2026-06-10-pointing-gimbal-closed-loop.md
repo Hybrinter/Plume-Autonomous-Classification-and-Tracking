@@ -1374,7 +1374,7 @@ git commit -m "feat(payload): ROI crop in TRACKING + decimated search mode (1024
 - Test: `packages/flight/tests/test_real_gimbal_serial.py` (new, fake-serial)
 - Test: `packages/flight/tests/test_real_drivers.py` (keep/adjust construction tests)
 
-- [ ] **Step 1: Write the failing tests** -- fake `serial` module injected via
+- [x] **Step 1: Write the failing tests** -- fake `serial` module injected via
 `monkeypatch.setitem(sys.modules, "serial", fake)` (same pattern as the fake-PySpin tests in
 `test_real_sensor_pyspin.py` -- read that file first and mirror its structure):
 
@@ -1478,12 +1478,12 @@ def test_missing_pyserial_raises_import_error(monkeypatch: pytest.MonkeyPatch) -
         RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/flight/tests/test_real_gimbal_serial.py -v`
 Expected: FAIL (constructor signature; behavior missing).
 
-- [ ] **Step 3: Implement RealGimbal**
+- [x] **Step 3: Implement RealGimbal**
 
 ```python
 """Real two-axis PTU gimbal driver over a serial ASCII protocol (reference: FLIR PTU
@@ -1630,11 +1630,11 @@ class RealGimbal:
 empty-port `ValueError` propagates as the startup failure. Adjust `test_real_drivers.py`
 constructions.
 
-- [ ] **Step 4: Run the full gates**
+- [x] **Step 4: Run the full gates**
 
 Run: `uv run pytest packages` and `uv run mypy packages` -- Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/flight/src/flight/hal/drivers_real/gimbal.py packages/flight/src/flight/core/main.py packages/flight/tests

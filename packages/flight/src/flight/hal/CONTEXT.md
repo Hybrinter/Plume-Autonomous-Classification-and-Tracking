@@ -79,9 +79,10 @@ from the individual files or their docstrings.
 
 ## `StationLink` -- byte-level transport (ADR 0009)
 
-- The `StationLink` Protocol is **byte-level**: `receive_packet() -> Result[bytes | None, FaultCode]`,
-  `send_packet(packet: bytes) -> Result[None, FaultCode]`, `link_state() -> LinkState`,
-  `close() -> None`. The old command-level `receive_command`/`send_downlink` methods are removed.
+- The `StationLink` Protocol is **byte-level**: `receive_packet() -> Result[bytes | None,
+  FaultCode]`, `send_packet(packet: bytes) -> Result[None, FaultCode]`,
+  `link_state() -> LinkState`, `close() -> None`. The old command-level
+  `receive_command`/`send_downlink` methods are removed.
 - **`RealStationLink`** is a real TCP-in/UDP-out CCSDS link (ADR 0009):
   - Inbound telecommands arrive over TCP (the payload binds a server socket; lazy accept).
   - Outbound telemetry/products leave over UDP (fire-and-forget, no connection state).
@@ -95,8 +96,9 @@ from the individual files or their docstrings.
 - **`SimStationLink`** replays inbound `list[bytes]` packets in order (one per `receive_packet`
   call until exhausted, then `Ok(None)`) and records outbound packets in `downlinked`. Link
   state is scriptable at construction (`link_state: LinkState = LinkState.AOS`).
-- Real drivers may import `flight.libs.ccsds` (the import-linter `drivers-from-composition-roots-only`
-  contract forbids app imports of drivers; drivers importing libs is allowed).
+- Real drivers may import `flight.libs.ccsds` (the import-linter
+  `drivers-from-composition-roots-only` contract forbids app imports of drivers; drivers
+  importing libs is allowed).
 
 ## Real driver implementation status
 

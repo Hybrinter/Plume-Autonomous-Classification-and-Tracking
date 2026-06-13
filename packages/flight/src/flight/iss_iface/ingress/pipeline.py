@@ -1,8 +1,8 @@
 """Pure command-ingress pipeline for iss_iface: bytes -> validated CommandMsg or rejection.
 
-Stages, in order: CCSDS decode + CRC (flight.libs.ccsds) -> HMAC-SHA256 authentication over
-the command body -> JSON parse -> source allow-list -> typed dictionary validation
-(flight.libs.commands) -> monotonic per-source sequence (replay guard). The functions are
+Stages, in order: CCSDS decode + CRC (flight.libs.ccsds) -> JSON parse -> HMAC-SHA256
+authentication over the command body -> source allow-list -> typed dictionary validation
+(flight.libs.commands) -> monotonic per-source sequence dedup (replay guard). The functions are
 pure: no bus, no clock, no I/O, no logging. The app shell owns the HMAC key, the per-source
 last-seq map, the clock, and the bus, and turns an IngressOutcome into a CommandMsg + an
 always-emitted CommandAckMsg.

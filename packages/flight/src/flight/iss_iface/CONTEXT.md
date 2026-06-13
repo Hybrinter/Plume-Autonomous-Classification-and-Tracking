@@ -11,26 +11,29 @@ Non-obvious context not derivable from the individual files in this package.
 ## Defining Design Decision (Phase 6A)
 
 - **Authenticated command-ingress front door + downlink egress.** iss_iface is no longer a
-  verbatim transport bridge. Every inbound CCSDS byte packet flows through a five-stage pure
+  verbatim transport bridge. Every inbound CCSDS byte packet flows through a six-stage pure
   core (`ingress/pipeline.py`) before anything is published to the bus:
 
   1. **CCSDS decode + CRC verify** -- `flight.libs.ccsds.decode_packet` strips the 6-byte
      primary header, verifies the CRC-32 trailer over the whole frame (header + body + HMAC
      tag), and returns the raw body or `COMMAND_CRC_FAIL`.
-  2. **JSON parse + source check** -- body is decoded as UTF-8 JSON; `command_id`, `params`,
-     `source`, and `seq` are extracted. `source` must be in the configured `accepted_sources`
-     list or the packet is rejected.
-  3. **Sequence dedup** -- `seq` must be strictly greater than the last accepted seq for that
-     source; replays and duplicates yield `COMMAND_SEQ_ERROR`.
-  4. **HMAC-SHA256 authentication** -- the tag appended to the JSON body is verified against
-     the injected `uplink_key`; mismatch yields `COMMAND_AUTH_FAIL`. When `require_auth=False`
-     (test/bench mode) this stage is skipped.
+  2. **JSON parse** -- the trailing 32-byte HMAC tag is split off first; the remaining body
+     is decoded as UTF-8 JSON and `command_id`, `params`, `source`, and `seq` are extracted.
+     Malformed JSON or missing fields yield `COMMAND_INVALID`.
+  3. **HMAC-SHA256 authentication** -- the split tag is verified against the JSON body bytes
+     using the injected `uplink_key`; mismatch yields `COMMAND_AUTH_FAIL`. When
+     `require_auth=False` (test/bench mode) this stage is skipped.
+  4. **Source allow-list check** -- `source` must appear in the configured `accepted_sources`
+     tuple; an unlisted source yields `COMMAND_AUTH_FAIL`.
   5. **Typed dictionary validation** -- `lookup_command` resolves `command_id` to a
      `CommandSpec` from `COMMAND_DICTIONARY`; `validate_command` checks the params dict
      exactly against the spec's `ParamSpec` declarations. Unknown command IDs and wrong param
      kinds yield `COMMAND_INVALID`.
+  6. **Sequence dedup** -- `seq` must be strictly greater than the last accepted seq for that
+     source; replays and duplicates yield `COMMAND_SEQ_ERROR`. This is the final stage so
+     that a spoofed or invalid packet cannot exhaust the sequence counter.
 
-  Only packets that clear all five stages become `CommandMsg` on the bus (with `target` stamped
+  Only packets that clear all six stages become `CommandMsg` on the bus (with `target` stamped
   from the dictionary, not from the ground frame). Every inbound packet -- accepted or rejected
   -- produces exactly one `CommandAckMsg`; rejections also emit a `FaultEventMsg`.
 

@@ -5,11 +5,13 @@ import re
 import flight.libs.messages as messages
 from flight.libs.messages import (
     BlobMeta,
+    CommandAckMsg,
     FaultEventMsg,
     HeartbeatMsg,
+    LinkStateMsg,
     utc_now_iso,
 )
-from flight.libs.types import FaultCode, MessageType
+from flight.libs.types import AckStatus, FaultCode, LinkState, MessageType
 
 
 def test_heartbeat_is_frozen() -> None:
@@ -65,3 +67,30 @@ def test_raw_frame_msg_removed() -> None:
     """Frames never ride the bus: RawFrameMsg and RAW_FRAME no longer exist."""
     assert not hasattr(messages, "RawFrameMsg")
     assert not hasattr(MessageType, "RAW_FRAME")
+
+
+def test_command_ack_msg_fields() -> None:
+    """CommandAckMsg carries the ack status and command correlation handles."""
+    ack = CommandAckMsg(
+        msg_type=MessageType.COMMAND_ACK,
+        timestamp_utc="2026-01-01T00:00:00.000Z",
+        status=AckStatus.ACCEPTED,
+        command_id="PING",
+        source="ground",
+        seq=1,
+        fault_code=FaultCode.NONE,
+        detail="",
+    )
+    assert ack.status is AckStatus.ACCEPTED
+    assert ack.command_id == "PING"
+    assert ack.seq == 1
+
+
+def test_link_state_msg_fields() -> None:
+    """LinkStateMsg carries the current AOS/LOS state."""
+    msg = LinkStateMsg(
+        msg_type=MessageType.LINK_STATE,
+        timestamp_utc="2026-01-01T00:00:00.000Z",
+        state=LinkState.AOS,
+    )
+    assert msg.state is LinkState.AOS

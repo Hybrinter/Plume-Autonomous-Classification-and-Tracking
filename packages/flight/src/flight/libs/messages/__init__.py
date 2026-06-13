@@ -6,12 +6,14 @@ from `flight.libs.messages`.
 
 from flight.libs.messages.messages import (
     BlobMeta,
+    CommandAckMsg,
     CommandMsg,
     DownlinkItemMsg,
     FaultEventMsg,
     GimbalCommandMsg,
     HeartbeatMsg,
     InferenceResultMsg,
+    LinkStateMsg,
     ModeChangeMsg,
     ProcessedFrameMsg,
     StorageWriteMsg,
@@ -22,12 +24,14 @@ from flight.libs.messages.messages import (
 
 __all__ = [
     "BlobMeta",
+    "CommandAckMsg",
     "CommandMsg",
     "DownlinkItemMsg",
     "FaultEventMsg",
     "GimbalCommandMsg",
     "HeartbeatMsg",
     "InferenceResultMsg",
+    "LinkStateMsg",
     "ModeChangeMsg",
     "ProcessedFrameMsg",
     "StorageWriteMsg",

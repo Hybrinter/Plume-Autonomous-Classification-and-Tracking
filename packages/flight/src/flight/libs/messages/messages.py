@@ -27,11 +27,13 @@ import numpy as np  # noqa: F401  (used in type comments)
 
 # internal
 from flight.libs.types import (
+    AckStatus,
     DownlinkPriority,
     FaultCode,
     FrameUsabilityTag,
     GimbalCommandMode,
     GimbalState,
+    LinkState,
     MessageType,
     SystemMode,
 )
@@ -244,3 +246,32 @@ class UploadChunkMsg:
     total_chunks: int  # total number of chunks in this upload session
     data: bytes  # raw bytes for this chunk
     expected_crc32: int  # CRC-32 of the complete reassembled file
+
+
+@dataclass(frozen=True)
+class CommandAckMsg:
+    """Acknowledgement (positive or negative) for one inbound ground command.
+
+    Emitted by iss_iface for every inbound packet (ingress accept/reject) and by target
+    apps/services on execution (Phase 6B). Correlates back to the originating command via
+    (source, seq, command_id). On REJECTED, fault_code carries the reason; on ACCEPTED it
+    is FaultCode.NONE.
+    """
+
+    msg_type: MessageType  # must be MessageType.COMMAND_ACK
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    status: AckStatus  # ACCEPTED or REJECTED
+    command_id: str  # echoed opcode string ("" if the body was unparseable)
+    source: str  # echoed command origin
+    seq: int  # echoed per-source sequence number (-1 if unparseable)
+    fault_code: FaultCode  # NONE on ACCEPTED; the reject reason otherwise
+    detail: str  # human-readable reason / context
+
+
+@dataclass(frozen=True)
+class LinkStateMsg:
+    """Current station-link acquisition state, published by iss_iface each tick."""
+
+    msg_type: MessageType  # must be MessageType.LINK_STATE
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    state: LinkState  # AOS (link up) or LOS (link down)

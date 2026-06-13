@@ -1,7 +1,11 @@
 """SIL closed-loop integration: the real flight apps over sim drivers via build_apps."""
 
+from flight.iss_iface.ingress import build_tc_packet
+from flight.libs.bus import Subscription
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
+    CommandAckMsg,
+    CommandMsg,
     FaultEventMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
@@ -9,9 +13,17 @@ from flight.libs.messages import (
     TelemetryEventMsg,
 )
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, MessageType, Ok, SystemMode
+from flight.libs.types import AckStatus, FaultCode, GimbalState, MessageType, Ok, SystemMode
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilHarness, build_sil_system
+
+
+def _drain[T](subscription: Subscription[T]) -> list[T]:
+    """Drain all pending messages from a subscription into a list."""
+    result: list[T] = []
+    while not subscription.empty():
+        result.append(subscription.get_nowait())
+    return result
 
 
 def test_sil_nominal_closed_loop_tracks_plume() -> None:
@@ -143,3 +155,45 @@ def test_tracking_commands_point_toward_the_plume() -> None:
     assert isinstance(pos, Ok)
     assert pos.value.az_deg > 0.5  # plume to the right of boresight
     assert pos.value.el_deg < -0.5  # plume below boresight (image +y)
+
+
+def test_valid_command_flows_through_to_bus_and_acks() -> None:
+    """A signed SET_THERMAL_LIMIT packet becomes a CommandMsg + an ACCEPTED ack in SIL."""
+    key = b"sil-test-key-0000000000000000000"
+    pkt = build_tc_packet("SET_THERMAL_LIMIT", {"limit_c": 70.0}, "ground", 1, key, apid=1)
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(2),
+        plume_detector(),
+        inbound_packets=[pkt],
+        thermal_readings=[20.0, 20.0],
+        power_readings=[10.0, 10.0],
+    )
+    commands = system.bus.subscribe(CommandMsg)
+    acks = system.bus.subscribe(CommandAckMsg)
+    SilHarness(system).run_steps(2)
+    routed = [c for c in _drain(commands) if c.command_id == "SET_THERMAL_LIMIT"]
+    assert len(routed) == 1
+    assert routed[0].target == "thermal"
+    assert any(a.status is AckStatus.ACCEPTED for a in _drain(acks))
+
+
+def test_tampered_command_is_rejected_not_routed() -> None:
+    """A packet signed with the wrong key yields a REJECTED ack and no CommandMsg."""
+    pkt = build_tc_packet("PING", {}, "ground", 1, b"wrong-key-xxxxxxxxxxxxxxxxxxxxxxx", apid=1)
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(2),
+        plume_detector(),
+        inbound_packets=[pkt],
+        thermal_readings=[20.0, 20.0],
+        power_readings=[10.0, 10.0],
+    )
+    commands = system.bus.subscribe(CommandMsg)
+    acks = system.bus.subscribe(CommandAckMsg)
+    SilHarness(system).run_steps(2)
+    assert not [c for c in _drain(commands) if c.source == "ground"]
+    rejects = [a for a in _drain(acks) if a.status is AckStatus.REJECTED]
+    assert rejects and rejects[0].fault_code is FaultCode.COMMAND_AUTH_FAIL

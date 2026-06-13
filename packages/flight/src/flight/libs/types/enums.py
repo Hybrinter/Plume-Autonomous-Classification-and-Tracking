@@ -9,12 +9,18 @@ Includes:
 - GimbalState: four-state arbiter for gimbal control.
 - GimbalCommandMode: interpretation of gimbal command axis values (RATE/ABSOLUTE/STOW/HOME).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
-  (CALIBRATION_INVALID, FRAME_MALFORMED) and driver-level gimbal fault (GIMBAL_FAULT).
+  (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
+  command-ingress integrity codes (COMMAND_CRC_FAIL, COMMAND_AUTH_FAIL, COMMAND_SEQ_ERROR,
+  COMMAND_INVALID).
 - Band: physical 2x2 mosaic-filter band vocabulary (BLUE/GREEN/RED/NIR).
 - FrameUsabilityTag: per-frame quality classification.
 - MessageType: typed discriminant for all bus messages.
 - DownlinkPriority: downlink queue priority.
 - ModelDeployState: model deployment lifecycle state.
+- LinkState: station link acquisition state (AOS/LOS).
+- AckStatus: outcome of an inbound command at ingress (ACCEPTED/REJECTED).
+- CommandId: opcode keys for the typed command dictionary.
+- ParamKind: primitive kind for command parameter schema validation.
 
 Satisfies: REQ-AIML-COMP-001, REQ-AIML-COMP-002 (type-safety foundation for all subsystems).
 
@@ -87,6 +93,10 @@ class FaultCode(enum.Enum):
     CALIBRATION_INVALID = "CALIBRATION_INVALID"
     FRAME_MALFORMED = "FRAME_MALFORMED"
     GIMBAL_FAULT = "GIMBAL_FAULT"
+    COMMAND_CRC_FAIL = "COMMAND_CRC_FAIL"
+    COMMAND_AUTH_FAIL = "COMMAND_AUTH_FAIL"
+    COMMAND_SEQ_ERROR = "COMMAND_SEQ_ERROR"
+    COMMAND_INVALID = "COMMAND_INVALID"
 
 
 class Band(enum.Enum):
@@ -132,6 +142,8 @@ class MessageType(enum.Enum):
     STORAGE_WRITE = "STORAGE_WRITE"
     DOWNLINK_ITEM = "DOWNLINK_ITEM"
     UPLINK_CHUNK = "UPLINK_CHUNK"
+    COMMAND_ACK = "COMMAND_ACK"
+    LINK_STATE = "LINK_STATE"
 
 
 class DownlinkPriority(enum.Enum):
@@ -152,3 +164,46 @@ class ModelDeployState(enum.Enum):
     ACTIVE = "ACTIVE"
     STAGED = "STAGED"
     ROLLBACK_AVAILABLE = "ROLLBACK_AVAILABLE"
+
+
+class LinkState(enum.Enum):
+    """Station link acquisition state. AOS = link up (drain downlink), LOS = link down.
+
+    String values mirror member names (log readability convention). Satisfies: REQ-COMM-HIGH-001.
+    """
+
+    AOS = "AOS"  # acquisition of signal: contact established, downlink may drain
+    LOS = "LOS"  # loss of signal: no contact, hold downlink
+
+
+class AckStatus(enum.Enum):
+    """Outcome of a single inbound command at ingress.
+
+    String values mirror member names (log readability convention). Satisfies: REQ-COMM-HIGH-004.
+    """
+
+    ACCEPTED = "ACCEPTED"  # decoded, authenticated, and validated; CommandMsg published
+    REJECTED = "REJECTED"  # failed CRC / auth / sequence / dictionary validation; no CommandMsg
+
+
+class CommandId(enum.Enum):
+    """The command dictionary's opcode keys (per-command schema lives in flight.libs.commands).
+
+    String values mirror member names (log readability convention). Satisfies: REQ-COMM-HIGH-003.
+    """
+
+    PING = "PING"  # liveness check; non-hazardous; no params
+    SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; param limit_c: float
+    NOOP = "NOOP"  # accepted no-op; non-hazardous; no params
+
+
+class ParamKind(enum.Enum):
+    """Primitive kind a command parameter must be, for dictionary validation.
+
+    String values mirror member names (log readability convention). Satisfies: REQ-COMM-HIGH-003.
+    """
+
+    STR = "STR"
+    INT = "INT"
+    FLOAT = "FLOAT"
+    BOOL = "BOOL"

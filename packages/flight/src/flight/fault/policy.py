@@ -7,9 +7,11 @@ for the rest. This removes dynamic dispatch (a function-pointer table) in favor 
 direct membership test while preserving the exact partition of faults the legacy
 handlers used: SAFE-triggering = {INFERENCE_NAN, CAMERA_STALL, THERMAL_OVER_LIMIT,
 POWER_OVER_LIMIT, GIMBAL_RUNAWAY, GIMBAL_FAULT, WATCHDOG_EXPIRE, MODEL_CORRUPT,
-PROCESS_DIED}; log-and-continue = {NONE, INFERENCE_TIMEOUT, STORAGE_FULL, COMM_TIMEOUT}.
+PROCESS_DIED}; log-and-continue = {NONE, INFERENCE_TIMEOUT, STORAGE_FULL, COMM_TIMEOUT,
+COMMAND_CRC_FAIL, COMMAND_AUTH_FAIL, COMMAND_SEQ_ERROR, COMMAND_INVALID}.
 GIMBAL_FAULT is included because a driver-level hardware fault may render stowing
-impossible and requires loud annunciation.
+impossible and requires loud annunciation. Command-ingress faults are log-and-continue
+because a bad/spoofed/replayed command must NACK but must never SAFE the vehicle.
 
 Contains:
   - SAFE_TRIGGERING_FAULTS: the FaultCodes that require a transition to SystemMode.SAFE.

@@ -55,3 +55,21 @@ def test_safe_triggering_set_membership() -> None:
 def test_gimbal_fault_triggers_safe() -> None:
     """A gimbal driver fault routes to SAFE (stow may be impossible; annunciate loudly)."""
     assert FaultCode.GIMBAL_FAULT in SAFE_TRIGGERING_FAULTS
+
+
+def test_command_ingress_faults_do_not_trigger_safe() -> None:
+    """Command CRC/auth/seq/validation faults are annunciated, never SAFE the vehicle."""
+    for code in (
+        FaultCode.COMMAND_CRC_FAIL,
+        FaultCode.COMMAND_AUTH_FAIL,
+        FaultCode.COMMAND_SEQ_ERROR,
+        FaultCode.COMMAND_INVALID,
+    ):
+        event = FaultEventMsg(
+            msg_type=MessageType.FAULT_EVENT,
+            timestamp_utc="2026-01-01T00:00:00.000Z",
+            fault_code=code,
+            subsystem="iss_iface",
+            detail="test",
+        )
+        assert decide_mode_change(event, "2026-01-01T00:00:00.000Z") is None

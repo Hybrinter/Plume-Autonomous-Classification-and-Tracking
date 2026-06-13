@@ -181,8 +181,9 @@ class CommandIngressConfig:
     """Command-ingress integrity + authentication config.
 
     The HMAC key is loaded from hmac_key_path by the composition root and injected into
-    iss_iface (not read by the app). sequence_window is the per-source replay guard: a command
-    whose seq is <= the last accepted seq for that source is rejected as a replay/duplicate.
+    iss_iface (not read by the app). accepted_sources is the command-origin allow-list; the
+    per-source replay guard (reject seq <= last accepted seq per source) is enforced in the
+    ingress pipeline state, not here.
     """
 
     hmac_key_path: str = "data/keys/uplink_hmac.key"  # path to the shared HMAC secret

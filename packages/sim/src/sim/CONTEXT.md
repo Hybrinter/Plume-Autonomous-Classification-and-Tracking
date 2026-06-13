@@ -25,19 +25,34 @@ heartbeats** -- so the harness manually publishes one liveness `HeartbeatMsg` pe
 watchdog trips `PROCESS_DIED` within three steps. The harness must stay synchronized with
 `MONITORED_SUBSYSTEMS`; a new monitored subsystem needs a matching heartbeat here.
 
-## Scene renders radiometrically-plausible mosaic frames (as of 2026-06-09)
+## Scene renders radiometrically-plausible mosaic frames (1024 as of 2026-06-11)
 
-`scene/plume.py:build_frames(num_frames, seed)` renders **raw 512x512 uint16 mosaic frames**:
-background + Gaussian plume in band-plane space, interleaved back into the 2x2 CFA mosaic via
-`interleave_bands`, quantized to 12-bit. The NIR plane is brighter inside the plume region
-(smoke reflects strongly in NIR), matching the Sentinel-2-derived training domain. The scene
-is deterministic for a given `seed`.
+`scene/plume.py:build_frames(num_frames, seed)` renders **raw 1024x1024 uint16 mosaic frames**
+(512 band planes): background + Gaussian plume in band-plane space, interleaved back into the 2x2
+CFA mosaic via `interleave_bands`, quantized to 12-bit. The NIR plane is brighter inside the plume
+region (smoke reflects strongly in NIR), matching the Sentinel-2-derived training domain. The
+scene is deterministic for a given `seed`. The plume sits **off-center** at band-plane (340, 340)
+-- ~119 px from the (256, 256) boresight, above the minimum deadband and below the maximum -- so
+TRACKING issues rate commands that point the gimbal toward it (the command-direction proof). In
+decimated search mode (scale 0.5) it appears at tensor ~(170, 170), inside the scripted mask
+`[145:195, 145:195]`.
 
 The SIL closed-loop tests now run real signal through the full ingest path:
 `calibrate_mosaic -> separate_bands -> normalize_dn -> select_bands -> compute_quality_flags ->
 ScriptedDetector`. `ScriptedDetector` still detects from its fixed probability mask (not tensor
 content), so the closed-loop test result is unchanged; the value is that domain drift in the
 ingest path becomes visible in the SIL rather than only at HIL.
+
+## The harness advances the clock so SimGimbal dynamics integrate (ADR 0008)
+
+`SilHarness.run_steps(count, dt)` advances the shared `ManualClock` by `dt` each step. This is
+load-bearing: `SimGimbal` integrates its first-order dynamics *lazily* on elapsed clock time, so
+without the per-step advance the gimbal never moves and the closed-loop assertions are vacuous.
+`step()` drains `payload.poll_mode_changes()` and passes the latest `read_position()` and the
+SAFE flags into `process_frame`. `payload_gimbal_state()` is a test/inspection accessor for the
+arbiter's current state. The closed-loop tests assert the *mechanism and direction* (thermal SAFE
+-> stow switch closes; ground `ModeChangeMsg(IDLE)` un-latches SAFE; TRACKING drives +az/-el
+toward the off-center plume), **not** photometric convergence -- see the twin note below.
 
 **Identity calibration in SIL:** `build_sil_system` builds a `MosaicCalibration` with zero
 dark / unit flat / no bad pixels via `calibration_io.build_identity_calibration`, then passes it
@@ -53,6 +68,9 @@ cheap enough to gate every commit.
 
 ## `sim/twin` is a deferred scaffold
 
-`sim/twin/` is empty by design. The SIL gimbal (`flight.hal.drivers_sim.SimGimbal`) just
-integrates az/el deltas in software, which is sufficient for current closed-loop tests. A real
-dynamics twin is future work; do not assume one exists.
+`sim/twin/` is empty by design. `SimGimbal` integrates first-order az/el dynamics (ADR 0008),
+which is enough to prove command direction and the SAFE-stow mechanism, but the **scene is
+static** -- the rendered plume does not move in response to gimbal motion. So the closed-loop
+tests assert command direction/mechanism, not that tracking *converges* on the plume. A real
+dynamics twin that closes the scene-feedback loop is future work; do not assume one exists or
+write tests that depend on photometric convergence.

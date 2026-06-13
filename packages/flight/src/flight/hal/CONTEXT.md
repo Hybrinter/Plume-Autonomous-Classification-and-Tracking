@@ -18,13 +18,26 @@ from the individual files or their docstrings.
   `hal.interfaces` / `hal.drivers_*` explicitly, which keeps the layer boundary legible
   and lets the import-linter contracts target sub-packages precisely.
 
-## Lazy-SDK pattern (PySpin)
+## Lazy-SDK pattern (PySpin, pyserial)
 
-- Only `drivers_real/sensor.py` touches a vendor SDK. `PySpin` is imported *inside*
-  `RealSensor.__init__`, never at module top -- so importing `flight.hal.drivers_real`
-  (e.g. from a composition root that selects sim) never requires the FLIR Spinnaker SDK.
-  The SDK is the optional `camera` extra; construction is the only place it can raise
-  `ImportError`. No other hal driver has an SDK dependency.
+- Two real drivers touch a vendor SDK, each imported *inside* `__init__`, never at module top:
+  `RealSensor` imports `PySpin` (FLIR Spinnaker, the `camera` extra) and `RealGimbal` imports
+  `serial` (pyserial). Importing `flight.hal.drivers_real` from a sim-selecting composition root
+  requires neither SDK; construction is the only place either can raise `ImportError`.
+
+## Closed-loop GimbalActuator surface (ADR 0008)
+
+- `GimbalActuator` is `goto_angle` / `set_rate` / `home` / `stow` / `read_position` (returns a
+  *timestamped* `GimbalPosition`) / `read_stow_switch`. The old `send_command(GimbalCommandMsg)`
+  delta path is deleted. Drivers clamp the *hardware* envelope (travel +-90/+-45, max hardware
+  slew); the arbiter clamps the *mission* envelope -- defense in depth, two independent limits.
+- **`SimGimbal` has real first-order dynamics.** Position integrates *lazily*: every public call
+  first advances the pose by the clock time elapsed since the previous call, so the one driver is
+  honest under both the threaded flight loop (`RealClock`) and the stepped SIL (`ManualClock`).
+  RATE integrates the clamped commanded rate; ABSOLUTE/STOW/HOME approach the target with a
+  first-order exponential clamped to the slew envelope. The SIL **must advance the clock** between
+  steps or the pose never moves. Encoder reads add seeded Gaussian noise; the stow switch closes
+  once stow was commanded and the pose is within 0.5 deg of the stow pose.
 
 ## Structural (duck) satisfaction -- on purpose
 
@@ -54,18 +67,19 @@ from the individual files or their docstrings.
 - `RawFrameMsg` and `MessageType.RAW_FRAME` were removed in 2026-06-09 as part of the mosaic
   contract switchover (ADR 0007). There is no bus message for raw or separated band stacks.
 
-## Fake-PySpin test pattern
+## Fake-SDK test pattern (PySpin and pyserial)
 
-- `RealSensor` is tested in CI without the FLIR Spinnaker SDK by injecting a fake `PySpin`
-  module via `monkeypatch.setitem(sys.modules, "PySpin", fake)` before constructing the
-  sensor. This exercises the lazy-import contract (the SDK is only imported inside
-  `__init__`, not at module top) and all driver behavior (acquire, incomplete image, timeout,
-  exposure/gain writes). See `packages/flight/tests/test_real_sensor_pyspin.py`.
+- Real drivers with an SDK are tested in CI by injecting a fake module via
+  `monkeypatch.setitem(sys.modules, "<sdk>", fake)` before construction. `RealSensor` uses a fake
+  `PySpin` (`test_real_sensor_pyspin.py`); `RealGimbal` uses a scriptable fake `serial` whose
+  port records writes and replays queued response lines (`test_real_gimbal_serial.py`). This
+  exercises the lazy-import contract and the full driver logic (count conversion, envelope clamps,
+  `*`/`!` response handling) without the physical SDK or hardware. The verb set (PP/TP/PS/TS) is a
+  documented reference assumption, not a validated wire protocol -- HIL bring-up confirms it.
 
-## Real drivers are safe-default stubs
+## Real driver implementation status
 
-- Every real driver is a stub pending hardware: methods return `Ok(...)` / safe defaults
-  (`RealGimbal.read_position` -> origin; `RealScalarSensor.read` -> 0.0; `RealStationLink`
-  inert). `RealSensor` is the one fully-implemented real driver (PySpin acquisition + control
-  plane, with the fake-SDK CI tests described above). Construction of `RealSensor` raises
-  `ImportError` if PySpin is absent; all other methods are safe to call in tests via the fake.
+- `RealSensor` (PySpin) and `RealGimbal` (serial PTU, ADR 0008) are fully implemented, with the
+  fake-SDK CI tests above; constructing either raises `ImportError` if its SDK is absent, and
+  `RealGimbal` raises `ValueError` on an empty `serial_port`. `RealScalarSensor` and
+  `RealStationLink` remain safe-default stubs pending their hardware integration.

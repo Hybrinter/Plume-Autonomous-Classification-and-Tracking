@@ -20,9 +20,10 @@ individual files or their docstrings.
   the `SAFE_TRIGGERING_FAULTS` frozenset + `decide_mode_change()` membership test. This
   removes dynamic dispatch (a function-pointer table) in favor of a static partition, per the
   codebase's no-dynamic-dispatch typing rule (`.claude/rules/strong_typing.md`).
-- The SAFE vs. log-and-continue partition is preserved exactly from the legacy handlers.
-  SAFE: `INFERENCE_NAN`, `CAMERA_STALL`, `THERMAL_OVER_LIMIT`, `POWER_OVER_LIMIT`,
-  `GIMBAL_RUNAWAY`, `WATCHDOG_EXPIRE`, `MODEL_CORRUPT`, `PROCESS_DIED`. Log-and-continue
+- The SAFE vs. log-and-continue partition is preserved from the legacy handlers, plus
+  `GIMBAL_FAULT` (added 2026-06-11, ADR 0008 -- a driver-level gimbal failure). SAFE:
+  `INFERENCE_NAN`, `CAMERA_STALL`, `THERMAL_OVER_LIMIT`, `POWER_OVER_LIMIT`, `GIMBAL_RUNAWAY`,
+  `GIMBAL_FAULT`, `WATCHDOG_EXPIRE`, `MODEL_CORRUPT`, `PROCESS_DIED`. Log-and-continue
   (no mode change): `NONE`, `INFERENCE_TIMEOUT`, `STORAGE_FULL`, `COMM_TIMEOUT`. Edit this
   set deliberately -- it is the de-facto safety policy.
 
@@ -47,3 +48,12 @@ individual files or their docstrings.
 
 - `exit_safe_mode` exists but is never called by this subsystem; leaving SAFE requires an
   explicit ground command. No automatic recovery.
+
+## SAFE now actuates the gimbal (ADR 0008)
+
+- `ModeChangeMsg(SAFE)` is no longer a no-op for the payload. The payload app drains mode changes
+  each frame (`poll_mode_changes`) and threads `safe_commanded`/`safe_cleared` into the controller;
+  on SAFE the arbiter latches and issues a STOW `GimbalRequest`, and the app has a shell-level
+  fallback that stows directly if a SAFE arrives while the camera has stalled. Recovery is a ground
+  `ModeChangeMsg` with a *non-SAFE* mode, which the arbiter treats as `safe_cleared`. This app
+  still only *routes* faults to SAFE; the *consumption* of SAFE lives in the payload arbiter.

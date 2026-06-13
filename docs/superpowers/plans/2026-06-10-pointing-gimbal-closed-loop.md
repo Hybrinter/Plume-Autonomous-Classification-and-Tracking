@@ -1718,7 +1718,7 @@ git commit -m "test(sil): SAFE stow, ground recovery, and command-direction clos
   `packages/flight/src/flight/hal/CONTEXT.md`, `packages/flight/src/flight/libs/CONTEXT.md`,
   `packages/sim/src/sim/CONTEXT.md`, `packages/flight/src/flight/fault/CONTEXT.md`
 
-- [ ] **Step 1: Write the ADR** -- context (open-loop delta commands, absolute-centroid error,
+- [x] **Step 1: Write the ADR** -- context (open-loop delta commands, absolute-centroid error,
 unwired gates, SAFE no-op: baseline Sections 4.2/5); decision (GimbalRequest core value +
 absolute/rate/stow HAL; boresight-relative error via IFOV + crop backprojection; error-space
 Kalman/LQR with zero setpoint; driver hardware envelope + arbiter mission envelope; encoder
@@ -1727,18 +1727,18 @@ decimated search); consequences (SIL exercises real dynamics; PIXEL_TO_DEG and t
 command model are gone; scan raster is absolute and reversing; recovery requires an explicit
 non-SAFE ModeChangeMsg). Reference spec Sections 5 and the 2026-06-06 baseline.
 
-- [ ] **Step 2: Update the five CONTEXT.md files** -- payload (request flow, error-space
+- [x] **Step 2: Update the five CONTEXT.md files** -- payload (request flow, error-space
 estimators, ROI modes, gate wiring); hal (closed-loop surface, dynamics sim, fake-serial
 pattern, envelope ownership); libs (GimbalCommandMode, reshaped GimbalCommandMsg,
 InferenceResultMsg crop fields); sim (ManualClock advancing, stow assertions); fault
 (GIMBAL_FAULT routing).
 
-- [ ] **Step 3: Run the full gates one final time**
+- [x] **Step 3: Run the full gates one final time**
 
 Run: `uv run pytest packages; uv run ruff check packages; uv run ruff format --check packages; uv run mypy packages; uv run lint-imports`
 Expected: all green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/adr packages

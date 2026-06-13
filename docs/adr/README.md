@@ -12,3 +12,5 @@ Short records of the load-bearing decisions behind the PACT flight-software rest
 | [0004](0004-onnx-detector-backend.md) | ONNX frozen-artifact detector behind a swappable backend | Accepted |
 | [0005](0005-pure-core-thin-shell.md) | Pure-core + thin-shell apps; `Result` over exceptions | Accepted |
 | [0006](0006-iss-attached-reliability-posture.md) | ISS-attached reliability posture (fail-safe / ground-recoverable) | Accepted |
+| [0007](0007-raw-mosaic-sensor-ingest.md) | Raw-mosaic sensor ingest contract (demosaic in preprocess) | Accepted |
+| [0008](0008-closed-loop-gimbal-pointing.md) | Closed-loop gimbal pointing (boresight error, wired gates, SAFE stow) | Accepted |

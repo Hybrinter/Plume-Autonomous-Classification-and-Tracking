@@ -53,7 +53,7 @@ from the individual files or their docstrings.
   - `SimSensor`: returns `Err(CAMERA_STALL)` once frames run out (a camera goes silent).
   - `SimScalarSensor`: holds the last reading forever (a housekeeping sensor always reads).
   - `SimStationLink`: returns `Ok(None)` once inbound is drained (empty inbound queue).
-- `SimStationLink.downlinked` is a test/SIL inspection hook with no real-driver counterpart.
+- `SimStationLink.sent` is a test/SIL inspection hook with no real-driver counterpart.
 
 ## Acquire-only contract for ImagingSensor (ADR 0007)
 
@@ -94,7 +94,7 @@ from the individual files or their docstrings.
     invalid config at construction; `ImportError` is never raised (stdlib sockets only).
   - `close()` signals the accept/recv thread to stop and joins it.
 - **`SimStationLink`** replays inbound `list[bytes]` packets in order (one per `receive_packet`
-  call until exhausted, then `Ok(None)`) and records outbound packets in `downlinked`. Link
+  call until exhausted, then `Ok(None)`) and records outbound packets in `sent`. Link
   state is scriptable at construction (`link_state: LinkState = LinkState.AOS`).
 - Real drivers may import `flight.libs.ccsds` (the import-linter
   `drivers-from-composition-roots-only` contract forbids app imports of drivers; drivers

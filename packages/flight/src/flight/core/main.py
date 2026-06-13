@@ -56,6 +56,8 @@ def build_flight_system(
         OnnxDetector lazily imports onnxruntime; each raises ImportError if its SDK is
         absent. This function therefore runs only on flight hardware. The startup
         exposure/gain are commanded from config.sensor before the apps are wired.
+        RealStationLink binds its TCP server socket in __init__; ValueError is raised if
+        config.link contains an empty host or an out-of-range port (startup misconfig).
     """
     sensor = RealSensor(clock=clock)
     exposure_result = sensor.set_exposure_us(config.sensor.default_exposure_us)
@@ -68,7 +70,7 @@ def build_flight_system(
         sensor=sensor,
         gimbal=RealGimbal(clock=clock, cfg=config.gimbal),
         detector=OnnxDetector(config.inference.model_path),
-        station=RealStationLink(),
+        station=RealStationLink(cfg=config.link, clock=clock),
         thermal_sensor=RealScalarSensor(),
         power_sensor=RealScalarSensor(),
     )

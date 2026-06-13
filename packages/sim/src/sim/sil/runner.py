@@ -24,7 +24,7 @@ from flight.fault.watchdog import WatchdogEntry
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import CommandMsg, HeartbeatMsg
+from flight.libs.messages import HeartbeatMsg
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalState, MessageType, MosaicFrame, Ok
 from flight.payload.calibration_io import build_identity_calibration
@@ -51,9 +51,9 @@ def build_sil_system(
     clock: ManualClock,
     frames: list[MosaicFrame],
     detector: ScriptedDetector,
-    inbound_commands: list[CommandMsg],
-    thermal_readings: list[float],
-    power_readings: list[float],
+    inbound_packets: list[bytes] | None = None,
+    thermal_readings: list[float] | None = None,
+    power_readings: list[float] | None = None,
 ) -> SilSystem:
     """Construct the sim drivers and wire the flight apps over a fresh bus via build_apps.
 
@@ -62,7 +62,7 @@ def build_sil_system(
         clock: The ManualClock shared by all apps (timestamps; the harness advances `now`).
         frames: Raw mosaic frames the SimSensor replays.
         detector: The ScriptedDetector backing the payload.
-        inbound_commands: Commands the SimStationLink delivers via the ISS bridge.
+        inbound_packets: CCSDS TC packets the SimStationLink delivers via the ISS bridge.
         thermal_readings: Temperature readings the thermal sensor replays (Celsius).
         power_readings: Power readings the electrical sensor replays (Watts).
 
@@ -72,9 +72,9 @@ def build_sil_system(
     bus = MessageBus()
     sensor = SimSensor(frames)
     gimbal = SimGimbal(clock=clock, cfg=config.gimbal)
-    station = SimStationLink(inbound_commands)
-    thermal_sensor = SimScalarSensor(thermal_readings)
-    power_sensor = SimScalarSensor(power_readings)
+    station = SimStationLink(inbound_packets)
+    thermal_sensor = SimScalarSensor(thermal_readings or [])
+    power_sensor = SimScalarSensor(power_readings or [])
     drivers = Drivers(
         sensor=sensor,
         gimbal=gimbal,

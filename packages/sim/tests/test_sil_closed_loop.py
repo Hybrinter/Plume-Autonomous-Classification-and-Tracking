@@ -21,7 +21,7 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
         ManualClock(),
         build_frames(8),
         plume_detector(),
-        inbound_commands=[],
+        inbound_packets=[],
         thermal_readings=[25.0],
         power_readings=[30.0],
     )
@@ -57,7 +57,7 @@ def test_sil_thermal_fault_drives_safe_mode() -> None:
         ManualClock(),
         build_frames(6),
         plume_detector(),
-        inbound_commands=[],
+        inbound_packets=[],
         thermal_readings=[25.0, 25.0, 95.0, 95.0, 95.0, 95.0],  # spikes over the 80C limit
         power_readings=[30.0],
     )
@@ -79,7 +79,7 @@ def test_thermal_safe_stows_the_gimbal() -> None:
         ManualClock(),
         build_frames(15),
         plume_detector(),
-        inbound_commands=[],
+        inbound_packets=[],
         thermal_readings=[25.0, 95.0],  # spikes over the 80C limit and holds
         power_readings=[30.0],
     )
@@ -99,7 +99,7 @@ def test_safe_recovery_returns_to_operations() -> None:
         ManualClock(),
         build_frames(8),
         plume_detector(),
-        inbound_commands=[],
+        inbound_packets=[],
         thermal_readings=[25.0, 95.0, 25.0],  # one over-limit spike, then nominal
         power_readings=[30.0],
     )
@@ -132,7 +132,7 @@ def test_tracking_commands_point_toward_the_plume() -> None:
         ManualClock(),
         build_frames(8),
         plume_detector(),
-        inbound_commands=[],
+        inbound_packets=[],
         thermal_readings=[25.0],
         power_readings=[30.0],
     )

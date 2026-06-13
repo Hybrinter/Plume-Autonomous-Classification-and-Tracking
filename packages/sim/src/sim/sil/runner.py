@@ -26,7 +26,7 @@ from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import CommandMsg, HeartbeatMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import MessageType, MosaicFrame, Ok
+from flight.libs.types import GimbalState, MessageType, MosaicFrame, Ok
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.control import ControlState
 from flight.payload.model import ScriptedDetector
@@ -109,6 +109,10 @@ class SilHarness:
         self._system = system
         self._payload_state: ControlState = system.apps.payload.controller.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
+
+    def payload_gimbal_state(self) -> GimbalState:
+        """Return the payload arbiter's current GimbalState (test/inspection accessor)."""
+        return self._payload_state.arbiter.gimbal_state
 
     def step(self, now: float) -> None:
         """Advance every subsystem one cycle over the shared bus.

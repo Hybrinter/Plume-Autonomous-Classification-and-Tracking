@@ -1649,7 +1649,7 @@ git commit -m "feat(hal): serial PTU RealGimbal with envelope clamps + fake-seri
 - Test: `packages/sim/tests/test_sil_closed_loop.py` (extend)
 - Modify (only if the tests demand it): `packages/sim/src/sim/sil/runner.py`
 
-- [ ] **Step 1: Write the failing tests** (build on the existing closed-loop fixtures)
+- [x] **Step 1: Write the failing tests** (build on the existing closed-loop fixtures)
 
 ```python
 def test_thermal_safe_stows_the_gimbal() -> None:
@@ -1690,18 +1690,18 @@ def test_tracking_commands_point_toward_the_plume() -> None:
 (Expose `payload_gimbal_state()` on `SilHarness` -- a one-line accessor returning
 `self._payload_state.arbiter.gimbal_state` -- if it does not already exist.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest packages/sim/tests/test_sil_closed_loop.py -v`
 Expected: the new tests FAIL only if Tasks 6-7 left gaps -- this task is the phase's
 integration proof. Diagnose any failure to its root cause (harness wiring vs control logic);
 do not weaken assertions.
 
-- [ ] **Step 3: Make them pass** (harness accessor + any wiring fixes), run the full gates
+- [x] **Step 3: Make them pass** (harness accessor + any wiring fixes), run the full gates
 
 Run: `uv run pytest packages; uv run mypy packages` -- Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/sim

@@ -176,7 +176,9 @@ class PayloadController:
             The deadband gate suppresses RATE requests below min_deadband_px and escalates
             above max_deadband_px after max_deadband_strike_count strikes; STOW/ABSOLUTE are
             never suppressed. The LQR refines the RATE request only when the EMA is
-            initialized (u = -K x with the boresight-zero setpoint).
+            initialized (u = -K x with the boresight-zero setpoint); the physical slew
+            command is -u = K x, since u acts on the error velocity in the LQR plant model
+            and the gimbal must slew toward the target to shrink the error.
         """
         cfg = self.cfg
         gated = apply_confidence_gate(result.blobs, cfg.confidence_gate)
@@ -238,10 +240,12 @@ class PayloadController:
         if request is not None and request.mode is GimbalCommandMode.RATE and ema.initialized:
             u = compute_control(self.lqr, np.asarray(kalman.x, dtype=np.float64))
             limit = cfg.max_slew_rate_deg_per_s
+            # The LQR's u is the error-space control push (its B matrix drives the error
+            # velocity), so the physical slew rate is -u = K @ x: slew toward the target.
             request = replace(
                 request,
-                az_deg=float(min(max(u[0], -limit), limit)),
-                el_deg=float(min(max(u[1], -limit), limit)),
+                az_deg=float(min(max(-u[0], -limit), limit)),
+                el_deg=float(min(max(-u[1], -limit), limit)),
             )
         if request is not None and request.mode is GimbalCommandMode.RATE and suppress_rate_command:
             request = None

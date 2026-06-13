@@ -6,6 +6,7 @@ from flight.libs.config import ControllerConfig, SensorConfig
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import FaultCode, GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import ControlState, PayloadController
+from flight.payload.gimbal import GimbalRequest
 
 # Default geometry: 1024 sensor -> 512 plane, boresight at (256, 256).
 _BORESIGHT = 256.0
@@ -77,16 +78,19 @@ def test_persistent_blob_progresses_to_tracking_and_commands() -> None:
     # 70 px off boresight -> ~99 px displacement: above min_deadband, below max_deadband.
     centroid = (_BORESIGHT + 70.0, _BORESIGHT + 70.0)
     now = 0.0
-    saw_rate = False
+    last_rate: GimbalRequest | None = None
     for frame_id in range(1, 9):
         now += 1.0
         state, request, _events, _fault = controller.step(
             state, _result(frame_id, centroid=centroid), now, None, False, False
         )
         if request is not None and request.mode is GimbalCommandMode.RATE:
-            saw_rate = True
+            last_rate = request
     assert state.arbiter.gimbal_state is GimbalState.TRACKING
-    assert saw_rate
+    assert last_rate is not None
+    # Target right (+x) and below (+y) of boresight -> slew toward it: +az and -el.
+    assert last_rate.az_deg > 0.0
+    assert last_rate.el_deg < 0.0
 
 
 def test_deadband_below_min_suppresses_rate_command() -> None:

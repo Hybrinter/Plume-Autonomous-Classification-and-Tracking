@@ -21,7 +21,6 @@ from collections import deque
 # internal
 from flight.libs.ccsds import CCSDS_PRIMARY_HEADER_SIZE, packet_length
 from flight.libs.config import LinkConfig
-from flight.libs.messages import CommandMsg, DownlinkItemMsg
 from flight.libs.time import Clock
 from flight.libs.types import Err, FaultCode, LinkState, Ok, Result
 
@@ -130,12 +129,3 @@ class RealStationLink:
         except OSError:
             pass
         self._thread.join(timeout=2.0)
-
-    # --- legacy command-level API (removed in Task 8) ---
-    def receive_command(self) -> Result[CommandMsg | None, FaultCode]:
-        """Legacy no-op during migration: always Ok(None)."""
-        return Ok(None)
-
-    def send_downlink(self, item: DownlinkItemMsg) -> Result[None, FaultCode]:
-        """Legacy no-op during migration: accept and drop."""
-        return Ok(None)

@@ -27,9 +27,8 @@ def test_receive_packet_deframes_tcp_stream() -> None:
     )
     link = RealStationLink(cfg=cfg, clock=ManualClock())
     try:
-        # Before any client connects: LOS, no command.
+        # Before any client connects: LOS, no pending packet.
         assert link.link_state() is LinkState.LOS
-        assert isinstance(link.receive_command(), Ok)  # legacy method still present, Ok(None)
         client = socket.create_connection((cfg.command_tcp_host, cfg.command_tcp_port), timeout=2.0)
         header = CcsdsHeader(packet_type=1, apid=cfg.tc_apid, sequence_count=0)
         encoded = encode_packet(header, b"hi")

@@ -1,12 +1,10 @@
-"""Simulated station link (byte-level + legacy command-level during migration).
+"""Simulated station link: byte-level CCSDS packet replay and recording for SIL and tests.
 
 Replays scripted inbound CCSDS packets (one per receive_packet() call, then Ok(None)) and
-records every outbound packet. Link state is scriptable (defaults AOS). Retains the legacy
-receive_command/send_downlink during the iss_iface migration. Satisfies StationLink
+records every outbound packet. Link state is scriptable (defaults AOS). Satisfies StationLink
 structurally; used by SIL and tests.
 """
 
-from flight.libs.messages import CommandMsg, DownlinkItemMsg
 from flight.libs.types import FaultCode, LinkState, Ok, Result
 
 
@@ -59,12 +57,3 @@ class SimStationLink:
     def sent(self) -> tuple[bytes, ...]:
         """All packets passed to send_packet, in order (test/SIL inspection hook)."""
         return tuple(self._sent)
-
-    # --- legacy command-level API (removed in Task 8) ---
-    def receive_command(self) -> Result[CommandMsg | None, FaultCode]:
-        """Legacy no-op during migration: always Ok(None)."""
-        return Ok(None)
-
-    def send_downlink(self, item: DownlinkItemMsg) -> Result[None, FaultCode]:
-        """Legacy no-op during migration: accept and drop."""
-        return Ok(None)

@@ -7,21 +7,8 @@ from flight.hal.drivers_sim import SimStationLink
 from flight.hal.interfaces import StationLink
 from flight.libs.ccsds import CcsdsHeader, encode_packet
 from flight.libs.config import LinkConfig
-from flight.libs.messages import DownlinkItemMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import DownlinkPriority, LinkState, MessageType, Ok
-
-
-def _downlink_item() -> DownlinkItemMsg:
-    """Build a minimal DownlinkItemMsg."""
-    return DownlinkItemMsg(
-        msg_type=MessageType.DOWNLINK_ITEM,
-        timestamp_utc="t",
-        priority=DownlinkPriority.HEALTH_TELEMETRY,
-        payload_bytes=b"hello",
-        crc32=0,
-        item_id="item-1",
-    )
+from flight.libs.types import LinkState, Ok
 
 
 def _free_port() -> int:
@@ -85,34 +72,3 @@ def test_sim_link_state_scriptable() -> None:
     assert link_los.link_state() is LinkState.LOS
     link_aos.set_link_state(LinkState.LOS)
     assert link_aos.link_state() is LinkState.LOS
-
-
-def test_sim_legacy_receive_command_is_noop() -> None:
-    """Legacy receive_command always returns Ok(None) during the migration window."""
-    link = SimStationLink()
-    result = link.receive_command()
-    assert isinstance(result, Ok) and result.value is None
-
-
-def test_sim_legacy_send_downlink_accepts_and_drops() -> None:
-    """Legacy send_downlink accepts items and returns Ok(None) during migration."""
-    link = SimStationLink()
-    result = link.send_downlink(_downlink_item())
-    assert isinstance(result, Ok)
-
-
-def test_real_station_link_legacy_receive_command_is_noop() -> None:
-    """RealStationLink legacy receive_command returns Ok(None) during migration."""
-    cfg = LinkConfig(
-        command_tcp_host="127.0.0.1",
-        command_tcp_port=_free_port(),
-        telemetry_udp_host="127.0.0.1",
-        telemetry_udp_port=_free_port(),
-        socket_timeout_s=0.5,
-    )
-    link = RealStationLink(cfg=cfg, clock=ManualClock())
-    try:
-        result = link.receive_command()
-        assert isinstance(result, Ok) and result.value is None
-    finally:
-        link.close()

@@ -54,6 +54,7 @@ def build_sil_system(
     inbound_packets: list[bytes] | None = None,
     thermal_readings: list[float] | None = None,
     power_readings: list[float] | None = None,
+    uplink_key: bytes = b"sil-test-key-0000000000000000000",
 ) -> SilSystem:
     """Construct the sim drivers and wire the flight apps over a fresh bus via build_apps.
 
@@ -65,6 +66,9 @@ def build_sil_system(
         inbound_packets: CCSDS TC packets the SimStationLink delivers via the ISS bridge.
         thermal_readings: Temperature readings the thermal sensor replays (Celsius).
         power_readings: Power readings the electrical sensor replays (Watts).
+        uplink_key: The HMAC-SHA256 secret used by the iss_iface app to authenticate
+            inbound TC packets. Defaults to a fixed SIL test key; pass explicitly in
+            command-path SIL tests that build packets with build_tc_packet.
 
     Returns:
         A SilSystem holding the wired apps, the shared bus/clock, and the sim drivers.
@@ -84,7 +88,7 @@ def build_sil_system(
         power_sensor=power_sensor,
     )
     calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
-    apps = build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib)
+    apps = build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
     return SilSystem(
         apps=apps,
         bus=bus,

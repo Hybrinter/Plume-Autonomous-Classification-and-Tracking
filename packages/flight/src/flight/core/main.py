@@ -30,6 +30,27 @@ from flight.payload.model import OnnxDetector
 from flight.payload.preprocess import MosaicCalibration
 
 
+def _load_uplink_key(path: str) -> bytes:
+    """Load the shared HMAC-SHA256 uplink secret from a binary file.
+
+    Args:
+        path: Filesystem path to the key file (raw bytes, no encoding).
+
+    Returns:
+        The key bytes.
+
+    Raises:
+        SystemExit: If the file does not exist or cannot be read (a missing uplink key is
+            an unrecoverable startup misconfig; the vehicle must not accept unauthenticated
+            commands in flight).
+    """
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError as exc:
+        raise SystemExit(f"uplink key load failed ({path}): {exc}") from exc
+
+
 def build_flight_system(
     config: PactConfig, bus: MessageBus, clock: Clock, calib: MosaicCalibration
 ) -> SystemApps:
@@ -47,7 +68,7 @@ def build_flight_system(
 
     Raises:
         SystemExit: If the startup exposure/gain tuning fails (camera unusable at
-            startup is unrecoverable).
+            startup is unrecoverable), or if the uplink key file is missing/unreadable.
         ValueError: If config.gimbal.serial_port is empty (RealGimbal cannot open its
             link; a misconfigured gimbal port is an unrecoverable startup failure).
 
@@ -58,7 +79,10 @@ def build_flight_system(
         exposure/gain are commanded from config.sensor before the apps are wired.
         RealStationLink binds its TCP server socket in __init__; ValueError is raised if
         config.link contains an empty host or an out-of-range port (startup misconfig).
+        The uplink HMAC key is loaded from config.command_ingress.hmac_key_path and
+        injected into the iss_iface app via build_apps (the app never reads the file).
     """
+    uplink_key = _load_uplink_key(config.command_ingress.hmac_key_path)
     sensor = RealSensor(clock=clock)
     exposure_result = sensor.set_exposure_us(config.sensor.default_exposure_us)
     if not isinstance(exposure_result, Ok):
@@ -74,7 +98,7 @@ def build_flight_system(
         thermal_sensor=RealScalarSensor(),
         power_sensor=RealScalarSensor(),
     )
-    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib)
+    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
 
 
 def main(config_path: str = "config/default.toml") -> None:

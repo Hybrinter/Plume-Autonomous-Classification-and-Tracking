@@ -69,6 +69,7 @@ def build_apps(
     drivers: Drivers,
     monitored: tuple[str, ...],
     calib: MosaicCalibration,
+    uplink_key: bytes,
 ) -> SystemApps:
     """Construct every subsystem app wired to the shared bus and clock.
 
@@ -81,6 +82,9 @@ def build_apps(
         calib: The MosaicCalibration the payload app applies to the raw mosaic plane
             (loaded from artifacts in flight; identity in SIL). Constructed by the
             composition root and injected here so build_apps stays driver-agnostic.
+        uplink_key: The shared HMAC-SHA256 secret for authenticating inbound TC packets.
+            Loaded from disk by the composition root and injected here so build_apps
+            and the apps themselves stay key-file-agnostic.
 
     Returns:
         A SystemApps with all five apps constructed.
@@ -90,7 +94,7 @@ def build_apps(
             config, drivers.sensor, drivers.gimbal, drivers.detector, bus, clock, calib
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored),
-        iss_iface=IssIfaceApp.from_config(config, bus, clock, drivers.station),
+        iss_iface=IssIfaceApp.from_config(config, bus, clock, drivers.station, uplink_key),
         thermal=ThermalApp.from_config(config, bus, clock, drivers.thermal_sensor),
         electrical=ElectricalApp.from_config(config, bus, clock, drivers.power_sensor),
     )

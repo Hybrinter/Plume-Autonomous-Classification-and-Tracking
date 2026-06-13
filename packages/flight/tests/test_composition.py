@@ -36,7 +36,13 @@ def _calib() -> MosaicCalibration:
 def test_build_apps_wires_all_five_subsystems() -> None:
     """build_apps constructs all five subsystem apps over the shared bus/clock."""
     apps = build_apps(
-        PactConfig(), MessageBus(), ManualClock(), _drivers(), MONITORED_SUBSYSTEMS, _calib()
+        PactConfig(),
+        MessageBus(),
+        ManualClock(),
+        _drivers(),
+        MONITORED_SUBSYSTEMS,
+        _calib(),
+        b"test-key-00000000000000000000000",
     )
     assert isinstance(apps, SystemApps)
     assert isinstance(apps.payload, PayloadApp)
@@ -54,7 +60,15 @@ def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
 def test_build_apps_shares_one_bus() -> None:
     """All apps are wired to the same bus instance passed in."""
     bus = MessageBus()
-    apps = build_apps(PactConfig(), bus, ManualClock(), _drivers(), MONITORED_SUBSYSTEMS, _calib())
+    apps = build_apps(
+        PactConfig(),
+        bus,
+        ManualClock(),
+        _drivers(),
+        MONITORED_SUBSYSTEMS,
+        _calib(),
+        b"test-key-00000000000000000000000",
+    )
     assert apps.payload.bus is bus
     assert apps.fault.bus is bus
     assert apps.thermal.bus is bus

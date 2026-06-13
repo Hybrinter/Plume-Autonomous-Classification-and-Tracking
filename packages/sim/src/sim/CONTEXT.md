@@ -14,6 +14,20 @@ SIL is the `Drivers` bundle (sim vs. real HAL) and the clock (`ManualClock` vs. 
 Consequence: any wiring change in `composition.py` is exercised by SIL for free; do not
 re-implement app construction here.
 
+## Byte-level station link in SIL (ADR 0009)
+
+- `build_sil_system` accepts `inbound_packets: list[bytes]` (raw CCSDS-framed byte strings)
+  and `uplink_key: bytes` (defaults to the SIL test key
+  `b"sil-test-key-0000000000000000000"`). These are passed to `SimStationLink` and `build_apps`
+  respectively.
+- Command-path SIL tests build signed packets with `build_tc_packet` from
+  `flight.iss_iface.ingress`, pass them as `inbound_packets`, and subscribe to `CommandMsg` /
+  `CommandAckMsg` on the bus to assert acceptance or rejection. The SIL test key must match
+  the key used in `build_tc_packet`.
+- The in-process station emulator seam is `SimStationLink` (from `flight.hal.drivers_sim`).
+  A full ground-support emulator (`packages/gse`) is deferred future work -- do not assume
+  one exists.
+
 ## The harness is a single-threaded stepper -- it replaces the scheduler, not the apps
 
 Flight runs the apps under a thread `Scheduler` whose per-subsystem `run()` loops both do the

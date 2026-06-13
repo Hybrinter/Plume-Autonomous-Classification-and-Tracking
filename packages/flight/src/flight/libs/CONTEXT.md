@@ -6,11 +6,48 @@ individual files or their docstrings.
 ## Layering
 
 - `libs` is the bottom layer. Within it: `types < messages` (messages import enums);
-  `config`, `bus`, `time`, `telemetry` are mutually independent and import nothing from
-  `flight`. Everything above the layer imports from here, never the reverse.
+  `config`, `bus`, `time`, `telemetry`, `ccsds`, and `commands` are mutually independent
+  (except `commands` imports `types` for `CommandId`/`ParamKind`/`Result`/`FaultCode`).
+  Everything above the layer imports from here, never the reverse.
 - Always import from the package roots (`flight.libs.types`, `flight.libs.messages`,
-  `flight.libs.config`), never the inner submodules -- the internal split is meant to stay
-  refactorable. The `__init__` re-exports are the contract.
+  `flight.libs.config`, `flight.libs.ccsds`, `flight.libs.commands`), never the inner
+  submodules -- the internal split is meant to stay refactorable. The `__init__` re-exports
+  are the contract.
+- `flight.libs.ccsds` and `flight.libs.commands` live in `libs` (not in app packages) so
+  both `iss_iface` (app) and `hal.drivers_real.station` (driver) can import them without
+  a layering violation.
+
+## ccsds (added 2026-06-13, ADR 0009)
+
+- `flight.libs.ccsds` is the CCSDS 133.0-B-2 Space Packet codec (pure, stdlib only).
+- `encode_packet(header, body) -> Result[bytes, FaultCode]` builds a framed packet:
+  6-byte primary header (3 x 16-bit big-endian words) + body + 4-byte CRC-32 trailer.
+- `decode_packet(raw) -> Result[(CcsdsHeader, body), FaultCode]` CRC-verifies and strips the
+  frame; returns `Err(COMMAND_CRC_FAIL)` on truncation or CRC mismatch.
+- `packet_length(primary_header) -> Result[int, FaultCode]` extracts the total framed packet
+  size from the first 6 bytes -- used by the real driver to deframe a TCP byte stream.
+- `compute_crc32` / `verify_crc32`: the CRC-32 (ISO-3309/zlib, `binascii.crc32 & 0xFFFFFFFF`)
+  primitives. The CRC covers `header + body` (before the CRC bytes themselves); the CRC
+  trailer is 4 bytes big-endian appended after the body.
+- Never raises; always returns `Result`. The codec is transport-agnostic (no sockets).
+
+## commands (added 2026-06-13, ADR 0009)
+
+- `flight.libs.commands` is the typed command dictionary: the validation authority for inbound
+  ground commands.
+- `CommandSpec` / `ParamSpec`: frozen `@dataclass(slots=True, frozen=True)` describing one
+  command (target subsystem, required params, hazard class) and one param (name + `ParamKind`).
+- `COMMAND_DICTIONARY: dict[CommandId, CommandSpec]` maps every `CommandId` to its spec.
+  Phase 6A commands: `PING` (no-param, target `iss_iface`), `NOOP` (no-param, target
+  `iss_iface`), `SET_THERMAL_LIMIT` (param `limit_c: float`, target `thermal`).
+- `lookup_command(command_id: str) -> Result[CommandSpec, FaultCode]`: resolves a wire string;
+  `Err(COMMAND_INVALID)` on unknown IDs.
+- `validate_command(spec, params) -> Result[None, FaultCode]`: checks the params dict exactly
+  against the spec's `ParamSpec` list (exact key set + per-key primitive kind). Data-not-dispatch:
+  no callable tables, no `getattr` -- pure iteration over declared fields.
+- `bool` / `int` discrimination: `bool` is a subclass of `int` in Python; `validate_command`
+  rejects a `bool` where `INT`/`FLOAT` is required and vice versa.
+- `CommandSpec.hazardous=True` is unused in Phase 6A but present for the Phase 6B router.
 
 ## types
 
@@ -51,6 +88,18 @@ individual files or their docstrings.
   back-project a tensor centroid to full-plane pixels for boresight-error math.
 - **`GimbalPosition.timestamp_s`** (2026-06-11, ADR 0008): `read_position` now returns a
   monotonic-stamped pose; the encoder-runaway monitor needs the timestamp to compute measured rate.
+- **New enums (2026-06-13, ADR 0009):**
+  - `LinkState`: `AOS` / `LOS` -- station link acquisition state; used by `StationLink.link_state()`
+    and carried in `LinkStateMsg`. Published by iss_iface each tick.
+  - `AckStatus`: `ACCEPTED` / `REJECTED` -- outcome of one inbound command at ingress; carried in
+    `CommandAckMsg`.
+  - `CommandId`: the command dictionary's opcode keys (`PING`, `NOOP`, `SET_THERMAL_LIMIT`). Phase
+    6B will add hazardous opcodes (`EXIT_SAFE`, gimbal slew, lock release).
+  - `ParamKind`: `STR` / `INT` / `FLOAT` / `BOOL` -- the primitive kind a command parameter must
+    be for dictionary validation.
+- **New `MessageType` members (2026-06-13, ADR 0009):** `COMMAND_ACK`, `LINK_STATE`.
+- **New `FaultCode` members (2026-06-13, ADR 0009):** `COMMAND_CRC_FAIL`, `COMMAND_AUTH_FAIL`,
+  `COMMAND_SEQ_ERROR`, `COMMAND_INVALID` -- all log-and-continue (not SAFE-triggering).
 
 ## messages
 
@@ -65,6 +114,13 @@ individual files or their docstrings.
   directory-name parser depends on it. Change both together if you change either.
 - No schema versioning exists on any message -- a known gap for multi-day missions where
   producer/consumer versions could drift.
+- **`CommandAckMsg` (2026-06-13, ADR 0009):** Acknowledgement (positive or negative) for one
+  inbound ground command. Fields: `msg_type`, `timestamp_utc`, `status: AckStatus`,
+  `command_id: str`, `source: str`, `seq: int`, `fault_code: FaultCode`, `detail: str`.
+  Emitted by iss_iface for every inbound packet (ingress accept/reject). On `REJECTED`,
+  `fault_code` carries the reason; on `ACCEPTED` it is `FaultCode.NONE`.
+- **`LinkStateMsg` (2026-06-13, ADR 0009):** Current station-link acquisition state published
+  by iss_iface each tick. Fields: `msg_type`, `timestamp_utc`, `state: LinkState`.
 
 ## bus
 
@@ -83,6 +139,13 @@ individual files or their docstrings.
   divergence here IS guarded: `packages/flight/tests/test_config_defaults.py` loads the TOML
   and asserts equality. TOML arrays load as lists, so tuple defaults are compared after
   list->tuple normalization -- keep array-like defaults as tuples.
+- **`LinkConfig` (2026-06-13, ADR 0009):** Station data-link transport config -- TCP bind
+  address/port for inbound commands, UDP host/port for outbound telemetry, socket timeout,
+  and the CCSDS APIDs for TC and TM. The config loader validates APID range (0..0x7FF), port
+  range (1..65535), and that `socket_timeout_s > 0`.
+- **`CommandIngressConfig` (2026-06-13, ADR 0009):** HMAC key path, `require_auth` flag
+  (false = skip auth, test/bench only), and `accepted_sources` tuple. The HMAC key bytes are
+  loaded by the composition root, not by iss_iface itself.
 
 ## time
 

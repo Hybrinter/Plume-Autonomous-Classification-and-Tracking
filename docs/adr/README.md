@@ -14,3 +14,4 @@ Short records of the load-bearing decisions behind the PACT flight-software rest
 | [0006](0006-iss-attached-reliability-posture.md) | ISS-attached reliability posture (fail-safe / ground-recoverable) | Accepted |
 | [0007](0007-raw-mosaic-sensor-ingest.md) | Raw-mosaic sensor ingest contract (demosaic in preprocess) | Accepted |
 | [0008](0008-closed-loop-gimbal-pointing.md) | Closed-loop gimbal pointing (boresight error, wired gates, SAFE stow) | Accepted |
+| [0009](0009-iss-link-transport-command-ingress.md) | ISS link transport + authenticated command ingress (CCSDS byte link, HMAC, typed dictionary) | Accepted |

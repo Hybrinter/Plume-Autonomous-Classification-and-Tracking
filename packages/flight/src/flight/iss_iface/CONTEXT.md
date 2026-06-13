@@ -5,36 +5,90 @@ Non-obvious context not derivable from the individual files in this package.
 ## Purpose / Why It Exists
 
 - Replaces legacy RF comms. The station (ISS) now owns the RF/downlink path, so this
-  subsystem does **not** modulate, schedule, or encode anything for the air — it is the
+  subsystem does **not** modulate, schedule, or encode anything for the air -- it is the
   payload's seam onto a station-owned link.
 
-## Defining Design Decision
+## Defining Design Decision (Phase 6A)
 
-- Pure transport bridge, zero command interpretation. The whole subsystem is two pumps:
-  - `pump_uplink`: `StationLink.receive_command()` -> `bus.publish(CommandMsg)` verbatim.
-  - `pump_downlink`: drain `DownlinkItemMsg` from the bus -> `StationLink.send_downlink()`.
-  The core/target apps are the ones that act on the published `CommandMsg`; this app never
-  inspects, validates, routes, or transforms a command. Treat any urge to add command
-  logic here as a layering violation.
+- **Authenticated command-ingress front door + downlink egress.** iss_iface is no longer a
+  verbatim transport bridge. Every inbound CCSDS byte packet flows through a five-stage pure
+  core (`ingress/pipeline.py`) before anything is published to the bus:
+
+  1. **CCSDS decode + CRC verify** -- `flight.libs.ccsds.decode_packet` strips the 6-byte
+     primary header, verifies the CRC-32 trailer over the whole frame (header + body + HMAC
+     tag), and returns the raw body or `COMMAND_CRC_FAIL`.
+  2. **JSON parse + source check** -- body is decoded as UTF-8 JSON; `command_id`, `params`,
+     `source`, and `seq` are extracted. `source` must be in the configured `accepted_sources`
+     list or the packet is rejected.
+  3. **Sequence dedup** -- `seq` must be strictly greater than the last accepted seq for that
+     source; replays and duplicates yield `COMMAND_SEQ_ERROR`.
+  4. **HMAC-SHA256 authentication** -- the tag appended to the JSON body is verified against
+     the injected `uplink_key`; mismatch yields `COMMAND_AUTH_FAIL`. When `require_auth=False`
+     (test/bench mode) this stage is skipped.
+  5. **Typed dictionary validation** -- `lookup_command` resolves `command_id` to a
+     `CommandSpec` from `COMMAND_DICTIONARY`; `validate_command` checks the params dict
+     exactly against the spec's `ParamSpec` declarations. Unknown command IDs and wrong param
+     kinds yield `COMMAND_INVALID`.
+
+  Only packets that clear all five stages become `CommandMsg` on the bus (with `target` stamped
+  from the dictionary, not from the ground frame). Every inbound packet -- accepted or rejected
+  -- produces exactly one `CommandAckMsg`; rejections also emit a `FaultEventMsg`.
+
+## Ingress Pipeline Is a Pure Core
+
+- `ingress/pipeline.py` and its helpers are pure functions: no I/O, no bus, no clock reads.
+  They map `(raw_bytes, key, require_auth, accepted_sources, last_seq_state)` to
+  `(IngressOutcome, new_last_seq)` deterministically. All state is threaded in/out; the app
+  shell (`IssIfaceApp`) owns the bus, clock, HMAC key, and the mutable `IngressState`.
+
+## HMAC Key Is Injected, Never Loaded In-App
+
+- The composition root (`flight.core.main`) reads the key bytes from
+  `config.command_ingress.hmac_key_path` at startup and passes them through `build_apps` ->
+  `IssIfaceApp.from_config(cfg, bus, clock, link, uplink_key)`. Unit and SIL tests pass key
+  bytes directly -- no temp files, no config file I/O inside the app.
+
+## AOS/LOS Gating
+
+- `IssIfaceApp.pump_downlink` only drains the `CommandAckMsg` and `DownlinkItemMsg` queues
+  when the link reports `LinkState.AOS`. During `LOS` the queues hold, so nothing is dropped.
+  Each `tick()` publishes a `LinkStateMsg` on the bus so downstream consumers can observe link
+  state transitions.
+
+## Downlink Egress
+
+- Acks and downlink items leave the payload as CCSDS TM packets (packet_type=0) with a
+  CRC-32 trailer, encoded by `flight.libs.ccsds.encode_packet`. A sequential `tm_sequence`
+  counter (14-bit wrap) is maintained in `IngressState` by the shell. Encoding failures
+  (e.g. empty body) emit a `FaultEventMsg` and are not counted.
+
+## Fault Codes Are Log-and-Continue (Never SAFE)
+
+- `COMMAND_CRC_FAIL`, `COMMAND_AUTH_FAIL`, `COMMAND_SEQ_ERROR`, and `COMMAND_INVALID` are in
+  the log-and-continue partition of `fault/policy.py`. A bad/spoofed/replayed command NACKs
+  and is dropped; it never triggers `SAFE`. This is deliberate: an attacker must not be able
+  to ground the payload by sending a malformed packet.
 
 ## Invariants / Gotchas
 
-- The exact ISS data-interface wire protocol is a **deliberately deferred** decision,
-  hidden entirely behind the `StationLink` Protocol (`hal/interfaces/station.py`).
-  `RealStationLink` is an inert stub: `receive_command()` always returns `Ok(None)`,
-  `send_downlink()` accepts and drops. So with the real driver this subsystem is a no-op —
-  CI/SIL exercises it through `SimStationLink`. Do not mistake the stub for broken wiring.
 - Uplink vs downlink error asymmetry: an uplink `Err` **stops the drain early** (breaks the
   loop) to preserve command ordering; a downlink `Err` only emits a fault and continues
   draining the rest. Both surface failures as `FaultEventMsg` on the bus rather than raising.
 - The `run()` loop reuses `fault.watchdog_interval_s` for both tick cadence and heartbeat
-  cadence purely for simplicity. A production link would poll faster — the shared interval
-  is not a meaningful coupling.
+  cadence for simplicity. A production link would poll faster -- the shared interval is not a
+  meaningful coupling.
+- `CommandMsg.target` is stamped from `COMMAND_DICTIONARY`, not from the ground frame. The
+  ground frame carries only `command_id`, `params`, `source`, and `seq`.
 
 ## Explicitly Out of Scope
 
-- CCSDS framing, TDRSS, and contact/comm-window scheduling: those belong to the
-  station's RF path, not here.
-- Model-chunk upload reassembly (CRC, staging, activate/rollback) is a **future consumer**
-  of this transport, not a responsibility of it. This bridge only moves opaque
-  `CommandMsg`/`DownlinkItemMsg`; reassembly logic lives downstream.
+- **Command router + hazardous ARM/EXECUTE two-step:** enforcing layered authority, the
+  ARM/EXECUTE gated pair for hazardous commands, inhibit-at-actuation, and the `EXIT_SAFE`
+  flow are Phase **6B** -- not implemented here.
+- **Model-chunk upload reassembly** (CRC, staging, activate/rollback) is a **Phase 6D**
+  consumer of this transport. iss_iface only moves bytes and compact records; chunk
+  reassembly logic lives downstream.
+- **Data system:** prioritized downlink manager and `StorageWriter`/`StorageReader` are Phase
+  **6C**.
+- TDRSS, RF scheduling, and contact/comm-window management: those belong to the station's
+  RF path, never to this subsystem.

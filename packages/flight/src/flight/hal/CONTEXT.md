@@ -77,9 +77,31 @@ from the individual files or their docstrings.
   `*`/`!` response handling) without the physical SDK or hardware. The verb set (PP/TP/PS/TS) is a
   documented reference assumption, not a validated wire protocol -- HIL bring-up confirms it.
 
+## `StationLink` -- byte-level transport (ADR 0009)
+
+- The `StationLink` Protocol is **byte-level**: `receive_packet() -> Result[bytes | None, FaultCode]`,
+  `send_packet(packet: bytes) -> Result[None, FaultCode]`, `link_state() -> LinkState`,
+  `close() -> None`. The old command-level `receive_command`/`send_downlink` methods are removed.
+- **`RealStationLink`** is a real TCP-in/UDP-out CCSDS link (ADR 0009):
+  - Inbound telecommands arrive over TCP (the payload binds a server socket; lazy accept).
+  - Outbound telemetry/products leave over UDP (fire-and-forget, no connection state).
+  - A daemon `threading.Thread` does blocking `recv` and enqueues raw bytes; the public
+    `receive_packet` call deframes the queue into discrete packets using `packet_length` from
+    `flight.libs.ccsds` (reads the 6-byte CCSDS header to determine total size).
+  - `link_state()` returns `AOS` when a TCP client is connected, `LOS` otherwise.
+  - Sockets open lazily (no SDK, no OS port bind at import time). `ValueError` is raised on
+    invalid config at construction; `ImportError` is never raised (stdlib sockets only).
+  - `close()` signals the accept/recv thread to stop and joins it.
+- **`SimStationLink`** replays inbound `list[bytes]` packets in order (one per `receive_packet`
+  call until exhausted, then `Ok(None)`) and records outbound packets in `downlinked`. Link
+  state is scriptable at construction (`link_state: LinkState = LinkState.AOS`).
+- Real drivers may import `flight.libs.ccsds` (the import-linter `drivers-from-composition-roots-only`
+  contract forbids app imports of drivers; drivers importing libs is allowed).
+
 ## Real driver implementation status
 
 - `RealSensor` (PySpin) and `RealGimbal` (serial PTU, ADR 0008) are fully implemented, with the
   fake-SDK CI tests above; constructing either raises `ImportError` if its SDK is absent, and
-  `RealGimbal` raises `ValueError` on an empty `serial_port`. `RealScalarSensor` and
-  `RealStationLink` remain safe-default stubs pending their hardware integration.
+  `RealGimbal` raises `ValueError` on an empty `serial_port`. `RealScalarSensor` is a safe-default
+  stub pending hardware integration. `RealStationLink` is fully implemented (TCP/UDP, daemon
+  deframer thread, AOS/LOS detection) with loopback-socket CI tests (`test_real_station_link.py`).

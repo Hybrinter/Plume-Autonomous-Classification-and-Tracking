@@ -91,3 +91,17 @@ sim_seed = 0
 serial_port = ""
 serial_baud = 9600
 counts_per_deg = 77.6
+
+[link]
+command_tcp_host = "127.0.0.1"
+command_tcp_port = 50501
+telemetry_udp_host = "127.0.0.1"
+telemetry_udp_port = 50502
+socket_timeout_s = 1.0
+tc_apid = 1
+tm_apid = 2
+
+[command_ingress]
+hmac_key_path = "data/keys/uplink_hmac.key"
+require_auth = true
+accepted_sources = ["ground", "station_ops"]

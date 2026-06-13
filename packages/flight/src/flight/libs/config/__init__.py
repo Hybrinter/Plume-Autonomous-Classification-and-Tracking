@@ -5,11 +5,13 @@ config/default.toml (enforced by tests/test_config_defaults.py).
 """
 
 from flight.libs.config.config import (
+    CommandIngressConfig,
     CommsConfig,
     ControllerConfig,
     FaultConfig,
     GimbalConfig,
     InferenceConfig,
+    LinkConfig,
     PactConfig,
     PreprocessingConfig,
     SensorConfig,
@@ -18,10 +20,12 @@ from flight.libs.config.config import (
 
 __all__ = [
     "CommsConfig",
+    "CommandIngressConfig",
     "ControllerConfig",
     "FaultConfig",
     "GimbalConfig",
     "InferenceConfig",
+    "LinkConfig",
     "PactConfig",
     "PreprocessingConfig",
     "SensorConfig",

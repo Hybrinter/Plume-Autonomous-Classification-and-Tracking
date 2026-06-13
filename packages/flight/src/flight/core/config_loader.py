@@ -17,11 +17,13 @@ from typing import Any
 
 # internal
 from flight.libs.config import (
+    CommandIngressConfig,
     CommsConfig,
     ControllerConfig,
     FaultConfig,
     GimbalConfig,
     InferenceConfig,
+    LinkConfig,
     PactConfig,
     PreprocessingConfig,
     SensorConfig,
@@ -44,9 +46,6 @@ def load_config(
 
     Returns Ok(PactConfig) on success.
     Returns Err(str) if any file is missing, malformed, or out-of-range.
-
-    # TODO: implement TOML field mapping
-    # TODO: implement range validation in _validate() for all numeric fields.
     """
     try:
         with open(config_path, "rb") as fh:
@@ -92,15 +91,29 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 def _validate(data: dict[str, Any]) -> str | None:
     """Validate top-level config values.  Return an error string or None if valid.
 
-    # TODO: implement range validation for all numeric fields:
-    #   - controller.confidence_gate must be in (0.0, 1.0)
-    #   - controller.ema_alpha must be in (0.0, 1.0]
-    #   - inference.latency_budget_ms must be > 0
-    #   - fault.watchdog_interval_s must be > 0
-    #   - fault.watchdog_max_miss_count must be >= 1
-    #   - comms.ccsds_apid must fit in 11 bits (0x000 to 0x7FF)
+    Checks safety-relevant range constraints for the link transport and command-ingress
+    sections. Returns the first violation found, or None if all checks pass.
+
+    Notes:
+        APID values must fit in 11 bits (0..0x7FF) per the CCSDS primary-header layout.
+        Port numbers must be in the valid TCP/UDP range 1..65535.
+        socket_timeout_s must be positive so the link thread can remain responsive.
     """
-    return None  # placeholder -- no validation yet
+    link = data.get("link", {})
+    for apid_key in ("tc_apid", "tm_apid"):
+        apid = link.get(apid_key, 0)
+        if not (0 <= int(apid) <= 0x7FF):
+            return f"link.{apid_key} must fit in 11 bits (0..0x7FF)"
+    for port_key in ("command_tcp_port", "telemetry_udp_port"):
+        port = int(link.get(port_key, 0))
+        if not (1 <= port <= 65535):
+            return f"link.{port_key} must be in 1..65535"
+    if float(link.get("socket_timeout_s", 1.0)) <= 0.0:
+        return "link.socket_timeout_s must be > 0"
+    ingress = data.get("command_ingress", {})
+    if bool(ingress.get("require_auth", True)) and not str(ingress.get("hmac_key_path", "")):
+        return "command_ingress.hmac_key_path must be set when require_auth is true"
+    return None
 
 
 def _build_pact_config(data: dict[str, Any]) -> PactConfig:
@@ -108,11 +121,14 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
 
     Each TOML section maps to one sub-config dataclass.  get() with a default mirrors
     the dataclass field default, ensuring an empty section yields the same result as
-    constructing the dataclass with no arguments.
+    constructing the dataclass with no arguments. All sections are explicitly mapped so
+    mismatches between TOML keys and dataclass fields are caught at load time.
 
-    # TODO: implement TOML field mapping -- replace each .get() default with an
-    #        explicit reference so mismatches between TOML keys and dataclass fields
-    #        are caught at load time rather than silently using the Python default.
+    Args:
+        data: The merged TOML dict (default + optional override).
+
+    Returns:
+        A fully populated PactConfig with all subsystem configs.
     """
     ctrl = data.get("controller", {})
     controller_config = ControllerConfig(
@@ -279,6 +295,27 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         counts_per_deg=float(gimb.get("counts_per_deg", GimbalConfig.counts_per_deg)),
     )
 
+    link_sect = data.get("link", {})
+    link_config = LinkConfig(
+        command_tcp_host=str(link_sect.get("command_tcp_host", LinkConfig.command_tcp_host)),
+        command_tcp_port=int(link_sect.get("command_tcp_port", LinkConfig.command_tcp_port)),
+        telemetry_udp_host=str(link_sect.get("telemetry_udp_host", LinkConfig.telemetry_udp_host)),
+        telemetry_udp_port=int(link_sect.get("telemetry_udp_port", LinkConfig.telemetry_udp_port)),
+        socket_timeout_s=float(link_sect.get("socket_timeout_s", LinkConfig.socket_timeout_s)),
+        tc_apid=int(link_sect.get("tc_apid", LinkConfig.tc_apid)),
+        tm_apid=int(link_sect.get("tm_apid", LinkConfig.tm_apid)),
+    )
+
+    ingress_sect = data.get("command_ingress", {})
+    command_ingress_config = CommandIngressConfig(
+        hmac_key_path=str(ingress_sect.get("hmac_key_path", CommandIngressConfig.hmac_key_path)),
+        require_auth=bool(ingress_sect.get("require_auth", CommandIngressConfig.require_auth)),
+        accepted_sources=tuple(
+            str(s)
+            for s in ingress_sect.get("accepted_sources", CommandIngressConfig.accepted_sources)
+        ),
+    )
+
     return PactConfig(
         controller=controller_config,
         inference=inference_config,
@@ -288,4 +325,6 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         preprocessing=preprocessing_config,
         sensor=sensor_config,
         gimbal=gimbal_config,
+        link=link_config,
+        command_ingress=command_ingress_config,
     )

@@ -159,6 +159,38 @@ class GimbalConfig:
 
 
 @dataclass(frozen=True)
+class LinkConfig:
+    """Station data-link transport config: CCSDS endpoints + APIDs.
+
+    Commands arrive as CCSDS TC packets over a TCP server socket the payload binds; telemetry
+    and products are sent as CCSDS TM packets over UDP to the station endpoint. Sockets open
+    lazily in the real driver; SIL uses the byte-level sim link and ignores host/port.
+    """
+
+    command_tcp_host: str = "127.0.0.1"  # bind address for inbound TC server socket
+    command_tcp_port: int = 50501  # TCP port the payload listens on for commands
+    telemetry_udp_host: str = "127.0.0.1"  # station endpoint for outbound TM
+    telemetry_udp_port: int = 50502  # UDP port for outbound telemetry/products
+    socket_timeout_s: float = 1.0  # accept/recv timeout so the link thread can stop promptly
+    tc_apid: int = 0x001  # CCSDS APID for inbound telecommands
+    tm_apid: int = 0x002  # CCSDS APID for outbound telemetry
+
+
+@dataclass(frozen=True)
+class CommandIngressConfig:
+    """Command-ingress integrity + authentication config.
+
+    The HMAC key is loaded from hmac_key_path by the composition root and injected into
+    iss_iface (not read by the app). sequence_window is the per-source replay guard: a command
+    whose seq is <= the last accepted seq for that source is rejected as a replay/duplicate.
+    """
+
+    hmac_key_path: str = "data/keys/uplink_hmac.key"  # path to the shared HMAC secret
+    require_auth: bool = True  # if False, skip HMAC verification (test/bench only)
+    accepted_sources: tuple[str, ...] = ("ground", "station_ops")  # allowed command origins
+
+
+@dataclass(frozen=True)
 class PactConfig:
     """Top-level PACT configuration. Composes all per-subsystem configs.
 
@@ -174,3 +206,5 @@ class PactConfig:
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     sensor: SensorConfig = field(default_factory=SensorConfig)
     gimbal: GimbalConfig = field(default_factory=GimbalConfig)
+    link: LinkConfig = field(default_factory=LinkConfig)
+    command_ingress: CommandIngressConfig = field(default_factory=CommandIngressConfig)

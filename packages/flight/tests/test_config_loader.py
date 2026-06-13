@@ -65,3 +65,53 @@ def test_controller_runaway_fields_load() -> None:
     c = result.value.controller
     assert c.runaway_rate_tolerance_deg_per_s == 1.0
     assert c.runaway_strike_count == 3
+
+
+def test_link_section_loads() -> None:
+    """[link] TOML section maps into LinkConfig."""
+    result = load_config(_DEFAULT_TOML)
+    assert isinstance(result, Ok)
+    lnk = result.value.link
+    assert lnk.command_tcp_host == "127.0.0.1"
+    assert lnk.command_tcp_port == 50501
+    assert lnk.telemetry_udp_host == "127.0.0.1"
+    assert lnk.telemetry_udp_port == 50502
+    assert lnk.socket_timeout_s == 1.0
+    assert lnk.tc_apid == 0x001
+    assert lnk.tm_apid == 0x002
+
+
+def test_command_ingress_section_loads() -> None:
+    """[command_ingress] TOML section maps into CommandIngressConfig."""
+    result = load_config(_DEFAULT_TOML)
+    assert isinstance(result, Ok)
+    ing = result.value.command_ingress
+    assert ing.hmac_key_path == "data/keys/uplink_hmac.key"
+    assert ing.require_auth is True
+    assert ing.accepted_sources == ("ground", "station_ops")
+
+
+def test_out_of_range_apid_returns_err(tmp_path: Path) -> None:
+    """An APID exceeding 11 bits causes load_config to return Err."""
+    bad_toml = tmp_path / "bad.toml"
+    bad_toml.write_text(
+        "[link]\ntc_apid = 4096\ntm_apid = 2\ncommand_tcp_port = 50501\n"
+        "telemetry_udp_port = 50502\nsocket_timeout_s = 1.0\n"
+        'command_tcp_host = "127.0.0.1"\ntelemetry_udp_host = "127.0.0.1"\n',
+        encoding="utf-8",
+    )
+    result = load_config(_DEFAULT_TOML, str(bad_toml))
+    assert isinstance(result, Err)
+    assert "tc_apid" in result.error
+
+
+def test_out_of_range_port_returns_err(tmp_path: Path) -> None:
+    """A TCP port of 0 causes load_config to return Err."""
+    bad_toml = tmp_path / "bad_port.toml"
+    bad_toml.write_text(
+        "[link]\ncommand_tcp_port = 0\n",
+        encoding="utf-8",
+    )
+    result = load_config(_DEFAULT_TOML, str(bad_toml))
+    assert isinstance(result, Err)
+    assert "command_tcp_port" in result.error

@@ -11,11 +11,13 @@ import tomllib
 from pathlib import Path
 
 from flight.libs.config import (
+    CommandIngressConfig,
     CommsConfig,
     ControllerConfig,
     FaultConfig,
     GimbalConfig,
     InferenceConfig,
+    LinkConfig,
     PreprocessingConfig,
     SensorConfig,
     StorageConfig,
@@ -33,6 +35,8 @@ _SECTION_TO_DATACLASS = {
     "fault": FaultConfig,
     "sensor": SensorConfig,
     "gimbal": GimbalConfig,
+    "link": LinkConfig,
+    "command_ingress": CommandIngressConfig,
 }
 
 

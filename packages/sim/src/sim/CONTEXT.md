@@ -20,13 +20,36 @@ re-implement app construction here.
   and `uplink_key: bytes` (defaults to the SIL test key
   `b"sil-test-key-0000000000000000000"`). These are passed to `SimStationLink` and `build_apps`
   respectively.
-- Command-path SIL tests build signed packets with `build_tc_packet` from
-  `flight.iss_iface.ingress`, pass them as `inbound_packets`, and subscribe to `CommandMsg` /
-  `CommandAckMsg` on the bus to assert acceptance or rejection. The SIL test key must match
-  the key used in `build_tc_packet`.
+- Command-path SIL tests build signed packets with `build_tc_packet`, pass them as
+  `inbound_packets`, and subscribe to `CommandMsg` / `CommandAckMsg` on the bus to assert
+  acceptance or rejection. The SIL test key must match the key used in `build_tc_packet`.
+  **Canonical import:** `from flight.libs.commands import build_tc_packet` -- the symbol was
+  relocated there so the command codec lives beside the command dictionary it serializes. The old
+  `flight.iss_iface.ingress` path is a back-compat re-export only; new code (SIL tests and the GSE
+  `StationEmulator` alike) must import from `flight.libs.commands`.
 - The in-process station emulator seam is `SimStationLink` (from `flight.hal.drivers_sim`).
   A full ground-support emulator (`packages/gse`) is deferred future work -- do not assume
   one exists.
+
+## Config-matrix axes and the `step_once` seam (validation effort)
+
+The validation venues are driven by `flight.libs.config.config.EnvironmentConfig` -- five
+per-axis `AxisMode` knobs (`sensor`/`gimbal`/`compute`/`link`/`clock`, each `"sim"` or `"real"`)
+plus `host`. `profiles/*.toml` are config **overrides** applied via
+`load_config("config/default.toml", "profiles/NAME.toml")`: `sil` (all sim), `sil-link-real`
+(link real, rest sim) are the **running** venues; `pil`/`hil` are **DEFINED-NOT-RUN** (see
+`docs/validation/`). `flight.core.select_drivers.select_drivers(config, clock, sim_inputs)` maps
+each axis to a sim or real driver; the clock axis is resolved by the composition root *before*
+calling it.
+
+The single-step body of `SilHarness.step` is extracted verbatim into
+`sim.sil.stepping.step_once(...)` -- a driver-agnostic, Protocol-typed function. `SilHarness.step`
+delegates to it, and the GSE `InProcessBackend` reuses the **same** `step_once` so the in-process
+validation harness and the SIL harness share one stepping implementation. Do not fork a second
+stepper.
+
+The `lock` axis (LaunchLock) is intentionally absent from `EnvironmentConfig`: no device exists,
+so it is a permanent VCRM gap, not a config knob.
 
 ## The harness is a single-threaded stepper -- it replaces the scheduler, not the apps
 

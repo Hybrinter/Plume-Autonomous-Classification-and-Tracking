@@ -6,7 +6,7 @@ captured -- so the orchestrator scores the same assertions regardless of transpo
 InProcessBackend is the blessed x86 backend. It builds a PactConfig from the profile
 (sim.sil.load_profile_config), renders the plume scene (sim.scene), and drives the wired
 flight apps through sim.sil.ValidationHarness over the env-selected drivers (sim.sil owns
-the build + step seam, so gse never touches flight.core/flight.payload/flight.fault). When
+the build + step seam, so gse never touches the flight composition root or apps). When
 the profile's link axis is "real" it stands up a RealStationLink (chosen by the harness over
 a free TCP/UDP port pair) and a GSE StationEmulator as the live counterpart, so the
 authenticated command + CCSDS downlink path runs over real sockets in one process.
@@ -22,8 +22,8 @@ SocketBackend is declared (PIL/HIL transport) but raises NotImplementedError -- 
 venues are DEFINED, NOT RUN.
 
 Dependency surface: this module imports flight.libs and sim only (sim.sil exposes the
-validation harness so gse never imports flight.core/payload/fault directly). lint-imports
-enforces the one-way flight/sim !-> gse rule.
+validation harness so gse never imports the flight composition root or apps directly).
+lint-imports enforces the one-way flight/sim !-> gse rule.
 
 Contains:
   - TelemetryCapture: frozen holder of scored bus events + downlink bytes.

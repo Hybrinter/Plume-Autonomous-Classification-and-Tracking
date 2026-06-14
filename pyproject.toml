@@ -46,6 +46,7 @@ dev = [
     "pact-flight",
     "pact-sim",
     "pact-tools",
+    "pact-gse",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -64,6 +65,7 @@ testpaths = [
     "packages/flight/tests",
     "packages/sim/tests",
     "packages/tools/tests",
+    "packages/gse/tests",
 ]
 markers = [
     "e2e: end-to-end smoke tests (exclude from fast CI with -m 'not e2e')",
@@ -84,7 +86,7 @@ explicit_package_bases = true
 # strict checking across modules (e.g. a function returning dict[str, WatchdogEntry]
 # would collapse to dict[str, Any]). With these src dirs on the path, strict
 # type-checking holds across the whole workspace.
-mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src"]
+mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src"]
 
 [tool.ruff]
 line-length = 100
@@ -96,12 +98,13 @@ target-version = "py314"
 # Install camera SDK with:  uv sync --extra camera
 
 [tool.uv.workspace]
-members = ["packages/flight", "packages/sim", "packages/tools"]
+members = ["packages/flight", "packages/sim", "packages/tools", "packages/gse"]
 
 [tool.uv.sources]
 pact-flight = { workspace = true }
 pact-sim = { workspace = true }
 pact-tools = { workspace = true }
+pact-gse = { workspace = true }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ANN"]

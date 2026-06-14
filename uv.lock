@@ -6,6 +6,7 @@ requires-python = ">=3.14"
 members = [
     "pact",
     "pact-flight",
+    "pact-gse",
     "pact-sim",
     "pact-tools",
 ]
@@ -913,6 +914,7 @@ dev = [
     { name = "import-linter" },
     { name = "mypy" },
     { name = "pact-flight" },
+    { name = "pact-gse" },
     { name = "pact-sim" },
     { name = "pact-tools" },
     { name = "pytest" },
@@ -929,6 +931,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pact-flight", marker = "extra == 'dev'", editable = "packages/flight" },
+    { name = "pact-gse", marker = "extra == 'dev'", editable = "packages/gse" },
     { name = "pact-sim", marker = "extra == 'dev'", editable = "packages/sim" },
     { name = "pact-tools", marker = "extra == 'dev'", editable = "packages/tools" },
     { name = "pyspin", marker = "extra == 'camera'" },
@@ -963,6 +966,23 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "structlog", specifier = ">=23.0" },
+]
+
+[[package]]
+name = "pact-gse"
+version = "0.1.0"
+source = { editable = "packages/gse" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pact-flight" },
+    { name = "pact-sim" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "pact-flight", editable = "packages/flight" },
+    { name = "pact-sim", editable = "packages/sim" },
 ]
 
 [[package]]

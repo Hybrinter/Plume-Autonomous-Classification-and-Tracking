@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pact-gse"
+version = "0.1.0"
+description = "PACT ground support equipment: station emulator + scenario harness (test tooling)"
+requires-python = ">=3.14"
+dependencies = [
+    "numpy>=1.24",
+    "pact-flight",
+    "pact-sim",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gse"]
+
+[tool.uv.sources]
+pact-flight = { workspace = true }
+pact-sim = { workspace = true }

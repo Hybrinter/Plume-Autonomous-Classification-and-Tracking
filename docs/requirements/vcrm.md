@@ -22,13 +22,13 @@ are deliberately absent rather than falsely marked verified.
 | Requirement | Statement | Method | Venue | Evidence | Status |
 | --- | --- | --- | --- | --- | --- |
 | REQ-COMM-HIGH-003 | Authenticated command ingress (HMAC + accepted sources) | SIL | sil | test_iss_ingress_pipeline; scenario:ingress_auth_accept | verified |
-| REQ-COMM-HIGH-004 | Command ACK/NACK for every ingested command | SIL | sil | test_iss_iface_app; scenario:ingress_nack_bad_hmac | verified |
-| REQ-COMM-HIGH-002 | CCSDS framing + CRC integrity | SIL | sil | test_ccsds_codec; scenario:downlink_ccsds_frames | verified |
-| REQ-COMM-HIGH-001 | Downlink gated by AOS visibility | SIL | sil-link-real | test_sil_closed_loop; scenario:aos_los_gating | verified |
+| REQ-COMM-HIGH-004 | Command ACK/NACK for every ingested command | SIL | sil | test_iss_iface_app; scenario:ingress_nack | verified |
+| REQ-COMM-HIGH-002 | CCSDS framing + CRC integrity | SIL | sil | test_ccsds_codec; scenario:ingress_auth_accept | verified |
+| REQ-COMM-HIGH-001 | Downlink gated by AOS visibility | SIL | sil-link-real | test_sil_closed_loop; scenario:ingress_auth_accept | verified |
 | REQ-SAFE-HIGH-002 | Thermal over-limit -> SAFE + stow | SIL | sil | test_sil_closed_loop; scenario:safe_on_thermal | verified |
 | REQ-AIML-GIMB-001 | Autonomous closed-loop pointing toward plume | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
 | REQ-GIMB-HIGH-001 | ROI retention within pointing deadband | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
-| REQ-GIMB-HIGH-003 | Runaway gimbal detection forces stow | SIL | sil | test_runaway; scenario:safe_on_thermal | verified |
+| REQ-GIMB-HIGH-003 | Runaway gimbal detection forces stow | SIL | sil | test_runaway | verified |
 
 ## Permanent gaps
 

@@ -32,7 +32,7 @@ statement = "Command acknowledgement: every ingested command yields an ACCEPTED 
 method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-HIGH-004"]
-evidence = ["packages/flight/tests/test_iss_iface_app.py", "scenario:ingress_nack_bad_hmac"]
+evidence = ["packages/flight/tests/test_iss_iface_app.py", "scenario:ingress_nack"]
 status = "verified"
 
 [[requirement]]
@@ -41,7 +41,7 @@ statement = "CCSDS framing with CRC integrity on uplink and downlink packets."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-HIGH-002"]
-evidence = ["packages/flight/tests/test_ccsds_codec.py", "scenario:downlink_ccsds_frames"]
+evidence = ["packages/flight/tests/test_ccsds_codec.py", "scenario:ingress_auth_accept"]
 status = "verified"
 
 [[requirement]]
@@ -50,7 +50,7 @@ statement = "Downlink is gated by link visibility: telemetry is emitted only dur
 method = "SIL"
 venue = "sil-link-real"
 modules = ["REQ-COMM-HIGH-001"]
-evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:aos_los_gating"]
+evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:ingress_auth_accept"]
 status = "verified"
 
 [[requirement]]
@@ -86,7 +86,7 @@ statement = "Runaway / unsafe gimbal motion is detected and forces a stow."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-GIMB-HIGH-003"]
-evidence = ["packages/flight/tests/test_runaway.py", "scenario:safe_on_thermal"]
+evidence = ["packages/flight/tests/test_runaway.py"]
 status = "verified"
 
 # --- PERMANENT GAP (recorded, never closed by the in-process/SIL venues) -----------------

@@ -3,11 +3,15 @@
 
 Satisfies: REQ-OPER-HIGH-002 (verifiable, type-safe operational config and traceability).
 
-Parses docs/requirements/vcrm.toml (stdlib tomllib) and enforces two invariants:
+Parses docs/requirements/vcrm.toml (stdlib tomllib) and enforces these invariants:
   1. Every requirement whose venue is a RUNNING profile (unit | sil | sil-link-real) is cited by
      at least one module docstring ("Satisfies: <ID>") under the flight source tree AND has at
      least one evidence entry.
-  2. No requirement whose venue is a non-running profile (pil | hil) claims status="verified".
+  2. Every evidence entry of a running-venue requirement RESOLVES to a real artifact: a
+     "scenario:<id>" entry must map to scenarios/<id>.toml, and any other entry is a
+     repo-root-relative path that must exist. This stops the VCRM from citing aspirational
+     evidence that was never authored.
+  3. No requirement whose venue is a non-running profile (pil | hil) claims status="verified".
 
 Exits 0 when both invariants hold; otherwise prints each violation and exits 1. Stdlib only so it
 runs in CI without the uv workspace installed.
@@ -46,12 +50,30 @@ def _collect_cited_ids(src_root: Path) -> set[str]:
     return cited
 
 
-def _check(vcrm_path: Path, src_root: Path) -> list[str]:
+def _resolve_evidence(entry: str, repo_root: Path) -> Path:
+    """Map one evidence entry to the file path it must resolve to.
+
+    Args:
+        entry: an evidence string -- "scenario:<id>" or a repo-root-relative path.
+        repo_root: the repository root the entry is resolved against.
+
+    Returns:
+        The Path the entry must point at: scenarios/<id>.toml for a "scenario:" entry,
+        otherwise repo_root / entry.
+    """
+    if entry.startswith("scenario:"):
+        scenario_id = entry.split(":", 1)[1]
+        return repo_root / "scenarios" / f"{scenario_id}.toml"
+    return repo_root / entry
+
+
+def _check(vcrm_path: Path, src_root: Path, repo_root: Path) -> list[str]:
     """Validate the VCRM and return a list of human-readable violation strings.
 
     Args:
         vcrm_path: path to vcrm.toml.
         src_root: flight source tree to scan for Satisfies: citations.
+        repo_root: repository root that evidence entries are resolved against.
 
     Returns:
         List of violation messages; empty list means the VCRM is consistent.
@@ -74,8 +96,15 @@ def _check(vcrm_path: Path, src_root: Path) -> list[str]:
                         f"{req_id}: cites module {module_id} not found in any "
                         f"'Satisfies:' header under {src_root}"
                     )
-            if not req.get("evidence", []):
+            evidence = req.get("evidence", [])
+            if not evidence:
                 violations.append(f"{req_id}: running venue '{venue}' but no evidence listed")
+            for entry in evidence:
+                target = _resolve_evidence(str(entry), repo_root)
+                if not target.exists():
+                    violations.append(
+                        f"{req_id}: evidence '{entry}' does not resolve to a file ({target})"
+                    )
         if venue in _NON_RUNNING_VENUES and status == "verified":
             violations.append(
                 f"{req_id}: venue '{venue}' is not a running profile but status='verified'"
@@ -107,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Flight source tree to scan for Satisfies: citations.",
     )
     args = parser.parse_args(argv)
-    violations = _check(args.vcrm, args.src)
+    violations = _check(args.vcrm, args.src, repo_root)
     if violations:
         print("VCRM check FAILED:")
         for line in violations:

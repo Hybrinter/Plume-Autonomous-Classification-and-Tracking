@@ -85,6 +85,28 @@ def test_running_requirement_without_evidence_fails(tmp_path: Path) -> None:
     assert "evidence" in result.stdout.lower()
 
 
+def test_unresolved_scenario_evidence_fails(tmp_path: Path) -> None:
+    """A running-venue requirement whose evidence names a missing scenario exits nonzero."""
+    fake_src = tmp_path / "src"
+    fake_src.mkdir()
+    (fake_src / "mod.py").write_text('"""Satisfies: REQ-REAL-001."""\n', encoding="utf-8")
+    vcrm = tmp_path / "vcrm.toml"
+    vcrm.write_text(
+        "[[requirement]]\n"
+        'id = "REQ-REAL-001"\n'
+        'statement = "evidence points at a scenario file that does not exist"\n'
+        'method = "SIL"\n'
+        'venue = "sil"\n'
+        'modules = ["REQ-REAL-001"]\n'
+        'evidence = ["scenario:does_not_exist_xyz"]\n'
+        'status = "verified"\n',
+        encoding="utf-8",
+    )
+    result = _run(vcrm, fake_src)
+    assert result.returncode != 0
+    assert "does not resolve" in result.stdout
+
+
 def test_pil_hil_verified_claim_fails(tmp_path: Path) -> None:
     """A pil/hil requirement claiming verified exits nonzero (non-running venue)."""
     fake_src = tmp_path / "src"

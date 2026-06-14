@@ -7,8 +7,9 @@
   side of the delta) and `docs/superpowers/specs/2026-05-30-pact-iss-payload-fsw-structure-design.md`
   (the structure spec, amended by Section 10 of this document).
 - Scope: the required final state of the flight software, its external interfaces, the data
-  system, the requirements/V&V baseline, and the SIL -> PIL -> HIL validation ladder. This spec
-  defines WHAT the final state is; implementation plans (per interface/phase) define the work.
+  system, the requirements/V&V baseline, and the validation configuration matrix (Section 9,
+  reframed from the original SIL -> PIL -> HIL ladder). This spec defines WHAT the final state is;
+  implementation plans (per interface/phase) define the work.
 
 ---
 
@@ -27,7 +28,8 @@ payload software:
 - Hazard-driven safety inhibits as the one non-relaxed area. The three hazardous functions are
   **gimbal motion** (stored mechanical energy), **launch-lock release**, and **thermal limits
   affecting the host**. Software obligations: honor inhibits, never actuate a hazardous function
-  without authorization, verify inhibits by test at every rung of the validation ladder.
+  without authorization, verify inhibits by test at every venue of the validation matrix
+  (Section 9).
 - Reliability posture unchanged: fail-safe, ground-recoverable, graceful degradation.
 
 **Hardware reality:** a full bench rig will exist but does not yet. This spec nominates concrete
@@ -251,8 +253,8 @@ retained.
 ## 8. Requirements + V&V baseline
 
 - `docs/requirements/`: one document per subsystem plus a system-level document. Each
-  requirement carries an ID, rationale, and **verification method + rung** (unit / SIL / PIL /
-  HIL).
+  requirement carries an ID, rationale, and **verification method + venue** (unit / SIL / PIL /
+  HIL) -- the venue being a corner of the Section 9 configuration matrix.
 - Traceability, lightweight but enforced: module docstrings cite the REQ IDs they satisfy
   (existing convention); tests mark the REQ IDs they verify; a CI script asserts every
   requirement is cited by at least one module and one test.
@@ -262,47 +264,136 @@ retained.
 
 ---
 
-## 9. Validation ladder: SIL -> PIL -> HIL, one shared harness
+## 9. Validation: a configuration matrix with a VCRM spine
 
-### `packages/gse` (new package: ground support equipment)
+> **Reframes the original "SIL -> PIL -> HIL ladder."** Validation is not a literal ladder of
+> three harnesses but a **configuration matrix**: a validation run is a point in a driver/compute
+> configuration space, and SIL / PIL / HIL are named *corners* of that space. The "ladder"
+> survives only as the documented *adoption order* in which corners are brought online. The
+> organizing artifact is a **VCRM** (requirement -> verification method -> venue), not the rungs.
+> See ADR-0010.
 
-One harness drives all three rungs, so a scenario written once climbs the ladder unchanged:
+### 9.0 Reconciliation note (this section postdates ~4 implementation phases)
 
-- **Station emulator**: the station side of the exact protocol `RealStationLink` speaks --
-  CCSDS command uplink, telemetry/product capture, AOS/LOS window scheduling. In-process for
-  SIL; on a bench PC over real Ethernet for PIL/HIL.
-- **Scenario format**: declarative files -- config overrides, scene/plume script, command
-  timeline, expected-outcome assertions ("TRACKING within N frames", "SAFE latched", "product
-  downlinked with valid CRC").
-- **Orchestrator + analysis**: runs scenarios, collects telemetry/logs, scores assertions, and
-  produces the V&V evidence the requirements matrix points at.
+The 2026-06-09 spec predates the sensor-ingest, closed-loop-gimbal, and link-transport phases.
+The matrix below is written against the **as-built** wiring, which differs from earlier sections
+in three ways that change no architectural invariant:
 
-Layering: `gse` imports `flight.libs` (message/packet definitions) and `sim`; `flight` never
-imports `gse`.
+- `build_apps(config, bus, clock, drivers, monitored, calib, uplink_key) -> SystemApps` already
+  carries `calib` (`MosaicCalibration`) and `uplink_key`; it is already driver-agnostic and
+  per-device. No change is required to support the matrix.
+- The real drivers are **built, not stubs**: `RealSensor` (PySpin), `RealGimbal` (pyserial),
+  `RealStationLink` (stdlib TCP/UDP CCSDS). `RealScalarSensor` remains a safe 0.0 stub, and **no
+  `LaunchLock` driver exists** (Protocol, real, or sim).
+- The `Drivers` bundle has six fields (`sensor`, `gimbal`, `detector`, `station`,
+  `thermal_sensor`, `power_sensor`).
 
-### SIL (every CI run)
+### 9.1 The matrix axes
 
-The existing harness, deepened to the new contracts: `sim.scene` renders physically-grounded
-**raw mosaic** frames (plume radiance, band responses, PSF, sensor noise); `sim.twin` gains
-gimbal dynamics, plume/scene kinematics, and a link-impairment model (latency, drops, AOS/LOS).
-Deterministic with `ManualClock` for CI; also runs wall-clock for interactive use.
-Retires: logic, contracts, control-loop correctness.
+A validation configuration selects, independently per axis, a real or sim implementation:
 
-### PIL (on the Jetson, before hardware exists)
+| Axis | sim | real | Selectable in code | Runs without hardware |
+|---|---|---|---|---|
+| sensor | `SimSensor` | `RealSensor` (PySpin) | yes | sim only (real => HIL) |
+| gimbal | `SimGimbal` | `RealGimbal` (pyserial) | yes | sim only (real => HIL) |
+| compute (detector) | `ScriptedDetector` | `OnnxDetector` (onnxruntime) | yes | sim now (real => PIL/optional) |
+| link | `SimStationLink` | `RealStationLink` (stdlib sockets) | yes | **both** |
+| clock | `ManualClock` | `RealClock` | yes (root-owned) | sim now (real => PIL/HIL) |
+| lock | -- | -- (`LaunchLock` not built) | **no -- inert** | neither (deferred) |
 
-The unmodified flight image on the Jetson Orin NX-class target -- sim drivers for
-sensor/gimbal/lock, but the **real** station link over real Ethernet to GSE on a bench PC.
-Retires: aarch64 issues, true onnxruntime latency (feeds the quantization eval gate), CPU/thermal
-load, real network-stack behavior.
+A seventh attribute, **host architecture** (x86_64 vs Jetson aarch64), is a *deployment fact*
+recorded per profile, not a code switch. The `lock` axis is **defined but inert**: there is no
+launch-lock device, so it is a permanent VCRM gap rather than a selectable value (launch lock
+remains deferred per the structure spec).
 
-### HIL (the future bench)
+### 9.2 Profiles (named corners; non-nesting)
 
-Real camera imaging a controllable scene (display/projector target), real PTU gimbal + launch
-lock on the bench, GSE as the station, all `drivers_real` selected by config.
-Retires: driver correctness, optics + calibration reality, closed-loop pointing on real
-dynamics, end-to-end command/safety/downlink paths.
+Profiles live in `profiles/*.toml` as config overrides on `config/default.toml`. Each profile is
+**named by the deviation it closes**, and profiles **do not nest**:
 
-Each requirement's verification rung (Section 8) maps onto this ladder.
+| Profile | sensor | gimbal | compute | link | clock | host | Status |
+|---|---|---|---|---|---|---|---|
+| `sil` | sim | sim | sim | sim | manual | x86 | **Runs every CI** |
+| `sil-link-real` | sim | sim | sim | **real** | manual | x86 | **Runs in CI** |
+| `pil` | sim | sim | sim/real | real | real | Jetson | Defined, not run |
+| `hil` | real | real | real | real | real | Jetson+bench | Defined, not run |
+
+- `sil` retires logic, contracts, and control-loop correctness (the existing deterministic SIL).
+- `sil-link-real` is the blessed x86 partial: it swaps in `RealStationLink` over a loopback
+  socket against the GSE station emulator, closing the "real CCSDS wire protocol, framing, and
+  AOS/LOS gating are never exercised in the closed loop" deviation -- with no SDK or hardware.
+- `pil` retires aarch64 issues, true onnxruntime latency (feeding the quantization eval gate),
+  CPU/thermal load, and real network-stack behavior on the Jetson.
+- `hil` retires driver correctness, optics/calibration reality, closed-loop pointing on real
+  dynamics, and the end-to-end command/safety/downlink paths on the bench.
+
+**No profile tests the real ground segment** -- the GSE station emulator stands in for the real
+station at every corner. "Real ground segment never tested" is a **permanent VCRM gap**.
+
+### 9.3 Wiring: `[environment]` + `select_drivers` (the only composition change)
+
+- A new `[environment]` config block (`EnvironmentConfig`, frozen/slots) carries one
+  `"sim" | "real"` field per selectable axis (plus the inert `lock` and an informational `host`).
+  Its defaults are **all-real** (the flight default) and mirror `config/default.toml` exactly
+  (the `test_config_defaults` invariant). Profiles override only the axes they deviate on.
+- A single factory `flight.core.select_drivers(config, clock, sim_inputs) -> Drivers` reads
+  `config.environment` and, per axis, lazy-imports `flight.hal.drivers_real.*` (only for "real"
+  axes) or constructs the sim driver. It lives in the composition root, so it is the one place
+  permitted to import concrete drivers (the `drivers-from-composition-roots-only` contract).
+  `sim_inputs` is a frozen bundle (rendered frames, housekeeping readings, detector/prob-mask,
+  inbound packets) consumed only by "sim" axes -- this is what reconciles "one factory" with the
+  fact that sim drivers need scene-provided inputs that config alone cannot carry.
+- `flight.core.main` and the SIL/GSE in-process harness both obtain their `Drivers` from
+  `select_drivers`. **`build_apps`, the `Scheduler`, and every app are untouched.**
+
+### 9.4 `packages/gse` (ground support equipment)
+
+A new workspace package providing the station side and the scenario machinery. **Layering:** `gse`
+imports `flight.libs` and `sim`; **neither `flight` nor `sim` imports `gse`** (new import-linter
+`forbidden` contracts).
+
+- **Station emulator** (`gse.station`): the station side of the exact protocol `RealStationLink`
+  speaks -- authenticated CCSDS command uplink (HMAC/seq/CRC, built from `flight.libs.ccsds` plus
+  the command dictionary), telemetry/product capture, and AOS/LOS window scheduling. In-process
+  (loopback sockets) for `sil-link-real`; on a bench PC over real Ethernet for PIL/HIL (future).
+- **Scenario format** (`gse.scenario`): declarative **TOML** -- a `[config]`/profile reference,
+  a `[scene]` plume/kinematics script with seed, a `[[commands]]` timeline (frame N -> command),
+  and `[[assertions]]` expected outcomes. **Every assertion is tagged `frame-portable` or
+  `realtime-only`.** Only frame/event-counted assertions port across venues unchanged; time-
+  deadline and ordering assertions are `realtime-only` and re-authored per venue as bounds
+  (SIL determinism is `ManualClock` + faked heartbeats, so wall-clock deadlines are meaningless
+  there).
+- **Stepping seam** (`gse.harness`): one scenario format, **two transport backends**. A
+  `HarnessBackend` Protocol (`build` / `step` / `inject_command` / `collect` / `shutdown`) is
+  defined now; the **`InProcessBackend` is implemented** (single-threaded `ManualClock` stepping
+  in the style of the existing `SilHarness`, plus the in-process station emulator for the
+  link-real corner). A **`SocketBackend` is defined but not implemented** (the future PIL/HIL
+  real-Ethernet backend) so the seam exists without the plumbing.
+- **Orchestrator + analysis** (`gse.orchestrator`): runs a scenario against a profile, injects
+  commands on the timeline, scores the frame-portable assertions (realtime-only assertions are
+  recorded as skipped-with-reason under SIL), and emits a JSON V&V evidence record that the VCRM
+  references.
+
+### 9.5 VCRM (the organizing spine)
+
+`docs/requirements/` carries the VCRM: each row is `requirement -> statement -> verification
+method (unit | SIL | PIL | HIL) -> venue/profile -> evidence (test or scenario id) -> status`.
+In this effort it is populated **only for the requirements the implemented `sil` and
+`sil-link-real` scenarios exercise** (command-ingress authentication, ACK/NACK contract, CCSDS
+framing, AOS/LOS gating, SAFE-on-thermal, closed-loop pointing); the complete requirements
+baseline (Section 8) remains future work. Traceability is enforced as before -- module docstrings
+cite REQ IDs and tests/scenarios tag them -- plus a **CI check** that asserts every VCRM
+requirement whose venue is a *running* profile is cited by at least one module and one test or
+scenario, and that no requirement claims verification at a venue that does not run. The permanent
+"real ground segment never tested" gap is a standing row.
+
+### 9.6 Adoption order (the "ladder," demoted)
+
+The historical SIL -> PIL -> HIL ordering survives only as the recommended order in which to bring
+corners online: prove logic and contracts at `sil`, the real link at `sil-link-real`, the Jetson
+realities at `pil`, and the physical plant at `hil`. It is documentation, not architecture;
+corners are independent points, not dependent rungs. Each requirement's verification method
+(Section 8) names the venue (corner) at which it is retired.
 
 ---
 
@@ -341,7 +432,10 @@ whole tree. (Execution timing remains user-gated.)
 6. Data system: core-hosted storage + prioritized downlink + model upload (Approach A).
 7. Process model: threads-in-one-process formalized; bounded queues; two-layer watchdog
    (supersedes the old spec's process-per-app clause).
-8. Validation ladder: SIL -> PIL -> HIL with a shared GSE harness.
+8. Validation configuration matrix (ADR-0010): profiles as corners of a driver/compute config
+   space, a VCRM spine, `select_drivers` + `[environment]`, the GSE station emulator + TOML
+   scenario format, and the in-process stepping seam. SIL + the `sil-link-real` x86 partial run;
+   PIL/HIL are defined, not run.
 
 ---
 

@@ -92,3 +92,25 @@ def test_default_policy_is_unbounded() -> None:
     assert len(_drain(sub)) == 50
     assert bus.total_dropped() == 0
     assert bus.total_overflow() == 0
+
+
+def test_queue_depth_counts_pending_without_consuming() -> None:
+    """queue_depth sums pending messages across subscribers and leaves them queued."""
+    bus = MessageBus()
+    sub_a = bus.subscribe(HeartbeatMsg)
+    sub_b = bus.subscribe(HeartbeatMsg)
+    bus.publish(_heartbeat(1))
+    bus.publish(_heartbeat(2))
+    # Two subscribers each hold two messages -> total depth 4; reading depth consumes nothing.
+    assert bus.queue_depth(HeartbeatMsg) == 4
+    assert bus.queue_depth(HeartbeatMsg) == 4
+    assert _drain(sub_a) == [1, 2]
+    assert bus.queue_depth(HeartbeatMsg) == 2  # only sub_b still holds its two
+    assert _drain(sub_b) == [1, 2]
+    assert bus.queue_depth(HeartbeatMsg) == 0
+
+
+def test_queue_depth_zero_for_unsubscribed_type() -> None:
+    """queue_depth returns 0 for a type that has no subscribers."""
+    bus = MessageBus()
+    assert bus.queue_depth(HeartbeatMsg) == 0

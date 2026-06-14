@@ -42,6 +42,7 @@ are deliberately absent rather than falsely marked verified.
 | REQ-PLAT-QUEUE-001 | Bounded bus queues + per-type overflow policy | unit | unit | test_bus | verified |
 | REQ-PLAT-SUP-001 | Thread supervision (restart->SAFE) + startup health gate | unit | unit | test_scheduler; test_health | verified |
 | REQ-CONFIG-INTEGRITY-001 | Config validation: ranges, cross-field, unknown-key | unit | unit | test_config_loader | verified |
+| REQ-OBS-SIL-001 | Read-only observability (bus queue-depth + state introspection) for passive SIL telemetry capture | SIL | sil | test_bus; test_analysis_recorder; test_analysis_report | verified |
 
 ## Permanent gaps
 

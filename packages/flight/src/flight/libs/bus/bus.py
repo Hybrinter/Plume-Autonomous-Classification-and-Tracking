@@ -17,7 +17,12 @@ root which knows the message types -- the bus itself imports no message class):
 The default policy is unbounded DROP_OLDEST (maxsize 0), so an unconfigured bus behaves exactly
 as before (the deterministic SIL keeps an unbounded bus; only the flight entry installs bounds).
 
-Satisfies: REQ-PLAT-QUEUE-001.
+queue_depth() is a read-only observability accessor (it sums qsize across a type's subscriber
+queues without consuming any message), so passive telemetry tooling can sample per-type consumer
+backlog without altering delivery -- the flight-side hook that lets the SIL analysis tool capture
+bus health with zero behavioral change.
+
+Satisfies: REQ-PLAT-QUEUE-001, REQ-OBS-SIL-001.
 """
 
 import enum
@@ -170,3 +175,23 @@ class MessageBus:
     def total_overflow(self) -> int:
         """Return the total soft-bound-overflow count across all NEVER_DROP types."""
         return sum(self._overflow.values())
+
+    def queue_depth(self, message_type: type) -> int:
+        """Return the total messages currently queued across all subscribers of message_type.
+
+        Args:
+            message_type: The exact message class whose subscriber backlog to measure.
+
+        Returns:
+            The sum of qsize() over every Subscription queue registered for message_type, or 0
+            when the type has no subscribers.
+
+        Notes:
+            A read-only observability accessor: it never consumes a message and never alters
+            delivery, so passive telemetry tooling can sample per-type consumer backlog each step
+            without perturbing the system. qsize() is approximate under concurrency, but the
+            deterministic single-threaded SIL reads it between steps where it is exact.
+        """
+        with self._lock:
+            queues = list(self._subscribers.get(message_type, []))
+        return sum(queue.qsize() for queue in queues)

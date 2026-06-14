@@ -210,6 +210,19 @@ modules = ["REQ-CONFIG-INTEGRITY-001"]
 evidence = ["packages/flight/tests/test_config_loader.py"]
 status = "verified"
 
+[[requirement]]
+id = "REQ-OBS-SIL-001"
+statement = "Read-only observability: a bus queue-depth accessor + read-only app-state introspection let a passive tool capture per-step SIL telemetry with zero flight behavioral change."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-OBS-SIL-001"]
+evidence = [
+    "packages/flight/tests/test_bus.py",
+    "packages/tools/tests/test_analysis_recorder.py",
+    "packages/tools/tests/test_analysis_report.py",
+]
+status = "verified"
+
 # --- PERMANENT GAP (recorded, never closed by the in-process/SIL venues) -----------------
 [[requirement]]
 id = "GAP-GROUND-SEGMENT"

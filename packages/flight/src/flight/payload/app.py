@@ -46,7 +46,7 @@ from dataclasses import dataclass
 import numpy as np
 
 # internal
-from flight.hal.interfaces import GimbalActuator, GimbalPosition, ImagingSensor
+from flight.hal.interfaces import GimbalActuator, GimbalPosition, ImagingSensor, StorageWriter
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import (
     FaultConfig,
@@ -59,12 +59,15 @@ from flight.libs.messages import (
     FaultEventMsg,
     GimbalCommandMsg,
     HeartbeatMsg,
+    InferenceResultMsg,
     ModeChangeMsg,
     ProcessedFrameMsg,
+    ProductRefMsg,
 )
 from flight.libs.time import Clock
 from flight.libs.types import (
     Band,
+    DownlinkPriority,
     Err,
     FaultCode,
     GimbalCommandMode,
@@ -135,6 +138,7 @@ class PayloadApp:
     bus: MessageBus
     clock: Clock
     calib: MosaicCalibration
+    storage: StorageWriter
     sensor_cfg: SensorConfig
     inference_cfg: InferenceConfig
     preprocessing_cfg: PreprocessingConfig
@@ -150,6 +154,7 @@ class PayloadApp:
         bus: MessageBus,
         clock: Clock,
         calib: MosaicCalibration,
+        storage: StorageWriter,
     ) -> PayloadApp:
         """Assemble a PayloadApp from a PactConfig, injected services, and a calibration.
 
@@ -201,6 +206,7 @@ class PayloadApp:
             bus=bus,
             clock=clock,
             calib=calib,
+            storage=storage,
             sensor_cfg=cfg.sensor,
             inference_cfg=cfg.inference,
             preprocessing_cfg=cfg.preprocessing,
@@ -332,6 +338,7 @@ class PayloadApp:
             return state, self._fault_outcome(raw.frame_id, detect_result.error, state)
         inference = detect_result.value
         self.bus.publish(inference)
+        self._store_mask_product(inference)
 
         new_state, request, telemetry, ctrl_fault = self.controller.step(
             state, inference, now, gimbal_pos, safe_commanded, safe_cleared
@@ -442,6 +449,41 @@ class PayloadApp:
                         self.gimbal.stow()
         finally:
             self.sensor.stop_acquisition()
+
+    def _store_mask_product(self, inference: InferenceResultMsg) -> None:
+        """Persist a compact uint8 thumbnail of the segmentation mask as a science product.
+
+        The mask is a science product (spec Section 4): it is decimated to at most 32x32 and
+        quantized to bytes, stored via the injected StorageWriter (bypassing the bus -- the
+        large-artifact invariant), and advertised on the bus as a compact ProductRefMsg the
+        downlink manager can prioritize. A storage failure is swallowed here (the StorageWriter
+        already published a STORAGE_FULL fault); the frame loop continues.
+
+        Inputs:
+            inference (InferenceResultMsg): The detection result whose mask is stored.
+
+        Outputs:
+            None.
+        """
+        mask = np.asarray(inference.mask, dtype=np.float32)  # np.ndarray[float32, (H, W)]
+        if mask.ndim != 2 or mask.size == 0:
+            return
+        step = max(1, mask.shape[0] // 32, mask.shape[1] // 32)
+        thumb = (np.clip(mask[::step, ::step], 0.0, 1.0) * 255.0).astype(np.uint8)
+        data = thumb.tobytes()
+        item_id = f"mask_thumb_{inference.frame_id}"
+        result = self.storage.store(item_id, data, DownlinkPriority.SCIENCE_PRODUCT)
+        if isinstance(result, Ok):
+            self.bus.publish(
+                ProductRefMsg(
+                    msg_type=MessageType.PRODUCT_REF,
+                    timestamp_utc=self.clock.wall_clock_iso(),
+                    entry_id=result.value,
+                    priority=DownlinkPriority.SCIENCE_PRODUCT,
+                    item_id=item_id,
+                    byte_len=len(data),
+                )
+            )
 
     def _publish_fault(self, code: FaultCode, detail: str) -> None:
         """Publish a FaultEventMsg from the payload subsystem onto the bus.

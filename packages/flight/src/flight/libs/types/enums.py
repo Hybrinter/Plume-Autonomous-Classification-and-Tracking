@@ -82,6 +82,7 @@ class FaultCode(enum.Enum):
     INFERENCE_NAN = "INFERENCE_NAN"
     CAMERA_STALL = "CAMERA_STALL"
     STORAGE_FULL = "STORAGE_FULL"
+    STORAGE_CORRUPT = "STORAGE_CORRUPT"
     THERMAL_OVER_LIMIT = "THERMAL_OVER_LIMIT"
     POWER_OVER_LIMIT = "POWER_OVER_LIMIT"
     GIMBAL_RUNAWAY = "GIMBAL_RUNAWAY"
@@ -142,6 +143,7 @@ class MessageType(enum.Enum):
     ROUTED_COMMAND = "ROUTED_COMMAND"
     SAFETY_STATE = "SAFETY_STATE"
     STORAGE_WRITE = "STORAGE_WRITE"
+    PRODUCT_REF = "PRODUCT_REF"
     DOWNLINK_ITEM = "DOWNLINK_ITEM"
     UPLINK_CHUNK = "UPLINK_CHUNK"
     COMMAND_ACK = "COMMAND_ACK"
@@ -151,13 +153,15 @@ class MessageType(enum.Enum):
 class DownlinkPriority(enum.Enum):
     """Downlink queue priority. REQ-COMM-HIGH-001.
 
-    Lower integer value == higher priority (used directly by queue.PriorityQueue).
+    Lower integer value == higher priority (used directly by the downlink manager's ordering).
+    The order encodes spec Section 6: fault events > command acks > housekeeping telemetry >
+    science products.
     """
 
-    HEALTH_TELEMETRY = 0  # highest priority
-    SCIENCE_DATA = 1
-    COMPRESSED_IMAGERY = 2
-    RAW_IMAGERY = 3  # lowest priority
+    FAULT_EVENT = 0  # highest priority
+    COMMAND_ACK = 1
+    HK_TELEMETRY = 2
+    SCIENCE_PRODUCT = 3  # lowest priority
 
 
 class ModelDeployState(enum.Enum):

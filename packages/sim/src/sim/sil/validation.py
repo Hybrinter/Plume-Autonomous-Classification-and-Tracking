@@ -27,7 +27,8 @@ Satisfies: REQ-OPER-HIGH-002.
 from __future__ import annotations
 
 # stdlib
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, replace
 
 # internal
 from flight.core.composition import MONITORED_SUBSYSTEMS, SystemApps, build_apps
@@ -97,7 +98,15 @@ def build_validation_system(
         The returned drivers fields are the exact Drivers.* objects select_drivers built, so
         the holder needs no cast: the Drivers fields are already declared with the same HAL
         Protocols ValidationSystem uses.
+
+        Storage is redirected to a fresh temp directory so the deterministic in-process harness
+        is hermetic (no repo pollution) and isolated per build; the flight entry keeps the
+        configured data_root.
     """
+    config = replace(
+        config,
+        storage=replace(config.storage, data_root=tempfile.mkdtemp(prefix="pact-sil-storage-")),
+    )
     bus = MessageBus()
     drivers = select_drivers(config, clock, sim_inputs)
     calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)

@@ -122,6 +122,8 @@ def main(config_path: str = "config/default.toml") -> None:
             ("thermal", apps.thermal),
             ("electrical", apps.electrical),
             ("command_router", apps.command_router),
+            ("storage", apps.storage),
+            ("downlink", apps.downlink),
         ]
     )
     scheduler.start()

@@ -2,10 +2,14 @@
 
 Inbound: receive_packet (raw CCSDS bytes) -> process_inbound (decode/CRC/HMAC/parse/validate/
 dedup) -> publish CommandMsg (validated) + always publish a CommandAckMsg (ACCEPTED/REJECTED).
-Outbound: when AOS, drain CommandAckMsg + DownlinkItemMsg, encode each into a CCSDS TM packet,
-and send_packet. Each tick also publishes the current LinkStateMsg. The ingress decision logic
-is a pure core (flight.iss_iface.ingress); this shell owns the bus, clock, HMAC key, and the
-mutable sequence state.
+Outbound: when AOS, drain the DownlinkItemMsg stream the core downlink manager emits (the sole
+prioritizer), encode each into a CCSDS TM packet, and send_packet. A DownlinkItemMsg carrying a
+storage_ref is resolved to its bytes via the injected StorageReader at transmission time (the
+large-artifact invariant); inline items send their payload_bytes directly. Each tick also
+publishes the current LinkStateMsg. The ingress decision logic is a pure core
+(flight.iss_iface.ingress); this shell owns the bus, clock, HMAC key, and the mutable sequence
+state. Command acks are NOT downlinked here anymore -- they flow ingress -> bus -> downlink
+manager -> DownlinkItemMsg so all downlink classes share one prioritized, budgeted path.
 
 Contains:
   - IngressState: mutable per-source last-seq map + outbound TM sequence counter.
@@ -17,12 +21,11 @@ Satisfies: REQ-COMM-HIGH-001, REQ-COMM-HIGH-003, REQ-COMM-HIGH-004.
 from __future__ import annotations
 
 # stdlib
-import json
 import threading
 from dataclasses import dataclass, field, replace
 
 # internal
-from flight.hal.interfaces import StationLink
+from flight.hal.interfaces import StationLink, StorageReader
 from flight.iss_iface.ingress import IngressOutcome, process_inbound
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.ccsds import CcsdsHeader, encode_packet
@@ -66,10 +69,10 @@ class IssIfaceApp:
     ingress_cfg: CommandIngressConfig
     uplink_key: bytes
     link: StationLink
+    storage_reader: StorageReader
     bus: MessageBus
     clock: Clock
     downlink: Subscription[DownlinkItemMsg]
-    acks: Subscription[CommandAckMsg]
     state: IngressState
 
     @staticmethod
@@ -79,8 +82,9 @@ class IssIfaceApp:
         clock: Clock,
         link: StationLink,
         uplink_key: bytes,
+        storage_reader: StorageReader,
     ) -> IssIfaceApp:
-        """Assemble an IssIfaceApp, subscribing to outbound downlink items and command acks.
+        """Assemble an IssIfaceApp, subscribing to the downlink-manager item stream.
 
         Args:
             cfg: Top-level PactConfig (fault for timing; link + command_ingress for ingress).
@@ -88,10 +92,11 @@ class IssIfaceApp:
             clock: Injected Clock (real or manual).
             link: The injected StationLink driver (sim or real).
             uplink_key: The HMAC secret loaded by the composition root.
+            storage_reader: The injected StorageReader for resolving product references at
+                transmission time (the StorageService's read face).
 
         Returns:
-            An IssIfaceApp with fresh DownlinkItemMsg + CommandAckMsg subscriptions and empty
-            ingress state.
+            An IssIfaceApp with a fresh DownlinkItemMsg subscription and empty ingress state.
         """
         return IssIfaceApp(
             fault_cfg=cfg.fault,
@@ -99,10 +104,10 @@ class IssIfaceApp:
             ingress_cfg=cfg.command_ingress,
             uplink_key=uplink_key,
             link=link,
+            storage_reader=storage_reader,
             bus=bus,
             clock=clock,
             downlink=bus.subscribe(DownlinkItemMsg),
-            acks=bus.subscribe(CommandAckMsg),
             state=IngressState(),
         )
 
@@ -140,21 +145,28 @@ class IssIfaceApp:
         return published
 
     def pump_downlink(self) -> int:
-        """When AOS, encode and send pending command acks and downlink items as TM packets.
+        """When AOS, encode and send the downlink manager's DownlinkItemMsg stream as TM packets.
 
         Returns:
-            The number of packets sent. During LOS nothing is drained (acks/items wait in the
-            subscription queue). A send Err emits a fault and is not counted.
+            The number of packets sent. During LOS nothing is drained (items wait in the
+            subscription queue). A storage_ref item is resolved to its bytes via the injected
+            StorageReader; a failed resolution emits a fault and is skipped. A send Err emits a
+            fault and is not counted.
         """
         if self.link.link_state() is not LinkState.AOS:
             return 0
         sent = 0
-        while not self.acks.empty():
-            ack = self.acks.get_nowait()
-            sent += self._send_tm(self._ack_to_json(ack))
         while not self.downlink.empty():
             item = self.downlink.get_nowait()
-            sent += self._send_tm(item.payload_bytes)
+            if item.storage_ref:
+                resolved = self.storage_reader.read(item.storage_ref)
+                if isinstance(resolved, Err):
+                    self._publish_fault(resolved.error, f"downlink read failed {item.storage_ref}")
+                    continue
+                body = resolved.value
+            else:
+                body = item.payload_bytes
+            sent += self._send_tm(body)
         return sent
 
     def tick(self) -> None:
@@ -215,21 +227,6 @@ class IssIfaceApp:
             return 1
         self._publish_fault(result.error, "station downlink send failed")
         return 0
-
-    def _ack_to_json(self, ack: CommandAckMsg) -> bytes:
-        """Serialize a CommandAckMsg to compact JSON bytes for downlink."""
-        return json.dumps(
-            {
-                "type": "command_ack",
-                "status": ack.status.value,
-                "command_id": ack.command_id,
-                "source": ack.source,
-                "seq": ack.seq,
-                "fault_code": ack.fault_code.value,
-                "detail": ack.detail,
-            },
-            separators=(",", ":"),
-        ).encode("utf-8")
 
     def _publish_ack(self, outcome: IngressOutcome) -> None:
         """Publish a CommandAckMsg for one ingress outcome (always, accept or reject)."""

@@ -39,11 +39,14 @@ def step_once(
     """Advance every subsystem one deterministic cycle over the shared bus.
 
     Order: poll mode changes -> acquire + process one payload frame (if available) -> ISS
-    bridge pump (ingress publishes CommandMsg) -> command router (CommandMsg ->
-    RoutedCommandMsg + acks) -> housekeeping handle-commands + sample -> publish per-subsystem
-    liveness heartbeats -> FDIR tick (drains heartbeats + faults + routed EXIT_SAFE, publishes
-    any SAFE + the SafetyStateMsg). Ingress, routing, and target execution all occur in one
-    cycle so a routed command is executed and acked the same step it ingests.
+    bridge pump (ingress publishes CommandMsg; downlink egress sends the prior pass's
+    DownlinkItemMsg) -> command router (CommandMsg -> RoutedCommandMsg + acks) -> housekeeping
+    handle-commands + sample -> storage tick (persist telemetry/faults + ledger) -> downlink
+    manager tick (enqueue downlinkables + emit DownlinkItemMsg) -> publish per-subsystem liveness
+    heartbeats -> FDIR tick (drains heartbeats + faults + routed EXIT_SAFE, publishes any SAFE +
+    the SafetyStateMsg). Ingress, routing, and target execution all occur in one cycle so a
+    routed command is executed and acked the same step it ingests; downlink items emitted this
+    cycle are transmitted by iss_iface on the next.
 
     Args:
         apps: The wired SystemApps (payload / fault / iss_iface / thermal / electrical).
@@ -84,6 +87,9 @@ def step_once(
     apps.thermal.sample()
     apps.electrical.handle_commands()
     apps.electrical.sample()
+
+    apps.storage.tick()
+    apps.downlink.tick()
 
     for subsystem in MONITORED_SUBSYSTEMS:
         bus.publish(

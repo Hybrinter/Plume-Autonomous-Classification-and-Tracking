@@ -19,6 +19,8 @@ from dataclasses import dataclass
 
 # internal
 from flight.core.command_router import CommandRouter
+from flight.core.downlink import DownlinkManager
+from flight.core.storage import StorageService
 from flight.electrical.app import ElectricalApp
 from flight.fault.app import FaultApp
 from flight.hal.interfaces import GimbalActuator, ImagingSensor, ScalarSensor, StationLink
@@ -39,6 +41,8 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "thermal",
     "electrical",
     "command_router",
+    "storage",
+    "downlink",
 )
 
 
@@ -73,6 +77,8 @@ class SystemApps:
     thermal: ThermalApp
     electrical: ElectricalApp
     command_router: CommandRouter
+    storage: StorageService
+    downlink: DownlinkManager
 
 
 def build_apps(
@@ -102,13 +108,16 @@ def build_apps(
     Returns:
         A SystemApps with all five apps constructed.
     """
+    storage = StorageService.from_config(config, bus, clock)
     return SystemApps(
         payload=PayloadApp.from_config(
-            config, drivers.sensor, drivers.gimbal, drivers.detector, bus, clock, calib
+            config, drivers.sensor, drivers.gimbal, drivers.detector, bus, clock, calib, storage
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored),
-        iss_iface=IssIfaceApp.from_config(config, bus, clock, drivers.station, uplink_key),
+        iss_iface=IssIfaceApp.from_config(config, bus, clock, drivers.station, uplink_key, storage),
         thermal=ThermalApp.from_config(config, bus, clock, drivers.thermal_sensor),
         electrical=ElectricalApp.from_config(config, bus, clock, drivers.power_sensor),
         command_router=CommandRouter.from_config(config, bus, clock),
+        storage=storage,
+        downlink=DownlinkManager.from_config(config, bus, clock),
     )

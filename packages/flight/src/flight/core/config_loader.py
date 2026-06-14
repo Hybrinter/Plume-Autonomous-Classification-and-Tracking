@@ -232,6 +232,8 @@ def _range_violation(data: dict[str, Any]) -> str | None:
     for cap_key in ("max_daily_downlink_bytes", "max_daily_uplink_bytes"):
         if int(data.get("comms", {}).get(cap_key, 1)) <= 0:
             return f"comms.{cap_key} must be > 0"
+    if int(data.get("comms", {}).get("downlink_max_bytes_per_pass", 1)) <= 0:
+        return "comms.downlink_max_bytes_per_pass must be > 0"
     if not (0 <= int(data.get("comms", {}).get("ccsds_apid", 1)) <= 0x7FF):
         return "comms.ccsds_apid must fit in 11 bits (0..0x7FF)"
 
@@ -422,6 +424,9 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         comm_window_days=tuple(comms.get("comm_window_days", list(CommsConfig.comm_window_days))),
         ccsds_apid=int(comms.get("ccsds_apid", CommsConfig.ccsds_apid)),
         staged_model_path=str(comms.get("staged_model_path", CommsConfig.staged_model_path)),
+        downlink_max_bytes_per_pass=int(
+            comms.get("downlink_max_bytes_per_pass", CommsConfig.downlink_max_bytes_per_pass)
+        ),
     )
 
     stor = data.get("storage", {})

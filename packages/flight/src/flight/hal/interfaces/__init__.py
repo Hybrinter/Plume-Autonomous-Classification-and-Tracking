@@ -6,5 +6,14 @@ from flight.hal.interfaces.gimbal import GimbalActuator, GimbalPosition
 from flight.hal.interfaces.scalar import ScalarSensor
 from flight.hal.interfaces.sensor import ImagingSensor
 from flight.hal.interfaces.station import StationLink
+from flight.hal.interfaces.storage import StorageReader, StorageWriter
 
-__all__ = ["GimbalActuator", "GimbalPosition", "ImagingSensor", "ScalarSensor", "StationLink"]
+__all__ = [
+    "GimbalActuator",
+    "GimbalPosition",
+    "ImagingSensor",
+    "ScalarSensor",
+    "StationLink",
+    "StorageReader",
+    "StorageWriter",
+]

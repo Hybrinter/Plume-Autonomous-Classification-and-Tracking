@@ -76,6 +76,7 @@ class CommsConfig:
     comm_window_days: tuple[str, ...] = ("MON", "TUE", "WED", "THU", "FRI")  # weekdays only
     ccsds_apid: int = 0x001  # CCSDS Application Process Identifier
     staged_model_path: str = "data/models/staged.pt"  # staging path for uploaded model chunks
+    downlink_max_bytes_per_pass: int = 1_048_576  # downlink manager byte budget per AOS pass
 
 
 @dataclass(frozen=True)

@@ -45,6 +45,7 @@ max_daily_uplink_bytes = 104857600      # 100 MB
 comm_window_days = ["MON", "TUE", "WED", "THU", "FRI"]
 ccsds_apid = 1
 staged_model_path = "data/models/staged.pt"
+downlink_max_bytes_per_pass = 1048576
 
 [storage]
 data_root = "data/flight"

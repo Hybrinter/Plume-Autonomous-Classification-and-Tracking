@@ -14,6 +14,7 @@ from flight.libs.messages import (
 )
 from flight.libs.time import ManualClock
 from flight.libs.types import (
+    DownlinkPriority,
     FaultCode,
     GimbalCommandMode,
     GimbalState,
@@ -26,6 +27,24 @@ from flight.libs.types import (
 from flight.payload.app import PayloadApp, TickOutcome
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.model import DetectorBackend, ScriptedDetector
+
+
+class _MemStorage:
+    """In-memory StorageWriter double for payload tests (records stored products)."""
+
+    def __init__(self) -> None:
+        """Start with an empty store and a zeroed entry counter."""
+        self.items: dict[str, bytes] = {}
+        self._n = 0
+
+    def store(
+        self, item_id: str, data: bytes, priority: DownlinkPriority
+    ) -> Result[str, FaultCode]:
+        """Record data under a fresh entry id and return it."""
+        entry_id = f"{self._n:08d}_{item_id}"
+        self._n += 1
+        self.items[entry_id] = data
+        return Ok(entry_id)
 
 
 def _mosaic_frame(frame_id: int) -> MosaicFrame:
@@ -62,7 +81,7 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     gimbal = SimGimbal(clock=clock)
     sensor = SimSensor([])  # frames are fed directly to process_frame in these tests
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
-    app = PayloadApp.from_config(cfg, sensor, gimbal, detector, bus, clock, calib)
+    app = PayloadApp.from_config(cfg, sensor, gimbal, detector, bus, clock, calib, _MemStorage())
     return app, bus, gimbal, clock
 
 

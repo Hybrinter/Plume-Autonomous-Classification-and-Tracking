@@ -60,6 +60,8 @@ def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
         "thermal",
         "electrical",
         "command_router",
+        "storage",
+        "downlink",
     }
 
 

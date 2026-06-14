@@ -259,15 +259,40 @@ class StorageWriteMsg:
 
 
 @dataclass(frozen=True)
+class ProductRefMsg:
+    """Compact reference to a stored science product, published after the payload stores it.
+
+    The payload persists large artifacts (mask thumbnails) via the injected StorageWriter
+    (bypassing the bus, per the large-artifact invariant) and publishes only this compact
+    reference. The downlink manager enqueues it by priority; iss_iface fetches the bytes from
+    storage via the injected StorageReader at transmission time. Keeps tensors/masks off the bus.
+    """
+
+    msg_type: MessageType  # must be MessageType.PRODUCT_REF
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    entry_id: str  # storage entry id returned by StorageWriter.store
+    priority: DownlinkPriority  # downlink priority (typically SCIENCE_PRODUCT)
+    item_id: str  # human-readable product identifier (e.g. "mask_thumb_<frame>")
+    byte_len: int  # size of the stored product in bytes (for budget accounting)
+
+
+@dataclass(frozen=True)
 class DownlinkItemMsg:
-    """A single item queued for CCSDS downlink, with priority and CRC."""
+    """A single item the downlink manager has selected for CCSDS downlink, in priority order.
+
+    Produced only by the downlink manager (the sole prioritizer) and consumed only by
+    iss_iface (the link egress). Carries either inline payload_bytes (compact items: faults,
+    acks, HK telemetry) or a non-empty storage_ref naming a stored product iss_iface fetches
+    via the injected StorageReader at transmission time (large-artifact invariant).
+    """
 
     msg_type: MessageType  # must be MessageType.DOWNLINK_ITEM
     timestamp_utc: str  # ISO 8601, millisecond precision
     priority: DownlinkPriority  # queue priority (lower int == higher priority)
-    payload_bytes: bytes  # serialized content to downlink
-    crc32: int  # CRC-32 of payload_bytes
+    payload_bytes: bytes  # serialized inline content (empty when storage_ref is set)
+    crc32: int  # CRC-32 of payload_bytes (0 for storage_ref items)
     item_id: str  # unique item identifier string
+    storage_ref: str = ""  # storage entry id to fetch at tx time; "" => inline payload_bytes
 
 
 @dataclass(frozen=True)

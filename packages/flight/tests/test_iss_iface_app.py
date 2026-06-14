@@ -11,18 +11,58 @@ from flight.iss_iface.app import IssIfaceApp
 from flight.libs.bus import MessageBus
 from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
-from flight.libs.messages import CommandAckMsg, CommandMsg
+from flight.libs.messages import CommandAckMsg, CommandMsg, DownlinkItemMsg, FaultEventMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import AckStatus, FaultCode, LinkState, MessageType
+from flight.libs.types import (
+    AckStatus,
+    DownlinkPriority,
+    Err,
+    FaultCode,
+    LinkState,
+    MessageType,
+    Ok,
+    Result,
+)
 
 _KEY = b"test-iss-iface-key-00000000000000"
 
 
-def _app_with_link(link: SimStationLink) -> tuple[IssIfaceApp, MessageBus]:
+class _MemStorageReader:
+    """In-memory StorageReader double for iss_iface tests (entry id -> bytes)."""
+
+    def __init__(self, items: dict[str, bytes] | None = None) -> None:
+        """Start with an optional pre-populated entry map."""
+        self.items = items or {}
+
+    def read(self, entry_id: str) -> Result[bytes, FaultCode]:
+        """Return the stored bytes for entry_id, or Err(STORAGE_CORRUPT) when missing."""
+        if entry_id in self.items:
+            return Ok(self.items[entry_id])
+        return Err(FaultCode.STORAGE_CORRUPT)
+
+
+def _app_with_link(
+    link: SimStationLink, storage: _MemStorageReader | None = None
+) -> tuple[IssIfaceApp, MessageBus]:
     """Build an IssIfaceApp over the given link with a fresh bus and the shared test key."""
     bus = MessageBus()
-    app = IssIfaceApp.from_config(PactConfig(), bus, ManualClock(), link, _KEY)
+    app = IssIfaceApp.from_config(
+        PactConfig(), bus, ManualClock(), link, _KEY, storage or _MemStorageReader()
+    )
     return app, bus
+
+
+def _downlink_item(payload: bytes = b"x", storage_ref: str = "") -> DownlinkItemMsg:
+    """Build a DownlinkItemMsg (inline or storage-ref) for downlink-egress tests."""
+    return DownlinkItemMsg(
+        msg_type=MessageType.DOWNLINK_ITEM,
+        timestamp_utc="2026-01-01T00:00:00.000Z",
+        priority=DownlinkPriority.COMMAND_ACK,
+        payload_bytes=payload,
+        crc32=0,
+        item_id="item-1",
+        storage_ref=storage_ref,
+    )
 
 
 def test_valid_signed_command_produces_command_msg_and_accepted_ack() -> None:
@@ -73,46 +113,45 @@ def test_tampered_packet_produces_no_command_msg_and_rejected_ack() -> None:
     assert rejected[0].fault_code is FaultCode.COMMAND_AUTH_FAIL
 
 
-def test_pump_downlink_holds_acks_during_los() -> None:
-    """Acks queued during LOS are held in the subscription and not sent."""
+def test_pump_downlink_holds_items_during_los() -> None:
+    """DownlinkItemMsg queued during LOS are held in the subscription and not sent."""
     link = SimStationLink(link_state=LinkState.LOS)
     app, bus = _app_with_link(link)
-    bus.publish(
-        CommandAckMsg(
-            msg_type=MessageType.COMMAND_ACK,
-            timestamp_utc="2026-01-01T00:00:00.000Z",
-            status=AckStatus.ACCEPTED,
-            command_id="PING",
-            source="ground",
-            seq=1,
-            fault_code=FaultCode.NONE,
-            detail="",
-        )
-    )
+    bus.publish(_downlink_item())
     sent = app.pump_downlink()
     assert sent == 0
     assert len(link.sent) == 0
 
 
-def test_pump_downlink_drains_acks_during_aos() -> None:
-    """Acks are encoded and sent as TM packets when the link is AOS."""
+def test_pump_downlink_drains_items_during_aos() -> None:
+    """Inline DownlinkItemMsg are encoded and sent as TM packets when the link is AOS."""
     link = SimStationLink(link_state=LinkState.AOS)
     app, bus = _app_with_link(link)
-    bus.publish(
-        CommandAckMsg(
-            msg_type=MessageType.COMMAND_ACK,
-            timestamp_utc="2026-01-01T00:00:00.000Z",
-            status=AckStatus.ACCEPTED,
-            command_id="PING",
-            source="ground",
-            seq=1,
-            fault_code=FaultCode.NONE,
-            detail="",
-        )
-    )
+    bus.publish(_downlink_item())
     sent = app.pump_downlink()
     assert sent == 1
     assert len(link.sent) == 1
+
+
+def test_pump_downlink_resolves_storage_ref() -> None:
+    """A storage-ref DownlinkItemMsg is resolved to its bytes via the StorageReader and sent."""
+    link = SimStationLink(link_state=LinkState.AOS)
+    app, bus = _app_with_link(link, _MemStorageReader({"entry-1": b"product-bytes"}))
+    bus.publish(_downlink_item(payload=b"", storage_ref="entry-1"))
+    sent = app.pump_downlink()
+    assert sent == 1
+    assert len(link.sent) == 1
+
+
+def test_pump_downlink_skips_unresolvable_storage_ref() -> None:
+    """A storage-ref that cannot be resolved emits a fault and is not sent."""
+    link = SimStationLink(link_state=LinkState.AOS)
+    app, bus = _app_with_link(link, _MemStorageReader({}))
+    fault_sub = bus.subscribe(FaultEventMsg)
+    bus.publish(_downlink_item(payload=b"", storage_ref="missing"))
+    sent = app.pump_downlink()
+    assert sent == 0
+    assert not fault_sub.empty()
 
 
 def test_tick_publishes_link_state_msg() -> None:

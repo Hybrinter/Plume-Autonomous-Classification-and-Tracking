@@ -12,6 +12,7 @@ Satisfies: REQ-OPER-HIGH-002 (type-safe, validated config at startup).
 from __future__ import annotations
 
 # stdlib
+import dataclasses
 import tomllib
 from typing import Any
 
@@ -31,7 +32,24 @@ from flight.libs.config import (
     SensorConfig,
     StorageConfig,
 )
-from flight.libs.types import Err, Ok, Result
+from flight.libs.types import Band, Err, Ok, Result
+
+# Maps each TOML section name to the frozen config dataclass that backs it. Used to reject
+# unknown sections and unknown per-section keys (typos must fail loudly at startup, not be
+# silently ignored -- the one place raising/Err on a bad config is correct).
+_SECTION_TO_CLASS: dict[str, type] = {
+    "controller": ControllerConfig,
+    "inference": InferenceConfig,
+    "comms": CommsConfig,
+    "storage": StorageConfig,
+    "fault": FaultConfig,
+    "preprocessing": PreprocessingConfig,
+    "sensor": SensorConfig,
+    "gimbal": GimbalConfig,
+    "link": LinkConfig,
+    "command_ingress": CommandIngressConfig,
+    "environment": EnvironmentConfig,
+}
 
 
 def load_config(
@@ -91,30 +109,189 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _validate(data: dict[str, Any]) -> str | None:
-    """Validate top-level config values.  Return an error string or None if valid.
+    """Validate the merged config dict. Return the first violation string, or None if valid.
 
-    Checks safety-relevant range constraints for the link transport and command-ingress
-    sections. Returns the first violation found, or None if all checks pass.
+    Runs, in order: unknown-section/unknown-key rejection (typo guard), per-section range
+    checks, then cross-field checks (gimbal travel envelope, mosaic/band consistency). All
+    checks run against the merged dict (default.toml + optional override), so every section
+    and field is present with at least its default value.
+
+    Args:
+        data: The merged TOML dict to validate.
+
+    Returns:
+        A human-readable violation string for the first failed check, or None if the config
+        is internally consistent.
 
     Notes:
-        APID values must fit in 11 bits (0..0x7FF) per the CCSDS primary-header layout.
-        Port numbers must be in the valid TCP/UDP range 1..65535.
-        socket_timeout_s must be positive so the link thread can remain responsive.
+        APID values must fit in 11 bits (0..0x7FF) per the CCSDS primary-header layout; ports
+        in 1..65535; mosaic dimensions even (2x2 CFA separation); mosaic_layout a permutation
+        of the four Band names; input_bands a subset of mosaic_layout. Unknown keys are
+        rejected so a typo'd field fails at startup rather than silently using the default.
     """
+    for check in (_unknown_key_violation, _range_violation, _cross_field_violation):
+        violation = check(data)
+        if violation is not None:
+            return violation
+    return None
+
+
+def _unknown_key_violation(data: dict[str, Any]) -> str | None:
+    """Reject any top-level section or per-section key not backed by a config dataclass."""
+    for section, value in data.items():
+        cls = _SECTION_TO_CLASS.get(section)
+        if cls is None:
+            return f"unknown config section: {section!r}"
+        if not isinstance(value, dict):
+            return f"config section {section!r} must be a table"
+        known = {f.name for f in dataclasses.fields(cls)}
+        for key in value:
+            if key not in known:
+                return f"unknown config key {section}.{key}"
+    return None
+
+
+def _num(data: dict[str, Any], section: str, key: str, default: float) -> float:
+    """Read a numeric config value from the merged dict, falling back to a default."""
+    return float(data.get(section, {}).get(key, default))
+
+
+def _range_violation(data: dict[str, Any]) -> str | None:
+    """Per-section range checks. Return the first out-of-range field, or None."""
+    ctrl = data.get("controller", {})
+    if not (0.0 < _num(data, "controller", "ema_alpha", 0.4) <= 1.0):
+        return "controller.ema_alpha must be in (0, 1]"
+    if not (0.0 <= _num(data, "controller", "confidence_gate", 0.55) <= 1.0):
+        return "controller.confidence_gate must be in [0, 1]"
+    if not (0.0 <= _num(data, "controller", "blob_iou_match_threshold", 0.25) <= 1.0):
+        return "controller.blob_iou_match_threshold must be in [0, 1]"
+    if int(ctrl.get("min_deadband_px", 20)) < 0:
+        return "controller.min_deadband_px must be >= 0"
+    if int(ctrl.get("max_deadband_px", 250)) <= int(ctrl.get("min_deadband_px", 20)):
+        return "controller.max_deadband_px must be > min_deadband_px"
+    for count_key in (
+        "max_deadband_strike_count",
+        "acquire_persistence_frames",
+        "release_persistence_frames",
+        "runaway_strike_count",
+    ):
+        if int(ctrl.get(count_key, 1)) < 1:
+            return f"controller.{count_key} must be >= 1"
+    for rate_key in (
+        "retarget_rate_limit_hz",
+        "max_slew_rate_deg_per_s",
+        "scan_slew_rate_deg_per_s",
+        "max_slew_deg_s",
+        "kalman_process_noise",
+        "kalman_measurement_noise",
+        "runaway_rate_tolerance_deg_per_s",
+    ):
+        if _num(data, "controller", rate_key, 1.0) <= 0.0:
+            return f"controller.{rate_key} must be > 0"
+
+    if _num(data, "inference", "latency_budget_ms", 500.0) <= 0.0:
+        return "inference.latency_budget_ms must be > 0"
+    for dim_key in ("input_height_px", "input_width_px"):
+        if int(data.get("inference", {}).get(dim_key, 256)) <= 0:
+            return f"inference.{dim_key} must be > 0"
+
+    sensor = data.get("sensor", {})
+    for dim_key in ("width_px", "height_px"):
+        dim = int(sensor.get(dim_key, 1024))
+        if dim <= 0:
+            return f"sensor.{dim_key} must be > 0"
+        if dim % 2:
+            return f"sensor.{dim_key} must be even (2x2 mosaic separation)"
+    if not (1 <= int(sensor.get("bit_depth", 12)) <= 16):
+        return "sensor.bit_depth must be in 1..16"
+    if _num(data, "sensor", "ifov_deg_per_px", 0.02) <= 0.0:
+        return "sensor.ifov_deg_per_px must be > 0"
+    if _num(data, "sensor", "default_exposure_us", 1000.0) <= 0.0:
+        return "sensor.default_exposure_us must be > 0"
+    if _num(data, "sensor", "default_gain_db", 0.0) < 0.0:
+        return "sensor.default_gain_db must be >= 0"
+
+    if _num(data, "fault", "watchdog_interval_s", 5.0) <= 0.0:
+        return "fault.watchdog_interval_s must be > 0"
+    if int(data.get("fault", {}).get("watchdog_max_miss_count", 3)) < 1:
+        return "fault.watchdog_max_miss_count must be >= 1"
+    for pos_key in ("inference_timeout_ms", "thermal_limit_c", "power_limit_w"):
+        if _num(data, "fault", pos_key, 1.0) <= 0.0:
+            return f"fault.{pos_key} must be > 0"
+
+    if int(data.get("storage", {}).get("max_storage_bytes", 1)) <= 0:
+        return "storage.max_storage_bytes must be > 0"
+    if not str(data.get("storage", {}).get("checksum_algorithm", "sha256")):
+        return "storage.checksum_algorithm must be non-empty"
+
+    for rate_key in ("max_downlink_rate_bps", "max_uplink_rate_bps"):
+        if int(data.get("comms", {}).get(rate_key, 1)) <= 0:
+            return f"comms.{rate_key} must be > 0"
+    for cap_key in ("max_daily_downlink_bytes", "max_daily_uplink_bytes"):
+        if int(data.get("comms", {}).get(cap_key, 1)) <= 0:
+            return f"comms.{cap_key} must be > 0"
+    if not (0 <= int(data.get("comms", {}).get("ccsds_apid", 1)) <= 0x7FF):
+        return "comms.ccsds_apid must fit in 11 bits (0..0x7FF)"
+
+    if not (0.0 <= _num(data, "preprocessing", "saturation_fraction_threshold", 0.05) <= 1.0):
+        return "preprocessing.saturation_fraction_threshold must be in [0, 1]"
+    for pos_key in (
+        "nir_red_ratio_threshold",
+        "sunglint_nir_mean_threshold",
+        "max_motion_smear_px",
+    ):
+        if _num(data, "preprocessing", pos_key, 1.0) <= 0.0:
+            return f"preprocessing.{pos_key} must be > 0"
+
     link = data.get("link", {})
     for apid_key in ("tc_apid", "tm_apid"):
-        apid = link.get(apid_key, 0)
-        if not (0 <= int(apid) <= 0x7FF):
+        if not (0 <= int(link.get(apid_key, 0)) <= 0x7FF):
             return f"link.{apid_key} must fit in 11 bits (0..0x7FF)"
     for port_key in ("command_tcp_port", "telemetry_udp_port"):
-        port = int(link.get(port_key, 0))
-        if not (1 <= port <= 65535):
+        if not (1 <= int(link.get(port_key, 0)) <= 65535):
             return f"link.{port_key} must be in 1..65535"
-    if float(link.get("socket_timeout_s", 1.0)) <= 0.0:
+    if _num(data, "link", "socket_timeout_s", 1.0) <= 0.0:
         return "link.socket_timeout_s must be > 0"
+
     ingress = data.get("command_ingress", {})
     if bool(ingress.get("require_auth", True)) and not str(ingress.get("hmac_key_path", "")):
         return "command_ingress.hmac_key_path must be set when require_auth is true"
+    if not tuple(ingress.get("accepted_sources", ("ground",))):
+        return "command_ingress.accepted_sources must be non-empty"
+    return None
+
+
+def _cross_field_violation(data: dict[str, Any]) -> str | None:
+    """Cross-field consistency checks (gimbal envelope + mosaic/band agreement)."""
+    az_min = _num(data, "gimbal", "az_min_deg", -90.0)
+    az_max = _num(data, "gimbal", "az_max_deg", 90.0)
+    el_min = _num(data, "gimbal", "el_min_deg", -45.0)
+    el_max = _num(data, "gimbal", "el_max_deg", 45.0)
+    if az_min >= az_max:
+        return "gimbal.az_min_deg must be < az_max_deg"
+    if el_min >= el_max:
+        return "gimbal.el_min_deg must be < el_max_deg"
+    if _num(data, "gimbal", "max_hw_slew_rate_deg_per_s", 10.0) <= 0.0:
+        return "gimbal.max_hw_slew_rate_deg_per_s must be > 0"
+    for pose in ("stow", "home"):
+        pose_az = _num(data, "gimbal", f"{pose}_az_deg", 0.0)
+        pose_el = _num(data, "gimbal", f"{pose}_el_deg", 0.0)
+        if not (az_min <= pose_az <= az_max):
+            return f"gimbal.{pose}_az_deg must be within [az_min_deg, az_max_deg]"
+        if not (el_min <= pose_el <= el_max):
+            return f"gimbal.{pose}_el_deg must be within [el_min_deg, el_max_deg]"
+
+    band_names = {b.value for b in Band}
+    mosaic = [str(v) for v in data.get("sensor", {}).get("mosaic_layout", sorted(band_names))]
+    if sorted(mosaic) != sorted(band_names):
+        return "sensor.mosaic_layout must name each Band (BLUE/GREEN/RED/NIR) exactly once"
+    input_bands = [str(v) for v in data.get("inference", {}).get("input_bands", mosaic)]
+    if not input_bands:
+        return "inference.input_bands must be non-empty"
+    mosaic_set = set(mosaic)
+    for band in input_bands:
+        if band not in mosaic_set:
+            return f"inference.input_bands entry {band!r} is not present in sensor.mosaic_layout"
     return None
 
 

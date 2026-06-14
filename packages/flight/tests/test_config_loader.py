@@ -115,3 +115,88 @@ def test_out_of_range_port_returns_err(tmp_path: Path) -> None:
     result = load_config(_DEFAULT_TOML, str(bad_toml))
     assert isinstance(result, Err)
     assert "command_tcp_port" in result.error
+
+
+def _override(tmp_path: Path, body: str) -> str:
+    """Write a TOML override file and return its path string."""
+    path = tmp_path / "override.toml"
+    path.write_text(body, encoding="utf-8")
+    return str(path)
+
+
+def test_unknown_section_rejected(tmp_path: Path) -> None:
+    """A top-level section not backed by a config dataclass fails loudly."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[bogus]\nx = 1\n"))
+    assert isinstance(result, Err)
+    assert "bogus" in result.error
+
+
+def test_unknown_field_rejected(tmp_path: Path) -> None:
+    """An unknown key inside a known section fails loudly (typo guard)."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[sensor]\nwdith_px = 800\n"))
+    assert isinstance(result, Err)
+    assert "wdith_px" in result.error
+
+
+def test_negative_thermal_limit_rejected(tmp_path: Path) -> None:
+    """A non-positive thermal limit is out of range."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[fault]\nthermal_limit_c = -5.0\n"))
+    assert isinstance(result, Err)
+    assert "thermal_limit_c" in result.error
+
+
+def test_ema_alpha_out_of_unit_range_rejected(tmp_path: Path) -> None:
+    """ema_alpha must lie in (0, 1]."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[controller]\nema_alpha = 1.5\n"))
+    assert isinstance(result, Err)
+    assert "ema_alpha" in result.error
+
+
+def test_gimbal_inverted_travel_limits_rejected(tmp_path: Path) -> None:
+    """az_min_deg must be strictly less than az_max_deg (cross-field)."""
+    result = load_config(
+        _DEFAULT_TOML, _override(tmp_path, "[gimbal]\naz_min_deg = 90.0\naz_max_deg = -90.0\n")
+    )
+    assert isinstance(result, Err)
+    assert "az_" in result.error
+
+
+def test_stow_pose_outside_travel_rejected(tmp_path: Path) -> None:
+    """The stow pose must lie within the configured travel envelope (cross-field)."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[gimbal]\nstow_el_deg = -200.0\n"))
+    assert isinstance(result, Err)
+    assert "stow" in result.error
+
+
+def test_mosaic_layout_not_permutation_rejected(tmp_path: Path) -> None:
+    """mosaic_layout must name each Band exactly once (cross-field)."""
+    result = load_config(
+        _DEFAULT_TOML,
+        _override(tmp_path, '[sensor]\nmosaic_layout = ["BLUE", "GREEN", "RED", "RED"]\n'),
+    )
+    assert isinstance(result, Err)
+    assert "mosaic_layout" in result.error
+
+
+def test_input_bands_not_in_mosaic_rejected(tmp_path: Path) -> None:
+    """input_bands must be a subset of mosaic_layout band names (cross-field)."""
+    result = load_config(
+        _DEFAULT_TOML, _override(tmp_path, '[inference]\ninput_bands = ["BLUE", "ORANGE"]\n')
+    )
+    assert isinstance(result, Err)
+    assert "input_bands" in result.error
+
+
+def test_odd_sensor_dimension_rejected(tmp_path: Path) -> None:
+    """Mosaic dimensions must be even (2x2 CFA separation requires it)."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[sensor]\nwidth_px = 1025\n"))
+    assert isinstance(result, Err)
+    assert "width_px" in result.error
+
+
+def test_all_profiles_still_validate() -> None:
+    """Every committed deployment profile passes the strengthened validation."""
+    for profile in ("sil", "sil-link-real", "pil", "hil"):
+        path = str(_REPO_ROOT / "profiles" / f"{profile}.toml")
+        result = load_config(_DEFAULT_TOML, path)
+        assert isinstance(result, Ok), f"profile {profile} failed: {result}"

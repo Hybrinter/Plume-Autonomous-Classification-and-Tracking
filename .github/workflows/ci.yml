@@ -24,7 +24,13 @@ jobs:
         run: uv run mypy packages
       - name: Import layering
         run: uv run lint-imports
+      - name: VCRM traceability
+        run: uv run python scripts/check_vcrm.py
       - name: Tests
         # Scoped to packages/ while legacy src/pact is migrated in. Widen to the full suite
         # ("uv run pytest -m 'not e2e'") once src/pact and its tests are removed.
         run: uv run pytest packages -m "not e2e"
+      - name: Root guard tests
+        # Repo-root tests/ holds cross-cutting guards (e.g. legacy regression guards) that the
+        # packages-scoped "Tests" step does not collect. Run them explicitly with the same marker.
+        run: uv run pytest tests -m "not e2e"

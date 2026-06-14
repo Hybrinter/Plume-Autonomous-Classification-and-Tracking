@@ -353,9 +353,17 @@ imports `flight.libs` and `sim`; **neither `flight` nor `sim` imports `gse`** (n
 `forbidden` contracts).
 
 - **Station emulator** (`gse.station`): the station side of the exact protocol `RealStationLink`
-  speaks -- authenticated CCSDS command uplink (HMAC/seq/CRC, built from `flight.libs.ccsds` plus
-  the command dictionary), telemetry/product capture, and AOS/LOS window scheduling. In-process
-  (loopback sockets) for `sil-link-real`; on a bench PC over real Ethernet for PIL/HIL (future).
+  speaks -- authenticated CCSDS command uplink (HMAC/seq/CRC) built with the `build_tc_packet`
+  helper and the typed command dictionary, telemetry/product capture, and AOS/LOS scheduling.
+  Concretely, the emulator is a TCP **client** to the payload's bound TC server
+  (`command_tcp_host:command_tcp_port`, default `127.0.0.1:50501`) and a UDP **receiver** on the
+  telemetry endpoint (default `127.0.0.1:50502`); `link_state()` reads AOS only while that client
+  is connected. To keep `gse` importing only `flight.libs`, `build_tc_packet` is **relocated**
+  from `flight.iss_iface.ingress` into `flight.libs` (it already depends solely on
+  `flight.libs.ccsds` + stdlib, and its own docstring marks it "used by GSE/sim/tests, not
+  flight"); the inbound TM decode path (`decode_packet`, `verify_crc32`) already lives there.
+  In-process over loopback sockets for `sil-link-real`; on a bench PC over real Ethernet for
+  PIL/HIL (future).
 - **Scenario format** (`gse.scenario`): declarative **TOML** -- a `[config]`/profile reference,
   a `[scene]` plume/kinematics script with seed, a `[[commands]]` timeline (frame N -> command),
   and `[[assertions]]` expected outcomes. **Every assertion is tagged `frame-portable` or

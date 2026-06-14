@@ -1,6 +1,6 @@
 # ADR 0010: Validation as a configuration matrix with a VCRM spine
 
-**Status:** Proposed (2026-06-13)
+**Status:** Accepted (2026-06-13)
 
 **Implements:** spec Section 9 (validation), reframed, of
 `docs/superpowers/specs/2026-06-09-pact-flight-final-state-design.md`. Refines the spec's
@@ -95,6 +95,16 @@ import-linter `forbidden` contracts). It provides:
   plumbing. One scenario format, two backends, not one harness.
 - **Orchestrator + analysis** (`gse.orchestrator`): runs a scenario against a profile, injects
   commands on the timeline, scores assertions, and emits a JSON V&V evidence record.
+
+**Helper relocation (decided in review, Option A):** `build_tc_packet` moves from
+`flight.iss_iface.ingress` into `flight.libs` so the station emulator depends only on
+`flight.libs`. The function already depends solely on `flight.libs.ccsds` + stdlib and is
+documented "used by GSE/sim/tests, not flight"; a re-export is kept at
+`flight.iss_iface.ingress` for back-compat and the four existing import sites are updated
+(`flight/iss_iface/ingress/__init__.py` and three test modules). The inbound TM decode path
+(`decode_packet`, `verify_crc32`) already lives in `flight.libs.ccsds`. The `sil-link-real`
+loopback is concrete and feasible: the emulator is a TCP client to the payload's bound TC server
+(`127.0.0.1:50501` by default) plus a UDP receiver on the TM endpoint (`127.0.0.1:50502`).
 
 **Why TOML:** it matches the repo's existing config convention (`config/default.toml`,
 `profiles/*.toml`), needs no new dependency (`tomllib` is stdlib), and keeps scenarios as portable

@@ -151,7 +151,10 @@ def select_drivers(
     else:
         from flight.payload.model import OnnxDetector
 
-        detector = OnnxDetector(config.inference.model_path)
+        detector = OnnxDetector(
+            config.inference.model_path,
+            latency_budget_ms=config.inference.latency_budget_ms,
+        )
 
     # --- link (station transport) ---
     station: StationLink

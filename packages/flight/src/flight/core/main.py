@@ -125,6 +125,7 @@ def main(config_path: str = "config/default.toml") -> None:
             ("storage", apps.storage),
             ("downlink", apps.downlink),
             ("mechanical", apps.mechanical),
+            ("model_deploy", apps.model_deploy),
         ]
     )
     scheduler.start()

@@ -90,6 +90,7 @@ def step_once(
     apps.electrical.handle_commands()
     apps.electrical.sample()
 
+    apps.model_deploy.tick()
     apps.storage.tick()
     apps.downlink.tick()
 

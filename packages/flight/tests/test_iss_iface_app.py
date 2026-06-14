@@ -27,12 +27,13 @@ from flight.libs.types import (
 _KEY = b"test-iss-iface-key-00000000000000"
 
 
-class _MemStorageReader:
-    """In-memory StorageReader double for iss_iface tests (entry id -> bytes)."""
+class _MemStorage:
+    """In-memory StorageReader + StorageWriter double for iss_iface tests (entry id -> bytes)."""
 
     def __init__(self, items: dict[str, bytes] | None = None) -> None:
         """Start with an optional pre-populated entry map."""
         self.items = items or {}
+        self._n = 0
 
     def read(self, entry_id: str) -> Result[bytes, FaultCode]:
         """Return the stored bytes for entry_id, or Err(STORAGE_CORRUPT) when missing."""
@@ -40,15 +41,23 @@ class _MemStorageReader:
             return Ok(self.items[entry_id])
         return Err(FaultCode.STORAGE_CORRUPT)
 
+    def store(
+        self, item_id: str, data: bytes, priority: DownlinkPriority
+    ) -> Result[str, FaultCode]:
+        """Record data under a fresh entry id and return it."""
+        entry_id = f"{self._n:08d}_{item_id}"
+        self._n += 1
+        self.items[entry_id] = data
+        return Ok(entry_id)
+
 
 def _app_with_link(
-    link: SimStationLink, storage: _MemStorageReader | None = None
+    link: SimStationLink, storage: _MemStorage | None = None
 ) -> tuple[IssIfaceApp, MessageBus]:
     """Build an IssIfaceApp over the given link with a fresh bus and the shared test key."""
     bus = MessageBus()
-    app = IssIfaceApp.from_config(
-        PactConfig(), bus, ManualClock(), link, _KEY, storage or _MemStorageReader()
-    )
+    store = storage or _MemStorage()
+    app = IssIfaceApp.from_config(PactConfig(), bus, ManualClock(), link, _KEY, store, store)
     return app, bus
 
 
@@ -136,7 +145,7 @@ def test_pump_downlink_drains_items_during_aos() -> None:
 def test_pump_downlink_resolves_storage_ref() -> None:
     """A storage-ref DownlinkItemMsg is resolved to its bytes via the StorageReader and sent."""
     link = SimStationLink(link_state=LinkState.AOS)
-    app, bus = _app_with_link(link, _MemStorageReader({"entry-1": b"product-bytes"}))
+    app, bus = _app_with_link(link, _MemStorage({"entry-1": b"product-bytes"}))
     bus.publish(_downlink_item(payload=b"", storage_ref="entry-1"))
     sent = app.pump_downlink()
     assert sent == 1
@@ -146,7 +155,7 @@ def test_pump_downlink_resolves_storage_ref() -> None:
 def test_pump_downlink_skips_unresolvable_storage_ref() -> None:
     """A storage-ref that cannot be resolved emits a fault and is not sent."""
     link = SimStationLink(link_state=LinkState.AOS)
-    app, bus = _app_with_link(link, _MemStorageReader({}))
+    app, bus = _app_with_link(link, _MemStorage({}))
     fault_sub = bus.subscribe(FaultEventMsg)
     bus.publish(_downlink_item(payload=b"", storage_ref="missing"))
     sent = app.pump_downlink()

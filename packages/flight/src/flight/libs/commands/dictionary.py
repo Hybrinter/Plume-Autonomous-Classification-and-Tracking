@@ -85,6 +85,23 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("phase", ParamKind.STR),),
         hazardous=True,
     ),
+    CommandId.UPLOAD_MODEL_CHUNK: CommandSpec(
+        CommandId.UPLOAD_MODEL_CHUNK,
+        "iss_iface",
+        (
+            ParamSpec("chunk_index", ParamKind.INT),
+            ParamSpec("total_chunks", ParamKind.INT),
+            ParamSpec("data_b64", ParamKind.STR),
+            ParamSpec("crc32", ParamKind.INT),
+        ),
+        hazardous=False,
+    ),
+    CommandId.ACTIVATE_MODEL: CommandSpec(
+        CommandId.ACTIVATE_MODEL,
+        "model_deploy",
+        (ParamSpec("version", ParamKind.STR),),
+        hazardous=False,
+    ),
 }
 
 

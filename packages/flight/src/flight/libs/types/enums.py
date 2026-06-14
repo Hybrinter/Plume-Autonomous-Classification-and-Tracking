@@ -150,6 +150,8 @@ class MessageType(enum.Enum):
     COMMAND_ACK = "COMMAND_ACK"
     LINK_STATE = "LINK_STATE"
     LAUNCH_LOCK_STATE = "LAUNCH_LOCK_STATE"
+    MODEL_STAGED = "MODEL_STAGED"
+    MODEL_DEPLOY = "MODEL_DEPLOY"
 
 
 class DownlinkPriority(enum.Enum):
@@ -218,6 +220,8 @@ class CommandId(enum.Enum):
     NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
     EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target fault; param phase: str
     RELEASE_LAUNCH_LOCK = "RELEASE_LAUNCH_LOCK"  # hazardous; target mechanical; param phase: str
+    UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
+    ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
 
 
 class ParamKind(enum.Enum):

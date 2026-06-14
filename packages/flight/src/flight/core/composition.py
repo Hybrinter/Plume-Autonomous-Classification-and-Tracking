@@ -20,6 +20,7 @@ from dataclasses import dataclass
 # internal
 from flight.core.command_router import CommandRouter
 from flight.core.downlink import DownlinkManager
+from flight.core.model_deploy import ModelDeployService
 from flight.core.storage import StorageService
 from flight.electrical.app import ElectricalApp
 from flight.fault.app import FaultApp
@@ -51,6 +52,7 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "storage",
     "downlink",
     "mechanical",
+    "model_deploy",
 )
 
 
@@ -90,6 +92,7 @@ class SystemApps:
     storage: StorageService
     downlink: DownlinkManager
     mechanical: MechanicalApp
+    model_deploy: ModelDeployService
 
 
 def build_apps(
@@ -125,11 +128,14 @@ def build_apps(
             config, drivers.sensor, drivers.gimbal, drivers.detector, bus, clock, calib, storage
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored),
-        iss_iface=IssIfaceApp.from_config(config, bus, clock, drivers.station, uplink_key, storage),
+        iss_iface=IssIfaceApp.from_config(
+            config, bus, clock, drivers.station, uplink_key, storage, storage
+        ),
         thermal=ThermalApp.from_config(config, bus, clock, drivers.thermal_sensor),
         electrical=ElectricalApp.from_config(config, bus, clock, drivers.power_sensor),
         command_router=CommandRouter.from_config(config, bus, clock),
         storage=storage,
         downlink=DownlinkManager.from_config(config, bus, clock),
         mechanical=MechanicalApp.from_config(config, bus, clock, drivers.launch_lock),
+        model_deploy=ModelDeployService.from_config(config, bus, clock, storage),
     )

@@ -70,6 +70,7 @@ def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
         "storage",
         "downlink",
         "mechanical",
+        "model_deploy",
     }
 
 

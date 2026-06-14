@@ -15,6 +15,11 @@ import numpy as np
 from flight.libs.messages import InferenceResultMsg, ProcessedFrameMsg
 from flight.libs.types import Err, FaultCode, MessageType, Ok, Result
 from flight.payload.model.blobs import extract_blobs
+from flight.payload.model.verify import (
+    check_inference_latency,
+    verify_io_contract,
+    verify_model_hash,
+)
 
 
 @runtime_checkable
@@ -79,12 +84,28 @@ class OnnxDetector:
         confidence_gate: float = 0.55,
         min_blob_area_px: int = 15,
         model_version: str = "unknown",
+        expected_sha256: str | None = None,
+        latency_budget_ms: float = 0.0,
+        expected_input_shape: tuple[int | None, ...] | None = None,
+        expected_output_shape: tuple[int | None, ...] | None = None,
     ) -> None:
-        """Open an onnxruntime session over model_path.
+        """Open an onnxruntime session over model_path, verifying hash + I/O contract at load.
+
+        If expected_sha256 is given the artifact's SHA-256 is verified BEFORE the session is
+        created (a corrupt artifact is rejected without loading it); if the expected I/O shapes
+        are given the session's input/output shapes are verified after load. A verification
+        failure raises ValueError -- a corrupt/incompatible model at startup is unrecoverable
+        (the composition-root startup-exception contract), conceptually a MODEL_CORRUPT fault.
+        latency_budget_ms (> 0) caps per-frame inference time in detect (INFERENCE_TIMEOUT).
 
         Raises:
             ImportError: If onnxruntime is not installed.
+            ValueError: If the artifact hash or I/O contract verification fails.
         """
+        if expected_sha256 is not None:
+            hash_result = verify_model_hash(model_path, expected_sha256)
+            if isinstance(hash_result, Err):
+                raise ValueError(f"model hash verification failed ({hash_result.error.value})")
         try:
             import onnxruntime
         except ImportError as exc:
@@ -96,9 +117,23 @@ class OnnxDetector:
         self._confidence_gate = confidence_gate
         self._min_blob_area_px = min_blob_area_px
         self._model_version = model_version
+        self._latency_budget_ms = latency_budget_ms
+        if expected_input_shape is not None and expected_output_shape is not None:
+            actual_in = self._onnx_shape(self._session.get_inputs()[0].shape)
+            actual_out = self._onnx_shape(self._session.get_outputs()[0].shape)
+            contract = verify_io_contract(
+                actual_in, actual_out, expected_input_shape, expected_output_shape
+            )
+            if isinstance(contract, Err):
+                raise ValueError(f"model I/O contract verification failed ({contract.error.value})")
+
+    @staticmethod
+    def _onnx_shape(shape: list[object]) -> tuple[int | None, ...]:
+        """Normalize an onnxruntime tensor shape (symbolic dims -> None) to a typed tuple."""
+        return tuple(dim if isinstance(dim, int) else None for dim in shape)
 
     def detect(self, frame: ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode]:
-        """Run the ONNX session on the frame tensor and extract blobs."""
+        """Run the ONNX session on the frame tensor and extract blobs (latency-budgeted)."""
         start = time.perf_counter()
         bands = np.asarray(frame.tensor, dtype=np.float32)  # np.ndarray[float32, (C, H, W)]
         model_input = bands[np.newaxis, ...]  # (1, C, H, W)
@@ -110,6 +145,9 @@ class OnnxDetector:
         prob_mask = probs[0, 0].astype(np.float32)  # (H, W)
         blobs = extract_blobs(prob_mask, self._confidence_gate, self._min_blob_area_px)
         inference_ms = (time.perf_counter() - start) * 1000.0
+        latency = check_inference_latency(inference_ms, self._latency_budget_ms)
+        if isinstance(latency, Err):
+            return Err(latency.error)
         return Ok(
             InferenceResultMsg(
                 msg_type=MessageType.INFERENCE_RESULT,

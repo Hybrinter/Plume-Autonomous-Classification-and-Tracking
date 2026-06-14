@@ -21,12 +21,16 @@ Satisfies: REQ-COMM-HIGH-001, REQ-COMM-HIGH-003, REQ-COMM-HIGH-004.
 from __future__ import annotations
 
 # stdlib
+import base64
+import binascii
+import hashlib
 import threading
 from dataclasses import dataclass, field, replace
 
 # internal
-from flight.hal.interfaces import StationLink, StorageReader
+from flight.hal.interfaces import StationLink, StorageReader, StorageWriter
 from flight.iss_iface.ingress import IngressOutcome, process_inbound
+from flight.iss_iface.upload import ModelUploadState, add_chunk
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.ccsds import CcsdsHeader, encode_packet
 from flight.libs.config import CommandIngressConfig, FaultConfig, LinkConfig, PactConfig
@@ -36,11 +40,22 @@ from flight.libs.messages import (
     FaultEventMsg,
     HeartbeatMsg,
     LinkStateMsg,
+    ModelStagedMsg,
+    RoutedCommandMsg,
 )
 from flight.libs.time import Clock
-from flight.libs.types import Err, FaultCode, LinkState, MessageType, Ok
+from flight.libs.types import (
+    AckStatus,
+    DownlinkPriority,
+    Err,
+    FaultCode,
+    LinkState,
+    MessageType,
+    Ok,
+)
 
 HEARTBEAT_SUBSYSTEM = "iss_iface"
+_UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"
 
 
 @dataclass(slots=True)
@@ -50,10 +65,12 @@ class IngressState:
     Fields:
         last_seq: Per-source last-accepted sequence number map (replay guard).
         tm_sequence: Outbound TM packet sequence counter (wraps at 0x3FFF).
+        upload: The in-progress chunked model-upload reassembly buffer.
     """
 
     last_seq: dict[str, int] = field(default_factory=dict)
     tm_sequence: int = 0
+    upload: ModelUploadState = field(default_factory=ModelUploadState)
 
 
 @dataclass(frozen=True)
@@ -70,9 +87,11 @@ class IssIfaceApp:
     uplink_key: bytes
     link: StationLink
     storage_reader: StorageReader
+    storage_writer: StorageWriter
     bus: MessageBus
     clock: Clock
     downlink: Subscription[DownlinkItemMsg]
+    routed: Subscription[RoutedCommandMsg]
     state: IngressState
 
     @staticmethod
@@ -83,8 +102,9 @@ class IssIfaceApp:
         link: StationLink,
         uplink_key: bytes,
         storage_reader: StorageReader,
+        storage_writer: StorageWriter,
     ) -> IssIfaceApp:
-        """Assemble an IssIfaceApp, subscribing to the downlink-manager item stream.
+        """Assemble an IssIfaceApp, subscribing to downlink items + routed model-upload chunks.
 
         Args:
             cfg: Top-level PactConfig (fault for timing; link + command_ingress for ingress).
@@ -94,9 +114,12 @@ class IssIfaceApp:
             uplink_key: The HMAC secret loaded by the composition root.
             storage_reader: The injected StorageReader for resolving product references at
                 transmission time (the StorageService's read face).
+            storage_writer: The injected StorageWriter for staging reassembled model artifacts
+                (the StorageService's write face).
 
         Returns:
-            An IssIfaceApp with a fresh DownlinkItemMsg subscription and empty ingress state.
+            An IssIfaceApp with fresh DownlinkItemMsg + RoutedCommandMsg subscriptions and empty
+            ingress state.
         """
         return IssIfaceApp(
             fault_cfg=cfg.fault,
@@ -105,9 +128,11 @@ class IssIfaceApp:
             uplink_key=uplink_key,
             link=link,
             storage_reader=storage_reader,
+            storage_writer=storage_writer,
             bus=bus,
             clock=clock,
             downlink=bus.subscribe(DownlinkItemMsg),
+            routed=bus.subscribe(RoutedCommandMsg),
             state=IngressState(),
         )
 
@@ -169,8 +194,84 @@ class IssIfaceApp:
             sent += self._send_tm(body)
         return sent
 
+    def pump_routed_commands(self) -> int:
+        """Drain routed model-upload chunks; reassemble + stage a completed artifact.
+
+        Returns:
+            The number of UPLOAD_MODEL_CHUNK commands processed. Each chunk is base64-decoded
+            and accumulated; on the final chunk the artifact is stored via the StorageWriter and
+            a ModelStagedMsg is published for the core ModelDeployService. Each chunk gets an
+            execution CommandAckMsg; a malformed/failed chunk acks REJECTED + emits a fault.
+        """
+        processed = 0
+        while not self.routed.empty():
+            command = self.routed.get_nowait()
+            if command.target != HEARTBEAT_SUBSYSTEM or command.command_id != _UPLOAD_MODEL_CHUNK:
+                continue
+            processed += 1
+            self._handle_chunk(command)
+        return processed
+
+    def _handle_chunk(self, command: RoutedCommandMsg) -> None:
+        """Decode + accumulate one upload chunk; stage the artifact when reassembly completes."""
+        try:
+            data = base64.b64decode(str(command.params["data_b64"]), validate=True)
+        except binascii.Error, ValueError:
+            self._publish_fault(FaultCode.COMMAND_INVALID, "chunk data not valid base64")
+            self._publish_exec_ack(
+                command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "bad b64"
+            )
+            return
+        result = add_chunk(
+            self.state.upload,
+            int(command.params["chunk_index"]),
+            int(command.params["total_chunks"]),
+            data,
+            int(command.params["crc32"]),
+        )
+        if result.fault is not None:
+            self._publish_fault(result.fault, result.detail)
+            self._publish_exec_ack(command, AckStatus.REJECTED, result.fault, result.detail)
+            return
+        if result.complete is None:
+            self._publish_exec_ack(command, AckStatus.ACCEPTED, FaultCode.NONE, result.detail)
+            return
+        blob = result.complete
+        stored = self.storage_writer.store("staged_model", blob, DownlinkPriority.SCIENCE_PRODUCT)
+        if isinstance(stored, Err):
+            self._publish_fault(stored.error, "staged model store failed")
+            self._publish_exec_ack(command, AckStatus.REJECTED, stored.error, "store failed")
+            return
+        self.bus.publish(
+            ModelStagedMsg(
+                msg_type=MessageType.MODEL_STAGED,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                entry_id=stored.value,
+                sha256=hashlib.sha256(blob).hexdigest(),
+                version="",
+            )
+        )
+        self._publish_exec_ack(command, AckStatus.ACCEPTED, FaultCode.NONE, "model reassembled")
+
+    def _publish_exec_ack(
+        self, command: RoutedCommandMsg, status: AckStatus, fault: FaultCode, detail: str
+    ) -> None:
+        """Publish an execution CommandAckMsg correlated to a routed command."""
+        self.bus.publish(
+            CommandAckMsg(
+                msg_type=MessageType.COMMAND_ACK,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                status=status,
+                command_id=command.command_id,
+                source=command.source,
+                seq=command.seq,
+                fault_code=fault,
+                detail=detail,
+            )
+        )
+
     def tick(self) -> None:
-        """Publish link state, pump inbound commands, then pump outbound downlinks once."""
+        """Publish link state, pump inbound commands + routed chunks, then pump downlinks once."""
         self.bus.publish(
             LinkStateMsg(
                 msg_type=MessageType.LINK_STATE,
@@ -179,6 +280,7 @@ class IssIfaceApp:
             )
         )
         self.pump_uplink()
+        self.pump_routed_commands()
         self.pump_downlink()
 
     def run(self, stop_event: threading.Event) -> None:

@@ -36,6 +36,7 @@ from flight.libs.types import (
     LaunchLockState,
     LinkState,
     MessageType,
+    ModelDeployState,
     SystemMode,
 )
 
@@ -311,6 +312,38 @@ class UploadChunkMsg:
     total_chunks: int  # total number of chunks in this upload session
     data: bytes  # raw bytes for this chunk
     expected_crc32: int  # CRC-32 of the complete reassembled file
+
+
+@dataclass(frozen=True)
+class ModelStagedMsg:
+    """A reassembled model artifact has been staged into storage, awaiting ACTIVATE.
+
+    Published by iss_iface once a chunked model upload is fully reassembled and persisted via
+    the StorageWriter. The core ModelDeployService consumes it: it fetches the bytes via the
+    StorageReader, verifies the SHA-256 + manifest, and moves the deploy state to STAGED.
+    """
+
+    msg_type: MessageType  # must be MessageType.MODEL_STAGED
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    entry_id: str  # storage entry id of the reassembled artifact
+    sha256: str  # expected SHA-256 hex digest of the complete artifact
+    version: str  # semantic version / identifier declared by the upload
+
+
+@dataclass(frozen=True)
+class ModelDeployStateMsg:
+    """Model-deployment lifecycle telemetry, published by the core ModelDeployService.
+
+    Telemetered on every deploy-state transition (STAGED on a validated upload, ACTIVE on a
+    successful ACTIVATE, ROLLBACK_AVAILABLE after an auto-rollback) so the ground sees the model
+    lifecycle. detail carries the human-readable reason for the transition.
+    """
+
+    msg_type: MessageType  # must be MessageType.MODEL_DEPLOY
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    state: ModelDeployState  # ACTIVE / STAGED / ROLLBACK_AVAILABLE
+    version: str  # active (or attempted) model version/identifier
+    detail: str  # human-readable transition reason
 
 
 @dataclass(frozen=True)

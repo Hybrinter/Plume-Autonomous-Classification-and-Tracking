@@ -89,6 +89,127 @@ modules = ["REQ-GIMB-HIGH-003"]
 evidence = ["packages/flight/tests/test_runaway.py"]
 status = "verified"
 
+# --- FSW code-complete capabilities (2026-06-14): command path, data system, mechanical,
+# --- model lifecycle, platform robustness, config integrity. -----------------------------
+[[requirement]]
+id = "REQ-COMM-CMD-001"
+statement = "Validated commands are routed to the target subsystem; hazardous commands require an ARM/EXECUTE two-step with an inhibit re-check at actuation."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-COMM-CMD-001"]
+evidence = [
+    "packages/flight/tests/test_routing.py",
+    "packages/sim/tests/test_sil_command_router.py",
+    "scenario:command_route_exec",
+]
+status = "verified"
+
+[[requirement]]
+id = "REQ-SAFE-EXIT-001"
+statement = "SAFE is a single latched tier exited only by a ground EXIT_SAFE command, gated on the triggering fault having cleared."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-SAFE-EXIT-001"]
+evidence = ["packages/sim/tests/test_sil_command_router.py"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-DATA-STORE-001"
+statement = "Science products are stored file-backed, SHA-256-checksummed, and quota-bounded with a retention (eviction) policy."
+method = "unit"
+venue = "unit"
+modules = ["REQ-DATA-STORE-001"]
+evidence = ["packages/flight/tests/test_storage.py"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-DATA-LEDGER-001"
+statement = "Faults persist to an append-only ledger that survives reboot."
+method = "unit"
+venue = "unit"
+modules = ["REQ-DATA-LEDGER-001"]
+evidence = ["packages/flight/tests/test_storage.py"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-DATA-DOWNLINK-001"
+statement = "Downlink is prioritized (fault > ack > housekeeping > science), AOS-gated, and byte-budgeted; products are stored then downlinked over the link."
+method = "SIL"
+venue = "sil-link-real"
+modules = ["REQ-DATA-DOWNLINK-001"]
+evidence = [
+    "packages/flight/tests/test_downlink.py",
+    "packages/sim/tests/test_sil_data_system.py",
+    "scenario:product_downlink",
+]
+status = "verified"
+
+[[requirement]]
+id = "REQ-MECH-HIGH-001"
+statement = "Launch-lock release is a hazardous ground command; gimbal motion is interlocked against the lock state (both directions)."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-MECH-HIGH-001"]
+evidence = [
+    "packages/flight/tests/test_mechanical_app.py",
+    "packages/sim/tests/test_sil_mechanical.py",
+]
+status = "verified"
+
+[[requirement]]
+id = "REQ-COMM-MODEL-001"
+statement = "Models upload as authenticated chunks, reassemble + stage into storage, and activate with automatic rollback on a failed sanity check."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-COMM-MODEL-001"]
+evidence = [
+    "packages/flight/tests/test_model_deploy.py",
+    "packages/sim/tests/test_sil_model_upload.py",
+]
+status = "verified"
+
+[[requirement]]
+id = "REQ-AIML-HIGH-004"
+statement = "Model artifacts are accepted only after manifest + SHA-256 + I/O-contract + golden-scene IoU + latency checks; the flight detector verifies hash/contract at load and budgets per-frame latency."
+method = "unit"
+venue = "unit"
+modules = ["REQ-AIML-HIGH-004"]
+evidence = [
+    "packages/flight/tests/test_model_verify.py",
+    "packages/tools/tests/test_accept.py",
+]
+status = "verified"
+
+[[requirement]]
+id = "REQ-PLAT-QUEUE-001"
+statement = "Bus queues are bounded per message type with an explicit overflow policy (telemetry drop-oldest + counter; commands/faults never-drop + overflow counter)."
+method = "unit"
+venue = "unit"
+modules = ["REQ-PLAT-QUEUE-001"]
+evidence = ["packages/flight/tests/test_bus.py"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-PLAT-SUP-001"
+statement = "A crashed app thread is restarted up to a limit then latches SAFE (PROCESS_DIED); startup requires every monitored subsystem to heartbeat or enters SAFE."
+method = "unit"
+venue = "unit"
+modules = ["REQ-PLAT-SUP-001"]
+evidence = [
+    "packages/flight/tests/test_scheduler.py",
+    "packages/flight/tests/test_health.py",
+]
+status = "verified"
+
+[[requirement]]
+id = "REQ-CONFIG-INTEGRITY-001"
+statement = "Startup config validation rejects out-of-range values, cross-field inconsistencies, and unknown keys."
+method = "unit"
+venue = "unit"
+modules = ["REQ-CONFIG-INTEGRITY-001"]
+evidence = ["packages/flight/tests/test_config_loader.py"]
+status = "verified"
+
 # --- PERMANENT GAP (recorded, never closed by the in-process/SIL venues) -----------------
 [[requirement]]
 id = "GAP-GROUND-SEGMENT"

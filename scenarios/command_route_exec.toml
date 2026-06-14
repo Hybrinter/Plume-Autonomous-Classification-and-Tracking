@@ -1,0 +1,30 @@
+name = "command_route_exec"
+profile = "sil"
+steps = 4
+dt = 1.0
+
+# A validated command is routed by the core command router to its target subsystem, executed,
+# and acknowledged -- the command path end-to-end (ingress -> route -> execute -> ack).
+
+[scene]
+num_frames = 4
+seed = 0
+
+[[commands]]
+at_frame = 1
+command_id = "SET_THERMAL_LIMIT"
+params = { limit_c = 70.0 }
+source = "ground"
+seq = 1
+
+[[assertions]]
+id = "command_route_exec.acked"
+kind = "command_acked"
+value = "ACCEPTED"
+tag = "frame-portable"
+
+[[assertions]]
+id = "command_route_exec.ran"
+kind = "min_inference_count"
+value = 1
+tag = "frame-portable"

@@ -7,12 +7,14 @@
 
 ## Scope (thin slice)
 
-This matrix covers only requirements exercised by the two **running** validation profiles:
+This matrix covers requirements exercised by the **running** venues -- the two validation profiles
+plus unit-level checks for pure-logic capabilities:
 
 | Profile | File | Venue |
 | --- | --- | --- |
 | SIL (full sim) | `profiles/sil.toml` | `sil` |
 | SIL + real link | `profiles/sil-link-real.toml` | `sil-link-real` |
+| Unit | (pytest) | `unit` |
 
 PIL and HIL profiles are **DEFINED-NOT-RUN** (no hardware yet); requirements verifiable only there
 are deliberately absent rather than falsely marked verified.
@@ -29,6 +31,17 @@ are deliberately absent rather than falsely marked verified.
 | REQ-AIML-GIMB-001 | Autonomous closed-loop pointing toward plume | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
 | REQ-GIMB-HIGH-001 | ROI retention within pointing deadband | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
 | REQ-GIMB-HIGH-003 | Runaway gimbal detection forces stow | SIL | sil | test_runaway | verified |
+| REQ-COMM-CMD-001 | Command routing + ARM/EXECUTE two-step + inhibit re-check | SIL | sil | test_routing; test_sil_command_router; scenario:command_route_exec | verified |
+| REQ-SAFE-EXIT-001 | Single latched SAFE; ground EXIT_SAFE gated on fault clear | SIL | sil | test_sil_command_router | verified |
+| REQ-DATA-STORE-001 | Checksummed, quota'd, retention-managed product storage | unit | unit | test_storage | verified |
+| REQ-DATA-LEDGER-001 | Reboot-surviving append-only fault ledger | unit | unit | test_storage | verified |
+| REQ-DATA-DOWNLINK-001 | Prioritized, AOS-gated, budgeted downlink of products | SIL | sil-link-real | test_downlink; test_sil_data_system; scenario:product_downlink | verified |
+| REQ-MECH-HIGH-001 | Launch-lock hazardous release + bidirectional gimbal interlock | SIL | sil | test_mechanical_app; test_sil_mechanical | verified |
+| REQ-COMM-MODEL-001 | Chunked model upload -> stage -> activate -> auto-rollback | SIL | sil | test_model_deploy; test_sil_model_upload | verified |
+| REQ-AIML-HIGH-004 | Model acceptance gate + load hash/contract + latency budget | unit | unit | test_model_verify; test_accept | verified |
+| REQ-PLAT-QUEUE-001 | Bounded bus queues + per-type overflow policy | unit | unit | test_bus | verified |
+| REQ-PLAT-SUP-001 | Thread supervision (restart->SAFE) + startup health gate | unit | unit | test_scheduler; test_health | verified |
+| REQ-CONFIG-INTEGRITY-001 | Config validation: ranges, cross-field, unknown-key | unit | unit | test_config_loader | verified |
 
 ## Permanent gaps
 

@@ -14,7 +14,7 @@ Contains:
   - next_supervision_action: the pure restart-vs-give-up decision.
   - Scheduler: start(); stop(); is_running(); check() (one supervision pass); supervise() (loop).
 
-Satisfies: REQ-OPER-HIGH-002.
+Satisfies: REQ-OPER-HIGH-002, REQ-PLAT-SUP-001.
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ the PactConfig hierarchy of frozen dataclasses.
 
 No subsystem reads TOML directly -- each receives a typed config dataclass argument.
 
-Satisfies: REQ-OPER-HIGH-002 (type-safe, validated config at startup).
+Satisfies: REQ-OPER-HIGH-002 (validated config at startup), REQ-CONFIG-INTEGRITY-001.
 """
 
 from __future__ import annotations

@@ -1,0 +1,25 @@
+name = "product_downlink"
+profile = "sil-link-real"
+steps = 20
+dt = 1.0
+
+# The data system end-to-end over the real CCSDS link: the payload stores mask thumbnails as
+# science products, the core downlink manager prioritizes + AOS-gates them, and iss_iface
+# resolves each storage reference and transmits it -- the GSE station emulator receives the
+# datagrams. Exercises storage + prioritized downlink across the real socket transport.
+
+[scene]
+num_frames = 6
+seed = 0
+
+[[assertions]]
+id = "product_downlink.downlinked"
+kind = "min_downlink_count"
+value = 1
+tag = "frame-portable"
+
+[[assertions]]
+id = "product_downlink.ran"
+kind = "min_inference_count"
+value = 1
+tag = "frame-portable"

@@ -16,6 +16,8 @@ root which knows the message types -- the bus itself imports no message class):
 
 The default policy is unbounded DROP_OLDEST (maxsize 0), so an unconfigured bus behaves exactly
 as before (the deterministic SIL keeps an unbounded bus; only the flight entry installs bounds).
+
+Satisfies: REQ-PLAT-QUEUE-001.
 """
 
 import enum

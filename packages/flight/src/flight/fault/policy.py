@@ -18,7 +18,7 @@ Contains:
   - enter_safe_mode / exit_safe_mode: build SAFE-entry / SAFE-exit ModeChangeMsg.
   - decide_mode_change: map a FaultEventMsg to a ModeChangeMsg(SAFE) or None.
 
-Satisfies: REQ-SAFE-HIGH-002, REQ-GIMB-HIGH-003.
+Satisfies: REQ-SAFE-HIGH-002, REQ-GIMB-HIGH-003, REQ-SAFE-EXIT-001.
 """
 
 from __future__ import annotations

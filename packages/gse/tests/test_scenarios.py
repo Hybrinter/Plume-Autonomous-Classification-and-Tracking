@@ -16,6 +16,8 @@ _SCENARIOS = [
     ("ingress_nack", 2),
     ("closed_loop_pointing", 2),
     ("safe_on_thermal", 1),
+    ("command_route_exec", 2),
+    ("product_downlink", 2),
 ]
 
 

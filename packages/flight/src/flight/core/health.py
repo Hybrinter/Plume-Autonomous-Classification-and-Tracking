@@ -9,7 +9,7 @@ Contains:
   - missing_heartbeats: the monitored subsystems that have not yet been seen.
   - startup_healthy: True iff every monitored subsystem has been seen.
 
-Satisfies: REQ-OPER-HIGH-002, REQ-SAFE-HIGH-002.
+Satisfies: REQ-OPER-HIGH-002, REQ-SAFE-HIGH-002, REQ-PLAT-SUP-001.
 """
 
 from __future__ import annotations

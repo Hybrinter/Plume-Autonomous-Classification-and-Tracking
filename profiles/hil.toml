@@ -1,0 +1,12 @@
+# PACT deployment profile: HIL (hardware-in-the-loop) -- DEFINED, NOT RUN.
+# Every axis real on the Jetson target with the flight camera, gimbal, and station link.
+# This profile is committed for completeness but is NOT executed by CI (no hardware in CI).
+# OVERRIDE applied on top of config/default.toml.
+
+[environment]
+sensor = "real"
+gimbal = "real"
+compute = "real"
+link = "real"
+clock = "real"
+host = "jetson_aarch64"

@@ -1,0 +1,12 @@
+# PACT deployment profile: SIL (software-in-the-loop, fully simulated, x86_64 dev/CI).
+# OVERRIDE applied on top of config/default.toml via
+#   load_config("config/default.toml", "profiles/sil.toml").
+# Every axis is a sim stand-in; the deterministic ManualClock is selected by clock="sim".
+
+[environment]
+sensor = "sim"
+gimbal = "sim"
+compute = "sim"
+link = "sim"
+clock = "sim"
+host = "x86_64"

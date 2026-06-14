@@ -1,0 +1,12 @@
+# PACT deployment profile: PIL (processor-in-the-loop) -- DEFINED, NOT RUN.
+# Real compute/link/clock on the Jetson target; camera + gimbal still simulated.
+# This profile is committed for completeness but is NOT executed by CI (no Jetson in CI).
+# OVERRIDE applied on top of config/default.toml.
+
+[environment]
+sensor = "sim"
+gimbal = "sim"
+compute = "real"
+link = "real"
+clock = "real"
+host = "jetson_aarch64"

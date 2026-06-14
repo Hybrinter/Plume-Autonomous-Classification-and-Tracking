@@ -1,6 +1,7 @@
 """Pure command-ingress pipeline tests: decode -> CRC -> auth -> parse -> validate -> dedup."""
 
-from flight.iss_iface.ingress import build_tc_packet, process_inbound
+from flight.iss_iface.ingress import process_inbound
+from flight.libs.commands import build_tc_packet
 from flight.libs.types import AckStatus, FaultCode
 
 _KEY = b"unit-test-key-0000000000000000000"
@@ -93,3 +94,13 @@ def test_rejects_unaccepted_source() -> None:
     )
     assert outcome.status is AckStatus.REJECTED
     assert outcome.fault_code is FaultCode.COMMAND_AUTH_FAIL
+
+
+def test_pipeline_no_longer_defines_build_tc_packet() -> None:
+    """The pipeline module re-exports the libs builder rather than defining its own copy."""
+    import flight.iss_iface.ingress as ingress
+    import flight.iss_iface.ingress.pipeline as pipeline
+    from flight.libs.commands import build_tc_packet as libs_build_tc_packet
+
+    assert pipeline.build_tc_packet is libs_build_tc_packet
+    assert ingress.build_tc_packet is libs_build_tc_packet

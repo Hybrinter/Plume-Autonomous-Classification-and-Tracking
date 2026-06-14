@@ -13,8 +13,10 @@ the ground frame does not carry target.
 
 Contains:
   - IngressOutcome: the per-packet result (command-or-None + ack status + reason + echo).
-  - build_tc_packet: construct a signed TC packet (used by GSE/sim/tests, not flight).
   - process_inbound: run the full pipeline for one raw packet (Result-free; outcome-typed).
+
+build_tc_packet (the signed-TC builder for GSE/sim/tests) now lives in flight.libs.commands.tc
+and is re-exported here for back-compat.
 
 Satisfies: REQ-COMM-HIGH-003, REQ-COMM-HIGH-004.
 """
@@ -28,10 +30,12 @@ import json
 from dataclasses import dataclass
 
 # internal
-from flight.libs.ccsds import CcsdsHeader, decode_packet, encode_packet
-from flight.libs.commands import lookup_command, validate_command
+from flight.libs.ccsds import decode_packet
+from flight.libs.commands import build_tc_packet, lookup_command, validate_command
 from flight.libs.messages import CommandMsg
 from flight.libs.types import AckStatus, Err, FaultCode, MessageType
+
+__all__ = ["IngressOutcome", "build_tc_packet", "process_inbound"]
 
 _HMAC_TAG_SIZE = 32  # SHA-256 digest length
 
@@ -62,45 +66,6 @@ class IngressOutcome:
 def _reject(code: FaultCode, detail: str, command_id: str, source: str, seq: int) -> IngressOutcome:
     """Construct a REJECTED IngressOutcome with the given fault code and echo fields."""
     return IngressOutcome(None, AckStatus.REJECTED, code, command_id, source, seq, detail)
-
-
-def build_tc_packet(
-    command_id: str,
-    params: dict[str, str | int | float | bool],
-    source: str,
-    seq: int,
-    key: bytes,
-    apid: int,
-) -> bytes:
-    """Construct a signed CCSDS telecommand packet (for GSE / sim / tests; not used in flight).
-
-    Args:
-        command_id: The command opcode string.
-        params: The command parameters dict.
-        source: The command origin identifier string.
-        seq: The per-source monotonic sequence number.
-        key: The shared HMAC-SHA256 secret.
-        apid: The telecommand APID.
-
-    Returns:
-        The framed TC packet bytes (header + body + HMAC tag + CRC trailer).
-
-    Notes:
-        params is JSON-serialized with sorted keys so the signed bytes are deterministic.
-        Raises ValueError if encode_packet rejects a field (test/build-time error only).
-    """
-    body = json.dumps(
-        {"command_id": command_id, "params": params, "source": source, "seq": seq},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    tag = hmac.new(key, body, hashlib.sha256).digest()
-    encoded = encode_packet(
-        CcsdsHeader(packet_type=1, apid=apid, sequence_count=seq & 0x3FFF), body + tag
-    )
-    if isinstance(encoded, Err):
-        raise ValueError(f"could not encode TC packet: {encoded.error}")  # test helper only
-    return encoded.value
 
 
 def process_inbound(

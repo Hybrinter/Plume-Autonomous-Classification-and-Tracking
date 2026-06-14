@@ -1,7 +1,7 @@
 """SIL closed-loop integration: the real flight apps over sim drivers via build_apps."""
 
-from flight.iss_iface.ingress import build_tc_packet
 from flight.libs.bus import Subscription
+from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
     CommandAckMsg,

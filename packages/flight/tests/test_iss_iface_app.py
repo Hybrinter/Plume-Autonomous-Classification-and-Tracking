@@ -8,8 +8,8 @@ CommandMsg + CommandAckMsg REJECTED with COMMAND_AUTH_FAIL); and gates downlink 
 
 from flight.hal.drivers_sim import SimStationLink
 from flight.iss_iface.app import IssIfaceApp
-from flight.iss_iface.ingress import build_tc_packet
 from flight.libs.bus import MessageBus
+from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
 from flight.libs.messages import CommandAckMsg, CommandMsg
 from flight.libs.time import ManualClock

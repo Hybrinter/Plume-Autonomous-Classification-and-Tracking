@@ -16,14 +16,17 @@ Contains:
 from __future__ import annotations
 
 # stdlib
+import dataclasses
 from dataclasses import dataclass
+from typing import cast
 
 # internal
-from flight.core.composition import MONITORED_SUBSYSTEMS, Drivers, SystemApps, build_apps
+from flight.core.composition import MONITORED_SUBSYSTEMS, SystemApps, build_apps
+from flight.core.select_drivers import SimDriverInputs, select_drivers
 from flight.fault.watchdog import WatchdogEntry
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.bus import MessageBus
-from flight.libs.config import PactConfig
+from flight.libs.config import EnvironmentConfig, PactConfig
 from flight.libs.messages import HeartbeatMsg
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalState, MessageType, MosaicFrame, Ok
@@ -72,32 +75,42 @@ def build_sil_system(
 
     Returns:
         A SilSystem holding the wired apps, the shared bus/clock, and the sim drivers.
+
+    Notes:
+        Delegates concrete-driver construction to flight.core.select_drivers with an
+        all-"sim" EnvironmentConfig (host "x86_64"), so the SIL exercises the exact
+        same selection path the flight entry uses. The returned SilSystem casts the
+        Protocol-typed Drivers fields back to their concrete sim types for inspection.
     """
     bus = MessageBus()
-    sensor = SimSensor(frames)
-    gimbal = SimGimbal(clock=clock, cfg=config.gimbal)
-    station = SimStationLink(inbound_packets)
-    thermal_sensor = SimScalarSensor(thermal_readings or [])
-    power_sensor = SimScalarSensor(power_readings or [])
-    drivers = Drivers(
-        sensor=sensor,
-        gimbal=gimbal,
+    sim_inputs = SimDriverInputs(
+        frames=frames,
         detector=detector,
-        station=station,
-        thermal_sensor=thermal_sensor,
-        power_sensor=power_sensor,
+        inbound_packets=inbound_packets or [],
+        thermal_readings=thermal_readings or [],
+        power_readings=power_readings or [],
     )
+    sil_env = EnvironmentConfig(
+        sensor="sim",
+        gimbal="sim",
+        compute="sim",
+        link="sim",
+        clock="sim",
+        host="x86_64",
+    )
+    sil_config = dataclasses.replace(config, environment=sil_env)
+    drivers = select_drivers(sil_config, clock, sim_inputs)
     calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
-    apps = build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    apps = build_apps(sil_config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
     return SilSystem(
         apps=apps,
         bus=bus,
         clock=clock,
-        sensor=sensor,
-        gimbal=gimbal,
-        station=station,
-        thermal_sensor=thermal_sensor,
-        power_sensor=power_sensor,
+        sensor=cast(SimSensor, drivers.sensor),
+        gimbal=cast(SimGimbal, drivers.gimbal),
+        station=cast(SimStationLink, drivers.station),
+        thermal_sensor=cast(SimScalarSensor, drivers.thermal_sensor),
+        power_sensor=cast(SimScalarSensor, drivers.power_sensor),
     )
 
 

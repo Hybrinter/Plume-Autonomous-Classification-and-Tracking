@@ -32,8 +32,29 @@ from flight.hal.interfaces import (
     StationLink,
 )
 from flight.iss_iface.app import IssIfaceApp
-from flight.libs.bus import MessageBus
+from flight.libs.bus import MessageBus, OverflowPolicy, QueuePolicy
 from flight.libs.config import PactConfig
+from flight.libs.messages import (
+    CommandAckMsg,
+    CommandMsg,
+    DownlinkItemMsg,
+    FaultEventMsg,
+    GimbalCommandMsg,
+    HeartbeatMsg,
+    InferenceResultMsg,
+    LaunchLockStateMsg,
+    LinkStateMsg,
+    ModeChangeMsg,
+    ModelDeployStateMsg,
+    ModelStagedMsg,
+    ProcessedFrameMsg,
+    ProductRefMsg,
+    RoutedCommandMsg,
+    SafetyStateMsg,
+    StorageWriteMsg,
+    TelemetryEventMsg,
+    UploadChunkMsg,
+)
 from flight.libs.time import Clock
 from flight.mechanical.app import MechanicalApp
 from flight.payload.app import PayloadApp
@@ -54,6 +75,52 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "mechanical",
     "model_deploy",
 )
+
+
+# Per-message-type bus queue bounds (spec Section 7). Commands/faults/acks/mode/uploads are
+# NEVER_DROP (losing one is never acceptable -- a soft-bound exceedance is counted as an
+# anomaly); high-rate telemetry/products are DROP_OLDEST (shed stale data under backpressure,
+# keep the loop flowing). Bounds are generous; the deterministic SIL keeps an unbounded bus.
+_NEVER_DROP_BOUND = 1024
+_DROP_OLDEST_BOUND = 8192
+
+
+def default_bus_policy() -> dict[type, QueuePolicy]:
+    """Build the flight bus queue policy: NEVER_DROP for commands/faults, DROP_OLDEST for telemetry.
+
+    Returns:
+        A dict mapping each message type to its QueuePolicy. Used by flight.core.main; the SIL
+        composition root leaves the bus unbounded (default) for determinism.
+    """
+    never = QueuePolicy(maxsize=_NEVER_DROP_BOUND, overflow=OverflowPolicy.NEVER_DROP)
+    drop = QueuePolicy(maxsize=_DROP_OLDEST_BOUND, overflow=OverflowPolicy.DROP_OLDEST)
+    policy: dict[type, QueuePolicy] = {}
+    for never_type in (
+        CommandMsg,
+        RoutedCommandMsg,
+        CommandAckMsg,
+        FaultEventMsg,
+        ModeChangeMsg,
+        ModelStagedMsg,
+        UploadChunkMsg,
+        StorageWriteMsg,
+    ):
+        policy[never_type] = never
+    for drop_type in (
+        TelemetryEventMsg,
+        ProcessedFrameMsg,
+        InferenceResultMsg,
+        LinkStateMsg,
+        LaunchLockStateMsg,
+        GimbalCommandMsg,
+        HeartbeatMsg,
+        ProductRefMsg,
+        DownlinkItemMsg,
+        ModelDeployStateMsg,
+        SafetyStateMsg,
+    ):
+        policy[drop_type] = drop
+    return policy
 
 
 @dataclass(frozen=True)

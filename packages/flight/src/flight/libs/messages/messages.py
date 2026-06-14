@@ -40,6 +40,12 @@ from flight.libs.types import (
     SystemMode,
 )
 
+# Schema version stamped on every bus envelope (spec Section 7). Bumped when a message's
+# field layout changes incompatibly, so a consumer (or a downlinked record) can detect a
+# version skew rather than silently mis-parsing. Every message dataclass carries it as a
+# defaulted trailing field, so existing keyword constructions are unaffected.
+SCHEMA_VERSION = 1
+
 # ---------------------------------------------------------------------------
 # Shared timestamp utility
 # ---------------------------------------------------------------------------
@@ -98,6 +104,7 @@ class ProcessedFrameMsg:
     quality_flags: frozenset[FrameUsabilityTag]
     crop_origin_px: tuple[int, int]  # (x, y) top-left offset of crop in full frame
     scale_factor: float  # resize scale applied during preprocessing
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -117,6 +124,7 @@ class InferenceResultMsg:
     mode_flags: int  # uint8 bitmask; semantics defined in config
     crop_origin_px: tuple[int, int]  # (x, y) preprocess crop origin the blobs live in
     scale_factor: float  # preprocess decimation scale the blobs live in (tensor_px = plane_px * s)
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -138,6 +146,7 @@ class GimbalCommandMsg:
     el_value_deg: float  # rate (deg/s) for RATE; target angle (deg) for ABSOLUTE; 0 otherwise
     state: GimbalState  # arbiter state at time of command
     reason: str  # human-readable reason code for logging
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -152,6 +161,7 @@ class TelemetryEventMsg:
     subsystem: str  # originating subsystem name (snake_case)
     event_name: str  # short snake_case event identifier
     payload: dict[str, str | int | float | bool]  # serializable structured fields only
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -163,6 +173,7 @@ class FaultEventMsg:
     fault_code: FaultCode  # enumerated fault condition
     subsystem: str  # subsystem that detected/raised the fault
     detail: str  # human-readable fault detail string
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -173,6 +184,7 @@ class HeartbeatMsg:
     timestamp_utc: str  # ISO 8601, millisecond precision
     subsystem: str  # originating subsystem name
     sequence: int  # monotonic heartbeat counter per subsystem
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -183,6 +195,7 @@ class ModeChangeMsg:
     timestamp_utc: str  # ISO 8601, millisecond precision
     new_mode: SystemMode  # requested target system mode
     requested_by: str  # subsystem or operator that requested the change
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -202,6 +215,7 @@ class CommandMsg:
     params: dict[str, str | int | float | bool]  # serializable command parameters only
     source: str  # command origin (e.g. "ground", "station_ops")
     seq: int  # monotonic per-source command sequence number
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -222,6 +236,7 @@ class RoutedCommandMsg:
     params: dict[str, str | int | float | bool]  # serializable command parameters only
     source: str  # command origin (echoed for ack correlation)
     seq: int  # per-source sequence number (echoed for ack correlation)
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -241,6 +256,7 @@ class SafetyStateMsg:
     active_faults: tuple[FaultCode, ...]  # SAFE-triggering faults seen this tick (sorted)
     safe_latched: bool  # True once a SAFE-triggering fault latched SAFE, until EXIT_SAFE
     safe_reason: FaultCode  # the fault that latched SAFE (NONE when not latched)
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -258,6 +274,7 @@ class StorageWriteMsg:
     processed_tensor: object  # np.ndarray[float32, (4, H, W)]
     inference_result: InferenceResultMsg  # full inference output for this frame
     usability: FrameUsabilityTag  # computed usability classification
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -276,6 +293,7 @@ class ProductRefMsg:
     priority: DownlinkPriority  # downlink priority (typically SCIENCE_PRODUCT)
     item_id: str  # human-readable product identifier (e.g. "mask_thumb_<frame>")
     byte_len: int  # size of the stored product in bytes (for budget accounting)
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -295,6 +313,7 @@ class DownlinkItemMsg:
     crc32: int  # CRC-32 of payload_bytes (0 for storage_ref items)
     item_id: str  # unique item identifier string
     storage_ref: str = ""  # storage entry id to fetch at tx time; "" => inline payload_bytes
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -312,6 +331,7 @@ class UploadChunkMsg:
     total_chunks: int  # total number of chunks in this upload session
     data: bytes  # raw bytes for this chunk
     expected_crc32: int  # CRC-32 of the complete reassembled file
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -328,6 +348,7 @@ class ModelStagedMsg:
     entry_id: str  # storage entry id of the reassembled artifact
     sha256: str  # expected SHA-256 hex digest of the complete artifact
     version: str  # semantic version / identifier declared by the upload
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -344,6 +365,7 @@ class ModelDeployStateMsg:
     state: ModelDeployState  # ACTIVE / STAGED / ROLLBACK_AVAILABLE
     version: str  # active (or attempted) model version/identifier
     detail: str  # human-readable transition reason
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -364,6 +386,7 @@ class CommandAckMsg:
     seq: int  # echoed per-source sequence number (-1 if unparseable)
     fault_code: FaultCode  # NONE on ACCEPTED; the reject reason otherwise
     detail: str  # human-readable reason / context
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -373,6 +396,7 @@ class LinkStateMsg:
     msg_type: MessageType  # must be MessageType.LINK_STATE
     timestamp_utc: str  # ISO 8601, millisecond precision
     state: LinkState  # AOS (link up) or LOS (link down)
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
@@ -388,3 +412,4 @@ class LaunchLockStateMsg:
     msg_type: MessageType  # must be MessageType.LAUNCH_LOCK_STATE
     timestamp_utc: str  # ISO 8601, millisecond precision
     state: LaunchLockState  # ENGAGED / RELEASED / UNKNOWN
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version

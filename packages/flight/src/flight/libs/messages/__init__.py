@@ -5,6 +5,7 @@ from `flight.libs.messages`.
 """
 
 from flight.libs.messages.messages import (
+    SCHEMA_VERSION,
     BlobMeta,
     CommandAckMsg,
     CommandMsg,
@@ -29,6 +30,7 @@ from flight.libs.messages.messages import (
 )
 
 __all__ = [
+    "SCHEMA_VERSION",
     "BlobMeta",
     "CommandAckMsg",
     "CommandMsg",

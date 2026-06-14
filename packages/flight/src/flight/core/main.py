@@ -14,17 +14,27 @@ Contains:
 from __future__ import annotations
 
 # stdlib
+import signal
 import threading
+import time
+from types import FrameType
 
 # internal
-from flight.core.composition import MONITORED_SUBSYSTEMS, SystemApps, build_apps
+from flight.core.composition import (
+    MONITORED_SUBSYSTEMS,
+    SystemApps,
+    build_apps,
+    default_bus_policy,
+)
 from flight.core.config_loader import load_config
+from flight.core.health import startup_healthy
 from flight.core.scheduler import Scheduler
 from flight.core.select_drivers import select_drivers
-from flight.libs.bus import MessageBus
+from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import PactConfig
+from flight.libs.messages import HeartbeatMsg, ModeChangeMsg
 from flight.libs.time import Clock, ManualClock, RealClock
-from flight.libs.types import Ok
+from flight.libs.types import MessageType, Ok, SystemMode
 from flight.payload.calibration_io import build_identity_calibration, load_calibration
 from flight.payload.preprocess import MosaicCalibration
 
@@ -85,8 +95,49 @@ def build_flight_system(
     return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
 
 
+def _run_startup_health_gate(
+    bus: MessageBus,
+    heartbeats: Subscription[HeartbeatMsg],
+    clock: Clock,
+    monitored: tuple[str, ...],
+    window_s: float,
+) -> bool:
+    """Wait up to window_s for a first heartbeat from every monitored subsystem.
+
+    Args:
+        bus: The shared MessageBus (used to annunciate SAFE on a failed gate).
+        heartbeats: A HeartbeatMsg subscription created before the scheduler started.
+        clock: The injected Clock (monotonic seconds for the window).
+        monitored: The subsystems that must heartbeat for a healthy startup.
+        window_s: The maximum seconds to wait.
+
+    Returns:
+        True if every monitored subsystem heartbeat within the window; otherwise publishes a
+        ModeChangeMsg(SAFE) (annunciating the half-initialized topology) and returns False.
+    """
+    seen: set[str] = set()
+    deadline = clock.monotonic_s() + window_s
+    while clock.monotonic_s() < deadline and not startup_healthy(seen, monitored):
+        while not heartbeats.empty():
+            seen.add(heartbeats.get_nowait().subsystem)
+        time.sleep(0.1)
+    while not heartbeats.empty():
+        seen.add(heartbeats.get_nowait().subsystem)
+    if startup_healthy(seen, monitored):
+        return True
+    bus.publish(
+        ModeChangeMsg(
+            msg_type=MessageType.MODE_CHANGE,
+            timestamp_utc=clock.wall_clock_iso(),
+            new_mode=SystemMode.SAFE,
+            requested_by="startup_health_gate",
+        )
+    )
+    return False
+
+
 def main(config_path: str = "config/default.toml") -> None:
-    """Load config, build the flight system, and run the scheduler until interrupted.
+    """Load config, build the flight system, run the startup health gate, then supervise.
 
     Args:
         config_path: Path to the TOML config file.
@@ -94,6 +145,15 @@ def main(config_path: str = "config/default.toml") -> None:
     Raises:
         SystemExit: If config loading or calibration loading fails (unrecoverable
             startup errors).
+
+    Notes:
+        The bus is bounded per the flight queue policy (commands/faults never-drop, telemetry
+        drop-oldest). After launching the scheduler the startup health gate requires a first
+        heartbeat from every monitored subsystem within a window, else it annunciates SAFE.
+        A SIGTERM triggers an ordered teardown (the scheduler joins in registration order:
+        payload first, then the core services, with storage/downlink last so products flush and
+        drain before exit). The scheduler supervises app threads, restarting a crashed thread up
+        to its limit and then latching SAFE via a PROCESS_DIED fault.
     """
     result = load_config(config_path)
     if not isinstance(result, Ok):
@@ -110,8 +170,9 @@ def main(config_path: str = "config/default.toml") -> None:
     else:
         calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
 
-    bus = MessageBus()
+    bus = MessageBus(policy=default_bus_policy())
     clock: Clock = RealClock() if config.environment.clock == "real" else ManualClock()
+    heartbeats = bus.subscribe(HeartbeatMsg)  # before start(), so no early heartbeat is missed
     apps = build_flight_system(config, bus, clock, calib)
 
     scheduler = Scheduler(
@@ -126,10 +187,24 @@ def main(config_path: str = "config/default.toml") -> None:
             ("downlink", apps.downlink),
             ("mechanical", apps.mechanical),
             ("model_deploy", apps.model_deploy),
-        ]
+        ],
+        bus=bus,
     )
     scheduler.start()
+    _run_startup_health_gate(
+        bus, heartbeats, clock, MONITORED_SUBSYSTEMS, config.fault.watchdog_interval_s * 3.0
+    )
+
+    shutdown = threading.Event()
+
+    def _on_sigterm(_signum: int, _frame: FrameType | None) -> None:
+        """SIGTERM handler: request an ordered teardown."""
+        shutdown.set()
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
     try:
-        threading.Event().wait()  # run until the process is signaled/interrupted
+        scheduler.supervise(shutdown)  # restart-then-SAFE until SIGTERM
     except KeyboardInterrupt:
-        scheduler.stop()
+        pass
+    finally:
+        scheduler.stop()  # ordered join: payload first, storage/downlink last

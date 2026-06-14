@@ -223,8 +223,8 @@ class InProcessBackend:
                 frames=frames,
                 detector=detector,
                 inbound_packets=[],
-                thermal_readings=[20.0],
-                power_readings=[10.0],
+                thermal_readings=list(scenario.scene.thermal_readings),
+                power_readings=list(scenario.scene.power_readings),
             )
             system = build_validation_system(config, self._clock, sim_inputs, _SIL_KEY)
             self._emulator = StationEmulator(
@@ -242,8 +242,8 @@ class InProcessBackend:
                 frames=frames,
                 detector=detector,
                 inbound_packets=inbound,
-                thermal_readings=[20.0],
-                power_readings=[10.0],
+                thermal_readings=list(scenario.scene.thermal_readings),
+                power_readings=list(scenario.scene.power_readings),
             )
             system = build_validation_system(config, self._clock, sim_inputs, _SIL_KEY)
 

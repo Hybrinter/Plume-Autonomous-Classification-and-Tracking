@@ -35,10 +35,18 @@ class SceneSpec:
     Fields:
         num_frames: Number of mosaic frames to render (one per SIL step).
         seed: Deterministic render seed.
+        thermal_readings: Per-step thermal-sensor readings (deg C) the SimScalarSensor serves;
+            a SimScalarSensor holds its last value once exhausted, so a singleton drives a
+            constant temperature for the whole run. Defaults to (20.0,) (nominal). A reading
+            above config.fault.thermal_limit_c drives THERMAL_OVER_LIMIT -> SAFE.
+        power_readings: Per-step power-sensor readings (W), same hold-last semantics. Defaults
+            to (10.0,) (nominal).
     """
 
     num_frames: int
     seed: int
+    thermal_readings: tuple[float, ...] = (20.0,)
+    power_readings: tuple[float, ...] = (10.0,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +135,12 @@ def load_scenario(path: str) -> Scenario:
         data = tomllib.load(handle)
 
     scene_raw = data["scene"]
-    scene = SceneSpec(num_frames=int(scene_raw["num_frames"]), seed=int(scene_raw["seed"]))
+    scene = SceneSpec(
+        num_frames=int(scene_raw["num_frames"]),
+        seed=int(scene_raw["seed"]),
+        thermal_readings=_readings(scene_raw.get("thermal_readings"), (20.0,)),
+        power_readings=_readings(scene_raw.get("power_readings"), (10.0,)),
+    )
 
     commands = tuple(
         CommandStep(
@@ -159,6 +172,27 @@ def load_scenario(path: str) -> Scenario:
         steps=int(data["steps"]),
         dt=float(data["dt"]),
     )
+
+
+def _readings(raw: object, default: tuple[float, ...]) -> tuple[float, ...]:
+    """Normalize a raw TOML readings array into a tuple of floats, or fall back to a default.
+
+    Args:
+        raw: The value read from scene.thermal_readings / scene.power_readings (a TOML array,
+            or None when the key is absent).
+        default: The nominal-singleton fallback to use when raw is None.
+
+    Returns:
+        A tuple of floats: each element of raw coerced to float, or default when raw is None.
+
+    Raises:
+        TypeError: if raw is present but not an iterable of numeric values.
+    """
+    if raw is None:
+        return default
+    if not isinstance(raw, list):
+        raise TypeError(f"scene readings must be a list, got {type(raw).__name__}")
+    return tuple(float(value) for value in raw)
 
 
 def _parse_tag(raw: object) -> AssertionTag:

@@ -1,8 +1,14 @@
 # PACT — Plume Autonomous Capture Technology
 
-> Software architecture, requirements, risk mitigations, and implementation spec for the PACT onboard ISS plume detection and gimbal control system.
+PACT is an **ISS-attached external payload** for autonomous detection, segmentation, and tracking
+of industrial plumes in multispectral VNIR imagery from orbit. It runs a neural detector on each
+frame, drives a two-axis gimbal to keep detected plumes boresighted, persists science products
+with integrity checksums, and exchanges authenticated commands and downlink products with the
+station over a CCSDS link — with no real-time ground-in-the-loop control.
 
-PACT is an active external payload hosted on the **TAMU-SPIRIT Pallet Carrier** aboard the International Space Station. It autonomously detects and tracks industrial smoke plumes in multispectral imagery using an onboard neural network, drives a gimbal to keep plumes in frame, stores imagery with integrity checksums, and downlinks data to the ground for ML retraining — all with no real-time ground-in-the-loop control.
+The flight software is a **Python-only `uv` workspace** under `packages/`, built as isolated
+**subsystem-apps** communicating over a typed in-process message bus. (The pre-restructure
+`src/pact` architecture and the earlier Rust-migration plan have both been retired.)
 
 ---
 
@@ -10,112 +16,96 @@ PACT is an active external payload hosted on the **TAMU-SPIRIT Pallet Carrier** 
 
 | Capability | Description |
 |-----------|-------------|
-| **Plume Detection** | U-Net/ResNet-34 segmentation model classifies smoke, wildfire, natural gas, and industrial stack plumes in 4-band VNIR imagery (490–842 nm) |
-| **Gimbal Control** | LQR + Kalman filter closed-loop controller keeps detected plumes centered in the camera FOV |
-| **Onboard Storage** | Frames stored with SHA-256 checksums and append-only manifests for dataset integrity |
-| **CCSDS Downlink** | Priority-queued data downlink via TAMU-SPIRIT/ISS link (≤ 1 GB/weekday) |
-| **Model Uplink** | Safe model update pipeline with staged deployment, integrity verification, and rollback |
-| **Fault Detection** | Heartbeat watchdog, encoder loss detection, thermal/power monitoring, safe-mode entry |
+| **Plume detection** | An ONNX segmentation model (trained in a separate model repository) produces a binary plume mask per frame; blobs are extracted for tracking. Raw 2×2 mosaic frames are demosaiced into BLUE/GREEN/RED/NIR bands (≈ Sentinel-2 B2/B3/B4/B8) in pure preprocessing. |
+| **Closed-loop pointing** | Boresight-relative error → EMA / Kalman tracking → LQR rate commands drive the gimbal; a pure FSM arbiter resolves IDLE / ACQUIRING / TRACKING / SCAN / SAFE behind safety gates. |
+| **ISS command path** | Authenticated CCSDS command ingress (CRC + per-source sequence dedup + HMAC-SHA256 + command-dictionary validation); every command yields an ACCEPTED or REJECTED ack. |
+| **FDIR / SAFE** | Heartbeat watchdog + fault-to-mode policy; SAFE-triggering faults latch the system into a single SAFE mode (stow + quiesce), exited only by ground command. |
+| **Validation** | A configuration matrix of driver / compute profiles with a requirement → venue VCRM. A deterministic in-process SIL and a `sil-link-real` x86 partial run in CI, driven by declarative scenarios through the GSE harness. |
 
 ---
 
 ## Repository Structure
 
+A `uv` workspace; the repo root is a **virtual** workspace root (builds no package):
+
 ```
-pact/
-├── config/
-│   ├── default.toml          # All tunable parameters — no magic numbers in source
-│   └── flight.toml           # Flight overrides (INT8 quantization enabled)
-├── src/pact/
-│   ├── controller/           # Gimbal arbiter, LQR, Kalman filter, blob tracker
-│   ├── imaging/              # FLIR Blackfly S GigE camera interface
-│   ├── model/                # U-Net segmentation model, inference engine
-│   ├── preprocessing/        # Band selection, radiometric calibration, quality flags
-│   ├── comms/                # CCSDS encoding, downlink queue, chunked uplink
-│   ├── storage/              # Frame persistence with SHA-256 and manifests
-│   ├── telemetry/            # Health event aggregation and telemetry packets
-│   ├── fault/                # Watchdog, fault detection, safe-mode FSM
-│   ├── ops/                  # Process orchestrator, config loader, mode FSM
-│   └── types/                # Shared enums, frozen message dataclasses, config types
-├── tests/                    # Unit, integration, and E2E smoke tests
-├── scripts/                  # Demo scripts, dataset download, benchmarks
-├── docs/
-│   └── architecture.md       # Full software architecture and implementation spec ← start here
-├── CLAUDE.md                 # Codebase-wide patterns for contributors
-└── TODO.md                   # Known gaps and Phase I/II work items
+packages/
+  flight/   # pact-flight — the flight software (subsystem-apps; lean deps: numpy, scipy, structlog)
+  sim/      # pact-sim    — SIL harness, scene generation, validation harness (depends on flight)
+  tools/    # pact-tools  — artifact acceptance / SIL experiment runners / analysis
+  gse/      # pact-gse    — ground support: CCSDS station emulator + declarative scenarios + orchestrator
+config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
+profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
+scenarios/  # declarative validation scenarios (scene + command timeline + assertions)
+scripts/    # check_vcrm.py — requirement-traceability CI check
+docs/       # architecture.md, adr/, requirements/ (VCRM), validation/ — design + traceability
 ```
+
+Each subsystem under `packages/flight/src/flight/` (`payload`, `fault`, `iss_iface`, `thermal`,
+`electrical`, `mechanical`) is an isolated app: a thin imperative shell around a pure decision
+core, talking to peers **only** over `flight.libs.bus`. `flight.core` is the sole composition root.
 
 ---
 
 ## Getting Started
 
-### Install
-
 ```bash
-# Requires Python 3.14+
+# Requires Python 3.14+ and uv
 uv sync --extra dev
 ```
 
-### Run the Demos
+Run the gates (the whole tree):
 
 ```bash
-# Gimbal arbiter state machine (no hardware needed)
-python scripts/demo_controller.py
-
-# Single inference pass on a synthetic frame
-python scripts/demo_inference.py
-
-# Storage write + SHA-256 verify
-python scripts/demo_storage.py
-
-# CCSDS packet encode/decode + CRC-32 verify
-python scripts/demo_ccsds.py
+uv run ruff check packages scripts
+uv run ruff format --check packages scripts
+uv run mypy packages scripts
+uv run lint-imports
+uv run python scripts/check_vcrm.py
+uv run pytest -m "not e2e"
 ```
 
-### Run Tests
+Run a declarative SIL scenario through the GSE harness (from the repo root):
 
-```bash
-# Fast unit + integration tests
-pytest -m "not e2e"
+```python
+from gse.scenario import load_scenario
+from gse.orchestrator import run_scenario
 
-# Full pipeline smoke test (all processes, 60s timeout)
-pytest -m e2e
+scenario = load_scenario("scenarios/closed_loop_pointing.toml")
+report = run_scenario(scenario, f"profiles/{scenario.profile}.toml")
+print(report.passed, report.failed, report.skipped)
 ```
 
 ---
 
-## Key Design Principles
+## Architecture Principles
 
-**Rust-idiomatic Python.** Every design choice optimizes for mechanical translation to Rust: frozen dataclasses, enum discriminants, `Result[T, E]` error handling, no dynamic dispatch.
+- **Subsystem-app + typed bus.** No app references another; all inter-app communication is a typed
+  message on the `MessageBus`. Composition (bus, clock, drivers, scheduler) lives only in
+  `flight.core` (and `sim.sil` for SIL).
+- **Pure decision cores.** Controller, arbiter, tracking, watchdog, and policy are pure functions —
+  no I/O, no bus, no clock reads; state in, state + messages out — so they are deterministic and
+  replayable from logs.
+- **HAL Protocols + lazy SDKs.** Every device is a `@runtime_checkable` Protocol returning
+  `Result[..., FaultCode]`; real vs sim drivers are injected by the composition root through one
+  `select_drivers(config)` factory. SDK imports (PySpin, onnxruntime, pyserial) are lazy.
+- **Result, not exceptions.** Library code returns `Result[T, E]`; only process entry points raise,
+  and only for unrecoverable startup failures.
+- **Validation as a configuration matrix.** Profiles are points in a {sensor, gimbal, compute,
+  link, clock} space; a requirement → method → venue VCRM (`docs/requirements/vcrm.md`) is the
+  organizing spine, enforced in CI by `scripts/check_vcrm.py`.
 
-**No magic numbers.** Every threshold lives in `config/default.toml`. Source code never hardcodes a tunable value.
-
-**Pure-function arbiter.** `GimbalArbiter.step()` is a pure function — no I/O, no side effects. Deterministic, testable, and replayable from logs.
-
-**Queue ownership in one place.** All inter-process queues are created in `ops/main.py`. No subsystem creates its own queues.
-
----
-
-## Platform
-
-| Parameter | Value |
-|-----------|-------|
-| Host platform | TAMU-SPIRIT Pallet Carrier, ISS external truss |
-| Compute | NVIDIA Jetson Xavier NX |
-| Camera | FLIR Blackfly S GigE 5MP (Sony IMX264, 3.45 µm pixel pitch) |
-| Spectral bands | 490 / 560 / 665 / 842 nm (2×2 Torrent Photonics filter array) |
-| Orbital altitude | ~420 km |
-| Ground sampling distance | ≤ 10 m |
-| Power budget | ≤ 60 W (hard), ≤ 15–20 W (target) |
-| Downlink | ≤ 1 GB/weekday via TAMU-SPIRIT/ISS TDRSS link |
+Reference hardware (FLIR Blackfly S mono + 2×2 mosaic filter, PTU-class gimbal, Jetson Orin
+NX-class compute, Ethernet/CCSDS station link) is nominated in the design spec, Section 2.
 
 ---
 
 ## Documentation
 
-- **[`docs/architecture.md`](docs/architecture.md)** — Full software architecture, subsystem design, requirements traceability, risk mitigations, and implementation spec. Read this first.
-- **[`CLAUDE.md`](CLAUDE.md)** — Cross-cutting patterns that apply project-wide (queue ownership, pure-function contract, Result usage, config distribution).
-- **[`TODO.md`](TODO.md)** — Phase I bugs, test coverage gaps, and Phase II work items.
+- **[`docs/architecture.md`](docs/architecture.md)** — full software architecture (start here).
+- **[`docs/adr/`](docs/adr/)** — architecture decision records (0001–0010).
+- **[`docs/requirements/vcrm.md`](docs/requirements/vcrm.md)** — requirement → verification-venue matrix.
+- **[`CLAUDE.md`](CLAUDE.md)** — cross-cutting patterns and invariants for contributors.
 
 ---
 

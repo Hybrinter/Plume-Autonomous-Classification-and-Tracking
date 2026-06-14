@@ -15,7 +15,7 @@ from typing import Generic, TypeVar, cast
 _T = TypeVar("_T")
 
 
-class Subscription(Generic[_T]):  # noqa: UP046  (keep explicit Generic form for Rust-idiomatic parity)
+class Subscription(Generic[_T]):  # noqa: UP046  (explicit Generic form retained intentionally)
     """A typed receive handle for one subscribed message type."""
 
     def __init__(self, queue: Queue[_T]) -> None:

@@ -1,8 +1,7 @@
 """Flight enumeration types.
 
 Defines all enumerations used as discriminants and state values across the flight
-software. Migrated from pact.types.enums (the Ok/Err/Result types live in
-flight.libs.types.result).
+software. The Ok/Err/Result types live in flight.libs.types.result.
 
 Includes:
 - SystemMode: top-level operational mode transitions.

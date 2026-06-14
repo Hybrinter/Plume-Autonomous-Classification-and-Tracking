@@ -52,10 +52,9 @@ individual files or their docstrings.
 ## types
 
 - `Ok`/`Err` are `@dataclass(frozen=True)`, deliberately NOT `slots=True`, and retain the
-  explicit `Generic[T]` / `Union` forms (with `noqa`). The in-code "Rust-idiomatic parity"
-  comments are legacy -- the Rust migration is dropped (`docs/adr/0001-python-only-drop-rust.md`)
-  -- but the explicit `Result[T, E]` shape is the stable public contract used everywhere, so do
-  not churn it into PEP 695 / `type` syntax without a deliberate, repo-wide reason.
+  explicit `Generic[T]` / `Union` forms (with `noqa`). The explicit `Result[T, E]` shape is the
+  stable public contract used everywhere, so do not churn it into PEP 695 / `type` syntax without
+  a deliberate, repo-wide reason.
 - Enum string value equals the member name for log readability -- EXCEPT the two integer-ish
   cases: `DownlinkPriority` uses ints `0..3` (lower == higher priority; consumed directly by
   `queue.PriorityQueue` via `.value`). It is `enum.Enum`, not `IntEnum`, so it never
@@ -135,8 +134,8 @@ individual files or their docstrings.
 ## config
 
 - Frozen per-subsystem dataclasses; subsystems receive their typed config, never read TOML.
-- Field defaults MUST exactly match `config/default.toml`. Unlike the old `src/pact` tree,
-  divergence here IS guarded: `packages/flight/tests/test_config_defaults.py` loads the TOML
+- Field defaults MUST exactly match `config/default.toml`; divergence here IS guarded:
+  `packages/flight/tests/test_config_defaults.py` loads the TOML
   and asserts equality. TOML arrays load as lists, so tuple defaults are compared after
   list->tuple normalization -- keep array-like defaults as tuples.
 - **`LinkConfig` (2026-06-13, ADR 0009):** Station data-link transport config -- TCP bind

@@ -36,8 +36,8 @@ _SCAN_LIMIT_DEG: float = 30.0  # azimuth raster half-span before the scan revers
 class ArbiterState:
     """Immutable arbiter state snapshot.
 
-    Mirrors a Rust struct -- all fields are value types or immutable collections.
-    Never mutate an ArbiterState; always produce a new one via dataclasses.replace().
+    All fields are value types or immutable collections. Never mutate an ArbiterState;
+    always produce a new one via dataclasses.replace().
 
     Fields
     ------

@@ -15,13 +15,14 @@ The flight software is the `uv` workspace under `packages/`:
 - `packages/sim/` (`pact-sim`) -- SIL harness, scene generation, digital twin (depends on flight).
 - `packages/tools/` (`pact-tools`) -- training/eval/export; heavy deps (torch etc.) live here only.
 
-**`src/pact/` is LEGACY.** It is the pre-restructure multiprocessing/`ops/main.py` codebase,
-retained for reference while it is retired. Do not build new work against it; do not assume its
-patterns apply to `packages/flight`. (PACT is an ISS-attached payload; the earlier Rust-migration
-plan is dropped -- the codebase is Python-only.)
+The legacy `src/pact/` tree (the pre-restructure multiprocessing/`ops/main.py` codebase) has been
+**removed**; `packages/` is the entire codebase. PACT is an ISS-attached payload and the codebase
+is Python-only (the earlier Rust-migration plan was dropped).
 
-Run gates with `uv run <tool> packages` (ruff, ruff format --check, mypy, lint-imports, pytest).
-CI gates are scoped to `packages/`; widen them to the whole tree only after `src/pact` is removed.
+Run gates over the whole tree: `uv run ruff check packages scripts`, `uv run ruff format --check
+packages scripts`, `uv run mypy packages scripts`, `uv run lint-imports`, `uv run python
+scripts/check_vcrm.py`, and `uv run pytest -m "not e2e"`. The repo root is a virtual `uv` workspace
+root (`[tool.uv] package = false`); it builds no package and carries no runtime deps of its own.
 
 ---
 
@@ -158,9 +159,9 @@ publishing them itself each step.
 ## Strong Typing + mypy_path
 
 mypy runs `--strict`. The root `pyproject.toml` sets
-`mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src"]` so cross-package
-`flight.*`/`sim.*`/`tools.*` imports resolve to the workspace **source** trees. **Do not remove
-it** -- without it those imports fall back to `Any` (the editable installs have no `py.typed`),
+`mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src"]`
+so cross-package `flight.*`/`sim.*`/`tools.*`/`gse.*` imports resolve to the workspace **source**
+trees. **Do not remove it** -- without it those imports fall back to `Any` (the editable installs have no `py.typed`),
 silently disabling strict checking across modules. Polymorphism is expressed with statically-typed
 `Protocol` interfaces (the relaxed form of the "no dynamic dispatch" rule); avoid callable dispatch
 tables and duck typing. See `.claude/rules/strong_typing.md`.

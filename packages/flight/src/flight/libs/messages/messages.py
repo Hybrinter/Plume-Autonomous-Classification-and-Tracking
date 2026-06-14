@@ -1,13 +1,13 @@
-"""Flight inter-process message dataclasses. Section 4.2 of PACT_SW_ARCH.
+"""Flight inter-subsystem message dataclasses.
 
-All messages passed across concurrency boundaries (multiprocessing.Queue,
-queue.Queue, or asyncio.Queue) are defined here. Every message:
-  - Is @dataclass(frozen=True) to mirror Rust structs.
+All messages published on the in-process MessageBus (queue.Queue transport) are defined
+here. Every message:
+  - Is @dataclass(frozen=True) (an immutable value type).
   - Has msg_type: MessageType as its first field (discriminant).
   - Has timestamp_utc: str (ISO 8601, millisecond precision) as its second field.
   - Has frame_id: int where applicable (uint32, monotonic counter).
 
-Migrated from pact.types.messages; enums are imported from flight.libs.types.
+Enums are imported from flight.libs.types.
 
 Note: RawFrameMsg was removed in the raw-mosaic ingest contract change (spec Section 3).
 Frames are passed by direct call from the sensor driver to the payload app (co-location

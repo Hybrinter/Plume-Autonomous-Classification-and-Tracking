@@ -1,5 +1,5 @@
 """
-pact.preprocessing.crop -- ROI crop and coordinate back-projection for PACT inference.
+ROI crop and coordinate back-projection for PACT inference.
 
 Satisfies: REQ-AIML-PREP-003
 

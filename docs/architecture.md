@@ -1,9 +1,8 @@
 # PACT Flight Software Architecture
 
-> **Status (2026-06-01):** This document describes the current `packages/flight` subsystem-app
-> architecture on branch `fsw-restructure`. The legacy `src/pact/` tree (multiprocessing +
-> `ops/main.py`) is retained for reference and is being retired; do not build new work against it.
-> The design rationale lives in
+> **Status:** This document describes the `packages/flight` subsystem-app architecture on branch
+> `fsw-restructure`. The legacy `src/pact/` tree (multiprocessing + `ops/main.py`) has been
+> **removed**; `packages/` is the entire codebase. The design rationale lives in
 > `docs/superpowers/specs/2026-05-30-pact-iss-payload-fsw-structure-design.md`.
 
 ## System Overview
@@ -266,13 +265,14 @@ Built and CI-green end-to-end: tooling, `libs`, `hal`, `core` foundations, the f
 pipeline, `fault`, `iss_iface`, `thermal`, `electrical`, the composition root + scheduler, and the
 SIL closed-loop integration. Open items:
 
-- **Retire `src/pact/`** (legacy tree) and then widen the CI gates from `packages/` to the whole
-  repo. This is a deliberate, user-gated deletion step.
-- **`mechanical`** subsystem -- build when a concrete mechanism device is identified.
-- **`tools/` migration** -- move the legacy torch training/inference (`InferenceEngine`, dataset,
-  train, quantize, model export-to-ONNX) into `pact-tools`.
-- **Real driver integration** -- `RealSensor` (PySpin), `RealGimbal`, `RealStationLink`,
-  `RealScalarSensor` are stubs pending the flight hardware + ISS avionics interface.
-- **Model-upload transport** -- chunked model upload (legacy `comms/uplink.py`) as a future
-  consumer of the `iss_iface` command/downlink transport.
+- **Legacy retirement (done).** `src/pact/` and the root `tests/` tree have been removed and the
+  CI gates widened to the whole tree (`packages/` + `scripts/`).
+- **`mechanical`** subsystem -- build when a concrete mechanism device (launch lock) is identified.
+- **`tools/` build-out** -- artifact acceptance + SIL experiment runners + analysis (model
+  training lives in a separate model repository; no torch in this repo).
+- **Real driver integration** -- `RealSensor` (PySpin), `RealGimbal` (pyserial), and
+  `RealStationLink` (sockets / CCSDS) are implemented (code-complete, hardware-unvalidated);
+  `RealScalarSensor` remains a stub pending the housekeeping bus.
+- **Model-upload transport** -- chunked model upload as a future consumer of the `iss_iface`
+  command/downlink transport.
 - **CI housekeeping** -- bump `actions/checkout`/`setup-uv` off the deprecated Node 20 runtime.

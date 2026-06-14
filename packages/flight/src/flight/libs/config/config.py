@@ -1,4 +1,4 @@
-"""Flight typed configuration dataclasses. Section 4.3 of PACT_SW_ARCH.
+"""Flight typed configuration dataclasses.
 
 All tunable parameters for every subsystem are represented here as frozen dataclasses.
 Default field values exactly match config/default.toml so that an unmodified load

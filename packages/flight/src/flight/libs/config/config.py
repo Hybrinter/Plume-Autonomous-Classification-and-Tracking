@@ -192,6 +192,19 @@ class CommandIngressConfig:
     accepted_sources: tuple[str, ...] = ("ground", "station_ops")  # allowed command origins
 
 
+@dataclass(frozen=True)
+class CommandRouterConfig:
+    """Configuration for the core command router (routing + ARM/EXECUTE two-step).
+
+    arm_window_s bounds how long a hazardous command stays armed before its EXECUTE must
+    arrive; an EXECUTE after the window lapses is rejected and re-arming is required. The
+    routable-target set and the hazardous-command set are derived from the command dictionary
+    (flight.libs.commands), not configured here, so they stay in sync with the dictionary.
+    """
+
+    arm_window_s: float = 30.0  # seconds an ARM authorizes a following EXECUTE
+
+
 # A deployment axis is wired to either a sim stand-in or the real device/driver.
 AxisMode = Literal["sim", "real"]
 
@@ -237,4 +250,5 @@ class PactConfig:
     gimbal: GimbalConfig = field(default_factory=GimbalConfig)
     link: LinkConfig = field(default_factory=LinkConfig)
     command_ingress: CommandIngressConfig = field(default_factory=CommandIngressConfig)
+    command_router: CommandRouterConfig = field(default_factory=CommandRouterConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)

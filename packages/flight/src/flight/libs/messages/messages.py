@@ -203,6 +203,45 @@ class CommandMsg:
 
 
 @dataclass(frozen=True)
+class RoutedCommandMsg:
+    """A command the core router has accepted and dispatched to its target subsystem.
+
+    Emitted by flight.core.command_router after a CommandMsg passes routing (known target,
+    and for hazardous commands a valid ARM->EXECUTE two-step + inhibit pre-check). The target
+    app consumes this (not the raw CommandMsg) and emits an execution CommandAckMsg. Carries
+    the same envelope fields as the originating CommandMsg so the actuator can correlate the
+    execution ack back to the ground command via (source, seq, command_id).
+    """
+
+    msg_type: MessageType  # must be MessageType.ROUTED_COMMAND
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    target: str  # destination subsystem name (resolved from the command dictionary)
+    command_id: str  # command identifier / opcode
+    params: dict[str, str | int | float | bool]  # serializable command parameters only
+    source: str  # command origin (echoed for ack correlation)
+    seq: int  # per-source sequence number (echoed for ack correlation)
+
+
+@dataclass(frozen=True)
+class SafetyStateMsg:
+    """Fault-owned safety state, published by the fault app each tick (inhibit authority).
+
+    The single source of truth for SAFE-latch state and the active SAFE-triggering fault set.
+    The command router subscribes to it to pre-check hazardous-command inhibits at routing
+    time; the actuating apps still enforce their device interlocks at actuation (layered
+    authority). active_faults is the set of SAFE-triggering fault codes observed in the most
+    recent tick (empty once the triggering condition clears), which gates EXIT_SAFE.
+    """
+
+    msg_type: MessageType  # must be MessageType.SAFETY_STATE
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    mode: SystemMode  # SAFE while latched, else IDLE
+    active_faults: tuple[FaultCode, ...]  # SAFE-triggering faults seen this tick (sorted)
+    safe_latched: bool  # True once a SAFE-triggering fault latched SAFE, until EXIT_SAFE
+    safe_reason: FaultCode  # the fault that latched SAFE (NONE when not latched)
+
+
+@dataclass(frozen=True)
 class StorageWriteMsg:
     """Bundle of a full frame's data for the storage writer process.
 

@@ -13,17 +13,36 @@ from __future__ import annotations
 
 # stdlib
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # internal
 from flight.hal.interfaces import ScalarSensor
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import FaultConfig, PactConfig
-from flight.libs.messages import CommandMsg, FaultEventMsg, HeartbeatMsg, TelemetryEventMsg
+from flight.libs.messages import (
+    CommandAckMsg,
+    FaultEventMsg,
+    HeartbeatMsg,
+    RoutedCommandMsg,
+    TelemetryEventMsg,
+)
 from flight.libs.time import Clock
-from flight.libs.types import FaultCode, MessageType, Ok
+from flight.libs.types import AckStatus, FaultCode, MessageType, Ok
 
 SUBSYSTEM = "thermal"
+_SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"
+
+
+@dataclass(slots=True)
+class ThermalState:
+    """Mutable thermal-app state set by executed commands.
+
+    Fields:
+        limit_c_override: Ground-commanded over-limit threshold (Celsius); when set it
+            supersedes cfg.thermal_limit_c in sample(). None means use the config default.
+    """
+
+    limit_c_override: float | None = None
 
 
 @dataclass(frozen=True)
@@ -34,7 +53,8 @@ class ThermalApp:
     bus: MessageBus
     clock: Clock
     sensor: ScalarSensor
-    commands: Subscription[CommandMsg]
+    commands: Subscription[RoutedCommandMsg]
+    state: ThermalState = field(default_factory=ThermalState)
 
     @staticmethod
     def from_config(
@@ -43,7 +63,7 @@ class ThermalApp:
         clock: Clock,
         sensor: ScalarSensor,
     ) -> ThermalApp:
-        """Assemble a ThermalApp and subscribe it to inbound commands.
+        """Assemble a ThermalApp and subscribe it to routed commands.
 
         Args:
             cfg: Top-level PactConfig (cfg.fault is retained for the limit + heartbeat).
@@ -52,14 +72,15 @@ class ThermalApp:
             sensor: The ScalarSensor reading temperature in Celsius.
 
         Returns:
-            A ThermalApp holding a fresh CommandMsg subscription.
+            A ThermalApp holding a fresh RoutedCommandMsg subscription and cleared state.
         """
         return ThermalApp(
             cfg=cfg.fault,
             bus=bus,
             clock=clock,
             sensor=sensor,
-            commands=bus.subscribe(CommandMsg),
+            commands=bus.subscribe(RoutedCommandMsg),
+            state=ThermalState(),
         )
 
     def sample(self) -> None:
@@ -73,6 +94,9 @@ class ThermalApp:
         if not isinstance(result, Ok):
             return
         temperature_c = result.value
+        limit_c = self.state.limit_c_override
+        if limit_c is None:
+            limit_c = self.cfg.thermal_limit_c
         self.bus.publish(
             TelemetryEventMsg(
                 msg_type=MessageType.TELEMETRY_EVENT,
@@ -82,35 +106,52 @@ class ThermalApp:
                 payload={"temperature_c": temperature_c},
             )
         )
-        if temperature_c > self.cfg.thermal_limit_c:
+        if temperature_c > limit_c:
             self.bus.publish(
                 FaultEventMsg(
                     msg_type=MessageType.FAULT_EVENT,
                     timestamp_utc=self.clock.wall_clock_iso(),
                     fault_code=FaultCode.THERMAL_OVER_LIMIT,
                     subsystem=SUBSYSTEM,
-                    detail=(
-                        f"temperature {temperature_c:.1f}C exceeds limit "
-                        f"{self.cfg.thermal_limit_c:.1f}C"
-                    ),
+                    detail=(f"temperature {temperature_c:.1f}C exceeds limit {limit_c:.1f}C"),
                 )
             )
 
     def handle_commands(self) -> None:
-        """Acknowledge each pending CommandMsg targeting this subsystem via telemetry."""
+        """Execute each routed command targeting this subsystem and emit an execution ack.
+
+        SET_THERMAL_LIMIT applies a new over-limit threshold (stored in ThermalState and used
+        by the next sample) and acks ACCEPTED; any other opcode targeting thermal acks
+        REJECTED (the router routed it here, but thermal does not implement it).
+        """
         while not self.commands.empty():
             command = self.commands.get_nowait()
             if command.target != SUBSYSTEM:
                 continue
-            self.bus.publish(
-                TelemetryEventMsg(
-                    msg_type=MessageType.TELEMETRY_EVENT,
-                    timestamp_utc=self.clock.wall_clock_iso(),
-                    subsystem=SUBSYSTEM,
-                    event_name="command_ack",
-                    payload={"command_id": command.command_id, "seq": command.seq},
+            if command.command_id == _SET_THERMAL_LIMIT:
+                self.state.limit_c_override = float(command.params["limit_c"])
+                self._publish_ack(command, AckStatus.ACCEPTED, FaultCode.NONE, "thermal limit set")
+            else:
+                self._publish_ack(
+                    command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "unsupported command"
                 )
+
+    def _publish_ack(
+        self, command: RoutedCommandMsg, status: AckStatus, fault: FaultCode, detail: str
+    ) -> None:
+        """Publish an execution CommandAckMsg correlated to a routed command."""
+        self.bus.publish(
+            CommandAckMsg(
+                msg_type=MessageType.COMMAND_ACK,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                status=status,
+                command_id=command.command_id,
+                source=command.source,
+                seq=command.seq,
+                fault_code=fault,
+                detail=detail,
             )
+        )
 
     def run(self, stop_event: threading.Event) -> None:
         """Run the housekeeping loop until stop_event is set, with periodic heartbeats.

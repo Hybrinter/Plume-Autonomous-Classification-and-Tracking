@@ -53,8 +53,14 @@ def test_build_apps_wires_all_five_subsystems() -> None:
 
 
 def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
-    """The default monitored set is exactly the four heartbeat-emitting subsystems."""
-    assert set(MONITORED_SUBSYSTEMS) == {"payload", "iss_iface", "thermal", "electrical"}
+    """The default monitored set is exactly the heartbeat-emitting subsystems + core router."""
+    assert set(MONITORED_SUBSYSTEMS) == {
+        "payload",
+        "iss_iface",
+        "thermal",
+        "electrical",
+        "command_router",
+    }
 
 
 def test_build_apps_shares_one_bus() -> None:

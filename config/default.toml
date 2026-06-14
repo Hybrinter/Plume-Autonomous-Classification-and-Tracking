@@ -106,6 +106,9 @@ hmac_key_path = "data/keys/uplink_hmac.key"
 require_auth = true
 accepted_sources = ["ground", "station_ops"]
 
+[command_router]
+arm_window_s = 30.0
+
 [environment]
 sensor = "real"
 gimbal = "real"

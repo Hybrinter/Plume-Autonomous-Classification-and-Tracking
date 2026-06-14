@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # internal
+from flight.core.command_router import CommandRouter
 from flight.electrical.app import ElectricalApp
 from flight.fault.app import FaultApp
 from flight.hal.interfaces import GimbalActuator, ImagingSensor, ScalarSensor, StationLink
@@ -32,7 +33,13 @@ from flight.thermal.app import ThermalApp
 
 # The subsystems that run persistent loops and emit heartbeats; the FDIR watchdog
 # monitors exactly these (the fault subsystem does not monitor itself).
-MONITORED_SUBSYSTEMS: tuple[str, ...] = ("payload", "iss_iface", "thermal", "electrical")
+MONITORED_SUBSYSTEMS: tuple[str, ...] = (
+    "payload",
+    "iss_iface",
+    "thermal",
+    "electrical",
+    "command_router",
+)
 
 
 @dataclass(frozen=True)
@@ -53,13 +60,19 @@ class Drivers:
 
 @dataclass(frozen=True)
 class SystemApps:
-    """The five constructed subsystem apps, sharing one bus and clock."""
+    """The constructed subsystem apps + core services, sharing one bus and clock.
+
+    The five subsystem apps (payload/fault/iss_iface/thermal/electrical) plus the core-hosted
+    command_router service (spec Section 10 Approach A). All are constructed by build_apps,
+    run by the flight Scheduler, and stepped by the deterministic SIL/GSE harness.
+    """
 
     payload: PayloadApp
     fault: FaultApp
     iss_iface: IssIfaceApp
     thermal: ThermalApp
     electrical: ElectricalApp
+    command_router: CommandRouter
 
 
 def build_apps(
@@ -97,4 +110,5 @@ def build_apps(
         iss_iface=IssIfaceApp.from_config(config, bus, clock, drivers.station, uplink_key),
         thermal=ThermalApp.from_config(config, bus, clock, drivers.thermal_sensor),
         electrical=ElectricalApp.from_config(config, bus, clock, drivers.power_sensor),
+        command_router=CommandRouter.from_config(config, bus, clock),
     )

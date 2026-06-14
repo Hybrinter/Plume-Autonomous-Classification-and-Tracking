@@ -121,6 +121,7 @@ def main(config_path: str = "config/default.toml") -> None:
             ("iss_iface", apps.iss_iface),
             ("thermal", apps.thermal),
             ("electrical", apps.electrical),
+            ("command_router", apps.command_router),
         ]
     )
     scheduler.start()

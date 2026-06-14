@@ -96,6 +96,7 @@ class FaultCode(enum.Enum):
     COMMAND_AUTH_FAIL = "COMMAND_AUTH_FAIL"
     COMMAND_SEQ_ERROR = "COMMAND_SEQ_ERROR"
     COMMAND_INVALID = "COMMAND_INVALID"
+    COMMAND_UNROUTABLE = "COMMAND_UNROUTABLE"
 
 
 class Band(enum.Enum):
@@ -138,6 +139,8 @@ class MessageType(enum.Enum):
     HEARTBEAT = "HEARTBEAT"
     MODE_CHANGE = "MODE_CHANGE"
     COMMAND = "COMMAND"
+    ROUTED_COMMAND = "ROUTED_COMMAND"
+    SAFETY_STATE = "SAFETY_STATE"
     STORAGE_WRITE = "STORAGE_WRITE"
     DOWNLINK_ITEM = "DOWNLINK_ITEM"
     UPLINK_CHUNK = "UPLINK_CHUNK"
@@ -191,9 +194,10 @@ class CommandId(enum.Enum):
     String values mirror member names (log readability convention). Satisfies: REQ-COMM-HIGH-003.
     """
 
-    PING = "PING"  # liveness check; non-hazardous; no params
-    SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; param limit_c: float
-    NOOP = "NOOP"  # accepted no-op; non-hazardous; no params
+    PING = "PING"  # liveness check; non-hazardous; core-handled; no params
+    SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; target thermal; param limit_c: float
+    NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
+    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target fault; param phase: str
 
 
 class ParamKind(enum.Enum):

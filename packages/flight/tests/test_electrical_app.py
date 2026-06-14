@@ -4,9 +4,14 @@ from flight.electrical.app import ElectricalApp
 from flight.hal.drivers_sim import SimScalarSensor
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import CommandMsg, FaultEventMsg, TelemetryEventMsg
+from flight.libs.messages import (
+    CommandAckMsg,
+    FaultEventMsg,
+    RoutedCommandMsg,
+    TelemetryEventMsg,
+)
 from flight.libs.time import ManualClock
-from flight.libs.types import FaultCode, MessageType
+from flight.libs.types import AckStatus, FaultCode, MessageType
 
 
 def _app(readings: list[float]) -> tuple[ElectricalApp, MessageBus]:
@@ -41,23 +46,22 @@ def test_over_limit_reading_publishes_power_fault() -> None:
     assert event.subsystem == "electrical"
 
 
-def test_command_targeting_electrical_is_acknowledged() -> None:
-    """A CommandMsg targeting 'electrical' produces a command_ack telemetry event."""
+def test_command_targeting_electrical_is_rejected() -> None:
+    """A routed command targeting 'electrical' is acked REJECTED (no commandable behavior)."""
     app, bus = _app([30.0])
-    telem = bus.subscribe(TelemetryEventMsg)
+    acks = bus.subscribe(CommandAckMsg)
     bus.publish(
-        CommandMsg(
-            msg_type=MessageType.COMMAND,
+        RoutedCommandMsg(
+            msg_type=MessageType.ROUTED_COMMAND,
             timestamp_utc="t",
             target="electrical",
-            command_id="ping",
+            command_id="PING",
             params={},
             source="ground",
             seq=1,
         )
     )
     app.handle_commands()
-    assert not telem.empty()
-    ack = telem.get_nowait()
-    assert ack.event_name == "command_ack"
-    assert ack.payload["command_id"] == "ping"
+    ack = acks.get_nowait()
+    assert ack.status is AckStatus.REJECTED
+    assert ack.command_id == "PING"

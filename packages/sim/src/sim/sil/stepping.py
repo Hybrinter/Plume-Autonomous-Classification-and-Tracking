@@ -38,9 +38,12 @@ def step_once(
 ) -> tuple[ControlState, dict[str, WatchdogEntry]]:
     """Advance every subsystem one deterministic cycle over the shared bus.
 
-    Order: poll mode changes -> acquire + process one payload frame (if available) ->
-    housekeeping handle-commands + sample -> ISS bridge pump -> publish per-subsystem
-    liveness heartbeats -> FDIR tick (drains heartbeats + faults, publishes any SAFE).
+    Order: poll mode changes -> acquire + process one payload frame (if available) -> ISS
+    bridge pump (ingress publishes CommandMsg) -> command router (CommandMsg ->
+    RoutedCommandMsg + acks) -> housekeeping handle-commands + sample -> publish per-subsystem
+    liveness heartbeats -> FDIR tick (drains heartbeats + faults + routed EXIT_SAFE, publishes
+    any SAFE + the SafetyStateMsg). Ingress, routing, and target execution all occur in one
+    cycle so a routed command is executed and acked the same step it ingests.
 
     Args:
         apps: The wired SystemApps (payload / fault / iss_iface / thermal / electrical).
@@ -74,12 +77,13 @@ def step_once(
             safe_cleared,
         )
 
+    apps.iss_iface.tick()
+    apps.command_router.tick()
+
     apps.thermal.handle_commands()
     apps.thermal.sample()
     apps.electrical.handle_commands()
     apps.electrical.sample()
-
-    apps.iss_iface.tick()
 
     for subsystem in MONITORED_SUBSYSTEMS:
         bus.publish(

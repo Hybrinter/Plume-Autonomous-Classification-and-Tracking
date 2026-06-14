@@ -19,9 +19,15 @@ from dataclasses import dataclass
 from flight.hal.interfaces import ScalarSensor
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import FaultConfig, PactConfig
-from flight.libs.messages import CommandMsg, FaultEventMsg, HeartbeatMsg, TelemetryEventMsg
+from flight.libs.messages import (
+    CommandAckMsg,
+    FaultEventMsg,
+    HeartbeatMsg,
+    RoutedCommandMsg,
+    TelemetryEventMsg,
+)
 from flight.libs.time import Clock
-from flight.libs.types import FaultCode, MessageType, Ok
+from flight.libs.types import AckStatus, FaultCode, MessageType, Ok
 
 SUBSYSTEM = "electrical"
 
@@ -34,7 +40,7 @@ class ElectricalApp:
     bus: MessageBus
     clock: Clock
     sensor: ScalarSensor
-    commands: Subscription[CommandMsg]
+    commands: Subscription[RoutedCommandMsg]
 
     @staticmethod
     def from_config(
@@ -43,7 +49,7 @@ class ElectricalApp:
         clock: Clock,
         sensor: ScalarSensor,
     ) -> ElectricalApp:
-        """Assemble an ElectricalApp and subscribe it to inbound commands.
+        """Assemble an ElectricalApp and subscribe it to routed commands.
 
         Args:
             cfg: Top-level PactConfig (cfg.fault is retained for the limit + heartbeat).
@@ -52,14 +58,14 @@ class ElectricalApp:
             sensor: The ScalarSensor reading power draw in Watts.
 
         Returns:
-            An ElectricalApp holding a fresh CommandMsg subscription.
+            An ElectricalApp holding a fresh RoutedCommandMsg subscription.
         """
         return ElectricalApp(
             cfg=cfg.fault,
             bus=bus,
             clock=clock,
             sensor=sensor,
-            commands=bus.subscribe(CommandMsg),
+            commands=bus.subscribe(RoutedCommandMsg),
         )
 
     def sample(self) -> None:
@@ -94,18 +100,26 @@ class ElectricalApp:
             )
 
     def handle_commands(self) -> None:
-        """Acknowledge each pending CommandMsg targeting this subsystem via telemetry."""
+        """Reject each routed command targeting this subsystem (no electrical command exists).
+
+        The electrical node has no commandable behavior in the dictionary; the router never
+        routes a command here. If one ever is, it is acked REJECTED rather than silently
+        dropped, preserving the no-silent-drop contract.
+        """
         while not self.commands.empty():
             command = self.commands.get_nowait()
             if command.target != SUBSYSTEM:
                 continue
             self.bus.publish(
-                TelemetryEventMsg(
-                    msg_type=MessageType.TELEMETRY_EVENT,
+                CommandAckMsg(
+                    msg_type=MessageType.COMMAND_ACK,
                     timestamp_utc=self.clock.wall_clock_iso(),
-                    subsystem=SUBSYSTEM,
-                    event_name="command_ack",
-                    payload={"command_id": command.command_id, "seq": command.seq},
+                    status=AckStatus.REJECTED,
+                    command_id=command.command_id,
+                    source=command.source,
+                    seq=command.seq,
+                    fault_code=FaultCode.COMMAND_INVALID,
+                    detail="electrical has no commandable behavior",
                 )
             )
 

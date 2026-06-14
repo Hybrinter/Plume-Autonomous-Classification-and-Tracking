@@ -65,15 +65,46 @@ class CommandSpec:
 
 
 COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
-    CommandId.PING: CommandSpec(CommandId.PING, "iss_iface", (), hazardous=False),
-    CommandId.NOOP: CommandSpec(CommandId.NOOP, "iss_iface", (), hazardous=False),
+    CommandId.PING: CommandSpec(CommandId.PING, "core", (), hazardous=False),
+    CommandId.NOOP: CommandSpec(CommandId.NOOP, "core", (), hazardous=False),
     CommandId.SET_THERMAL_LIMIT: CommandSpec(
         CommandId.SET_THERMAL_LIMIT,
         "thermal",
         (ParamSpec("limit_c", ParamKind.FLOAT),),
         hazardous=False,
     ),
+    CommandId.EXIT_SAFE: CommandSpec(
+        CommandId.EXIT_SAFE,
+        "fault",
+        (ParamSpec("phase", ParamKind.STR),),
+        hazardous=True,
+    ),
 }
+
+
+def routable_targets() -> frozenset[str]:
+    """Return the set of subsystem targets any command in the dictionary may be routed to.
+
+    Returns:
+        A frozenset of canonical target names (e.g. "core", "thermal", "fault"). The command
+        router treats a CommandMsg whose target is outside this set as unroutable (loud NACK +
+        COMMAND_UNROUTABLE fault). Derived from the dictionary so adding a command keeps the
+        router's routable set in sync automatically.
+    """
+    return frozenset(spec.target for spec in COMMAND_DICTIONARY.values())
+
+
+def hazardous_command_ids() -> frozenset[str]:
+    """Return the opcode strings of every hazardous command (ARM/EXECUTE two-step).
+
+    Returns:
+        A frozenset of command_id values (e.g. "EXIT_SAFE") the router must gate behind a
+        two-step ARM then EXECUTE with an inhibit re-check. Derived from the dictionary's
+        hazardous flag so the router stays in sync as hazardous commands are added.
+    """
+    return frozenset(
+        spec.command_id.value for spec in COMMAND_DICTIONARY.values() if spec.hazardous
+    )
 
 
 def lookup_command(command_id: str) -> Result[CommandSpec, FaultCode]:

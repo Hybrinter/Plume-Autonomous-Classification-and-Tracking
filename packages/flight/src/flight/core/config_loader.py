@@ -20,6 +20,7 @@ from typing import Any
 from flight.libs.config import (
     AxisMode,
     CommandIngressConfig,
+    CommandRouterConfig,
     CommsConfig,
     ControllerConfig,
     EnvironmentConfig,
@@ -48,6 +49,7 @@ _SECTION_TO_CLASS: dict[str, type] = {
     "gimbal": GimbalConfig,
     "link": LinkConfig,
     "command_ingress": CommandIngressConfig,
+    "command_router": CommandRouterConfig,
     "environment": EnvironmentConfig,
 }
 
@@ -258,6 +260,9 @@ def _range_violation(data: dict[str, Any]) -> str | None:
         return "command_ingress.hmac_key_path must be set when require_auth is true"
     if not tuple(ingress.get("accepted_sources", ("ground",))):
         return "command_ingress.accepted_sources must be non-empty"
+
+    if _num(data, "command_router", "arm_window_s", 30.0) <= 0.0:
+        return "command_router.arm_window_s must be > 0"
     return None
 
 
@@ -519,6 +524,11 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         ),
     )
 
+    router_sect = data.get("command_router", {})
+    command_router_config = CommandRouterConfig(
+        arm_window_s=float(router_sect.get("arm_window_s", CommandRouterConfig.arm_window_s)),
+    )
+
     env = data.get("environment", {})
     environment_config = EnvironmentConfig(
         sensor=_axis_mode(env, "sensor", EnvironmentConfig.sensor),
@@ -540,5 +550,6 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         gimbal=gimbal_config,
         link=link_config,
         command_ingress=command_ingress_config,
+        command_router=command_router_config,
         environment=environment_config,
     )

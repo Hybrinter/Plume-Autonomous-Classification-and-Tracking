@@ -3,10 +3,30 @@
 from flight.hal.drivers_sim import SimScalarSensor
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import CommandMsg, FaultEventMsg, TelemetryEventMsg
+from flight.libs.messages import (
+    CommandAckMsg,
+    FaultEventMsg,
+    RoutedCommandMsg,
+    TelemetryEventMsg,
+)
 from flight.libs.time import ManualClock
-from flight.libs.types import FaultCode, MessageType
+from flight.libs.types import AckStatus, FaultCode, MessageType
 from flight.thermal.app import ThermalApp
+
+
+def _routed(
+    command_id: str, target: str, params: dict[str, object] | None = None
+) -> RoutedCommandMsg:
+    """Build a RoutedCommandMsg envelope for command-handling tests."""
+    return RoutedCommandMsg(
+        msg_type=MessageType.ROUTED_COMMAND,
+        timestamp_utc="t",
+        target=target,
+        command_id=command_id,
+        params=params or {},  # type: ignore[arg-type]
+        source="ground",
+        seq=1,
+    )
 
 
 def _app(readings: list[float]) -> tuple[ThermalApp, MessageBus]:
@@ -41,42 +61,36 @@ def test_over_limit_reading_publishes_thermal_fault() -> None:
     assert event.subsystem == "thermal"
 
 
-def test_command_targeting_thermal_is_acknowledged() -> None:
-    """A CommandMsg targeting 'thermal' produces a command_ack telemetry event."""
+def test_set_thermal_limit_executes_and_acks() -> None:
+    """A routed SET_THERMAL_LIMIT applies the new limit and produces an ACCEPTED exec ack."""
     app, bus = _app([25.0])
-    telem = bus.subscribe(TelemetryEventMsg)
-    bus.publish(
-        CommandMsg(
-            msg_type=MessageType.COMMAND,
-            timestamp_utc="t",
-            target="thermal",
-            command_id="ping",
-            params={},
-            source="ground",
-            seq=1,
-        )
-    )
+    acks = bus.subscribe(CommandAckMsg)
+    bus.publish(_routed("SET_THERMAL_LIMIT", "thermal", {"limit_c": 20.0}))
     app.handle_commands()
-    assert not telem.empty()
-    ack = telem.get_nowait()
-    assert ack.event_name == "command_ack"
-    assert ack.payload["command_id"] == "ping"
+    ack = acks.get_nowait()
+    assert ack.status is AckStatus.ACCEPTED
+    assert ack.command_id == "SET_THERMAL_LIMIT"
+    # The applied limit (20C) now drives an over-limit fault at 25C.
+    fault = bus.subscribe(FaultEventMsg)
+    app.sample()
+    assert not fault.empty()
+    assert fault.get_nowait().fault_code is FaultCode.THERMAL_OVER_LIMIT
+
+
+def test_unsupported_command_for_thermal_is_rejected() -> None:
+    """A routed command thermal does not implement is acked REJECTED (no silent drop)."""
+    app, bus = _app([25.0])
+    acks = bus.subscribe(CommandAckMsg)
+    bus.publish(_routed("PING", "thermal"))
+    app.handle_commands()
+    ack = acks.get_nowait()
+    assert ack.status is AckStatus.REJECTED
 
 
 def test_command_for_other_subsystem_ignored() -> None:
-    """A CommandMsg targeting another subsystem produces no ack."""
+    """A routed command targeting another subsystem produces no ack."""
     app, bus = _app([25.0])
-    telem = bus.subscribe(TelemetryEventMsg)
-    bus.publish(
-        CommandMsg(
-            msg_type=MessageType.COMMAND,
-            timestamp_utc="t",
-            target="payload",
-            command_id="ping",
-            params={},
-            source="ground",
-            seq=1,
-        )
-    )
+    acks = bus.subscribe(CommandAckMsg)
+    bus.publish(_routed("PING", "payload"))
     app.handle_commands()
-    assert telem.empty()
+    assert acks.empty()

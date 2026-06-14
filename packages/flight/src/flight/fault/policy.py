@@ -79,6 +79,23 @@ def exit_safe_mode(cleared_by: str, now_iso: str) -> ModeChangeMsg:
     )
 
 
+def can_exit_safe(safe_latched: bool, safe_fault_seen_this_tick: bool) -> bool:
+    """Decide whether a ground EXIT_SAFE may un-latch SAFE (pure).
+
+    Args:
+        safe_latched: True if SAFE is currently latched (else there is nothing to exit).
+        safe_fault_seen_this_tick: True if any SAFE-triggering fault was observed in the tick
+            the EXIT_SAFE is being evaluated in (the "triggering fault not yet cleared" gate).
+
+    Returns:
+        True iff SAFE is latched AND no SAFE-triggering fault is currently active. The inhibit
+        is enforced here, at the actuator (the fault app), per the layered-authority model: a
+        ground EXIT_SAFE while a fault still fires must be refused so the vehicle cannot leave
+        SAFE into a still-faulted state.
+    """
+    return safe_latched and not safe_fault_seen_this_tick
+
+
 def decide_mode_change(event: FaultEventMsg, now_iso: str) -> ModeChangeMsg | None:
     """Map a fault event to a mode-change request, or None if it is benign.
 

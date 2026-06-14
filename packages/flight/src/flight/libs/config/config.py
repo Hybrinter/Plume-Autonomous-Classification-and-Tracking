@@ -15,6 +15,7 @@ from __future__ import annotations
 
 # stdlib
 from dataclasses import dataclass, field
+from typing import Literal
 
 # ---------------------------------------------------------------------------
 # Per-subsystem config dataclasses
@@ -191,6 +192,33 @@ class CommandIngressConfig:
     accepted_sources: tuple[str, ...] = ("ground", "station_ops")  # allowed command origins
 
 
+# A deployment axis is wired to either a sim stand-in or the real device/driver.
+AxisMode = Literal["sim", "real"]
+
+
+@dataclass(frozen=True)
+class EnvironmentConfig:
+    """Per-axis sim/real wiring selector for the composition root.
+
+    Each field names a deployment axis the composition root must resolve to a
+    concrete driver: 'sim' selects an in-process stand-in, 'real' selects the
+    flight driver/device. host is a free-form label for the target machine
+    (provenance only; not acted on). The 'lock' (LaunchLock) axis is intentionally
+    absent: there is no LaunchLock device, so it is a permanent VCRM gap, not a
+    config field. The clock axis is informational here -- the composition root
+    chooses RealClock vs ManualClock from it BEFORE building drivers.
+
+    Satisfies: REQ-OPER-HIGH-002 (validated startup config selects the deployment axes).
+    """
+
+    sensor: AxisMode = "real"  # imaging sensor: SimSensor vs RealSensor
+    gimbal: AxisMode = "real"  # gimbal actuator: SimGimbal vs RealGimbal
+    compute: AxisMode = "real"  # detector backend: ScriptedDetector vs OnnxDetector
+    link: AxisMode = "real"  # station link: SimStationLink vs RealStationLink
+    clock: AxisMode = "real"  # ManualClock (sim) vs RealClock (real); read by the root
+    host: str = "jetson_aarch64"  # target-machine label (provenance only)
+
+
 @dataclass(frozen=True)
 class PactConfig:
     """Top-level PACT configuration. Composes all per-subsystem configs.
@@ -209,3 +237,4 @@ class PactConfig:
     gimbal: GimbalConfig = field(default_factory=GimbalConfig)
     link: LinkConfig = field(default_factory=LinkConfig)
     command_ingress: CommandIngressConfig = field(default_factory=CommandIngressConfig)
+    environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)

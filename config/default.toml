@@ -105,3 +105,11 @@ tm_apid = 2
 hmac_key_path = "data/keys/uplink_hmac.key"
 require_auth = true
 accepted_sources = ["ground", "station_ops"]
+
+[environment]
+sensor = "real"
+gimbal = "real"
+compute = "real"
+link = "real"
+clock = "real"
+host = "jetson_aarch64"

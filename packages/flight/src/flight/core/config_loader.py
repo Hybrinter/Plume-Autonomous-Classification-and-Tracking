@@ -17,9 +17,11 @@ from typing import Any
 
 # internal
 from flight.libs.config import (
+    AxisMode,
     CommandIngressConfig,
     CommsConfig,
     ControllerConfig,
+    EnvironmentConfig,
     FaultConfig,
     GimbalConfig,
     InferenceConfig,
@@ -114,6 +116,30 @@ def _validate(data: dict[str, Any]) -> str | None:
     if bool(ingress.get("require_auth", True)) and not str(ingress.get("hmac_key_path", "")):
         return "command_ingress.hmac_key_path must be set when require_auth is true"
     return None
+
+
+def _axis_mode(section: dict[str, Any], key: str, default: str) -> AxisMode:
+    """Resolve and validate one environment axis to the 'sim'/'real' literal.
+
+    Args:
+        section: The parsed [environment] TOML dict (or {} when absent).
+        key: The axis field name (e.g. "sensor").
+        default: The dataclass default for the axis ("sim" or "real").
+
+    Returns:
+        The validated AxisMode literal ("sim" or "real").
+
+    Raises:
+        ValueError: If the configured value is neither "sim" nor "real". Explicit
+            branches (no cast) keep the return statically typed as AxisMode under
+            mypy --strict.
+    """
+    raw = str(section.get(key, default))
+    if raw == "sim":
+        return "sim"
+    if raw == "real":
+        return "real"
+    raise ValueError(f"environment.{key} must be 'sim' or 'real', got {raw!r}")
 
 
 def _build_pact_config(data: dict[str, Any]) -> PactConfig:
@@ -316,6 +342,16 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         ),
     )
 
+    env = data.get("environment", {})
+    environment_config = EnvironmentConfig(
+        sensor=_axis_mode(env, "sensor", EnvironmentConfig.sensor),
+        gimbal=_axis_mode(env, "gimbal", EnvironmentConfig.gimbal),
+        compute=_axis_mode(env, "compute", EnvironmentConfig.compute),
+        link=_axis_mode(env, "link", EnvironmentConfig.link),
+        clock=_axis_mode(env, "clock", EnvironmentConfig.clock),
+        host=str(env.get("host", EnvironmentConfig.host)),
+    )
+
     return PactConfig(
         controller=controller_config,
         inference=inference_config,
@@ -327,4 +363,5 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         gimbal=gimbal_config,
         link=link_config,
         command_ingress=command_ingress_config,
+        environment=environment_config,
     )

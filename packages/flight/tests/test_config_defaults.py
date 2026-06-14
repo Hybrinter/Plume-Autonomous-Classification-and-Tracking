@@ -14,6 +14,7 @@ from flight.libs.config import (
     CommandIngressConfig,
     CommsConfig,
     ControllerConfig,
+    EnvironmentConfig,
     FaultConfig,
     GimbalConfig,
     InferenceConfig,
@@ -37,6 +38,7 @@ _SECTION_TO_DATACLASS = {
     "gimbal": GimbalConfig,
     "link": LinkConfig,
     "command_ingress": CommandIngressConfig,
+    "environment": EnvironmentConfig,
 }
 
 

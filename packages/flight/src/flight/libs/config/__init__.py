@@ -5,9 +5,11 @@ config/default.toml (enforced by tests/test_config_defaults.py).
 """
 
 from flight.libs.config.config import (
+    AxisMode,
     CommandIngressConfig,
     CommsConfig,
     ControllerConfig,
+    EnvironmentConfig,
     FaultConfig,
     GimbalConfig,
     InferenceConfig,
@@ -19,9 +21,11 @@ from flight.libs.config.config import (
 )
 
 __all__ = [
+    "AxisMode",
     "CommsConfig",
     "CommandIngressConfig",
     "ControllerConfig",
+    "EnvironmentConfig",
     "FaultConfig",
     "GimbalConfig",
     "InferenceConfig",

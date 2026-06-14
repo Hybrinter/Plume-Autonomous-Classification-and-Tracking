@@ -3,6 +3,7 @@ root_packages =
     flight
     sim
     tools
+    gse
 
 [importlinter:contract:flight-isolation]
 name = Flight must not import sim or tools
@@ -67,3 +68,19 @@ source_modules =
     flight.hal.drivers_sim
 forbidden_modules =
     flight.hal.drivers_real
+
+[importlinter:contract:flight-gse-isolation]
+name = Flight must not import the ground-support emulator
+type = forbidden
+source_modules =
+    flight
+forbidden_modules =
+    gse
+
+[importlinter:contract:sim-gse-isolation]
+name = Sim must not import the ground-support emulator
+type = forbidden
+source_modules =
+    sim
+forbidden_modules =
+    gse

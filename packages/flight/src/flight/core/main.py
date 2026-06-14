@@ -7,7 +7,7 @@ only on flight hardware, so this module is constructed/run at runtime, not in CI
 driver-agnostic wiring it relies on (build_apps) is unit-tested with sim drivers.
 
 Contains:
-  - build_flight_system: construct the real Drivers bundle and the SystemApps.
+  - build_flight_system: resolve the env-selected Drivers bundle and wire the SystemApps.
   - main: load config, build the system, and run the scheduler until interrupted.
 """
 
@@ -17,16 +17,15 @@ from __future__ import annotations
 import threading
 
 # internal
-from flight.core.composition import MONITORED_SUBSYSTEMS, Drivers, SystemApps, build_apps
+from flight.core.composition import MONITORED_SUBSYSTEMS, SystemApps, build_apps
 from flight.core.config_loader import load_config
 from flight.core.scheduler import Scheduler
-from flight.hal.drivers_real import RealGimbal, RealScalarSensor, RealSensor, RealStationLink
+from flight.core.select_drivers import select_drivers
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.time import Clock, RealClock
+from flight.libs.time import Clock, ManualClock, RealClock
 from flight.libs.types import Ok
 from flight.payload.calibration_io import build_identity_calibration, load_calibration
-from flight.payload.model import OnnxDetector
 from flight.payload.preprocess import MosaicCalibration
 
 
@@ -54,12 +53,12 @@ def _load_uplink_key(path: str) -> bytes:
 def build_flight_system(
     config: PactConfig, bus: MessageBus, clock: Clock, calib: MosaicCalibration
 ) -> SystemApps:
-    """Construct the real-driver Drivers bundle and wire the SystemApps.
+    """Resolve the env-selected Drivers bundle and wire the SystemApps.
 
     Args:
-        config: The validated PactConfig.
+        config: The validated PactConfig (its environment axes select each driver).
         bus: The shared MessageBus.
-        clock: The injected Clock (RealClock in production).
+        clock: The injected Clock (chosen in main from config.environment.clock).
         calib: The MosaicCalibration to inject into the payload app (loaded from
             checksummed artifacts, or identity when no calibration_dir is configured).
 
@@ -67,37 +66,22 @@ def build_flight_system(
         The wired SystemApps.
 
     Raises:
-        SystemExit: If the startup exposure/gain tuning fails (camera unusable at
-            startup is unrecoverable), or if the uplink key file is missing/unreadable.
-        ValueError: If config.gimbal.serial_port is empty (RealGimbal cannot open its
-            link; a misconfigured gimbal port is an unrecoverable startup failure).
+        SystemExit: If the uplink key file is missing/unreadable, or if the
+            real-sensor startup exposure/gain tuning fails (both unrecoverable at
+            startup; the latter now lives inside select_drivers).
+        ValueError: If a 'real' gimbal is selected with an empty config.gimbal.serial_port
+            (RealGimbal cannot open its link -- an unrecoverable startup misconfig).
 
     Notes:
-        RealSensor lazily imports PySpin, RealGimbal lazily imports pyserial, and
-        OnnxDetector lazily imports onnxruntime; each raises ImportError if its SDK is
-        absent. This function therefore runs only on flight hardware. The startup
-        exposure/gain are commanded from config.sensor before the apps are wired.
-        RealStationLink binds its TCP server socket in __init__; ValueError is raised if
-        config.link contains an empty host or an out-of-range port (startup misconfig).
-        The uplink HMAC key is loaded from config.command_ingress.hmac_key_path and
-        injected into the iss_iface app via build_apps (the app never reads the file).
+        Driver construction is delegated to flight.core.select_drivers, which lazily
+        imports PySpin/pyserial/onnxruntime only inside the 'real' branches it backs.
+        With the default all-"real" environment this builds the full hardware stack, so
+        this function runs only on flight hardware. sim_inputs is None: the default flight
+        env has no 'sim' axis, so no sim construction inputs are needed (select_drivers
+        raises ValueError if that assumption is ever violated by a misconfigured env).
     """
     uplink_key = _load_uplink_key(config.command_ingress.hmac_key_path)
-    sensor = RealSensor(clock=clock)
-    exposure_result = sensor.set_exposure_us(config.sensor.default_exposure_us)
-    if not isinstance(exposure_result, Ok):
-        raise SystemExit(f"camera exposure setup failed: {exposure_result.error}")
-    gain_result = sensor.set_gain_db(config.sensor.default_gain_db)
-    if not isinstance(gain_result, Ok):
-        raise SystemExit(f"camera gain setup failed: {gain_result.error}")
-    drivers = Drivers(
-        sensor=sensor,
-        gimbal=RealGimbal(clock=clock, cfg=config.gimbal),
-        detector=OnnxDetector(config.inference.model_path),
-        station=RealStationLink(cfg=config.link, clock=clock),
-        thermal_sensor=RealScalarSensor(),
-        power_sensor=RealScalarSensor(),
-    )
+    drivers = select_drivers(config, clock, sim_inputs=None)
     return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
 
 
@@ -127,7 +111,7 @@ def main(config_path: str = "config/default.toml") -> None:
         calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
 
     bus = MessageBus()
-    clock: Clock = RealClock()
+    clock: Clock = RealClock() if config.environment.clock == "real" else ManualClock()
     apps = build_flight_system(config, bus, clock, calib)
 
     scheduler = Scheduler(

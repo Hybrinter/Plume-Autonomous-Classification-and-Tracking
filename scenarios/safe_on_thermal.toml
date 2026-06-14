@@ -1,0 +1,16 @@
+name = "safe_on_thermal"
+profile = "sil"
+steps = 3
+dt = 1.0
+
+[scene]
+num_frames = 3
+seed = 0
+thermal_readings = [95.0]
+power_readings = [10.0]
+
+[[assertions]]
+id = "safe_on_thermal.safe"
+kind = "mode_is"
+value = "SAFE"
+tag = "frame-portable"

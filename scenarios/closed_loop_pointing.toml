@@ -1,0 +1,20 @@
+name = "closed_loop_pointing"
+profile = "sil"
+steps = 8
+dt = 1.0
+
+[scene]
+num_frames = 8
+seed = 0
+
+[[assertions]]
+id = "closed_loop_pointing.moved"
+kind = "gimbal_moved"
+value = true
+tag = "frame-portable"
+
+[[assertions]]
+id = "closed_loop_pointing.inferred"
+kind = "min_inference_count"
+value = 4
+tag = "frame-portable"

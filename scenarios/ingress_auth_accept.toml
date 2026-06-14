@@ -1,0 +1,27 @@
+name = "ingress_auth_accept"
+profile = "sil-link-real"
+steps = 20
+dt = 1.0
+
+[scene]
+num_frames = 4
+seed = 0
+
+[[commands]]
+at_frame = 1
+command_id = "SET_THERMAL_LIMIT"
+params = { limit_c = 70.0 }
+source = "ground"
+seq = 1
+
+[[assertions]]
+id = "ingress_auth_accept.acked"
+kind = "command_acked"
+value = "ACCEPTED"
+tag = "frame-portable"
+
+[[assertions]]
+id = "ingress_auth_accept.downlinked"
+kind = "min_downlink_count"
+value = 1
+tag = "frame-portable"

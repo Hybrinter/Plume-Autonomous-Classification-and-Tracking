@@ -11,6 +11,8 @@ Contains:
   - AssertionResult: per-assertion pass/fail/skip outcome with a detail string.
   - ScenarioReport: rolled-up counts + the ordered per-assertion results.
   - run_scenario: drive a scenario end-to-end and score it into a ScenarioReport.
+  - scenario_report_to_json: serialize a ScenarioReport to a JSON V&V evidence record.
+  - write_evidence_record: emit a scenario's JSON V&V evidence record to disk.
 
 Satisfies: REQ-COMM-HIGH-001, REQ-COMM-HIGH-003, REQ-GIMB-HIGH-001.
 """
@@ -18,7 +20,9 @@ Satisfies: REQ-COMM-HIGH-001, REQ-COMM-HIGH-003, REQ-GIMB-HIGH-001.
 from __future__ import annotations
 
 # stdlib
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 # internal
@@ -186,3 +190,49 @@ def run_scenario(
         skipped=skipped,
         results=tuple(results),
     )
+
+
+def scenario_report_to_json(report: ScenarioReport) -> str:
+    """Serialize a ScenarioReport into a stable JSON V&V evidence record.
+
+    Args:
+        report: The scored scenario report.
+
+    Returns:
+        A key-sorted, indented JSON string capturing the scenario name, the pass/fail/skip
+        counts, and every per-assertion result (id, tag, status, detail). This is the V&V
+        evidence record a validation run produces -- the analysis artifact the VCRM's scenario
+        evidence stands for.
+    """
+    record = {
+        "scenario": report.scenario,
+        "passed": report.passed,
+        "failed": report.failed,
+        "skipped": report.skipped,
+        "results": [
+            {"id": r.id, "tag": r.tag, "status": r.status, "detail": r.detail}
+            for r in report.results
+        ],
+    }
+    return json.dumps(record, indent=2, sort_keys=True)
+
+
+def write_evidence_record(report: ScenarioReport, directory: str) -> str:
+    """Write a scenario's JSON V&V evidence record into directory and return its path.
+
+    Args:
+        report: The scored scenario report to emit.
+        directory: Target directory (created if absent) for the evidence file.
+
+    Returns:
+        The path of the written "<scenario>.vv.json" evidence file.
+
+    Notes:
+        GSE analysis tooling (not flight library code), so it performs file I/O directly
+        rather than returning a Result.
+    """
+    out_dir = Path(directory)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{report.scenario}.vv.json"
+    path.write_text(scenario_report_to_json(report), encoding="utf-8")
+    return str(path)

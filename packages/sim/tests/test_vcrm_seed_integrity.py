@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+from typing import Any
 
 
 def _repo_root() -> Path:
@@ -34,7 +35,7 @@ def _flight_src() -> Path:
     return _repo_root() / "packages" / "flight" / "src"
 
 
-def _load() -> dict:
+def _load() -> dict[str, Any]:
     """Parse vcrm.toml into a dict."""
     with _vcrm_path().open("rb") as handle:
         return tomllib.load(handle)

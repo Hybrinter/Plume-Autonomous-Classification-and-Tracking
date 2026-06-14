@@ -27,12 +27,13 @@ from flight.fault.watchdog import WatchdogEntry
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.bus import MessageBus
 from flight.libs.config import EnvironmentConfig, PactConfig
-from flight.libs.messages import HeartbeatMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, MessageType, MosaicFrame, Ok
+from flight.libs.types import GimbalState, MosaicFrame
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.control import ControlState
 from flight.payload.model import ScriptedDetector
+
+from sim.sil.stepping import step_once
 
 
 @dataclass(frozen=True)
@@ -132,50 +133,22 @@ class SilHarness:
         return self._payload_state.arbiter.gimbal_state
 
     def step(self, now: float) -> None:
-        """Advance every subsystem one cycle over the shared bus.
-
-        Order: acquire + process one payload frame (if available) -> housekeeping
-        handle-commands + sample -> ISS bridge pump -> publish per-subsystem liveness
-        heartbeats -> FDIR tick (drains heartbeats + faults, publishes any SAFE).
+        """Advance every subsystem one cycle over the shared bus (delegates to step_once).
 
         Args:
             now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
         """
         system = self._system
-        apps = system.apps
-
-        safe_commanded, safe_cleared = apps.payload.poll_mode_changes()
-        acquired = system.sensor.acquire_frame()
-        if isinstance(acquired, Ok):
-            pos = system.gimbal.read_position()
-            self._payload_state, _ = apps.payload.process_frame(
-                acquired.value,
-                self._payload_state,
-                now,
-                0.0,
-                pos.value if isinstance(pos, Ok) else None,
-                safe_commanded,
-                safe_cleared,
-            )
-
-        apps.thermal.handle_commands()
-        apps.thermal.sample()
-        apps.electrical.handle_commands()
-        apps.electrical.sample()
-
-        apps.iss_iface.tick()
-
-        for subsystem in MONITORED_SUBSYSTEMS:
-            system.bus.publish(
-                HeartbeatMsg(
-                    msg_type=MessageType.HEARTBEAT,
-                    timestamp_utc=system.clock.wall_clock_iso(),
-                    subsystem=subsystem,
-                    sequence=0,
-                )
-            )
-
-        self._fault_entries = apps.fault.tick(self._fault_entries, now)
+        self._payload_state, self._fault_entries = step_once(
+            system.apps,
+            system.sensor,
+            system.gimbal,
+            system.bus,
+            system.clock,
+            now,
+            self._payload_state,
+            self._fault_entries,
+        )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:
         """Run count deterministic steps, advancing `now` and the shared clock by dt each step.

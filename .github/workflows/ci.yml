@@ -16,19 +16,16 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev
       - name: Ruff lint
-        # Scoped to packages/ while legacy src/pact is migrated in. Widen to "." once src/pact is removed.
-        run: uv run ruff check packages
+        run: uv run ruff check packages scripts
       - name: Ruff format check
-        run: uv run ruff format --check packages
+        run: uv run ruff format --check packages scripts
       - name: Type check
-        run: uv run mypy packages
+        run: uv run mypy packages scripts
       - name: Import layering
         run: uv run lint-imports
       - name: VCRM traceability
         run: uv run python scripts/check_vcrm.py
       - name: Tests
-        # Scoped to packages/ while legacy src/pact is migrated in. Widen to the full suite
-        # ("uv run pytest -m 'not e2e'") once src/pact and its tests are removed.
-        # All Phase-D validation guard tests live under packages/*/tests/, so they are collected
-        # here; the repo-root tests/ tree (legacy src/pact) stays out of CI until src/pact retires.
-        run: uv run pytest packages -m "not e2e"
+        # The whole tree is now packages/ + scripts/ (legacy src/pact retired); testpaths scope
+        # collection to packages/*/tests/.
+        run: uv run pytest -m "not e2e"

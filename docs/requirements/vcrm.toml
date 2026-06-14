@@ -1,0 +1,100 @@
+# PACT Verification Cross-Reference Matrix (VCRM)
+#
+# Machine-readable source of truth for requirement -> verification-venue traceability.
+# Source of truth: this file. The rendered table (vcrm.md) is derived from it.
+#
+# Thin slice: this VCRM seeds ONLY requirements actually exercised by the two RUNNING
+# validation profiles -- sil (profiles/sil.toml) and sil-link-real (profiles/sil-link-real.toml).
+# Requirements verified only at PIL/HIL are intentionally NOT marked "verified" here because
+# those venues are DEFINED-NOT-RUN (no hardware yet). scripts/check_vcrm.py enforces both rules.
+#
+# Field schema per [[requirement]]:
+#   id        : requirement identifier (mirrors the "Satisfies:" REQ-ID cited in module docstrings)
+#   statement : one-line plain-English requirement statement
+#   method    : verification method -- "unit" | "SIL" | "PIL" | "HIL" | "none"
+#   venue     : where evidence is produced -- "unit" | "sil" | "sil-link-real" | "pil" | "hil" | "none"
+#   modules   : list of REQ-IDs to grep for as "Satisfies:" markers in packages/flight/src
+#   evidence  : list of test ids / scenario ids that exercise the requirement
+#   status    : "verified" | "partial" | "gap"
+
+[[requirement]]
+id = "REQ-COMM-HIGH-003"
+statement = "Authenticated command ingress: only HMAC-valid commands from accepted sources are accepted."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-COMM-HIGH-003"]
+evidence = ["packages/flight/tests/test_iss_ingress_pipeline.py", "scenario:ingress_auth_accept"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-COMM-HIGH-004"
+statement = "Command acknowledgement: every ingested command yields an ACCEPTED or REJECTED ack."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-COMM-HIGH-004"]
+evidence = ["packages/flight/tests/test_iss_iface_app.py", "scenario:ingress_nack_bad_hmac"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-COMM-HIGH-002"
+statement = "CCSDS framing with CRC integrity on uplink and downlink packets."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-COMM-HIGH-002"]
+evidence = ["packages/flight/tests/test_ccsds_codec.py", "scenario:downlink_ccsds_frames"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-COMM-HIGH-001"
+statement = "Downlink is gated by link visibility: telemetry is emitted only during AOS."
+method = "SIL"
+venue = "sil-link-real"
+modules = ["REQ-COMM-HIGH-001"]
+evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:aos_los_gating"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-SAFE-HIGH-002"
+statement = "Thermal over-limit drives the system to SAFE mode and stows the gimbal."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-SAFE-HIGH-002"]
+evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:safe_on_thermal"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-AIML-GIMB-001"
+statement = "Autonomous closed-loop pointing rates the gimbal toward the detected plume."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-AIML-GIMB-001"]
+evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:closed_loop_pointing"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-GIMB-HIGH-001"
+statement = "Region-of-interest retention keeps the plume within the pointing deadband."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-GIMB-HIGH-001"]
+evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:closed_loop_pointing"]
+status = "verified"
+
+[[requirement]]
+id = "REQ-GIMB-HIGH-003"
+statement = "Runaway / unsafe gimbal motion is detected and forces a stow."
+method = "SIL"
+venue = "sil"
+modules = ["REQ-GIMB-HIGH-003"]
+evidence = ["packages/flight/tests/test_runaway.py", "scenario:safe_on_thermal"]
+status = "verified"
+
+# --- PERMANENT GAP (recorded, never closed by the in-process/SIL venues) -----------------
+[[requirement]]
+id = "GAP-GROUND-SEGMENT"
+statement = "Real ground segment is never tested; the GSE station emulator stands in for it."
+method = "none"
+venue = "none"
+modules = []
+evidence = []
+status = "gap"

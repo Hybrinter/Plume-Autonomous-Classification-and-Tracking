@@ -4,7 +4,13 @@ import numpy as np
 from flight.core.composition import MONITORED_SUBSYSTEMS, Drivers, SystemApps, build_apps
 from flight.electrical.app import ElectricalApp
 from flight.fault.app import FaultApp
-from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
+from flight.hal.drivers_sim import (
+    SimGimbal,
+    SimLaunchLock,
+    SimScalarSensor,
+    SimSensor,
+    SimStationLink,
+)
 from flight.iss_iface.app import IssIfaceApp
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
@@ -25,6 +31,7 @@ def _drivers() -> Drivers:
         station=SimStationLink([]),
         thermal_sensor=SimScalarSensor([20.0]),
         power_sensor=SimScalarSensor([10.0]),
+        launch_lock=SimLaunchLock(),
     )
 
 
@@ -62,6 +69,7 @@ def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
         "command_router",
         "storage",
         "downlink",
+        "mechanical",
     }
 
 

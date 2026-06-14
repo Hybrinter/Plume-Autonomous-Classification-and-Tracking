@@ -23,11 +23,18 @@ from flight.core.downlink import DownlinkManager
 from flight.core.storage import StorageService
 from flight.electrical.app import ElectricalApp
 from flight.fault.app import FaultApp
-from flight.hal.interfaces import GimbalActuator, ImagingSensor, ScalarSensor, StationLink
+from flight.hal.interfaces import (
+    GimbalActuator,
+    ImagingSensor,
+    LaunchLock,
+    ScalarSensor,
+    StationLink,
+)
 from flight.iss_iface.app import IssIfaceApp
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.time import Clock
+from flight.mechanical.app import MechanicalApp
 from flight.payload.app import PayloadApp
 from flight.payload.model import DetectorBackend
 from flight.payload.preprocess import MosaicCalibration
@@ -43,6 +50,7 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "command_router",
     "storage",
     "downlink",
+    "mechanical",
 )
 
 
@@ -51,7 +59,8 @@ class Drivers:
     """Bundle of injected HAL drivers + the detector backend for one composition.
 
     The composition root (flight entry or SIL) constructs the concrete implementations;
-    build_apps consumes only the Protocol types.
+    build_apps consumes only the Protocol types. The launch_lock is always a SimLaunchLock
+    today (no real driver exists -- the device is hardware-deferred, a permanent VCRM gap).
     """
 
     sensor: ImagingSensor
@@ -60,6 +69,7 @@ class Drivers:
     station: StationLink
     thermal_sensor: ScalarSensor
     power_sensor: ScalarSensor
+    launch_lock: LaunchLock
 
 
 @dataclass(frozen=True)
@@ -79,6 +89,7 @@ class SystemApps:
     command_router: CommandRouter
     storage: StorageService
     downlink: DownlinkManager
+    mechanical: MechanicalApp
 
 
 def build_apps(
@@ -120,4 +131,5 @@ def build_apps(
         command_router=CommandRouter.from_config(config, bus, clock),
         storage=storage,
         downlink=DownlinkManager.from_config(config, bus, clock),
+        mechanical=MechanicalApp.from_config(config, bus, clock, drivers.launch_lock),
     )

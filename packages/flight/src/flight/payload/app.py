@@ -40,7 +40,7 @@ from __future__ import annotations
 # stdlib
 import math
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # third-party
 import numpy as np
@@ -60,9 +60,11 @@ from flight.libs.messages import (
     GimbalCommandMsg,
     HeartbeatMsg,
     InferenceResultMsg,
+    LaunchLockStateMsg,
     ModeChangeMsg,
     ProcessedFrameMsg,
     ProductRefMsg,
+    TelemetryEventMsg,
 )
 from flight.libs.time import Clock
 from flight.libs.types import (
@@ -72,6 +74,7 @@ from flight.libs.types import (
     FaultCode,
     GimbalCommandMode,
     GimbalState,
+    LaunchLockState,
     MessageType,
     MosaicFrame,
     Ok,
@@ -105,6 +108,20 @@ class TickOutcome:
     fault: FaultCode | None
     command_issued: bool
     gimbal_state: GimbalState
+
+
+@dataclass(slots=True)
+class LockGate:
+    """Mutable launch-lock view the payload uses to inhibit gimbal motion while ENGAGED.
+
+    Fields:
+        engaged: True when the latest LaunchLockStateMsg reported ENGAGED. Defaults False so a
+            payload that never hears about a launch lock (e.g. a unit test with no mechanical
+            app) does not gate motion; in the full system the mechanical app publishes the lock
+            state every cycle, so the gate tracks the real ENGAGED/RELEASED transitions.
+    """
+
+    engaged: bool = False
 
 
 @dataclass(frozen=True)
@@ -144,6 +161,8 @@ class PayloadApp:
     preprocessing_cfg: PreprocessingConfig
     fault_cfg: FaultConfig
     mode_sub: Subscription[ModeChangeMsg]
+    lock_sub: Subscription[LaunchLockStateMsg]
+    lock_gate: LockGate = field(default_factory=LockGate)
 
     @staticmethod
     def from_config(
@@ -212,6 +231,8 @@ class PayloadApp:
             preprocessing_cfg=cfg.preprocessing,
             fault_cfg=cfg.fault,
             mode_sub=bus.subscribe(ModeChangeMsg),
+            lock_sub=bus.subscribe(LaunchLockStateMsg),
+            lock_gate=LockGate(),
         )
 
     def poll_mode_changes(self) -> tuple[bool, bool]:
@@ -233,6 +254,19 @@ class PayloadApp:
             else:
                 safe_cleared = True
         return safe_commanded, safe_cleared
+
+    def poll_lock_state(self) -> None:
+        """Drain pending LaunchLockStateMsg and update the launch-lock motion-inhibit gate.
+
+        The gate is set ENGAGED only by an explicit ENGAGED state and cleared by any other
+        state (RELEASED/UNKNOWN -> motion permitted, since the lock is no longer holding). The
+        latest message wins; with no messages the gate is unchanged (sticky).
+
+        Outputs:
+            None.
+        """
+        while not self.lock_sub.empty():
+            self.lock_gate.engaged = self.lock_sub.get_nowait().state is LaunchLockState.ENGAGED
 
     def process_frame(
         self,
@@ -348,7 +382,21 @@ class PayloadApp:
         if ctrl_fault is not None:
             self._publish_fault(ctrl_fault, f"control fault frame_id={raw.frame_id}")
 
-        if request is not None:
+        actuated = False
+        if request is not None and self.lock_gate.engaged:
+            # Launch-lock interlock: the pin is ENGAGED, so gimbal motion is inhibited. The
+            # request is suppressed (not actuated, no GimbalCommandMsg so the mechanical app
+            # does not read it as motion); annunciate the inhibit via telemetry.
+            self.bus.publish(
+                TelemetryEventMsg(
+                    msg_type=MessageType.TELEMETRY_EVENT,
+                    timestamp_utc=self.clock.wall_clock_iso(),
+                    subsystem="payload",
+                    event_name="gimbal_motion_inhibited",
+                    payload={"reason": "launch_lock_engaged", "mode": request.mode.value},
+                )
+            )
+        elif request is not None:
             if request.mode is GimbalCommandMode.RATE:
                 send_result = self.gimbal.set_rate(request.az_deg, request.el_deg)
             elif request.mode is GimbalCommandMode.ABSOLUTE:
@@ -373,11 +421,12 @@ class PayloadApp:
                     reason=request.reason,
                 )
             )
+            actuated = True
 
         outcome = TickOutcome(
             frame_id=raw.frame_id,
             fault=None,
-            command_issued=request is not None,
+            command_issued=actuated,
             gimbal_state=new_state.arbiter.gimbal_state,
         )
         return new_state, outcome
@@ -427,6 +476,7 @@ class PayloadApp:
                     heartbeat_seq += 1
                     last_heartbeat = now
                 safe_commanded, safe_cleared = self.poll_mode_changes()
+                self.poll_lock_state()
                 acq = self.sensor.acquire_frame()
                 if isinstance(acq, Ok):
                     slew_rate = 0.0

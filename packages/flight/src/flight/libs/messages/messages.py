@@ -33,6 +33,7 @@ from flight.libs.types import (
     FrameUsabilityTag,
     GimbalCommandMode,
     GimbalState,
+    LaunchLockState,
     LinkState,
     MessageType,
     SystemMode,
@@ -339,3 +340,18 @@ class LinkStateMsg:
     msg_type: MessageType  # must be MessageType.LINK_STATE
     timestamp_utc: str  # ISO 8601, millisecond precision
     state: LinkState  # AOS (link up) or LOS (link down)
+
+
+@dataclass(frozen=True)
+class LaunchLockStateMsg:
+    """Current launch-lock mechanism state, published by the mechanical app each tick.
+
+    The bus-visible truth of the launch-lock interlock: the payload reads it to inhibit gimbal
+    motion while the lock is ENGAGED (one direction of the bidirectional interlock); the other
+    direction (the mechanical app refusing release while the gimbal is moving) lives in the
+    mechanical app. Telemetered to the ground alongside this bus publication.
+    """
+
+    msg_type: MessageType  # must be MessageType.LAUNCH_LOCK_STATE
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    state: LaunchLockState  # ENGAGED / RELEASED / UNKNOWN

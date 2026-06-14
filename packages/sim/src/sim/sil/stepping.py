@@ -67,6 +67,7 @@ def step_once(
         single source of truth for one SIL cycle; SilHarness.step delegates here.
     """
     safe_commanded, safe_cleared = apps.payload.poll_mode_changes()
+    apps.payload.poll_lock_state()
     acquired = sensor.acquire_frame()
     if isinstance(acquired, Ok):
         pos = gimbal.read_position()
@@ -82,6 +83,7 @@ def step_once(
 
     apps.iss_iface.tick()
     apps.command_router.tick()
+    apps.mechanical.tick()
 
     apps.thermal.handle_commands()
     apps.thermal.sample()

@@ -1,15 +1,17 @@
 """SIL runner: build the flight apps over sim drivers and step them deterministically.
 
-build_sil_system constructs the sim drivers + scripted detector, bundles them as
-Drivers, and calls the Phase-9 driver-agnostic build_apps -- so the SIL exercises the
-exact same wiring the flight entry uses. SilHarness drives the apps single-threaded:
-each step acquires + processes one frame, samples housekeeping, pumps the ISS bridge,
-publishes per-subsystem liveness heartbeats, then runs the FDIR tick -- all over the
-shared in-process bus, with `now` advanced explicitly for full determinism.
+build_sil_system forces an all-"sim" environment and delegates to the general
+sim.sil.validation.build_validation_system, then casts the returned ValidationSystem's
+Protocol-typed drivers back to their concrete sim types for inspection -- so the SIL
+exercises the exact same env-driven selection + wiring path the flight entry and the GSE
+backend use. SilHarness drives the apps single-threaded: each step acquires + processes
+one frame, samples housekeeping, pumps the ISS bridge, publishes per-subsystem liveness
+heartbeats, then runs the FDIR tick -- all over the shared in-process bus, with `now`
+advanced explicitly for full determinism.
 
 Contains:
   - SilSystem: the wired apps + bus + clock + the concrete sim drivers (for inspection).
-  - build_sil_system: construct the sim drivers and wire the apps via build_apps.
+  - build_sil_system: force an all-"sim" env and delegate to build_validation_system.
   - SilHarness: deterministic single-threaded stepper (step / run_steps).
 """
 
@@ -21,19 +23,19 @@ from dataclasses import dataclass
 from typing import cast
 
 # internal
-from flight.core.composition import MONITORED_SUBSYSTEMS, SystemApps, build_apps
-from flight.core.select_drivers import SimDriverInputs, select_drivers
+from flight.core.composition import SystemApps
+from flight.core.select_drivers import SimDriverInputs
 from flight.fault.watchdog import WatchdogEntry
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.bus import MessageBus
 from flight.libs.config import EnvironmentConfig, PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalState, MosaicFrame
-from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.control import ControlState
 from flight.payload.model import ScriptedDetector
 
 from sim.sil.stepping import step_once
+from sim.sil.validation import build_validation_system
 
 
 @dataclass(frozen=True)
@@ -78,12 +80,12 @@ def build_sil_system(
         A SilSystem holding the wired apps, the shared bus/clock, and the sim drivers.
 
     Notes:
-        Delegates concrete-driver construction to flight.core.select_drivers with an
-        all-"sim" EnvironmentConfig (host "x86_64"), so the SIL exercises the exact
-        same selection path the flight entry uses. The returned SilSystem casts the
-        Protocol-typed Drivers fields back to their concrete sim types for inspection.
+        Forces an all-"sim" EnvironmentConfig (host "x86_64") and delegates to the general
+        build_validation_system, so the SIL exercises the exact same env-driven selection +
+        wiring path the flight entry and the GSE backend use. The all-sim env guarantees the
+        returned ValidationSystem carries the concrete sim drivers, which are cast back to
+        their concrete sim types here for the SilSystem's inspection fields.
     """
-    bus = MessageBus()
     sim_inputs = SimDriverInputs(
         frames=frames,
         detector=detector,
@@ -100,18 +102,16 @@ def build_sil_system(
         host="x86_64",
     )
     sil_config = dataclasses.replace(config, environment=sil_env)
-    drivers = select_drivers(sil_config, clock, sim_inputs)
-    calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
-    apps = build_apps(sil_config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    system = build_validation_system(sil_config, clock, sim_inputs, uplink_key)
     return SilSystem(
-        apps=apps,
-        bus=bus,
-        clock=clock,
-        sensor=cast(SimSensor, drivers.sensor),
-        gimbal=cast(SimGimbal, drivers.gimbal),
-        station=cast(SimStationLink, drivers.station),
-        thermal_sensor=cast(SimScalarSensor, drivers.thermal_sensor),
-        power_sensor=cast(SimScalarSensor, drivers.power_sensor),
+        apps=system.apps,
+        bus=system.bus,
+        clock=system.clock,
+        sensor=cast(SimSensor, system.sensor),
+        gimbal=cast(SimGimbal, system.gimbal),
+        station=cast(SimStationLink, system.station),
+        thermal_sensor=cast(SimScalarSensor, system.thermal_sensor),
+        power_sensor=cast(SimScalarSensor, system.power_sensor),
     )
 
 

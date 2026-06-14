@@ -29,8 +29,6 @@ jobs:
       - name: Tests
         # Scoped to packages/ while legacy src/pact is migrated in. Widen to the full suite
         # ("uv run pytest -m 'not e2e'") once src/pact and its tests are removed.
+        # All Phase-D validation guard tests live under packages/*/tests/, so they are collected
+        # here; the repo-root tests/ tree (legacy src/pact) stays out of CI until src/pact retires.
         run: uv run pytest packages -m "not e2e"
-      - name: Root guard tests
-        # Repo-root tests/ holds cross-cutting guards (e.g. legacy regression guards) that the
-        # packages-scoped "Tests" step does not collect. Run them explicitly with the same marker.
-        run: uv run pytest tests -m "not e2e"

@@ -2,30 +2,37 @@
 
 **Source:** `packages/flight/src/flight/libs/telemetry`
 **Kind:** package
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+This package configures structured logging for flight processes. It wraps structlog with a
+subsystem field on every log entry.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| [`logging`](flight/libs/telemetry/logging.md) | module | `configure_logging`, `get_logger` |
 
 ## Package interface
 
-TODO.
+Re-exports:
+
+- `configure_logging`
+- `get_logger`
 
 ## Interactions
 
-TODO.
+The composition root calls `configure_logging` once at startup. Subsystem apps call
+`get_logger` with a subsystem name. Log entries use structlog; the first positional argument
+is the event name.
 
 ## Constraints
 
-TODO.
+- Call `configure_logging` once before any logger use.
+- Every log entry carries a bound `subsystem` field.
 
 ## Related documents
 
-- TODO.
+- [`flight.libs`](flight/libs.md)
+- [`flight.libs.telemetry.logging`](flight/libs/telemetry/logging.md)

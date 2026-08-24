@@ -2,42 +2,43 @@
 
 **Source:** `packages/flight/src/flight/libs/version.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+This module exposes the flight software version string.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `FLIGHT_VERSION` | constant | Semantic version string (`"0.1.0"`) |
+| `flight_version` | function | Returns `FLIGHT_VERSION` |
 
 ## Inputs and outputs
 
-TODO.
+- `flight_version()` takes no arguments. It returns the version string.
 
 ## Behavior
 
-1. TODO.
+1. `FLIGHT_VERSION` holds the current package version.
+2. `flight_version()` returns `FLIGHT_VERSION`.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+None.
 
 ## Related documents
 
-- TODO.
+- [`flight.libs`](flight/libs.md)

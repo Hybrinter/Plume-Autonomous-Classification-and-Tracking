@@ -2,30 +2,40 @@
 
 **Source:** `packages/flight/src/flight/libs/bus`
 **Kind:** package
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+This package provides the typed in-process message bus used by all subsystem apps.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| [`bus`](flight/libs/bus/bus.md) | module | `MessageBus`, `Subscription`, queue policies |
 
 ## Package interface
 
-TODO.
+Re-exports from `flight.libs.bus.bus`:
+
+- `MessageBus`
+- `OverflowPolicy`
+- `QueuePolicy`
+- `Subscription`
 
 ## Interactions
 
-TODO.
+The composition root constructs a `MessageBus` and injects `Subscription` handles into
+apps. Apps call `publish` with message dataclasses from `flight.libs.messages`. Apps call
+`Subscription.get` or `get_nowait` to receive messages.
 
 ## Constraints
 
-TODO.
+- Routing matches the exact message type. Subclasses do not match a base-type subscription.
+- `publish` enqueues the same object reference to every subscriber queue.
+- The composition root owns bus construction. Apps do not create their own queues.
 
 ## Related documents
 
-- TODO.
+- [`flight.libs`](flight/libs.md)
+- [`flight.libs.bus.bus`](flight/libs/bus/bus.md)
+- [`flight.libs.messages`](flight/libs/messages.md)

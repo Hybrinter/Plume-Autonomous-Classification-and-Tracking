@@ -1,43 +1,50 @@
 # flight.hal.drivers_real.scalar
 
 **Source:** `packages/flight/src/flight/hal/drivers_real/scalar.py`
-**Kind:** module
-**Status:** stub — content not yet written
+**Kind:** stub
 
 ## Purpose
 
-TODO.
+`RealScalarSensor` is a placeholder scalar driver. It always returns `Ok(0.0)`. It satisfies
+`ScalarSensor` structurally. Flight housekeeping bus integration is not wired yet.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `RealScalarSensor` | class | Stub scalar sensor (fixed 0.0 reading) |
 
 ## Inputs and outputs
 
-TODO.
+| Method | Inputs | Outputs |
+| --- | --- | --- |
+| `read()` | None | `Ok(0.0)` always |
 
 ## Behavior
 
-1. TODO.
+1. Every `read()` call returns `Ok(0.0)`.
+2. No hardware access occurs.
 
 ## Errors and faults
 
-TODO.
+None. The stub never returns `Err`.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+- This unit is a stub pending hardware integration.
+- Tests and SIL use `SimScalarSensor` for scripted readings.
+- The driver accepts no constructor arguments.
 
 ## Related documents
 
-- TODO.
+- [`flight.hal.interfaces.scalar`](interfaces/scalar.md)
+- [`flight.hal.drivers_real`](drivers_real.md)
+- [`flight.hal.drivers_sim.scalar`](drivers_sim/scalar.md)

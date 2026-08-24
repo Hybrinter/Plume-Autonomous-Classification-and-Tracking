@@ -1,43 +1,53 @@
 # flight.hal.drivers_sim.scalar
 
 **Source:** `packages/flight/src/flight/hal/drivers_sim/scalar.py`
-**Kind:** module
-**Status:** stub — content not yet written
+**Kind:** driver
 
 ## Purpose
 
-TODO.
+`SimScalarSensor` replays a fixed list of float readings in order. After the list ends, it
+holds the final value. It satisfies `ScalarSensor` structurally for SIL and tests.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `SimScalarSensor` | class | Scripted scalar reading replay driver |
 
 ## Inputs and outputs
 
-TODO.
+Construction takes a non-empty `list[float]` of readings.
+
+| Method | Inputs | Outputs |
+| --- | --- | --- |
+| `read()` | None | `Ok(float)` |
 
 ## Behavior
 
-1. TODO.
+1. Each `read()` call returns the next value from the scripted list.
+2. After the last value, further calls repeat the final reading.
+3. The index advances on every call even after hold-last begins.
 
 ## Errors and faults
 
-TODO.
+None under normal operation.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None. Readings are supplied at construction (`thermal_readings` or `power_readings` from
+`SimDriverInputs`).
 
 ## Constraints
 
-TODO.
+- End-of-script behavior holds the last reading forever, matching a live housekeeping sensor.
+- The constructor requires a non-empty readings list.
 
 ## Related documents
 
-- TODO.
+- [`flight.hal.interfaces.scalar`](interfaces/scalar.md)
+- [`flight.hal.drivers_sim`](drivers_sim.md)
+- [`flight.hal.drivers_real.scalar`](drivers_real/scalar.md)

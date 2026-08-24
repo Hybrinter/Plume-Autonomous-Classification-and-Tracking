@@ -2,42 +2,42 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/mechanical.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The mechanical plot builder renders launch-lock state, engagement flag, and per-step lock and
+gimbal motion activity.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
-
-## Inputs and outputs
-
-TODO.
+| `build` | function | Build mechanical figures from a wide DataFrame |
 
 ## Behavior
 
-1. TODO.
+1. Launch-lock state categorical timeline.
+2. Launch-lock engaged line panel.
+3. Stacked lock state messages, lock faults, and observed gimbal commands per step.
+4. Cumulative launch-lock state publications.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+None.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

@@ -2,42 +2,40 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/electrical.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The electrical plot builder renders bus power versus the limit and over-limit fault activity.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
-
-## Inputs and outputs
-
-TODO.
+| `build` | function | Build electrical figures from a wide DataFrame |
 
 ## Behavior
 
-1. TODO.
+1. Bus power versus limit overlay (`electrical.power_w` vs `electrical.limit_w`).
+2. Stacked electrical samples and over-limit faults per step.
+3. Cumulative power over-limit fault count.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+None.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

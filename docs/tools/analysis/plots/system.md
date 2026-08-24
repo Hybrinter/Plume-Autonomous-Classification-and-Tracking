@@ -2,42 +2,49 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/system.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The system plot builder renders rollup figures from the `system` wide frame: mode timeline,
+SAFE latch, and gross message and fault throughput.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `build` | function | Build system figures from a wide DataFrame |
 
 ## Inputs and outputs
 
-TODO.
+**`build(wide) -> list[LabeledFigure]`**
+
+- Output: non-`None` figures from candidate panels (may be empty).
 
 ## Behavior
 
-1. TODO.
+1. System mode categorical timeline from `system.mode`.
+2. SAFE latch line panel from `system.safe_latched`.
+3. Total messages per step from `system.total_messages`.
+4. Stacked fault, command, and ack mix from system event count columns.
+5. Cumulative messages, faults, and acks.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+- Drops panels with no finite data via `common` helpers.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

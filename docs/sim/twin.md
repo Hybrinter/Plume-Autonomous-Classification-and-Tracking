@@ -1,31 +1,34 @@
 # sim.twin
 
-**Source:** `packages/sim/src/sim/twin`
-**Kind:** package
-**Status:** stub — content not yet written
+**Source:** `packages/sim/src/sim/twin/`
+**Kind:** stub
 
 ## Purpose
 
-TODO.
+The twin directory is an empty scaffold for a future dynamics twin. No modules exist yet.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| None | — | Directory exists with no Python modules |
 
 ## Package interface
 
-TODO.
+None.
 
 ## Interactions
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+- This unit is a stub. Do not assume a scene-feedback dynamics twin exists.
+- `SimGimbal` first-order dynamics in the sim HAL driver cover command-direction proofs.
+- The plume scene is static. It does not move with gimbal motion.
+- Closed-loop tests assert command direction and SAFE mechanisms, not photometric convergence.
 
 ## Related documents
 
-- TODO.
+- [`sim`](sim.md)
+- [`sim.sil`](sil.md)

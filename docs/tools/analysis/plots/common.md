@@ -2,42 +2,61 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/common.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+Common supplies shared matplotlib primitives for per-group figure builders. Rendering uses the
+headless Agg backend and deterministic wide frames.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `LabeledFigure` | class | Named, titled matplotlib `Figure` |
+| `present_numeric` | function | Columns with at least one finite value |
+| `line_panel` | function | Multi-series line plot versus step |
+| `categorical_timeline` | function | Step timeline with ordinal label mapping |
+| `stacked_counts` | function | Stacked area of per-step count columns |
+| `cumulative_lines` | function | Line panel of `.cumulative` derivations |
+| `value_with_limit` | function | Value series with dashed limit overlay |
+| `save_figures` | function | Write PNGs and close figures |
 
 ## Inputs and outputs
 
-TODO.
+Each constructor accepts a group's wide DataFrame (step-indexed, leading `t` column) and
+returns `LabeledFigure | None` when no renderable data exists.
+
+**`save_figures(figures, out_dir) -> list[Path]`**
+
+- Output: written PNG paths in input order.
 
 ## Behavior
 
-1. TODO.
+1. `matplotlib.use("Agg")` runs at import time.
+2. `line_panel` plots finite numeric columns with optional legend.
+3. `categorical_timeline` maps distinct labels to ordinal y values with a step plot.
+4. `stacked_counts` skips columns whose sum is zero.
+5. `value_with_limit` overlays a dashed limit line when present.
+6. `save_figures` writes `<name>.png` per figure and closes it.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+Figure size is `(9.0, 4.5)` at 110 DPI.
 
 ## Constraints
 
-TODO.
+- Legend labels strip the leading `group.` prefix from signal names.
+- Empty or all-NaN columns produce no figure (caller filters `None`).
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.report`](report.md)

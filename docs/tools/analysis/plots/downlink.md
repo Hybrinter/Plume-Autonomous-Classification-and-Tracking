@@ -2,42 +2,45 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/downlink.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The downlink plot builder renders queue depth, backlog versus budget, AOS gate, priority mix,
+and emission throughput.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
-
-## Inputs and outputs
-
-TODO.
+| `build` | function | Build downlink figures from a wide DataFrame |
 
 ## Behavior
 
-1. TODO.
+1. Pending item count and cumulative enqueued order.
+2. Pending bytes and backlog fraction versus per-pass budget.
+3. AOS gate line panel.
+4. Stacked queued items by priority (FAULT_EVENT, COMMAND_ACK, HK_TELEMETRY,
+   SCIENCE_PRODUCT).
+5. Downlink items emitted per step.
+6. Cumulative downlink item emission.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+Priority names match `DownlinkPriority` enum members.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

@@ -2,42 +2,43 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/storage.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The storage plot builder renders live byte usage, entry counts, quota fullness, and write
+activity.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
-
-## Inputs and outputs
-
-TODO.
+| `build` | function | Build storage figures from a wide DataFrame |
 
 ## Behavior
 
-1. TODO.
+1. Live stored bytes and quota headroom.
+2. Live entries, cumulative stored count, and cumulative evicted count.
+3. Quota fraction used.
+4. Stacked writes, telemetry persisted, and storage-full faults per step.
+5. Cumulative storage writes.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+None.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

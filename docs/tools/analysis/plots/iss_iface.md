@@ -2,42 +2,43 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/iss_iface.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The iss_iface plot builder renders station link state, downlink traffic, ingress replay guard,
+upload reassembly, and per-step message flow.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
-
-## Inputs and outputs
-
-TODO.
+| `build` | function | Build iss_iface figures from a wide DataFrame |
 
 ## Behavior
 
-1. TODO.
+1. Station link state categorical timeline.
+2. Outbound TM sequence and cumulative station packets sent.
+3. Known sources, upload buffer, total chunks, and upload progress fraction.
+4. Stacked per-step command, ack, link-state, model-staged, and upload-chunk counts.
+5. Cumulative commands published and acks.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+None.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

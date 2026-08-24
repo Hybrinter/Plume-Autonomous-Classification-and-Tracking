@@ -2,42 +2,44 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/model_deploy.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The model_deploy plot builder renders deploy lifecycle state, active version, staged and
+rollback flags, shape ranks, and transition activity.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
-
-## Inputs and outputs
-
-TODO.
+| `build` | function | Build model_deploy figures from a wide DataFrame |
 
 ## Behavior
 
-1. TODO.
+1. Deploy lifecycle state categorical timeline.
+2. Active model version categorical timeline.
+3. Staged, rollback retained, and factory-active flag line panel.
+4. Staged input and output shape rank lines.
+5. Stacked deploy state messages and model-corrupt faults per step.
+6. Cumulative deploy state transitions.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+None.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

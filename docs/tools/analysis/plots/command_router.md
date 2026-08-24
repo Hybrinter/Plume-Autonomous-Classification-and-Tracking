@@ -2,42 +2,41 @@
 
 **Source:** `packages/tools/src/tools/analysis/plots/command_router.py`
 **Kind:** module
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The command_router plot builder renders armed hazardous commands, SAFE mirror state, and
+routing throughput.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
-
-## Inputs and outputs
-
-TODO.
+| `build` | function | Build command_router figures from a wide DataFrame |
 
 ## Behavior
 
-1. TODO.
+1. Armed hazardous command count and SAFE mirror line panel.
+2. Stacked commands seen, routed, acked, and unroutable faults per step.
+3. Cumulative routed commands and acks.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+None.
 
 ## Related documents
 
-- TODO.
+- [`tools.analysis.plots`](plots.md)
+- [`tools.analysis.plots.common`](common.md)

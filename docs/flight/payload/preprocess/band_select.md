@@ -1,43 +1,52 @@
 # flight.payload.preprocess.band_select
 
 **Source:** `packages/flight/src/flight/payload/preprocess/band_select.py`
-**Kind:** module
-**Status:** stub — content not yet written
+**Kind:** pure module
 
 ## Purpose
 
-TODO.
+This module reorders demosaicked band planes from `mosaic_layout` order into the model
+`input_bands` order.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `select_bands` | function | Gathers planes by band name |
 
 ## Inputs and outputs
 
-TODO.
+`select_bands(planes, layout, band_names)` returns `Result[np.ndarray, FaultCode]`.
+
+Input planes shape is `(len(layout), H, W)`. Output shape is `(len(band_names), H, W)`.
 
 ## Behavior
 
-1. TODO.
+1. Verify planes are 3-D and the plane count matches `layout` length.
+2. Resolve each name in `band_names` to an index in `layout`.
+3. Return a fancy-indexed stack in `band_names` order.
+
+Unknown names or count mismatch return `Err(FRAME_MALFORMED)`.
 
 ## Errors and faults
 
-TODO.
+| Result | Trigger |
+| --- | --- |
+| `Err(FRAME_MALFORMED)` | Rank error, plane count mismatch, unknown band name |
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+Uses `SensorConfig.mosaic_layout` and `InferenceConfig.input_bands`.
 
 ## Constraints
 
-TODO.
+Pure module. Layout-agnostic name matching only; no fixed band index table.
 
 ## Related documents
 
-- TODO.
+- [`flight.payload.preprocess`](preprocess.md)
+- [`flight.payload.preprocess.demosaic`](demosaic.md)

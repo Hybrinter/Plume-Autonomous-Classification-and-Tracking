@@ -1,31 +1,36 @@
 # flight.payload.tracking
 
-**Source:** `packages/flight/src/flight/payload/tracking`
+**Source:** `packages/flight/src/flight/payload/tracking/`
 **Kind:** package
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The tracking package holds pure target-state helpers: EMA smoothing, a constant-velocity Kalman
+filter, and IoU blob association.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| [`filter`](tracking/filter.md) | module | EMA centroid smoothing in degree space |
+| [`kalman`](tracking/kalman.md) | module | 2-axis constant-velocity Kalman filter |
+| [`tracker`](tracking/tracker.md) | module | IoU matching and persistence counting |
 
 ## Package interface
 
-TODO.
+Re-exports: `EmaFilterState`, `ema_update`, `KalmanFilter`, `KalmanState`, `predict`, `update`,
+`compute_iou`, `match_blobs`.
 
 ## Interactions
 
-TODO.
+None. The control core calls these functions inside `PayloadController.step`.
 
 ## Constraints
 
-TODO.
+All modules are pure. Blob IDs and persistence are assigned in `match_blobs` before the arbiter
+uses persistence thresholds.
 
 ## Related documents
 
-- TODO.
+- [`flight.payload`](payload.md)
+- [`flight.payload.control`](control.md)

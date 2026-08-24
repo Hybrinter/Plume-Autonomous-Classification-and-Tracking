@@ -1,43 +1,49 @@
 # flight.payload.preprocess.normalize
 
 **Source:** `packages/flight/src/flight/payload/preprocess/normalize.py`
-**Kind:** module
-**Status:** stub — content not yet written
+**Kind:** pure module
 
 ## Purpose
 
-TODO.
+This module scales calibrated DN band planes to the `[0, 1]` float32 domain expected by quality
+checks and model input.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `normalize_dn` | function | Divides by ADC full scale and clips |
 
 ## Inputs and outputs
 
-TODO.
+`normalize_dn(planes, bit_depth)` takes `(C, H, W)` calibrated values. It returns `(C, H, W)`
+float32 in `[0, 1]`.
 
 ## Behavior
 
-1. TODO.
+1. Compute full scale as `2**bit_depth - 1`.
+2. Divide each element by full scale.
+3. Clip to `[0, 1]` and cast to float32.
+
+Values below zero clip to 0.0. Values above full scale clip to 1.0.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+Reads `SensorConfig.bit_depth`.
 
 ## Constraints
 
-TODO.
+Pure module.
 
 ## Related documents
 
-- TODO.
+- [`flight.payload.preprocess`](preprocess.md)
+- [`flight.payload.preprocess.radiometric`](radiometric.md)

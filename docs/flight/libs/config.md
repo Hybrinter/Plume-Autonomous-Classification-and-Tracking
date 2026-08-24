@@ -1,31 +1,45 @@
 # flight.libs.config
 
-**Source:** `packages/flight/src/flight/libs/config`
+**Source:** `packages/flight/src/flight/libs/config/`
 **Kind:** package
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The config package holds frozen dataclasses for every tunable flight parameter. The config
+loader maps TOML into these types. Subsystems receive typed config slices; they do not read
+TOML directly.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| [`config`](config/config.md) | module | Per-subsystem config dataclasses and `PactConfig` |
 
 ## Package interface
 
-TODO.
+`flight.libs.config` re-exports:
+
+| Name | Kind |
+| --- | --- |
+| `AxisMode` | type alias |
+| `CommandIngressConfig`, `CommandRouterConfig`, `CommsConfig` | class |
+| `ControllerConfig`, `EnvironmentConfig`, `FaultConfig` | class |
+| `GimbalConfig`, `InferenceConfig`, `LinkConfig` | class |
+| `PactConfig`, `PreprocessingConfig`, `SensorConfig`, `StorageConfig` | class |
 
 ## Interactions
 
-TODO.
+None at the package level. The composition root loads `PactConfig` and passes each subsystem
+its sub-config at construction time.
 
 ## Constraints
 
-TODO.
+- All config dataclasses are frozen.
+- Default field values must match `config/default.toml` exactly.
+- `test_config_defaults.py` asserts TOML and Python defaults stay equal.
+- Tuple defaults for array-like fields are compared after list-to-tuple normalization in tests.
 
 ## Related documents
 
-- TODO.
+- [`flight.libs`](../libs.md)
+- [`flight.libs.config.config`](config/config.md)

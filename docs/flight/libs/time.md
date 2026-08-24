@@ -1,31 +1,42 @@
 # flight.libs.time
 
-**Source:** `packages/flight/src/flight/libs/time`
+**Source:** `packages/flight/src/flight/libs/time/`
 **Kind:** package
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The time package provides an injectable clock abstraction. It separates monotonic time from
+wall-clock ISO stamps.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| [`clock`](time/clock.md) | module | `Clock` protocol, `RealClock`, and `ManualClock` |
 
 ## Package interface
 
-TODO.
+`flight.libs.time` re-exports:
+
+| Name | Kind |
+| --- | --- |
+| `Clock` | Protocol |
+| `RealClock` | class |
+| `ManualClock` | class |
 
 ## Interactions
 
-TODO.
+The composition root constructs a `Clock` and injects it into app shells. Pure cores receive
+time as `now: float` arguments. They do not read a clock.
 
 ## Constraints
 
-TODO.
+- Use `monotonic_s()` for intervals, timeouts, and rate limits.
+- Use `wall_clock_iso()` for message timestamp fields.
+- Do not mix the two channels.
+- `ManualClock.advance()` moves monotonic time explicitly in tests.
 
 ## Related documents
 
-- TODO.
+- [`flight.libs`](../libs.md)
+- [`flight.libs.time.clock`](time/clock.md)

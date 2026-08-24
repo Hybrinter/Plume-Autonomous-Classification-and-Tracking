@@ -2,30 +2,38 @@
 
 **Source:** `packages/flight/src/flight/payload/tracking`
 **Kind:** package
-**Status:** stub — content not yet written
 
 ## Purpose
 
-TODO.
+The tracking package holds pure target-state estimation and blob association helpers.
+EMA smoothing feeds the Kalman filter; IoU matching assigns persistent blob IDs across
+frames.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| [`filter`](tracking/filter.md) | pure module | EMA centroid smoothing in boresight-error space |
+| [`kalman`](tracking/kalman.md) | pure module | Constant-velocity Kalman predict and update |
+| [`tracker`](tracking/tracker.md) | pure module | IoU blob matching and persistence counting |
 
 ## Package interface
 
-TODO.
+Re-exports: `EmaFilterState`, `KalmanFilter`, `KalmanState`, `compute_iou`, `ema_update`,
+`match_blobs`, `predict`, `update`.
 
 ## Interactions
 
-TODO.
+None. `PayloadController.step` calls these functions directly. Outputs update
+`ControlState` fields consumed by the arbiter, LQR, and TRACKING-mode ROI crop in the
+app.
 
 ## Constraints
 
-TODO.
+All functions are pure with threaded immutable state. The EMA and Kalman operate in
+boresight-error degrees after pointing conversion in the controller.
 
 ## Related documents
 
-- TODO.
+- [`flight.payload.control`](../control.md)
+- [`flight.payload.gimbal.pointing`](../gimbal/pointing.md)

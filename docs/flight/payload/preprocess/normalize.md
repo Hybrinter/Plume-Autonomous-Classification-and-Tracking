@@ -1,43 +1,48 @@
 # flight.payload.preprocess.normalize
 
 **Source:** `packages/flight/src/flight/payload/preprocess/normalize.py`
-**Kind:** module
-**Status:** stub — content not yet written
+**Kind:** pure module
 
 ## Purpose
 
-TODO.
+This module scales calibrated band planes from digital numbers to the [0, 1] float32
+domain. The model input contract and quality thresholds assume this range.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `normalize_dn` | function | Divides by ADC full scale and clips to [0, 1] |
 
 ## Inputs and outputs
 
-TODO.
+`normalize_dn(planes, bit_depth)` takes `(C, H, W)` calibrated DN values and returns
+`(C, H, W)` float32 in [0, 1].
 
 ## Behavior
 
-1. TODO.
+1. Compute full scale as `2**bit_depth - 1`.
+2. Divide each element by full scale.
+3. Clip to [0, 1] and cast to float32.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None.
 
 ## Configuration
 
-TODO.
+Uses `SensorConfig.bit_depth` (default 12, full scale 4095).
 
 ## Constraints
 
-TODO.
+The function is pure with no I/O. Saturation detection downstream treats values at 1.0
+as saturated after clipping.
 
 ## Related documents
 
-- TODO.
+- [`flight.payload.preprocess`](preprocess.md)
+- [`flight.payload.preprocess.quality`](quality.md)

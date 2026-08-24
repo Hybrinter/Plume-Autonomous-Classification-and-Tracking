@@ -1,43 +1,50 @@
 # flight.payload.gimbal.request
 
 **Source:** `packages/flight/src/flight/payload/gimbal/request.py`
-**Kind:** module
-**Status:** stub — content not yet written
+**Kind:** pure module
 
 ## Purpose
 
-TODO.
+`GimbalRequest` is the typed command output from pure control cores. The payload app
+shell maps it onto HAL calls and publishes a `GimbalCommandMsg` telemetry record.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| TODO | TODO | TODO |
+| `GimbalRequest` | dataclass | One gimbal command with mode, axis values, and reason |
 
 ## Inputs and outputs
 
-TODO.
+Fields: `mode` (`GimbalCommandMode`), `az_deg`, `el_deg`, `reason` (str).
+
+For RATE mode, az and el are degrees per second. For ABSOLUTE mode, they are target
+angles in degrees. STOW and HOME ignore axis values.
 
 ## Behavior
 
-1. TODO.
+Pure cores construct a `GimbalRequest` and return it by value. The app shell selects the
+HAL method from `mode` and publishes bus telemetry after actuation.
 
 ## Errors and faults
 
-TODO.
+None.
 
 ## Messages
 
-TODO.
+None. The type is not a bus message. The shell publishes `GimbalCommandMsg` after
+mapping to the HAL.
 
 ## Configuration
 
-TODO.
+None.
 
 ## Constraints
 
-TODO.
+Pure cores never publish to the bus or call the HAL. `GimbalRequest` flows only as a
+return value from `PayloadController.step` or `GimbalArbiter.step`.
 
 ## Related documents
 
-- TODO.
+- [`flight.payload.gimbal.arbiter`](arbiter.md)
+- [`flight.payload.app`](../app.md)

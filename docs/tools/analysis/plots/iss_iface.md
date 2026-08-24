@@ -14,6 +14,10 @@ upload reassembly, and per-step message flow.
 | --- | --- | --- |
 | `build` | function | Build iss_iface figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Station link state categorical timeline.

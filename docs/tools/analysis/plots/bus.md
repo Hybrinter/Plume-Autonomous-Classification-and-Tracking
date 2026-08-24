@@ -14,6 +14,10 @@ overflow, and active type count.
 | --- | --- | --- |
 | `build` | function | Build bus figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Total published messages per step.

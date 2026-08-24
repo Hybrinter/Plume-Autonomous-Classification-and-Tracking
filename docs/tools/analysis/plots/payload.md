@@ -14,6 +14,10 @@ science output figures from the payload wide frame.
 | --- | --- | --- |
 | `build` | function | Build payload figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Gimbal arbiter FSM categorical timeline.

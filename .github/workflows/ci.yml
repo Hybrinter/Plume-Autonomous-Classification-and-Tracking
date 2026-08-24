@@ -25,6 +25,10 @@ jobs:
         run: uv run lint-imports
       - name: VCRM traceability
         run: uv run python scripts/check_vcrm.py
+      - name: Documentation mirror
+        run: uv run python scripts/check_docs.py --strict
+      - name: ADR integrity
+        run: uv run python scripts/check_adr.py --strict
       - name: Tests
         # The whole tree is now packages/ + scripts/ (legacy src/pact retired); testpaths scope
         # collection to packages/*/tests/.

@@ -2,8 +2,12 @@
 
 This file contains non-obvious, cross-cutting patterns for the PACT codebase.
 These apply project-wide and cannot be derived by reading individual files.
-For system architecture and design rationale, see `docs/architecture.md` and the design spec
-`docs/superpowers/specs/2026-05-30-pact-iss-payload-fsw-structure-design.md`.
+
+Descriptive documentation lives under `docs/flight`, `docs/sim`, `docs/gse`, and
+`docs/tools`. Start at [`docs/README.md`](docs/README.md). Writing rules live in
+[`docs/style/ste-guide.md`](docs/style/ste-guide.md). Coding standards live in
+`.claude/rules/`. Design decisions are indexed from [`docs/README.md`](docs/README.md);
+do not cite decision identifiers in descriptive docs or code.
 
 ---
 
@@ -14,15 +18,18 @@ The flight software is the `uv` workspace under `packages/`:
 - `packages/flight/` (`pact-flight`) -- the flight software (lean deps: numpy, scipy, structlog).
 - `packages/sim/` (`pact-sim`) -- SIL harness, scene generation, digital twin (depends on flight).
 - `packages/tools/` (`pact-tools`) -- training/eval/export; heavy deps (torch etc.) live here only.
+- `packages/gse/` (`pact-gse`) -- ground support: station emulator, scenarios, orchestrator.
 
 The legacy `src/pact/` tree (the pre-restructure multiprocessing/`ops/main.py` codebase) has been
 **removed**; `packages/` is the entire codebase. PACT is an ISS-attached payload and the codebase
-is Python-only (the earlier Rust-migration plan was dropped).
+is Python-only.
 
 Run gates over the whole tree: `uv run ruff check packages scripts`, `uv run ruff format --check
 packages scripts`, `uv run mypy packages scripts`, `uv run lint-imports`, `uv run python
-scripts/check_vcrm.py`, and `uv run pytest -m "not e2e"`. The repo root is a virtual `uv` workspace
-root (`[tool.uv] package = false`); it builds no package and carries no runtime deps of its own.
+scripts/check_vcrm.py`, `uv run python scripts/check_docs.py --strict`, `uv run python
+scripts/check_adr.py --strict`, and `uv run pytest -m "not e2e"`. The repo root is a virtual `uv`
+workspace root (`[tool.uv] package = false`); it builds no package and carries no runtime deps of
+its own.
 
 ---
 
@@ -31,9 +38,9 @@ root (`[tool.uv] package = false`); it builds no package and carries no runtime 
 Each subsystem under `packages/flight/src/flight/` is an isolated **app**: a thin imperative shell
 around a pure core, talking to other apps **only** over the typed `MessageBus`
 (`flight.libs.bus`). No app imports or references another app. Peer apps
-(`payload`/`fault`/`iss_iface`/`thermal`/`electrical`) must never cross-import -- this is enforced
-by the `flight-layers` import-linter contract (layer order: `core` > apps > `hal.interfaces` >
-`libs`).
+(`payload`/`fault`/`iss_iface`/`thermal`/`electrical`/`mechanical`) must never cross-import -- this
+is enforced by the `flight-layers` import-linter contract (layer order: `core` > apps >
+`hal.interfaces` > `libs`).
 
 **Invariant:** if a new inter-subsystem channel is needed, it is a message type in
 `flight.libs.messages` published/subscribed on the bus -- never a direct call or a queue an app
@@ -64,14 +71,10 @@ and runs them via `flight.core.scheduler.Scheduler` (one daemon thread per app's
 Preprocessing runs as plain function calls inside `PayloadApp.process_frame()`
 (`flight/payload/app.py`), not as a separate process/thread and not across the bus.
 
-**Why:** preprocessing outputs a `(C, H, W)` float32 numpy array. Putting it on the bus (or any
-queue) requires pickling -- a per-frame serialization cost. As an in-function value it has zero
-overhead.
-
 **Invariant:** never publish `ProcessedFrameMsg` to the bus; never add a process/thread boundary
 between preprocessing and inference. New preprocessing logic goes in `flight/payload/preprocess/`
-as a pure function called from `process_frame()`. (Large artifacts -- tensors, masks -- never go
-on the bus; only compact records do.)
+as a pure function called from `process_frame()`. Large artifacts (tensors, masks) never go on the
+bus; only compact records do.
 
 ---
 
@@ -82,10 +85,6 @@ map inputs (including `now` and current state) to outputs (new state + messages)
 This holds for `PayloadController.step`, `GimbalArbiter.step`, the tracking estimators
 (`ema_update`, Kalman `predict`/`update`, `match_blobs`), the LQR law, and the FDIR
 `check_heartbeats` / `decide_mode_change`.
-
-**Why:** pure cores are trivially unit-testable, replayable from logs, and free of concurrency
-concerns. All mutable state is threaded in and out (passed in, returned out); the app shell owns
-the bus, the clock, and the state variable.
 
 **Invariant:** never add I/O, bus access, side effects, or a clock source inside a pure core. Time
 is passed in as a `now: float` argument (monotonic seconds). Any new core logic must be expressible
@@ -161,22 +160,20 @@ publishing them itself each step.
 mypy runs `--strict`. The root `pyproject.toml` sets
 `mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src"]`
 so cross-package `flight.*`/`sim.*`/`tools.*`/`gse.*` imports resolve to the workspace **source**
-trees. **Do not remove it** -- without it those imports fall back to `Any` (the editable installs have no `py.typed`),
-silently disabling strict checking across modules. Polymorphism is expressed with statically-typed
-`Protocol` interfaces (the relaxed form of the "no dynamic dispatch" rule); avoid callable dispatch
-tables and duck typing. See `.claude/rules/strong_typing.md`.
+trees. **Do not remove it** -- without it those imports fall back to `Any` (the editable installs
+have no `py.typed`), silently disabling strict checking across modules. Polymorphism is expressed
+with statically-typed `Protocol` interfaces (the relaxed form of the "no dynamic dispatch" rule);
+avoid callable dispatch tables and duck typing. See `.claude/rules/strong_typing.md`.
 
 ---
 
-## Subsystem Context Files
+## Package documentation
 
-Detailed non-obvious context per subsystem (read on demand when working in one):
+As-is module and directory descriptions:
 
-- `packages/flight/src/flight/libs/CONTEXT.md`
-- `packages/flight/src/flight/hal/CONTEXT.md`
-- `packages/flight/src/flight/core/CONTEXT.md`
-- `packages/flight/src/flight/payload/CONTEXT.md`
-- `packages/flight/src/flight/fault/CONTEXT.md`
-- `packages/flight/src/flight/iss_iface/CONTEXT.md`
-- `packages/flight/src/flight/thermal/CONTEXT.md` (also covers `electrical`)
-- `packages/sim/src/sim/CONTEXT.md`
+- [`docs/flight.md`](docs/flight.md)
+- [`docs/sim.md`](docs/sim.md)
+- [`docs/gse.md`](docs/gse.md)
+- [`docs/tools.md`](docs/tools.md)
+
+See also `.claude/rules/documentation.md`.

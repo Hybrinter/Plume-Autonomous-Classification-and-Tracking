@@ -14,6 +14,10 @@ gimbal motion activity.
 | --- | --- | --- |
 | `build` | function | Build mechanical figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Launch-lock state categorical timeline.

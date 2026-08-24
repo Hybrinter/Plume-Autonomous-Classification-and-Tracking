@@ -14,6 +14,10 @@ activity.
 | --- | --- | --- |
 | `build` | function | Build storage figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Live stored bytes and quota headroom.

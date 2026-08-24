@@ -6,7 +6,7 @@
 ## Purpose
 
 The validation module builds a flight system for any environment profile and steps it
-deterministically. GSE imports this surface instead of touching flight composition directly.
+deterministically. GSE imports this surface and does not touch flight composition directly.
 
 ## Public interface
 

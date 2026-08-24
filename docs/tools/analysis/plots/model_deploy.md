@@ -14,6 +14,10 @@ rollback flags, shape ranks, and transition activity.
 | --- | --- | --- |
 | `build` | function | Build model_deploy figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Deploy lifecycle state categorical timeline.

@@ -14,6 +14,10 @@ activity, and over-limit fault counts.
 | --- | --- | --- |
 | `build` | function | Build thermal figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Temperature versus effective limit overlay (`thermal.temperature_c` vs `thermal.limit_c`).

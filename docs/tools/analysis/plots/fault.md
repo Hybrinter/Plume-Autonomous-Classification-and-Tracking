@@ -14,6 +14,10 @@ watchdog metrics, and per-code fault activity.
 | --- | --- | --- |
 | `build` | function | Build fault figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Latched SAFE reason categorical timeline.

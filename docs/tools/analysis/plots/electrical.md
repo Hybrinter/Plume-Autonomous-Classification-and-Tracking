@@ -13,6 +13,10 @@ The electrical plot builder renders bus power versus the limit and over-limit fa
 | --- | --- | --- |
 | `build` | function | Build electrical figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Bus power versus limit overlay (`electrical.power_w` vs `electrical.limit_w`).

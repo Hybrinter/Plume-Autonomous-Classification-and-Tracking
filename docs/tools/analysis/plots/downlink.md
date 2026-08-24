@@ -14,6 +14,10 @@ and emission throughput.
 | --- | --- | --- |
 | `build` | function | Build downlink figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Pending item count and cumulative enqueued order.

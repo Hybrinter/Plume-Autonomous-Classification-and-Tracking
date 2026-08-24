@@ -14,6 +14,10 @@ routing throughput.
 | --- | --- | --- |
 | `build` | function | Build command_router figures from a wide DataFrame |
 
+## Inputs and outputs
+
+None.
+
 ## Behavior
 
 1. Armed hazardous command count and SAFE mirror line panel.

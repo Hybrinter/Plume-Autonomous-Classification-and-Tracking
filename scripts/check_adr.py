@@ -181,8 +181,6 @@ def check_adr_refs_outside() -> list[str]:
         # Skip archived / style templates that show ADR form.
         if "docs/style" in str(path).replace("\\", "/"):
             continue
-        if "docs/superpowers" in str(path).replace("\\", "/"):
-            continue
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):

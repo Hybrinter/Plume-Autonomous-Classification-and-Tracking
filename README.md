@@ -37,8 +37,8 @@ packages/
 config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
 profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
 scenarios/  # declarative validation scenarios (scene + command timeline + assertions)
-scripts/    # check_vcrm.py — requirement-traceability CI check
-docs/       # architecture.md, adr/, requirements/ (VCRM), validation/ — design + traceability
+scripts/    # check_vcrm.py, check_docs.py, check_adr.py — CI gates
+docs/       # package-mirrored descriptive docs, ADRs, requirements (VCRM), validation
 ```
 
 Each subsystem under `packages/flight/src/flight/` (`payload`, `fault`, `iss_iface`, `thermal`,
@@ -62,6 +62,8 @@ uv run ruff format --check packages scripts
 uv run mypy packages scripts
 uv run lint-imports
 uv run python scripts/check_vcrm.py
+uv run python scripts/check_docs.py --strict
+uv run python scripts/check_adr.py --strict
 uv run pytest -m "not e2e"
 ```
 
@@ -95,17 +97,22 @@ print(report.passed, report.failed, report.skipped)
   link, clock} space; a requirement → method → venue VCRM (`docs/requirements/vcrm.md`) is the
   organizing spine, enforced in CI by `scripts/check_vcrm.py`.
 
-Reference hardware (FLIR Blackfly S mono + 2×2 mosaic filter, PTU-class gimbal, Jetson Orin
-NX-class compute, Ethernet/CCSDS station link) is nominated in the design spec, Section 2.
+Reference hardware (FLIR Blackfly S mono + 2x2 mosaic filter, PTU-class gimbal, Jetson Orin
+NX-class compute, Ethernet/CCSDS station link) is nominated in package and validation docs.
 
 ---
 
 ## Documentation
 
-- **[`docs/architecture.md`](docs/architecture.md)** — full software architecture (start here).
-- **[`docs/adr/`](docs/adr/)** — architecture decision records (0001–0010).
-- **[`docs/requirements/vcrm.md`](docs/requirements/vcrm.md)** — requirement → verification-venue matrix.
-- **[`CLAUDE.md`](CLAUDE.md)** — cross-cutting patterns and invariants for contributors.
+- **[`docs/README.md`](docs/README.md)** -- documentation map (start here).
+- **[`docs/flight.md`](docs/flight.md)** / [`sim`](docs/sim.md) / [`gse`](docs/gse.md) /
+  [`tools`](docs/tools.md) -- package-mirrored as-is descriptions.
+- **[`docs/style/ste-guide.md`](docs/style/ste-guide.md)** -- STE100-inspired writing rules.
+- **[`docs/requirements/vcrm.md`](docs/requirements/vcrm.md)** -- requirement to venue matrix.
+- **[`CLAUDE.md`](CLAUDE.md)** -- cross-cutting patterns and invariants for contributors.
+
+Design decisions are recorded in the repository and package decision indexes linked from
+[`docs/README.md`](docs/README.md). Descriptive pages do not link to those records.
 
 ---
 

@@ -1,4 +1,4 @@
-"""JSON V&V evidence-record emission for scored scenarios (ADR-0010 Decision 3)."""
+"""JSON V&V evidence-record emission for scored scenarios."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Presence and marker checks for the validation procedure docs and CONTEXT updates."""
+"""Presence and marker checks for validation procedures and package docs."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _repo_root() -> Path:
-    """Walk up to the directory holding docs/validation/pil-procedure.md (or its parent docs/)."""
+    """Walk up to the directory holding docs/validation/ and packages/."""
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / "docs" / "validation").exists() or (parent / "docs").exists():
@@ -34,22 +34,22 @@ def test_hil_procedure_defined_not_run() -> None:
     assert "profiles/hil.toml" in text
 
 
-def test_sim_context_mentions_matrix_and_seam() -> None:
-    """sim CONTEXT.md documents the config matrix and the step_once seam."""
-    text = _read("packages/sim/src/sim/CONTEXT.md")
+def test_sim_docs_mention_matrix_and_seam() -> None:
+    """sim package docs document the config matrix and the step_once seam."""
+    text = _read("docs/sim.md")
     assert "step_once" in text
     assert "EnvironmentConfig" in text
 
 
-def test_sim_context_cites_canonical_build_tc_packet_home() -> None:
-    """sim CONTEXT.md cites flight.libs.commands as the canonical build_tc_packet import."""
-    text = _read("packages/sim/src/sim/CONTEXT.md")
+def test_sim_docs_cite_canonical_build_tc_packet_home() -> None:
+    """sim package docs cite flight.libs.commands as the build_tc_packet home."""
+    text = _read("docs/sim.md")
     assert "flight.libs.commands" in text
     assert "build_tc_packet" in text
 
 
-def test_gse_context_present_with_permanent_gap() -> None:
-    """gse CONTEXT.md exists and records the permanent ground-segment gap."""
-    text = _read("packages/gse/src/gse/CONTEXT.md")
+def test_gse_docs_present_with_permanent_gap() -> None:
+    """gse package docs exist and record the permanent ground-segment gap."""
+    text = _read("docs/gse.md")
     assert "ground segment" in text.lower()
     assert "step_once" in text

@@ -23,7 +23,7 @@ statement = "Authenticated command ingress: only HMAC-valid commands from accept
 method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-HIGH-003"]
-evidence = ["packages/flight/tests/test_iss_ingress_pipeline.py", "scenario:ingress_auth_accept"]
+evidence = ["packages/flight/tests/iss_iface/ingress/test_iss_ingress_pipeline.py", "scenario:ingress_auth_accept"]
 status = "verified"
 
 [[requirement]]
@@ -32,7 +32,7 @@ statement = "Command acknowledgement: every ingested command yields an ACCEPTED 
 method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-HIGH-004"]
-evidence = ["packages/flight/tests/test_iss_iface_app.py", "scenario:ingress_nack"]
+evidence = ["packages/flight/tests/iss_iface/test_iss_iface_app.py", "scenario:ingress_nack"]
 status = "verified"
 
 [[requirement]]
@@ -41,7 +41,7 @@ statement = "CCSDS framing with CRC integrity on uplink and downlink packets."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-HIGH-002"]
-evidence = ["packages/flight/tests/test_ccsds_codec.py", "scenario:ingress_auth_accept"]
+evidence = ["packages/flight/tests/libs/ccsds/test_ccsds_codec.py", "scenario:ingress_auth_accept"]
 status = "verified"
 
 [[requirement]]
@@ -50,7 +50,7 @@ statement = "Downlink is gated by link visibility: telemetry is emitted only dur
 method = "SIL"
 venue = "sil-link-real"
 modules = ["REQ-COMM-HIGH-001"]
-evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:ingress_auth_accept"]
+evidence = ["packages/sim/tests/sil/test_sil_closed_loop.py", "scenario:ingress_auth_accept"]
 status = "verified"
 
 [[requirement]]
@@ -59,7 +59,7 @@ statement = "Thermal over-limit drives the system to SAFE mode and stows the gim
 method = "SIL"
 venue = "sil"
 modules = ["REQ-SAFE-HIGH-002"]
-evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:safe_on_thermal"]
+evidence = ["packages/sim/tests/sil/test_sil_closed_loop.py", "scenario:safe_on_thermal"]
 status = "verified"
 
 [[requirement]]
@@ -68,7 +68,7 @@ statement = "Autonomous closed-loop pointing rates the gimbal toward the detecte
 method = "SIL"
 venue = "sil"
 modules = ["REQ-AIML-GIMB-001"]
-evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:closed_loop_pointing"]
+evidence = ["packages/sim/tests/sil/test_sil_closed_loop.py", "scenario:closed_loop_pointing"]
 status = "verified"
 
 [[requirement]]
@@ -77,7 +77,7 @@ statement = "Region-of-interest retention keeps the plume within the pointing de
 method = "SIL"
 venue = "sil"
 modules = ["REQ-GIMB-HIGH-001"]
-evidence = ["packages/sim/tests/test_sil_closed_loop.py", "scenario:closed_loop_pointing"]
+evidence = ["packages/sim/tests/sil/test_sil_closed_loop.py", "scenario:closed_loop_pointing"]
 status = "verified"
 
 [[requirement]]
@@ -86,7 +86,7 @@ statement = "Runaway / unsafe gimbal motion is detected and forces a stow."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-GIMB-HIGH-003"]
-evidence = ["packages/flight/tests/test_runaway.py"]
+evidence = ["packages/flight/tests/payload/gimbal/test_runaway.py"]
 status = "verified"
 
 # --- FSW code-complete capabilities (2026-06-14): command path, data system, mechanical,
@@ -98,8 +98,8 @@ method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-CMD-001"]
 evidence = [
-    "packages/flight/tests/test_routing.py",
-    "packages/sim/tests/test_sil_command_router.py",
+    "packages/flight/tests/core/test_routing.py",
+    "packages/sim/tests/sil/test_sil_command_router.py",
     "scenario:command_route_exec",
 ]
 status = "verified"
@@ -110,7 +110,7 @@ statement = "SAFE is a single latched tier exited only by a ground EXIT_SAFE com
 method = "SIL"
 venue = "sil"
 modules = ["REQ-SAFE-EXIT-001"]
-evidence = ["packages/sim/tests/test_sil_command_router.py"]
+evidence = ["packages/sim/tests/sil/test_sil_command_router.py"]
 status = "verified"
 
 [[requirement]]
@@ -119,7 +119,7 @@ statement = "Science products are stored file-backed, SHA-256-checksummed, and q
 method = "unit"
 venue = "unit"
 modules = ["REQ-DATA-STORE-001"]
-evidence = ["packages/flight/tests/test_storage.py"]
+evidence = ["packages/flight/tests/core/test_storage.py"]
 status = "verified"
 
 [[requirement]]
@@ -128,7 +128,7 @@ statement = "Faults persist to an append-only ledger that survives reboot."
 method = "unit"
 venue = "unit"
 modules = ["REQ-DATA-LEDGER-001"]
-evidence = ["packages/flight/tests/test_storage.py"]
+evidence = ["packages/flight/tests/core/test_storage.py"]
 status = "verified"
 
 [[requirement]]
@@ -138,8 +138,8 @@ method = "SIL"
 venue = "sil-link-real"
 modules = ["REQ-DATA-DOWNLINK-001"]
 evidence = [
-    "packages/flight/tests/test_downlink.py",
-    "packages/sim/tests/test_sil_data_system.py",
+    "packages/flight/tests/core/test_downlink.py",
+    "packages/sim/tests/sil/test_sil_data_system.py",
     "scenario:product_downlink",
 ]
 status = "verified"
@@ -151,8 +151,8 @@ method = "SIL"
 venue = "sil"
 modules = ["REQ-MECH-HIGH-001"]
 evidence = [
-    "packages/flight/tests/test_mechanical_app.py",
-    "packages/sim/tests/test_sil_mechanical.py",
+    "packages/flight/tests/mechanical/test_mechanical_app.py",
+    "packages/sim/tests/sil/test_sil_mechanical.py",
 ]
 status = "verified"
 
@@ -163,8 +163,8 @@ method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-MODEL-001"]
 evidence = [
-    "packages/flight/tests/test_model_deploy.py",
-    "packages/sim/tests/test_sil_model_upload.py",
+    "packages/flight/tests/core/test_model_deploy.py",
+    "packages/sim/tests/sil/test_sil_model_upload.py",
 ]
 status = "verified"
 
@@ -175,7 +175,7 @@ method = "unit"
 venue = "unit"
 modules = ["REQ-AIML-HIGH-004"]
 evidence = [
-    "packages/flight/tests/test_model_verify.py",
+    "packages/flight/tests/payload/model/test_model_verify.py",
     "packages/tools/tests/test_accept.py",
 ]
 status = "verified"
@@ -186,7 +186,7 @@ statement = "Bus queues are bounded per message type with an explicit overflow p
 method = "unit"
 venue = "unit"
 modules = ["REQ-PLAT-QUEUE-001"]
-evidence = ["packages/flight/tests/test_bus.py"]
+evidence = ["packages/flight/tests/libs/bus/test_bus.py"]
 status = "verified"
 
 [[requirement]]
@@ -196,8 +196,8 @@ method = "unit"
 venue = "unit"
 modules = ["REQ-PLAT-SUP-001"]
 evidence = [
-    "packages/flight/tests/test_scheduler.py",
-    "packages/flight/tests/test_health.py",
+    "packages/flight/tests/core/test_scheduler.py",
+    "packages/flight/tests/core/test_health.py",
 ]
 status = "verified"
 
@@ -207,7 +207,7 @@ statement = "Startup config validation rejects out-of-range values, cross-field 
 method = "unit"
 venue = "unit"
 modules = ["REQ-CONFIG-INTEGRITY-001"]
-evidence = ["packages/flight/tests/test_config_loader.py"]
+evidence = ["packages/flight/tests/core/test_config_loader.py"]
 status = "verified"
 
 [[requirement]]
@@ -217,9 +217,9 @@ method = "SIL"
 venue = "sil"
 modules = ["REQ-OBS-SIL-001"]
 evidence = [
-    "packages/flight/tests/test_bus.py",
-    "packages/tools/tests/test_analysis_recorder.py",
-    "packages/tools/tests/test_analysis_report.py",
+    "packages/flight/tests/libs/bus/test_bus.py",
+    "packages/tools/tests/analysis/test_analysis_recorder.py",
+    "packages/tools/tests/analysis/test_analysis_report.py",
 ]
 status = "verified"
 

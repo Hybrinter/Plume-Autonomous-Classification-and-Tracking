@@ -20,6 +20,15 @@ The flight software is the `uv` workspace under `packages/`:
 - `packages/tools/` (`pact-tools`) -- training/eval/export; heavy deps (torch etc.) live here only.
 - `packages/gse/` (`pact-gse`) -- ground support: station emulator, scenarios, orchestrator.
 
+Tests for each member live under `packages/<member>/tests/` and mirror the tree inside
+`src/<package>/`. Example: `packages/flight/src/flight/payload/gimbal/arbiter.py` maps to
+`packages/flight/tests/payload/gimbal/test_arbiter.py`. Tests stay out of `src/` so Hatch
+does not pack them into the flight wheel. Do not add a `tests/<package>/` folder named after
+the installable package (`flight`, `sim`, `tools`, `gse`); that name collides with the source
+tree under mypy. Tests that are not twins of a source module (script checks, package smoke
+imports, GSE scenario-file runs) stay at that member's `tests/` root. Do not add `__init__.py`
+under `tests/`.
+
 The legacy `src/pact/` tree (the pre-restructure multiprocessing/`ops/main.py` codebase) has been
 **removed**; `packages/` is the entire codebase. PACT is an ISS-attached payload and the codebase
 is Python-only.

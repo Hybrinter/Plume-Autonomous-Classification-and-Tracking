@@ -154,17 +154,9 @@ def check_sections() -> list[str]:
         text = page.read_text(encoding="utf-8")
         # Directory pages live beside a same-stem directory, or are docs/<pkg>.md.
         stem_dir = page.with_suffix("")
-        is_dir_page = page.name.endswith(".md") and (
-            page == REPO / "docs" / page.stem / ".."  # noqa: simplistic
-            or (REPO / "docs" / page.name) == page  # docs/flight.md
-            or stem_dir.is_dir()
+        is_dir_page = (page.parent == REPO / "docs" and page.stem in PACKAGES) or (
+            stem_dir.is_dir()
         )
-        if page.parent == REPO / "docs" and page.stem in PACKAGES:
-            is_dir_page = True
-        elif stem_dir.is_dir():
-            is_dir_page = True
-        else:
-            is_dir_page = False
 
         required = REQUIRED_DIR_SECTIONS if is_dir_page else REQUIRED_MODULE_SECTIONS
         for section in required:
@@ -181,16 +173,12 @@ def check_banned_language() -> list[str]:
         if page.name.endswith(".md") and "**Status:** stub" in text:
             continue  # scaffold stubs may still say TODO
         for match in ADR_REF_RE.finditer(text):
-            findings.append(
-                f"{page.relative_to(REPO)}: ADR reference {match.group(0)!r}"
-            )
+            findings.append(f"{page.relative_to(REPO)}: ADR reference {match.group(0)!r}")
         # Skip rationale check on unfinished stubs.
         if "TODO." in text and "**Status:** stub" in text:
             continue
         for match in RATIONALE_RE.finditer(text):
-            findings.append(
-                f"{page.relative_to(REPO)}: rationale word {match.group(0)!r}"
-            )
+            findings.append(f"{page.relative_to(REPO)}: rationale word {match.group(0)!r}")
     return findings
 
 

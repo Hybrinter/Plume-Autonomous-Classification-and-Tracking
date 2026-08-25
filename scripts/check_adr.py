@@ -102,8 +102,7 @@ def check_package_adrs() -> list[str]:
             title = TITLE_RE.match(first)
             if not title:
                 findings.append(
-                    f"{path.relative_to(REPO)}: title must be "
-                    f"'# ADR-{scope}-NNNN: ...'"
+                    f"{path.relative_to(REPO)}: title must be '# ADR-{scope}-NNNN: ...'"
                 )
                 continue
             if title.group(1) != scope:
@@ -124,9 +123,7 @@ def check_package_adrs() -> list[str]:
                 # Allow "Accepted (date)" style by taking first token.
                 token = status.replace("(", " ").split()[0]
                 if token not in STATUS_VALUES:
-                    findings.append(
-                        f"{path.relative_to(REPO)}: bad Status {status!r}"
-                    )
+                    findings.append(f"{path.relative_to(REPO)}: bad Status {status!r}")
             topic = fields.get("Topic", "")
             if topic and topic not in TOPIC_VALUES:
                 findings.append(f"{path.relative_to(REPO)}: bad Topic {topic!r}")
@@ -142,9 +139,7 @@ def check_repo_legacy() -> list[str]:
         return findings
     if not INDEX_FILES["REPO"].is_file():
         findings.append("missing docs/adr.md")
-    numbered = [
-        p for p in folder.glob("*.md") if LEGACY_REPO_FILE_RE.match(p.name)
-    ]
+    numbered = [p for p in folder.glob("*.md") if LEGACY_REPO_FILE_RE.match(p.name)]
     if len(numbered) < 1:
         findings.append("docs/adr/: expected legacy numbered ADR files")
     return findings
@@ -183,12 +178,10 @@ def check_adr_refs_outside() -> list[str]:
             continue
         try:
             text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        except UnicodeDecodeError, OSError:
             continue
         for match in ADR_REF_RE.finditer(text):
-            findings.append(
-                f"{path.relative_to(REPO)}: ADR reference {match.group(0)!r}"
-            )
+            findings.append(f"{path.relative_to(REPO)}: ADR reference {match.group(0)!r}")
     return findings
 
 

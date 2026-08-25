@@ -6,6 +6,7 @@ import pytest
 from flight.core.config_loader import load_config
 from flight.libs.types import Ok
 
+
 def _repo_root() -> Path:
     """Walk up to the directory that holds config/default.toml."""
     here = Path(__file__).resolve()

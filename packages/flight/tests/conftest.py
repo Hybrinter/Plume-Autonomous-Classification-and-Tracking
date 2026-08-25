@@ -8,6 +8,7 @@ from flight.libs.config import PactConfig
 from flight.libs.types import GimbalState, Ok
 from flight.payload.gimbal import ArbiterState
 
+
 def _repo_root() -> Path:
     """Walk up to the directory that holds config/default.toml."""
     here = Path(__file__).resolve()

@@ -6,6 +6,7 @@ from flight.core import load_config
 from flight.libs.config import PactConfig
 from flight.libs.types import Err, Ok
 
+
 def _repo_root() -> Path:
     """Walk up to the directory that holds config/default.toml."""
     here = Path(__file__).resolve()

@@ -15,6 +15,11 @@ dependencies = [
     "pyarrow>=14.0",
 ]
 
+[project.optional-dependencies]
+# Role extras (contents filled when a stack is chosen; empty for now).
+train = []
+export = []
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/tools"]
 

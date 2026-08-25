@@ -33,3 +33,14 @@ jobs:
         # The whole tree is now packages/ + scripts/ (legacy src/pact retired); testpaths scope
         # collection to packages/*/tests/.
         run: uv run pytest -m "not e2e"
+
+  flight-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - name: Check flight-only install
+        run: uv run --no-project python scripts/check_flight_image.py

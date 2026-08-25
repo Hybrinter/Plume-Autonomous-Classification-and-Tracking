@@ -32,7 +32,11 @@ flight behavior.
 
 ## Constraints
 
-- Heavy dependencies (torch, onnxruntime, matplotlib, pandas) live in this package only.
+- Default tools dependencies stay on the tools package (matplotlib, pandas, pyarrow, plus
+  pact-flight and pact-sim).
+- Optional extras `train` and `export` are named install roles. They currently declare no
+  packages.
+- A flight-only install does not include `pact-tools`.
 - Analysis is read-only observability over the deterministic SIL harness.
 - Acceptance runs inference through an injected callable so CI stays SDK-free.
 

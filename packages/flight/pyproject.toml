@@ -13,5 +13,12 @@ dependencies = [
     "structlog>=23.0",
 ]
 
+[project.optional-dependencies]
+# Role extras (contents filled when a stack is chosen; empty for now).
+# inference = onboard model runtime; camera / gimbal = pip-installable device libs only.
+inference = []
+camera = []
+gimbal = []
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/flight"]

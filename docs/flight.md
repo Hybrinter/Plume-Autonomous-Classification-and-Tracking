@@ -42,6 +42,10 @@ command routing, downlink, storage, and model-deploy messages as applicable.
 - Library code returns `Result[T, E]`. It does not raise for recoverable errors.
 - Only composition roots construct the bus and HAL drivers.
 - `build_apps` imports HAL protocols and apps only. It does not import concrete drivers.
+- The Hatch wheel for `pact-flight` contains only the `flight` source tree.
+- Optional extras `inference`, `camera`, and `gimbal` are named install roles. They currently
+  declare no packages.
+- A flight-only install does not include `pact-sim`, `pact-tools`, or `pact-gse`.
 
 ## Related documents
 

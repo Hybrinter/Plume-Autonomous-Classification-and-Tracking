@@ -452,6 +452,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.11" },
     { name = "structlog", specifier = ">=23.0" },
 ]
+provides-extras = ["inference", "camera", "gimbal"]
 
 [[package]]
 name = "pact-gse"
@@ -505,6 +506,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.1" },
     { name = "pyarrow", specifier = ">=14.0" },
 ]
+provides-extras = ["train", "export"]
 
 [[package]]
 name = "pandas"

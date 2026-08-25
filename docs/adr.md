@@ -25,6 +25,7 @@ Package-local decisions live under `docs/<package>/adr/`.
 | ADR-REPO-0009 | [0009-iss-link-transport-command-ingress.md](adr/0009-iss-link-transport-command-ingress.md) | ISS link transport + authenticated command ingress | Accepted |
 | ADR-REPO-0010 | [0010-validation-configuration-matrix.md](adr/0010-validation-configuration-matrix.md) | Validation as a configuration matrix with a VCRM spine | Accepted |
 | ADR-REPO-0011 | [0011-ship-flight-as-isolated-package.md](adr/0011-ship-flight-as-isolated-package.md) | Ship flight as an isolated package | Accepted |
+| ADR-REPO-0012 | [0012-tests-mirror-src-package-tree.md](adr/0012-tests-mirror-src-package-tree.md) | Tests mirror the tree inside `src/<package>/` | Accepted |
 
 ## Notes
 

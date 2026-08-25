@@ -36,7 +36,8 @@ its sub-config at construction time.
 
 - All config dataclasses are frozen.
 - Default field values must match `config/default.toml` exactly.
-- `test_config_defaults.py` asserts TOML and Python defaults stay equal.
+- `packages/flight/tests/libs/config/test_config_defaults.py` asserts TOML and Python
+  defaults stay equal.
 - Tuple defaults for array-like fields are compared after list-to-tuple normalization in tests.
 
 ## Related documents

@@ -8,7 +8,18 @@ from flight.core.config_loader import load_config
 from flight.libs.config import EnvironmentConfig, PactConfig
 from flight.libs.types import Ok
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def _repo_root() -> Path:
+    """Walk up to the directory that holds config/default.toml."""
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "config" / "default.toml").exists():
+            return parent
+    msg = "could not locate repo root (config/default.toml) above the test file"
+    raise FileNotFoundError(msg)
+
+
+_REPO_ROOT = _repo_root()
 _DEFAULT_TOML = _REPO_ROOT / "config" / "default.toml"
 
 

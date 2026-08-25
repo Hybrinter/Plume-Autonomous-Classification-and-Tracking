@@ -37,7 +37,7 @@ packages/
 config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
 profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
 scenarios/  # declarative validation scenarios (scene + command timeline + assertions)
-scripts/    # check_vcrm.py, check_docs.py, check_adr.py — CI gates
+scripts/    # check_vcrm.py, check_docs.py, check_adr.py, check_flight_image.py — CI gates
 docs/       # package-mirrored descriptive docs, ADRs, requirements (VCRM), validation
 ```
 
@@ -49,8 +49,11 @@ core, talking to peers **only** over `flight.libs.bus`. `flight.core` is the sol
 
 ## Getting Started
 
+Requires Python 3.14+ and `uv`.
+
+### Full workspace (laptop / CI)
+
 ```bash
-# Requires Python 3.14+ and uv
 uv sync --extra dev
 ```
 
@@ -64,8 +67,37 @@ uv run lint-imports
 uv run python scripts/check_vcrm.py
 uv run python scripts/check_docs.py --strict
 uv run python scripts/check_adr.py --strict
+uv run python scripts/check_flight_image.py
 uv run pytest -m "not e2e"
 ```
+
+### Flight-only (payload computer / experiment image)
+
+```bash
+uv pip install "./packages/flight"
+```
+
+Optional extras `inference`, `camera`, and `gimbal` exist as empty roles. Fill them when an onboard
+runtime is chosen:
+
+```bash
+# later, when the onboard runtime is chosen:
+# uv pip install "./packages/flight[inference]"
+```
+
+Workspace equivalent:
+
+```bash
+uv sync --package pact-flight --no-dev
+```
+
+### Training box
+
+```bash
+uv sync --package pact-tools --extra train
+```
+
+The `train` extra is empty until a training stack is chosen.
 
 Run a declarative SIL scenario through the GSE harness (from the repo root):
 

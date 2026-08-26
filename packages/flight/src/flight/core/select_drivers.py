@@ -81,7 +81,8 @@ def select_drivers(
       - thermal_sensor + power_sensor follow the sensor axis: 'sim' ->
         SimScalarSensor(readings); 'real' -> RealScalarSensor().
       - gimbal: 'sim' -> SimGimbal(clock, cfg); 'real' -> RealGimbal(clock, cfg).
-      - compute: 'sim' -> the passed ScriptedDetector; 'real' -> OnnxDetector(model_path).
+      - compute: 'sim' -> the passed ScriptedDetector; 'real' -> OnnxDetector
+        (classifier + segmentor artifacts).
       - link: 'sim' -> SimStationLink(inbound_packets); 'real' -> RealStationLink(cfg, clock).
 
     Args:
@@ -152,7 +153,11 @@ def select_drivers(
         from flight.payload.model import OnnxDetector
 
         detector = OnnxDetector(
-            config.inference.model_path,
+            segmentor_model_path=config.inference.model_path,
+            classifier_model_path=config.inference.classifier_model_path,
+            confidence_gate=config.controller.confidence_gate,
+            min_blob_area_px=config.controller.min_blob_area_px,
+            logit_threshold=config.inference.classifier_logit_threshold,
             latency_budget_ms=config.inference.latency_budget_ms,
         )
 

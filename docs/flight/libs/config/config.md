@@ -65,8 +65,9 @@ runaway tolerance.
 
 ### InferenceConfig
 
-`model_path`, `rollback_model_path`, `input_bands`, input dimensions, INT8 flag, and
-`latency_budget_ms`.
+`model_path` (active segmentor), `classifier_model_path`, `rollback_model_path`,
+`classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
+dimensions, INT8 flag, and `latency_budget_ms`.
 
 ### CommsConfig
 

@@ -5,44 +5,46 @@
 
 ## Purpose
 
-This module defines the swappable detection backend interface and two implementations.
-SIL and tests use a deterministic scripted mask; flight uses a frozen ONNX model via
-onnxruntime.
+This module composes the classifier, segmentor, and blob extraction into one
+`detect()` call. The payload app talks to `DetectorBackend` only.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
 | `DetectorBackend` | protocol | `detect(frame) -> Result[InferenceResultMsg, FaultCode]` |
-| `ScriptedDetector` | class | Fixed probability mask for SIL and unit tests |
-| `OnnxDetector` | class | ONNX session with sigmoid, threshold, and latency check |
+| `Detector` | class | Classifier then segmentor then `extract_blobs` |
+| `ScriptedDetector` | class | Scripted classifier plus scripted segmentor |
+| `OnnxDetector` | class | ONNX classifier plus ONNX segmentor |
 
 ## Inputs and outputs
 
-`ScriptedDetector(prob_mask, confidence_gate, min_blob_area_px, model_version)`.
+`Detector(classifier, segmentor, confidence_gate, min_blob_area_px, model_version,
+latency_budget_ms)`.
 
-`OnnxDetector(model_path, confidence_gate, min_blob_area_px, model_version,
-expected_sha256, latency_budget_ms, expected_input_shape, expected_output_shape)`.
+`ScriptedDetector(prob_mask, confidence_gate, min_blob_area_px, model_version,
+classifier_positive, latency_budget_ms)`.
 
-Both implement `detect(ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode]`.
+`OnnxDetector(segmentor_model_path, classifier_model_path, ...)`.
+
+All implement `detect(ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode]`.
 
 ## Behavior
 
-1. `ScriptedDetector.detect` runs `extract_blobs` on the configured mask and builds an
-   `InferenceResultMsg` with zero inference time.
-2. `OnnxDetector.__init__` optionally verifies the artifact hash, imports onnxruntime,
-   opens the session, and optionally verifies input/output tensor shapes.
-3. `OnnxDetector.detect` adds a batch dimension, runs the session, applies sigmoid,
-   checks for non-finite output, extracts blobs, measures wall time, and checks the
-   latency budget.
-4. Both backends copy `crop_origin_px` and `scale_factor` from the processed frame into
-   the inference result.
+1. `detect` runs the classifier. A negative decision returns a zero mask, an empty
+   blob list, and does not call the segmentor.
+2. A positive decision runs the segmentor, then `extract_blobs`.
+3. Wall-clock time covers the full `detect()` call. A positive `latency_budget_ms`
+   raises `INFERENCE_TIMEOUT` when exceeded.
+4. `ScriptedDetector` defaults to an always-positive classifier and reports
+   `inference_ms` as 0.0.
+5. `OnnxDetector` constructs `OnnxClassifier` and `OnnxSegmentor` at init.
 
 ## Errors and faults
 
 | Fault / error | Trigger |
 | --- | --- |
-| `INFERENCE_NAN` | Non-finite probabilities after sigmoid (ONNX) |
+| `INFERENCE_NAN` | Non-finite classifier logit or segmentor probabilities |
 | `INFERENCE_TIMEOUT` | Elapsed time exceeds `latency_budget_ms` when budget is positive |
 | `ValueError` at init | Hash or I/O contract verification failure |
 | `ImportError` at init | onnxruntime not installed |
@@ -53,17 +55,19 @@ None directly. The app publishes the returned `InferenceResultMsg`.
 
 ## Configuration
 
-Uses detection thresholds from `ControllerConfig` (`confidence_gate`,
-`min_blob_area_px`) and `InferenceConfig` (`latency_budget_ms`, model path and shapes
-via composition root).
+Uses `ControllerConfig` (`confidence_gate`, `min_blob_area_px`) and `InferenceConfig`
+(artifact paths, `classifier_logit_threshold`, `latency_budget_ms`) via the
+composition root.
 
 ## Constraints
 
-onnxruntime loads only when `OnnxDetector` is constructed. The module never imports
-real or sim HAL drivers.
+onnxruntime loads only when an ONNX backend is constructed. The module never imports
+real or sim HAL drivers. Both backends share `extract_blobs` for identical detection
+geometry.
 
 ## Related documents
 
+- [`flight.payload.model.classifier`](classifier.md)
+- [`flight.payload.model.segmentor`](segmentor.md)
 - [`flight.payload.model.blobs`](blobs.md)
-- [`flight.payload.model.verify`](verify.md)
 - [`flight.payload.app`](../app.md)

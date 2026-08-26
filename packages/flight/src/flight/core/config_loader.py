@@ -399,8 +399,20 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
     inf = data.get("inference", {})
     inference_config = InferenceConfig(
         model_path=str(inf.get("model_path", InferenceConfig.model_path)),
+        classifier_model_path=str(
+            inf.get("classifier_model_path", InferenceConfig.classifier_model_path)
+        ),
         rollback_model_path=str(
             inf.get("rollback_model_path", InferenceConfig.rollback_model_path)
+        ),
+        classifier_rollback_model_path=str(
+            inf.get(
+                "classifier_rollback_model_path",
+                InferenceConfig.classifier_rollback_model_path,
+            )
+        ),
+        classifier_logit_threshold=float(
+            inf.get("classifier_logit_threshold", InferenceConfig.classifier_logit_threshold)
         ),
         input_bands=tuple(inf.get("input_bands", list(InferenceConfig.input_bands))),
         input_height_px=int(inf.get("input_height_px", InferenceConfig.input_height_px)),

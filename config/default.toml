@@ -29,8 +29,11 @@ runaway_rate_tolerance_deg_per_s = 1.0
 runaway_strike_count = 3
 
 [inference]
-model_path = "data/models/active.pt"
-rollback_model_path = "data/models/rollback.pt"
+model_path = "data/models/active_segmentor.onnx"
+classifier_model_path = "data/models/active_classifier.onnx"
+rollback_model_path = "data/models/rollback_segmentor.onnx"
+classifier_rollback_model_path = "data/models/rollback_classifier.onnx"
+classifier_logit_threshold = 0.0
 input_bands = ["BLUE", "GREEN", "RED", "NIR"]
 input_height_px = 256
 input_width_px = 256
@@ -44,7 +47,7 @@ max_daily_downlink_bytes = 1073741824   # 1 GB
 max_daily_uplink_bytes = 104857600      # 100 MB
 comm_window_days = ["MON", "TUE", "WED", "THU", "FRI"]
 ccsds_apid = 1
-staged_model_path = "data/models/staged.pt"
+staged_model_path = "data/models/staged_segmentor.onnx"
 downlink_max_bytes_per_pass = 1048576
 
 [storage]

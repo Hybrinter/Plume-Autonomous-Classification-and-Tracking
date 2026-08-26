@@ -103,7 +103,7 @@ def load_calibration(
     manifest_path = base / "manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return Err(FaultCode.CALIBRATION_INVALID)
 
     arrays: dict[str, np.ndarray] = {}
@@ -120,7 +120,7 @@ def load_calibration(
             return Err(FaultCode.CALIBRATION_INVALID)
         try:
             arrays[name] = np.load(fpath)
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return Err(FaultCode.CALIBRATION_INVALID)
 
     if any(arrays[n].shape != (height_px, width_px) for n in _ARTIFACT_NAMES):

@@ -1,8 +1,9 @@
 """Pure model-artifact verification helpers (no onnxruntime, no I/O beyond hashing a file).
 
-OnnxDetector uses these at load time and per frame; the model-acceptance gate (tools/) reuses the
-same checks. They are pure/deterministic so they are fully unit-tested even though onnxruntime is
-not present in this repo (the OnnxDetector session itself is exercised only on hardware):
+The ONNX session loader uses these at load time. Detector.detect uses
+check_inference_latency per frame. The model-acceptance gate (tools/) reuses the
+same checks. They are pure/deterministic so they are fully unit-tested even though
+onnxruntime is not required in CI.
 
   - verify_model_hash: the artifact's SHA-256 must equal the manifest digest (MODEL_CORRUPT).
   - verify_io_contract: the model's input/output tensor shapes must equal the flight contract

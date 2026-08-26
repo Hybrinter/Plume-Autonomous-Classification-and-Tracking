@@ -18,7 +18,7 @@ and gimbal control.
 | [`control`](payload/control.md) | pure module | Composes tracking, safety gates, arbiter, and LQR into one step |
 | [`calibration_io`](payload/calibration_io.md) | module | Loads checksummed mosaic calibration artifacts at startup |
 | [`preprocess`](payload/preprocess.md) | package | Pure functions from raw mosaic to inference tensor |
-| [`model`](payload/model.md) | package | Swappable detector backends and blob extraction |
+| [`model`](payload/model.md) | package | Classifier, segmentor, blob extraction, and artifact verification |
 | [`gimbal`](payload/gimbal.md) | package | Pure gimbal FSM, control law, pointing math, and safety gates |
 | [`tracking`](payload/tracking.md) | package | EMA smoothing, Kalman estimation, and blob association |
 

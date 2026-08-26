@@ -97,7 +97,7 @@ def parse_manifest(blob: bytes) -> ParsedManifest | None:
     """
     try:
         data = json.loads(blob.decode("utf-8"))
-    except ValueError, UnicodeDecodeError:
+    except (ValueError, UnicodeDecodeError):
         return None
     if not isinstance(data, dict) or "version" not in data:
         return None
@@ -108,7 +108,7 @@ def parse_manifest(blob: bytes) -> ParsedManifest | None:
     try:
         input_shape = tuple(int(v) for v in raw_in)
         output_shape = tuple(int(v) for v in raw_out)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return ParsedManifest(str(data["version"]), input_shape, output_shape)
 

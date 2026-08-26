@@ -64,7 +64,7 @@ class RealStationLink:
         while not self._stop.is_set():
             try:
                 conn, _ = self._server.accept()
-            except TimeoutError, OSError:
+            except (TimeoutError, OSError):
                 continue
             conn.settimeout(self._cfg.socket_timeout_s)
             with self._lock:
@@ -80,7 +80,7 @@ class RealStationLink:
             while not self._stop.is_set():
                 try:
                     chunk = conn.recv(4096)
-                except TimeoutError, OSError:
+                except (TimeoutError, OSError):
                     continue
                 if not chunk:
                     return  # peer closed

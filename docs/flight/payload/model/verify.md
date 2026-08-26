@@ -6,7 +6,7 @@
 ## Purpose
 
 This module holds pure helpers that verify model artifacts and per-frame inference
-timing. `OnnxDetector` uses them at load time and after each inference run.
+timing. The ONNX session loader and `Detector.detect` call them.
 
 ## Public interface
 
@@ -59,5 +59,6 @@ and `verify_model_hash`.
 
 ## Related documents
 
+- [`flight.payload.model.onnx_session`](onnx_session.md)
 - [`flight.payload.model.detector`](detector.md)
 - [`flight.payload.model`](model.md)

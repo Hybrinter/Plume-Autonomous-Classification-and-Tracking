@@ -41,7 +41,8 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
    `RealScalarSensor` for both scalars.
 3. **Gimbal axis:** `sim` selects `SimGimbal`. `real` selects `RealGimbal`.
 4. **Compute axis:** `sim` uses the passed `ScriptedDetector`. `real` constructs
-   `OnnxDetector` with model path and latency budget.
+   `OnnxDetector` with classifier path, segmentor path, logit threshold, and latency
+   budget.
 5. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
 6. **Launch lock:** always `SimLaunchLock`. Flight with `sim_inputs=None` starts ENGAGED.
    SIL uses `sim_inputs.launch_lock_engaged` (default RELEASED).

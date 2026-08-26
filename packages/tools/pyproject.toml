@@ -16,9 +16,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Role extras (contents filled when a stack is chosen; empty for now).
-train = []
-export = []
+# Role extras. train = torch training stack; export = ONNX serialization.
+train = [
+    "torch>=2.2",
+    "torchvision>=0.17",
+]
+export = [
+    "onnx>=1.16",
+    "onnxruntime>=1.19",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tools"]

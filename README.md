@@ -94,10 +94,10 @@ uv sync --package pact-flight --no-dev
 ### Training box
 
 ```bash
-uv sync --package pact-tools --extra train
+uv sync --package pact-tools --extra train --extra export
 ```
 
-The `train` extra is empty until a training stack is chosen.
+The `train` extra installs torch and torchvision. The `export` extra installs onnx.
 
 Run a declarative SIL scenario through the GSE harness (from the repo root):
 

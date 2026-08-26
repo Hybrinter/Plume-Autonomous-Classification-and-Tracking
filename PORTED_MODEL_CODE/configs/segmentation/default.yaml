@@ -1,0 +1,28 @@
+# Default segmentation experiment config.
+task: segmentation
+seed: 42
+trainer:
+  max_epochs: 300
+  accelerator: auto
+  devices: auto
+  precision: "32"
+  deterministic: true
+  log_every_n_steps: 10
+paths:
+  data_root: data
+  output_dir: lightning_logs
+  experiment_name: segmentation_4ch_unet
+optim:
+  lr: 1.0e-4
+  momentum: 0.9
+  weight_decay: 0.0
+  scheduler: plateau
+model:
+  architecture: unet
+  in_channels: 4
+  n_classes: 1
+  bilinear: true
+data:
+  batch_size: 16
+  num_workers: 4
+  crop_size: 90

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "C:\\Users\\kampw\\.local\\bin\\code-review-graph.exe",
+      "args": [
+        "serve"
+      ],
+      "type": "stdio",
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    }
+  }
+}

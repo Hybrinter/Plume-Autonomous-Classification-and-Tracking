@@ -1,0 +1,33 @@
+# Paper-replication config for segmentation (Mommert et al. 2020, 4-channel).
+# Hyperparameters copied from the original argparse defaults in the pre-Lightning
+# HSG-AIML repo (commit 64c806b, src/smoke_detection/segmentation/train.py).
+# Use this config to verify Table 1 parity post-Lightning port; use default.yaml
+# for normal development runs.
+
+task: segmentation
+seed: 42
+trainer:
+  max_epochs: 300
+  accelerator: auto
+  devices: auto
+  precision: "32"
+  deterministic: true
+  log_every_n_steps: 10
+paths:
+  data_root: data
+  output_dir: lightning_logs
+  experiment_name: segmentation_4ch_unet_paper
+optim:
+  lr: 0.7
+  momentum: 0.7
+  weight_decay: 0.0
+  scheduler: plateau
+model:
+  architecture: unet
+  in_channels: 4
+  n_classes: 1
+  bilinear: true
+data:
+  batch_size: 60
+  num_workers: 4
+  crop_size: 90

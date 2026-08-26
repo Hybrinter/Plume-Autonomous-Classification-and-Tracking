@@ -6,9 +6,11 @@ from pathlib import Path
 
 import numpy as np
 from tools.model.accept import (
+    GoldenClassifierScene,
     GoldenScene,
     Manifest,
     accept_artifact,
+    accept_classifier_artifact,
     compute_iou,
     load_manifest,
 )
@@ -142,3 +144,69 @@ def _gold_for(tensor: np.ndarray, scenes: list[GoldenScene]) -> np.ndarray:
         if scene.input_tensor is tensor:
             return scene.gold_mask
     return scenes[0].gold_mask
+
+
+def test_accept_classifier_passes_with_injected_logits(tmp_path: Path) -> None:
+    """Classifier gate accepts matching hash, contract, accuracy, and latency."""
+    path, manifest = _artifact(tmp_path)
+    manifest = Manifest(
+        version=manifest.version,
+        model_repo_sha=manifest.model_repo_sha,
+        dataset_hash=manifest.dataset_hash,
+        input_shape=(1, 4, 256, 256),
+        output_shape=(1, 1),
+        sha256=manifest.sha256,
+    )
+    tensor_pos = np.ones((4, 8, 8), dtype=np.float32)
+    tensor_neg = np.zeros((4, 8, 8), dtype=np.float32)
+    scenes = [
+        GoldenClassifierScene(input_tensor=tensor_pos, label_positive=True),
+        GoldenClassifierScene(input_tensor=tensor_neg, label_positive=False),
+    ]
+
+    def _run(tensor: np.ndarray) -> float:
+        return 1.0 if tensor is tensor_pos else -1.0
+
+    report = accept_classifier_artifact(
+        path,
+        manifest,
+        scenes,
+        run_inference=_run,
+        expected_input=(1, 4, 256, 256),
+        expected_output=(1, 1),
+        min_accuracy=1.0,
+        max_latency_ms=10_000.0,
+    )
+    assert report.accuracy_ok and report.hash_ok and report.contract_ok
+    assert report.accepted
+
+
+def test_accept_classifier_rejects_low_accuracy(tmp_path: Path) -> None:
+    """A predictor that always reports negative fails the accuracy gate."""
+    path, manifest = _artifact(tmp_path)
+    manifest = Manifest(
+        version=manifest.version,
+        model_repo_sha=manifest.model_repo_sha,
+        dataset_hash=manifest.dataset_hash,
+        input_shape=(1, 4, 256, 256),
+        output_shape=(1, 1),
+        sha256=manifest.sha256,
+    )
+    scenes = [
+        GoldenClassifierScene(
+            input_tensor=np.zeros((4, 8, 8), dtype=np.float32),
+            label_positive=True,
+        )
+    ]
+    report = accept_classifier_artifact(
+        path,
+        manifest,
+        scenes,
+        run_inference=lambda t: -4.0,
+        expected_input=(1, 4, 256, 256),
+        expected_output=(1, 1),
+        min_accuracy=0.9,
+        max_latency_ms=10_000.0,
+    )
+    assert not report.accuracy_ok
+    assert not report.accepted

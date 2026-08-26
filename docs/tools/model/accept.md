@@ -17,8 +17,12 @@ It runs manifest, hash, I/O contract, golden-scene IoU, and latency checks.
 | `AcceptanceReport` | class | Per-check booleans and aggregate accept flag |
 | `load_manifest` | function | Parse manifest JSON |
 | `compute_iou` | function | Binary IoU between predicted and golden masks |
-| `accept_artifact` | function | Run the full gate and return a report |
-| `onnx_inference_fn` | function | Build an onnxruntime-backed inference callable |
+| `accept_artifact` | function | Run the segmentor gate and return a report |
+| `onnx_inference_fn` | function | Build an onnxruntime-backed mask callable |
+| `GoldenClassifierScene` | class | Input tensor and presence label |
+| `ClassifierAcceptanceReport` | class | Hash, contract, accuracy, latency, accept flag |
+| `accept_classifier_artifact` | function | Classifier gate with binary accuracy |
+| `onnx_classifier_inference_fn` | function | onnxruntime callable that returns a logit |
 
 ## Inputs and outputs
 
@@ -33,6 +37,12 @@ checks pass.
 `onnx_inference_fn(artifact_path) -> InferenceFn` maps `(C, H, W)` to a sigmoid
 mask `(H, W)`. Raises `ImportError` when onnxruntime is not installed.
 
+`accept_classifier_artifact(...) -> ClassifierAcceptanceReport`. A frame is
+positive when logit >= `logit_threshold` (default 0.0).
+
+`onnx_classifier_inference_fn(artifact_path) -> ClassifierInferenceFn` maps
+`(C, H, W)` to a scalar logit.
+
 ## Behavior
 
 1. Verify artifact SHA-256 against the manifest.
@@ -40,6 +50,7 @@ mask `(H, W)`. Raises `ImportError` when onnxruntime is not installed.
 3. For each golden scene, run inference, measure latency, and compute IoU.
 4. Accept when hash, contract, mean IoU, and worst latency all pass.
 5. `onnx_inference_fn` lazily imports onnxruntime and applies sigmoid to logits.
+6. `accept_classifier_artifact` uses binary accuracy in place of mask IoU.
 
 ## Errors and faults
 
@@ -52,12 +63,13 @@ None.
 
 ## Configuration
 
-Callers pass `min_iou`, `max_latency_ms`, `iou_threshold`, and expected shapes.
+Callers pass `min_iou`, `min_accuracy`, `max_latency_ms`, `iou_threshold`,
+`logit_threshold`, and expected shapes.
 
 ## Constraints
 
 Inference runs through an injected callable. CI tests without onnxruntime. IoU is
-pure NumPy.
+pure NumPy. Classifier accuracy uses `tools.model.metrics`.
 
 ## Related documents
 

@@ -1,31 +1,44 @@
 # tools.model.export
 
 **Source:** `packages/tools/src/tools/model/export.py`
-**Kind:** stub
+**Kind:** module
 
 ## Purpose
 
-This module is a scaffold for torch-to-ONNX export and promote into `data/models/`.
-`export()` raises `NotImplementedError` in this layer.
+This module exports a train checkpoint to a frozen ONNX graph and a JSON
+manifest. `promote` copies a passed artifact into `data/models/`.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `export` | function | Stub. Raises `NotImplementedError`. |
+| `ExportConfig` | class | Frozen export hyperparameters |
+| `export` | function | Write ONNX logits plus a Manifest sidecar |
+| `write_manifest` | function | Serialize a Manifest as JSON |
+| `promote` | function | Copy a passed artifact to a destination path |
+| `GateReport` | protocol | `accepted` and `detail` fields used by promote |
 
 ## Inputs and outputs
 
-`export() -> None`. Always raises.
+`export(config) -> (onnx_path, manifest_path, Manifest)`.
+
+`write_manifest(path, manifest) -> None`.
+
+`promote(artifact_path, dest_path, report) -> Path`. Raises `ValueError` when
+`report.accepted` is false.
 
 ## Behavior
 
-1. Call `export()`.
-2. Raise `NotImplementedError`.
+1. Load the checkpoint and rebuild the matching network.
+2. Export an ONNX graph named `input` to `logits`. The graph does not include
+   sigmoid.
+3. Hash the file, write a Manifest sidecar with the same stem and `.json`.
+4. `promote` copies the `.onnx` and sidecar only after a passing gate report.
 
 ## Errors and faults
 
-`NotImplementedError` on every call.
+`ImportError` when torch is not installed. `ValueError` on an unknown kind or a
+rejected promote. `FileNotFoundError` on a missing checkpoint.
 
 ## Messages
 
@@ -33,12 +46,14 @@ None.
 
 ## Configuration
 
-None.
+`ExportConfig` carries kind, checkpoint path, output path, geometry, version,
+repo SHA, dataset hash, and ONNX opset (default 17).
 
 ## Constraints
 
-This unit is a stub. Importing the module does not import torch. ONNX export is
-not implemented.
+Importing the module does not import torch. Classifier output shape is `(1, 1)`.
+Segmentor output shape is `(1, 1, H, W)`. Destination names in flight config are
+`data/models/active_classifier.onnx` and `data/models/active_segmentor.onnx`.
 
 ## Related documents
 

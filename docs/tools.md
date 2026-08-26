@@ -44,7 +44,6 @@ publishes to the bus or changes flight behavior.
 - A flight-only install does not include `pact-tools`.
 - Analysis is read-only observability over the deterministic SIL harness.
 - Acceptance runs inference through an injected callable so CI stays SDK-free.
-- `train` and `export` modules are stubs in this layer.
 
 ## Related documents
 

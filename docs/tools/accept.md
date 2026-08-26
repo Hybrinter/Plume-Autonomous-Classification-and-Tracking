@@ -19,6 +19,10 @@ imports `tools.model.accept`.
 | `compute_iou` | function | Re-export |
 | `accept_artifact` | function | Re-export |
 | `onnx_inference_fn` | function | Re-export |
+| `GoldenClassifierScene` | class | Re-export |
+| `ClassifierAcceptanceReport` | class | Re-export |
+| `accept_classifier_artifact` | function | Re-export |
+| `onnx_classifier_inference_fn` | function | Re-export |
 
 ## Inputs and outputs
 

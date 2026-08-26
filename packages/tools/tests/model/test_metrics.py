@@ -1,9 +1,7 @@
-"""Tests for tools.model metrics and scaffold modules."""
+"""Tests for tools.model metrics."""
 
 import pytest
-from tools.model.export import export
 from tools.model.metrics import binary_accuracy, mean_binary_accuracy
-from tools.model.train import train
 
 
 def test_binary_accuracy_match_and_mismatch() -> None:
@@ -23,15 +21,3 @@ def test_mean_binary_accuracy_rejects_length_mismatch() -> None:
     """Unequal prediction/label lengths raise ValueError."""
     with pytest.raises(ValueError):
         mean_binary_accuracy((True,), (True, False))
-
-
-def test_train_scaffold_raises() -> None:
-    """train() is a stub in this layer."""
-    with pytest.raises(NotImplementedError):
-        train()
-
-
-def test_export_scaffold_raises() -> None:
-    """export() is a stub in this layer."""
-    with pytest.raises(NotImplementedError):
-        export()

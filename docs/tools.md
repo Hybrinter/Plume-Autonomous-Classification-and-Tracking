@@ -26,6 +26,9 @@ Run analysis with `python -m tools.analysis run <suite|scenario> --out <dir>`.
 
 Run model CLI with `python -m tools.model <train|export|accept>`.
 
+Fetch the smoke-plume corpus with `python scripts/fetch_smoke_plume_dataset.py`
+(checksum status only unless `--download`).
+
 ## Interactions
 
 `tools.model.accept` imports `flight.payload.inference.verify` for hash and I/O

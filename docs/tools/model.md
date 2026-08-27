@@ -15,6 +15,7 @@ model metrics. It is the single model-engineering package under tools.
 | [`accept`](model/accept.md) | module | Frozen ONNX intake gate |
 | [`metrics`](model/metrics.md) | module | Classifier accuracy helpers |
 | [`data`](model/data.md) | module | Synthetic and on-disk training batches |
+| [`fetch`](model/fetch.md) | module | Zenodo 4250706 fetch, checksums, preprocess |
 | [`train`](model/train.md) | module | Plain-torch SGD train loop |
 | [`export`](model/export.md) | module | ONNX export, manifest, and promote |
 | [`arch`](model/arch.md) | package | U-Net segmentor and ResNet-50 classifier |
@@ -42,6 +43,9 @@ the SIL and does not publish on the bus.
   and torchvision. The `export` extra adds onnx.
 - `import tools.model` does not import torch.
 - Flight must not import `tools`.
+- The smoke-plume corpus stays out of git. Run
+  `python scripts/fetch_smoke_plume_dataset.py` for checksum status. Pass
+  `--download` only on a training box.
 
 ## Related documents
 

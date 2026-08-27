@@ -9,6 +9,7 @@ from flight.hal.drivers_real import RealStationLink
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
+from flight.payload.inference import ScriptedDetector
 from sim.scene import build_frames, plume_detector
 
 
@@ -47,6 +48,7 @@ def test_all_sim_returns_sim_drivers_and_passed_detector() -> None:
     assert isinstance(drivers.thermal_sensor, SimScalarSensor)
     assert isinstance(drivers.power_sensor, SimScalarSensor)
     assert drivers.detector is inputs.detector
+    assert isinstance(drivers.detector, ScriptedDetector)
 
 
 def test_sim_axis_without_inputs_raises() -> None:

@@ -8,6 +8,7 @@ Contains:
   - accept: frozen ONNX intake gate (hash, I/O, IoU or accuracy, latency).
   - metrics: classifier accuracy helpers.
   - data: synthetic scenes and on-disk numpy adapter (torch-free).
+  - fetch: Zenodo 4250706 checksums, optional download, 4-band preprocess.
   - train: plain-torch SGD loop.
   - export: ONNX export, manifest write, and promote.
   - arch: U-Net segmentor and ResNet-50 classifier (torch, imported lazily).

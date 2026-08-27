@@ -52,5 +52,5 @@ zero from `extract_blobs` and are assigned here before the arbiter reads persist
 ## Related documents
 
 - [`flight.payload.tracking`](../tracking.md)
-- [`flight.payload.model.blobs`](../model/blobs.md)
+- [`flight.payload.blobs`](../blobs.md)
 - [`flight.payload.gimbal.arbiter`](../gimbal/arbiter.md)

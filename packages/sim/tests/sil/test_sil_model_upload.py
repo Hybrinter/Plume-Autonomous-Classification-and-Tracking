@@ -15,13 +15,19 @@ from sim.sil import SilHarness, build_sil_system
 _KEY = b"sil-test-key-0000000000000000000"
 
 
-def _manifest(version: str, channels: int) -> bytes:
-    """A model-upload manifest blob; channels=4 matches the flight contract, else it fails."""
+def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 4) -> bytes:
+    """A pair-upload manifest; channels=4 matches flight, other values fail activate."""
     return json.dumps(
         {
             "version": version,
-            "input_shape": [1, channels, 256, 256],
-            "output_shape": [1, 1, 256, 256],
+            "classifier": {
+                "input_shape": [1, classifier_channels, 256, 256],
+                "output_shape": [1, 1],
+            },
+            "segmentor": {
+                "input_shape": [1, segmentor_channels, 256, 256],
+                "output_shape": [1, 1, 256, 256],
+            },
         }
     ).encode("utf-8")
 
@@ -84,7 +90,7 @@ def test_model_upload_activate_then_rollback() -> None:
         return system.apps.model_deploy.state.state
 
     # --- good model: upload -> stage -> activate -> ACTIVE ---
-    for pkt in _chunk_packets(_manifest("v2", channels=4), base_seq=1):
+    for pkt in _chunk_packets(_manifest("v2", classifier_channels=4), base_seq=1):
         system.station.enqueue(pkt)
     advance(4)  # ingest + route + reassemble + stage
     assert deploy_state() is ModelDeployState.STAGED
@@ -94,7 +100,7 @@ def test_model_upload_activate_then_rollback() -> None:
     assert system.apps.model_deploy.state.active_version == "v2"
 
     # --- bad model: upload -> stage -> activate -> auto-rollback ---
-    for pkt in _chunk_packets(_manifest("v3", channels=3), base_seq=4):
+    for pkt in _chunk_packets(_manifest("v3", classifier_channels=3), base_seq=4):
         system.station.enqueue(pkt)
     advance(4)
     assert deploy_state() is ModelDeployState.STAGED

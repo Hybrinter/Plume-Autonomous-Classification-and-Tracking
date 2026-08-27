@@ -1,6 +1,6 @@
-# flight.payload.model.segmentor
+# flight.payload.inference.segmentor
 
-**Source:** `packages/flight/src/flight/payload/model/segmentor.py`
+**Source:** `packages/flight/src/flight/payload/inference/segmentor.py`
 **Kind:** module
 
 ## Purpose
@@ -51,8 +51,8 @@ None. The detector consumes the mask in process.
 
 ## Configuration
 
-Uses `InferenceConfig.model_path` (active segmentor artifact) and input geometry via
-the composition root.
+Uses `InferenceConfig.segmentor_model_path` and input geometry via the composition
+root.
 
 ## Constraints
 
@@ -61,7 +61,7 @@ real or sim HAL drivers.
 
 ## Related documents
 
-- [`flight.payload.model.detector`](detector.md)
-- [`flight.payload.model.classifier`](classifier.md)
-- [`flight.payload.model.blobs`](blobs.md)
-- [`flight.payload.model.onnx_session`](onnx_session.md)
+- [`flight.payload.inference.detector`](detector.md)
+- [`flight.payload.inference.classifier`](classifier.md)
+- [`flight.payload.blobs`](../blobs.md)
+- [`flight.payload.inference.onnx_session`](onnx_session.md)

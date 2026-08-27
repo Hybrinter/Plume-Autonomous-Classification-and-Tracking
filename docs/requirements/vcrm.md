@@ -37,7 +37,7 @@ are deliberately absent rather than falsely marked verified.
 | REQ-DATA-LEDGER-001 | Reboot-surviving append-only fault ledger | unit | unit | test_storage | verified |
 | REQ-DATA-DOWNLINK-001 | Prioritized, AOS-gated, budgeted downlink of products | SIL | sil-link-real | test_downlink; test_sil_data_system; scenario:product_downlink | verified |
 | REQ-MECH-HIGH-001 | Launch-lock hazardous release + bidirectional gimbal interlock | SIL | sil | test_mechanical_app; test_sil_mechanical | verified |
-| REQ-COMM-MODEL-001 | Chunked model upload -> stage -> activate -> auto-rollback | SIL | sil | test_model_deploy; test_sil_model_upload | verified |
+| REQ-COMM-MODEL-001 | A classifier and segmentor pair uploads as authenticated chunks, reassembles into one bundle, stages together, and activates with automatic rollback of the pair on a failed sanity check. | SIL | sil | test_model_deploy; test_sil_model_upload | verified |
 | REQ-AIML-HIGH-004 | Model acceptance gate + load hash/contract + latency budget | unit | unit | test_model_verify; test_accept | verified |
 | REQ-PLAT-QUEUE-001 | Bounded bus queues + per-type overflow policy | unit | unit | test_bus | verified |
 | REQ-PLAT-SUP-001 | Thread supervision (restart->SAFE) + startup health gate | unit | unit | test_scheduler; test_health | verified |

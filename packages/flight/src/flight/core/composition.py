@@ -58,7 +58,7 @@ from flight.libs.messages import (
 from flight.libs.time import Clock
 from flight.mechanical.app import MechanicalApp
 from flight.payload.app import PayloadApp
-from flight.payload.model import DetectorBackend
+from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import MosaicCalibration
 from flight.thermal.app import ThermalApp
 

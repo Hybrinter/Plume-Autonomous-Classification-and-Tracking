@@ -56,9 +56,11 @@ class ControllerConfig:
 class InferenceConfig:
     """Configuration for the inference subsystem and model deployment."""
 
-    model_path: str = "data/models/active_segmentor.onnx"  # active segmentor artifact
+    segmentor_model_path: str = "data/models/active_segmentor.onnx"  # active segmentor artifact
     classifier_model_path: str = "data/models/active_classifier.onnx"  # active classifier artifact
-    rollback_model_path: str = "data/models/rollback_segmentor.onnx"  # rollback segmentor artifact
+    segmentor_rollback_model_path: str = (
+        "data/models/rollback_segmentor.onnx"  # rollback segmentor artifact
+    )
     classifier_rollback_model_path: str = (
         "data/models/rollback_classifier.onnx"  # rollback classifier artifact
     )
@@ -80,8 +82,11 @@ class CommsConfig:
     max_daily_uplink_bytes: int = 104_857_600  # 100 MB daily uplink cap
     comm_window_days: tuple[str, ...] = ("MON", "TUE", "WED", "THU", "FRI")  # weekdays only
     ccsds_apid: int = 0x001  # CCSDS Application Process Identifier
-    staged_model_path: str = (
-        "data/models/staged_segmentor.onnx"  # staging path for uploaded model chunks
+    staged_segmentor_model_path: str = (
+        "data/models/staged_segmentor.onnx"  # staged segmentor slot after pair unpack
+    )
+    staged_classifier_model_path: str = (
+        "data/models/staged_classifier.onnx"  # staged classifier slot after pair unpack
     )
     downlink_max_bytes_per_pass: int = 1_048_576  # downlink manager byte budget per AOS pass
 

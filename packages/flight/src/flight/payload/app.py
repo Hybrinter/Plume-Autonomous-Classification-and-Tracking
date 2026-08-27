@@ -81,7 +81,7 @@ from flight.libs.types import (
     SystemMode,
 )
 from flight.payload.control import ControlState, PayloadController
-from flight.payload.model import DetectorBackend
+from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
     MosaicCalibration,
     calibrate_mosaic,

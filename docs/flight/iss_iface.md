@@ -7,7 +7,7 @@
 
 The iss_iface package is the payload seam onto the station-owned link. It authenticates inbound
 telecommands, publishes validated commands on the bus, encodes downlink items as CCSDS TM packets,
-and reassembles chunked model uploads.
+and reassembles chunked classifier+segmentor pair uploads.
 
 ## Contents
 

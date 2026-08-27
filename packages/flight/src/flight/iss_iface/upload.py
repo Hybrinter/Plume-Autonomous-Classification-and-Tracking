@@ -1,10 +1,11 @@
 """Chunked model-upload reassembly buffer for iss_iface (no bus, no clock, no I/O).
 
-A model artifact is uploaded as a sequence of authenticated UPLOAD_MODEL_CHUNK commands; this
-module reassembles them into the complete artifact bytes. add_chunk accumulates chunks into a
-ModelUploadState buffer (held by the app shell, like the ingress sequence map) and, on the final
-chunk, concatenates them in index order and verifies the declared CRC-32 of the whole artifact.
-The shell then stages the assembled bytes into storage and announces a ModelStagedMsg.
+A classifier+segmentor pair bundle is uploaded as a sequence of authenticated
+UPLOAD_MODEL_CHUNK commands; this module reassembles them into the complete bytes.
+add_chunk accumulates chunks into a ModelUploadState buffer (held by the app shell, like
+the ingress sequence map) and, on the final chunk, concatenates them in index order and
+verifies the declared CRC-32 of the whole bundle. The shell then stages the assembled
+bytes into storage and announces a ModelStagedMsg.
 
 Out-of-range indices or an inconsistent per-chunk header (total/CRC disagreeing with the first
 chunk) reject as COMMAND_INVALID; a final CRC mismatch rejects as MODEL_CORRUPT (and resets the

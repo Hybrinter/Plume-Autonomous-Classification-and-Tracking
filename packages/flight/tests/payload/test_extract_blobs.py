@@ -1,7 +1,7 @@
 """Tests for the pure blob-extraction function."""
 
 import numpy as np
-from flight.payload.model.blobs import extract_blobs
+from flight.payload.blobs import extract_blobs
 
 
 def test_extracts_two_blobs() -> None:

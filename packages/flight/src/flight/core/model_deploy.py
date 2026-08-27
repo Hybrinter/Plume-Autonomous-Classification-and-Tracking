@@ -2,21 +2,23 @@
 
 The core half of the model upload chain (spec Section 6; iss_iface owns reassembly). It consumes:
 
-  - ModelStagedMsg (a reassembled artifact was stored): it fetches the bytes via the injected
-    StorageReader, verifies the SHA-256 against the announced digest, and parses the JSON
-    manifest. On success the deploy state becomes STAGED; a digest/parse failure raises
-    MODEL_CORRUPT and leaves the active model untouched.
+  - ModelStagedMsg (a reassembled classifier+segmentor pair bundle was stored): it fetches the
+    bytes via the injected StorageReader, verifies the SHA-256 against the announced digest, and
+    parses the JSON manifest. The manifest must name both a classifier contract and a segmentor
+    contract. On success the deploy state becomes STAGED; a digest/parse failure raises
+    MODEL_CORRUPT and leaves the active pair untouched.
   - a routed ACTIVATE_MODEL command: it runs load-validation + a first-frame sanity check on the
-    staged artifact -- modeled here as verifying the manifest's I/O contract matches the flight
-    inference contract (input (1, C, H, W), output (1, 1, H, W)), since onnxruntime is not present
-    in this repo. On success the staged model becomes ACTIVE (the previous becomes the rollback);
-    on failure the service AUTOMATICALLY ROLLS BACK -- the previously active model stays active,
-    the state becomes ROLLBACK_AVAILABLE, and a MODEL_CORRUPT fault is raised. ModelDeployStateMsg
-    is telemetered on every transition.
+    staged pair -- modeled here as verifying both I/O contracts match flight (shared input
+    (1, C, H, W); classifier output (1, 1); segmentor output (1, 1, H, W)), since onnxruntime is
+    not present in this repo. Both contracts must match. On success the staged pair becomes
+    ACTIVE (the previous pair becomes the rollback); on failure the service AUTOMATICALLY ROLLS
+    BACK -- the previously active pair stays active, the state becomes ROLLBACK_AVAILABLE, and a
+    MODEL_CORRUPT fault is raised. ModelDeployStateMsg is telemetered on every transition.
 
 Contains:
+  - ArtifactContract: one network's input/output shapes.
   - DeployState: mutable active/rollback/staged bookkeeping + ModelDeployState.
-  - parse_manifest / contract_ok: pure manifest parsing + I/O-contract validation.
+  - parse_manifest / contract_ok: pure pair-manifest parsing + I/O-contract validation.
   - ModelDeployService: from_config(); tick(); run().
 
 Satisfies: REQ-AIML-HIGH-004, REQ-COMM-MODEL-001.
@@ -50,13 +52,21 @@ _ACTIVATE_MODEL = "ACTIVATE_MODEL"
 
 
 @dataclass(slots=True, frozen=True)
+class ArtifactContract:
+    """I/O tensor shapes for one network in an inference pair."""
+
+    input_shape: tuple[int, ...]
+    output_shape: tuple[int, ...]
+
+
+@dataclass(slots=True, frozen=True)
 class StagedModel:
-    """A validated, staged artifact awaiting activation."""
+    """A validated, staged classifier+segmentor pair awaiting activation."""
 
     entry_id: str
     version: str
-    input_shape: tuple[int, ...]
-    output_shape: tuple[int, ...]
+    classifier: ArtifactContract
+    segmentor: ArtifactContract
 
 
 @dataclass(slots=True)
@@ -67,7 +77,7 @@ class DeployState:
         state: The lifecycle state (ACTIVE / STAGED / ROLLBACK_AVAILABLE).
         active_version: The currently active model identifier.
         rollback_version: The previous model retained for rollback (None at first boot).
-        staged: The staged model awaiting ACTIVATE, or None.
+        staged: The staged inference pair awaiting ACTIVATE, or None.
     """
 
     state: ModelDeployState = ModelDeployState.ACTIVE
@@ -78,31 +88,19 @@ class DeployState:
 
 @dataclass(slots=True, frozen=True)
 class ParsedManifest:
-    """A parsed, type-coerced model-upload manifest."""
+    """A parsed, type-coerced classifier+segmentor upload manifest."""
 
     version: str
-    input_shape: tuple[int, ...]
-    output_shape: tuple[int, ...]
+    classifier: ArtifactContract
+    segmentor: ArtifactContract
 
 
-def parse_manifest(blob: bytes) -> ParsedManifest | None:
-    """Parse a model-upload manifest (JSON bytes), or None if malformed.
-
-    Args:
-        blob: The reassembled artifact bytes (a JSON manifest in this SIL-modeled form).
-
-    Returns:
-        A ParsedManifest, or None if the bytes are not valid JSON / not an object / missing or
-        non-numeric version/input_shape/output_shape fields.
-    """
-    try:
-        data = json.loads(blob.decode("utf-8"))
-    except ValueError, UnicodeDecodeError:
+def _parse_contract(raw: object) -> ArtifactContract | None:
+    """Parse one network's input_shape/output_shape object, or None if malformed."""
+    if not isinstance(raw, dict):
         return None
-    if not isinstance(data, dict) or "version" not in data:
-        return None
-    raw_in = data.get("input_shape")
-    raw_out = data.get("output_shape")
+    raw_in = raw.get("input_shape")
+    raw_out = raw.get("output_shape")
     if not isinstance(raw_in, list) or not isinstance(raw_out, list):
         return None
     try:
@@ -110,7 +108,31 @@ def parse_manifest(blob: bytes) -> ParsedManifest | None:
         output_shape = tuple(int(v) for v in raw_out)
     except TypeError, ValueError:
         return None
-    return ParsedManifest(str(data["version"]), input_shape, output_shape)
+    return ArtifactContract(input_shape, output_shape)
+
+
+def parse_manifest(blob: bytes) -> ParsedManifest | None:
+    """Parse a pair-upload manifest (JSON bytes), or None if malformed.
+
+    Args:
+        blob: The reassembled pair-bundle bytes (a JSON manifest in this SIL-modeled form).
+
+    Returns:
+        A ParsedManifest, or None if the bytes are not valid JSON, are not an object, lack
+        version, or lack a well-formed classifier or segmentor contract. A single-network
+        legacy manifest is malformed.
+    """
+    try:
+        data = json.loads(blob.decode("utf-8"))
+    except ValueError, UnicodeDecodeError:
+        return None
+    if not isinstance(data, dict) or "version" not in data:
+        return None
+    classifier = _parse_contract(data.get("classifier"))
+    segmentor = _parse_contract(data.get("segmentor"))
+    if classifier is None or segmentor is None:
+        return None
+    return ParsedManifest(str(data["version"]), classifier, segmentor)
 
 
 def contract_ok(
@@ -162,10 +184,14 @@ class ModelDeployService:
             state=DeployState(),
         )
 
-    def _expected_contract(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
-        """Return the (input, output) shape contract derived from the inference config."""
+    def _expected_pair(self) -> tuple[ArtifactContract, ArtifactContract]:
+        """Return (classifier, segmentor) contracts derived from the inference config."""
         h, w = self.inference_cfg.input_height_px, self.inference_cfg.input_width_px
-        return (1, len(self.inference_cfg.input_bands), h, w), (1, 1, h, w)
+        shared_input = (1, len(self.inference_cfg.input_bands), h, w)
+        return (
+            ArtifactContract(shared_input, (1, 1)),
+            ArtifactContract(shared_input, (1, 1, h, w)),
+        )
 
     def tick(self) -> None:
         """Process staged-model announcements then routed ACTIVATE_MODEL commands."""
@@ -193,8 +219,8 @@ class ModelDeployService:
         self.state.staged = StagedModel(
             entry_id=msg.entry_id,
             version=manifest.version,
-            input_shape=manifest.input_shape,
-            output_shape=manifest.output_shape,
+            classifier=manifest.classifier,
+            segmentor=manifest.segmentor,
         )
         self.state.state = ModelDeployState.STAGED
         self._publish_state(self.state.staged.version, "model staged and validated")
@@ -205,8 +231,19 @@ class ModelDeployService:
         if staged is None:
             self._ack(command, False, "no staged model to activate")
             return
-        expected_in, expected_out = self._expected_contract()
-        if contract_ok(staged.input_shape, staged.output_shape, expected_in, expected_out):
+        expected_classifier, expected_segmentor = self._expected_pair()
+        pair_ok = contract_ok(
+            staged.classifier.input_shape,
+            staged.classifier.output_shape,
+            expected_classifier.input_shape,
+            expected_classifier.output_shape,
+        ) and contract_ok(
+            staged.segmentor.input_shape,
+            staged.segmentor.output_shape,
+            expected_segmentor.input_shape,
+            expected_segmentor.output_shape,
+        )
+        if pair_ok:
             self.state.rollback_version = self.state.active_version
             self.state.active_version = staged.version
             self.state.staged = None

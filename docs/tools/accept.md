@@ -73,4 +73,4 @@ explicitly.
 ## Related documents
 
 - [`tools`](tools.md)
-- [`flight.payload.model.verify`](flight/payload/model/verify.md)
+- [`flight.payload.inference.verify`](../flight/payload/inference/verify.md)

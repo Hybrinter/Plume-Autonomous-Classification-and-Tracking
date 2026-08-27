@@ -94,5 +94,5 @@ Preprocessing runs as function calls inside `process_frame`; it never publishes
 
 - [`flight.payload.control`](control.md)
 - [`flight.payload.preprocess`](preprocess.md)
-- [`flight.payload.model`](model.md)
+- [`flight.payload.inference`](inference.md)
 - [`flight.payload.calibration_io`](calibration_io.md)

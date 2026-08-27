@@ -35,15 +35,28 @@ class _MemStorageReader:
         return Err(FaultCode.STORAGE_CORRUPT)
 
 
-def _manifest(version: str, channels: int = 4) -> bytes:
-    """Build a manifest blob; channels=4 matches the flight contract, others fail it."""
-    return json.dumps(
-        {
-            "version": version,
-            "input_shape": [1, channels, 256, 256],
+def _manifest(
+    version: str,
+    *,
+    classifier_channels: int = 4,
+    segmentor_channels: int = 4,
+    omit: str | None = None,
+) -> bytes:
+    """Build a pair-manifest blob. Default channels=4 match the flight contracts."""
+    data: dict[str, object] = {
+        "version": version,
+        "classifier": {
+            "input_shape": [1, classifier_channels, 256, 256],
+            "output_shape": [1, 1],
+        },
+        "segmentor": {
+            "input_shape": [1, segmentor_channels, 256, 256],
             "output_shape": [1, 1, 256, 256],
-        }
-    ).encode("utf-8")
+        },
+    }
+    if omit is not None:
+        del data[omit]
+    return json.dumps(data).encode("utf-8")
 
 
 def _service(storage: _MemStorageReader) -> tuple[ModelDeployService, MessageBus]:
@@ -82,12 +95,33 @@ def _activate(bus: MessageBus, seq: int = 1) -> None:
 
 
 def test_parse_manifest_and_contract() -> None:
-    """parse_manifest extracts typed shapes; contract_ok compares against the expected contract."""
+    """parse_manifest extracts both contracts; contract_ok compares shapes."""
     parsed = parse_manifest(_manifest("v2"))
     assert parsed is not None
-    assert parsed.input_shape == (1, 4, 256, 256)
-    assert contract_ok(parsed.input_shape, parsed.output_shape, (1, 4, 256, 256), (1, 1, 256, 256))
+    assert parsed.classifier.input_shape == (1, 4, 256, 256)
+    assert parsed.classifier.output_shape == (1, 1)
+    assert parsed.segmentor.output_shape == (1, 1, 256, 256)
+    assert contract_ok(
+        parsed.segmentor.input_shape,
+        parsed.segmentor.output_shape,
+        (1, 4, 256, 256),
+        (1, 1, 256, 256),
+    )
     assert parse_manifest(b"not json") is None
+
+
+def test_parse_manifest_rejects_single_network() -> None:
+    """A classifier-only, segmentor-only, or legacy single-graph blob is malformed."""
+    assert parse_manifest(_manifest("v2", omit="classifier")) is None
+    assert parse_manifest(_manifest("v2", omit="segmentor")) is None
+    legacy = json.dumps(
+        {
+            "version": "v2",
+            "input_shape": [1, 4, 256, 256],
+            "output_shape": [1, 1, 256, 256],
+        }
+    ).encode("utf-8")
+    assert parse_manifest(legacy) is None
 
 
 def test_staging_valid_manifest_goes_staged() -> None:
@@ -127,7 +161,7 @@ def test_staging_digest_mismatch_faults() -> None:
 def test_activate_good_model_goes_active() -> None:
     """Activating a contract-valid staged model makes it ACTIVE and acks ACCEPTED."""
     storage = _MemStorageReader()
-    blob = _manifest("v2", channels=4)
+    blob = _manifest("v2")
     storage.put("e1", blob)
     svc, bus = _service(storage)
     acks = bus.subscribe(CommandAckMsg)
@@ -143,7 +177,7 @@ def test_activate_good_model_goes_active() -> None:
 def test_activate_bad_contract_rolls_back() -> None:
     """Activating a staged model that fails the I/O contract auto-rolls-back and faults."""
     storage = _MemStorageReader()
-    blob = _manifest("v3", channels=3)  # wrong channel count -> contract fails
+    blob = _manifest("v3", classifier_channels=3)  # classifier contract fails the pair
     storage.put("e1", blob)
     svc, bus = _service(storage)
     acks = bus.subscribe(CommandAckMsg)
@@ -156,6 +190,20 @@ def test_activate_bad_contract_rolls_back() -> None:
     assert svc.state.active_version == "factory"  # stayed on the previous model
     assert any(a.status is AckStatus.REJECTED for a in _drain(acks))
     assert any(f.fault_code is FaultCode.MODEL_CORRUPT for f in _drain(faults))
+
+
+def test_activate_bad_segmentor_contract_rolls_back() -> None:
+    """A pair whose segmentor contract fails rolls back the whole pair."""
+    storage = _MemStorageReader()
+    blob = _manifest("v3", segmentor_channels=3)
+    storage.put("e1", blob)
+    svc, bus = _service(storage)
+    _stage(bus, "e1", blob)
+    svc.tick()
+    _activate(bus)
+    svc.tick()
+    assert svc.state.state is ModelDeployState.ROLLBACK_AVAILABLE
+    assert svc.state.active_version == "factory"
 
 
 def test_activate_without_staged_rejected() -> None:

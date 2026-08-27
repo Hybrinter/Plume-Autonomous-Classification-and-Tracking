@@ -21,7 +21,7 @@ thread scheduler. It is the flight composition root and the shared wiring entry 
 | [`routing`](core/routing.md) | pure module | Pure command routing decisions |
 | [`downlink`](core/downlink.md) | module | Prioritized AOS-gated downlink manager |
 | [`storage`](core/storage.md) | module | Checksummed product store and fault ledger |
-| [`model_deploy`](core/model_deploy.md) | module | Model staging, activation, and rollback |
+| [`model_deploy`](core/model_deploy.md) | module | Pair staging, activation, and rollback |
 | [`health`](core/health.md) | pure module | Startup heartbeat health check |
 
 ## Package interface

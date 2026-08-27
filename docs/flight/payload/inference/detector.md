@@ -1,12 +1,14 @@
-# flight.payload.model.detector
+# flight.payload.inference.detector
 
-**Source:** `packages/flight/src/flight/payload/model/detector.py`
+**Source:** `packages/flight/src/flight/payload/inference/detector.py`
 **Kind:** module
 
 ## Purpose
 
 This module composes the classifier, segmentor, and blob extraction into one
-`detect()` call. The payload app talks to `DetectorBackend` only.
+`detect()` call. The payload app talks to `DetectorBackend` only. The class holds
+pipeline knobs (blob thresholds, version string, latency budget). It does not hold
+per-frame network state.
 
 ## Public interface
 
@@ -62,12 +64,11 @@ composition root.
 ## Constraints
 
 onnxruntime loads only when an ONNX backend is constructed. The module never imports
-real or sim HAL drivers. Both backends share `extract_blobs` for identical detection
-geometry.
+real or sim HAL drivers. Scripted and ONNX paths share `extract_blobs`.
 
 ## Related documents
 
-- [`flight.payload.model.classifier`](classifier.md)
-- [`flight.payload.model.segmentor`](segmentor.md)
-- [`flight.payload.model.blobs`](blobs.md)
+- [`flight.payload.inference.classifier`](classifier.md)
+- [`flight.payload.inference.segmentor`](segmentor.md)
+- [`flight.payload.blobs`](../blobs.md)
 - [`flight.payload.app`](../app.md)

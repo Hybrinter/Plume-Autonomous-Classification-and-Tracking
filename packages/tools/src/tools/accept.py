@@ -5,7 +5,7 @@ Training lives in a separate model repo; this gate is the intake check in THIS r
 five checks the spec requires:
 
   1. manifest: a sidecar JSON with version / model-repo SHA / dataset hash / I/O contract / SHA-256.
-  2. hash: the artifact's SHA-256 equals the manifest digest (reuses flight.payload.model.verify).
+  2. hash: the artifact SHA-256 equals the manifest digest (flight.payload.inference.verify).
   3. I/O contract: the manifest's declared input/output shapes match the flight inference contract.
   4. golden-scene IoU: the artifact's predicted masks meet a minimum mean IoU over a golden set.
   5. latency: the worst per-frame inference time is within the budget.
@@ -36,7 +36,7 @@ import numpy as np
 
 # internal
 from flight.libs.types import Ok
-from flight.payload.model.verify import verify_io_contract, verify_model_hash
+from flight.payload.inference.verify import verify_io_contract, verify_model_hash
 
 Shape = tuple[int | None, ...]
 InferenceFn = Callable[[np.ndarray], np.ndarray]

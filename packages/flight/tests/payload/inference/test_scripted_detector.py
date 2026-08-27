@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from flight.libs.messages import ProcessedFrameMsg
 from flight.libs.types import MessageType, Ok
-from flight.payload.model import DetectorBackend, OnnxDetector, ScriptedDetector
+from flight.payload.inference import DetectorBackend, OnnxDetector, ScriptedDetector
 
 
 def _processed_frame(height: int = 20, width: int = 20) -> ProcessedFrameMsg:

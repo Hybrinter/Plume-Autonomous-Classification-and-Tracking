@@ -35,7 +35,7 @@ and embedded structs.
 | `ProductRefMsg` | `PRODUCT_REF` | Compact reference to a stored science product |
 | `DownlinkItemMsg` | `DOWNLINK_ITEM` | Prioritized downlink queue item |
 | `UploadChunkMsg` | `UPLINK_CHUNK` | One chunk of a model upload |
-| `ModelStagedMsg` | `MODEL_STAGED` | Reassembled model staged in storage |
+| `ModelStagedMsg` | `MODEL_STAGED` | Reassembled classifier+segmentor pair in storage |
 | `ModelDeployStateMsg` | `MODEL_DEPLOY` | Model deployment lifecycle telemetry |
 | `CommandAckMsg` | `COMMAND_ACK` | Ingress or execution acknowledgement |
 | `LinkStateMsg` | `LINK_STATE` | Station link AOS/LOS state |

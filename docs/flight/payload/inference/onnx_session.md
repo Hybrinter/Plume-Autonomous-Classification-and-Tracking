@@ -1,6 +1,6 @@
-# flight.payload.model.onnx_session
+# flight.payload.inference.onnx_session
 
-**Source:** `packages/flight/src/flight/payload/model/onnx_session.py`
+**Source:** `packages/flight/src/flight/payload/inference/onnx_session.py`
 **Kind:** module
 
 ## Purpose
@@ -53,6 +53,6 @@ the SDK.
 
 ## Related documents
 
-- [`flight.payload.model.verify`](verify.md)
-- [`flight.payload.model.classifier`](classifier.md)
-- [`flight.payload.model.segmentor`](segmentor.md)
+- [`flight.payload.inference.verify`](verify.md)
+- [`flight.payload.inference.classifier`](classifier.md)
+- [`flight.payload.inference.segmentor`](segmentor.md)

@@ -24,7 +24,7 @@ Run analysis with `python -m tools.analysis run <suite|scenario> --out <dir>`.
 
 ## Interactions
 
-`tools.accept` imports `flight.payload.model.verify` for hash and I/O contract checks.
+`tools.accept` imports `flight.payload.inference.verify` for hash and I/O contract checks.
 
 `tools.analysis` drives `sim.sil.build_sil_system` and `step_once`, subscribes passively to
 bus message types, and writes static report bundles. It never publishes to the bus or changes

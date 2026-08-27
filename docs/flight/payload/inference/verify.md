@@ -1,6 +1,6 @@
-# flight.payload.model.verify
+# flight.payload.inference.verify
 
-**Source:** `packages/flight/src/flight/payload/model/verify.py`
+**Source:** `packages/flight/src/flight/payload/inference/verify.py`
 **Kind:** pure module
 
 ## Purpose
@@ -59,6 +59,6 @@ and `verify_model_hash`.
 
 ## Related documents
 
-- [`flight.payload.model.onnx_session`](onnx_session.md)
-- [`flight.payload.model.detector`](detector.md)
-- [`flight.payload.model`](model.md)
+- [`flight.payload.inference.onnx_session`](onnx_session.md)
+- [`flight.payload.inference.detector`](detector.md)
+- [`flight.payload.inference`](../inference.md)

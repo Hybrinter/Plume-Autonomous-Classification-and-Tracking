@@ -27,14 +27,14 @@ import numpy as np
 
 from flight.libs.messages import BlobMeta, InferenceResultMsg, ProcessedFrameMsg
 from flight.libs.types import Err, FaultCode, MessageType, Ok, Result
-from flight.payload.model.blobs import extract_blobs
-from flight.payload.model.classifier import (
+from flight.payload.blobs import extract_blobs
+from flight.payload.inference.classifier import (
     ClassifierBackend,
     OnnxClassifier,
     ScriptedClassifier,
 )
-from flight.payload.model.segmentor import OnnxSegmentor, ScriptedSegmentor, SegmentorBackend
-from flight.payload.model.verify import check_inference_latency
+from flight.payload.inference.segmentor import OnnxSegmentor, ScriptedSegmentor, SegmentorBackend
+from flight.payload.inference.verify import check_inference_latency
 
 
 @runtime_checkable

@@ -15,8 +15,9 @@ still feeding deterministic scene frames and a sim gimbal.
 
 ## Prerequisites
 
-- Jetson aarch64 target with the lean flight image (onnxruntime + the exported model at
-  `config.inference.model_path`).
+- Jetson aarch64 target with the lean flight image (onnxruntime plus the exported
+  classifier at `config.inference.classifier_model_path` and the exported segmentor
+  at `config.inference.segmentor_model_path`).
 - Networking between the target and a ground station emulator (`packages/gse`
   `StationEmulator`) reachable at `config.link.command_tcp_host:command_tcp_port` /
   `telemetry_udp_host:telemetry_udp_port`.

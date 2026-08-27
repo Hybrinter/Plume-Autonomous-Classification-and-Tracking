@@ -26,7 +26,7 @@ from flight.libs.types import (
 )
 from flight.payload.app import PayloadApp, TickOutcome
 from flight.payload.calibration_io import build_identity_calibration
-from flight.payload.model import DetectorBackend, ScriptedDetector
+from flight.payload.inference import DetectorBackend, ScriptedDetector
 
 
 class _MemStorage:

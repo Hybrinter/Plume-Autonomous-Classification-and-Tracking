@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from flight.libs.types import Err, FaultCode, Ok
-from flight.payload.model.verify import (
+from flight.payload.inference.verify import (
     check_inference_latency,
     compute_sha256,
     verify_io_contract,

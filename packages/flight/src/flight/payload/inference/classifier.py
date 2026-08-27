@@ -23,7 +23,7 @@ import numpy as np
 
 from flight.libs.messages import ProcessedFrameMsg
 from flight.libs.types import Err, FaultCode, Ok, Result
-from flight.payload.model.onnx_session import OnnxInferenceSession, load_onnx_session
+from flight.payload.inference.onnx_session import OnnxInferenceSession, load_onnx_session
 
 
 @dataclass(frozen=True, slots=True)

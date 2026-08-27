@@ -1,6 +1,6 @@
-# flight.payload.model.classifier
+# flight.payload.inference.classifier
 
-**Source:** `packages/flight/src/flight/payload/model/classifier.py`
+**Source:** `packages/flight/src/flight/payload/inference/classifier.py`
 **Kind:** module
 
 ## Purpose
@@ -61,6 +61,6 @@ real or sim HAL drivers.
 
 ## Related documents
 
-- [`flight.payload.model.detector`](detector.md)
-- [`flight.payload.model.segmentor`](segmentor.md)
-- [`flight.payload.model.onnx_session`](onnx_session.md)
+- [`flight.payload.inference.detector`](detector.md)
+- [`flight.payload.inference.segmentor`](segmentor.md)
+- [`flight.payload.inference.onnx_session`](onnx_session.md)

@@ -1,12 +1,12 @@
-# flight.payload.model.blobs
+# flight.payload.blobs
 
-**Source:** `packages/flight/src/flight/payload/model/blobs.py`
+**Source:** `packages/flight/src/flight/payload/blobs.py`
 **Kind:** pure module
 
 ## Purpose
 
 This module extracts connected-component blobs from a segmentation probability mask.
-Both detector backends call it so blob geometry stays identical across scripted and
+The detector composer calls it so blob geometry stays identical across scripted and
 ONNX paths.
 
 ## Public interface
@@ -39,8 +39,8 @@ None.
 
 ## Configuration
 
-Thresholds come from `ControllerConfig.confidence_gate` and `min_blob_area_px`, passed
-by the detector at construction time.
+Thresholds come from `ControllerConfig.confidence_gate` and `min_blob_area_px`. The
+detector passes them at construction time.
 
 ## Constraints
 
@@ -49,5 +49,5 @@ The function is pure. Blob IDs and persistence counts are assigned later by
 
 ## Related documents
 
-- [`flight.payload.model.detector`](detector.md)
-- [`flight.payload.tracking.tracker`](../tracking/tracker.md)
+- [`flight.payload.inference.detector`](inference/detector.md)
+- [`flight.payload.tracking.tracker`](tracking/tracker.md)

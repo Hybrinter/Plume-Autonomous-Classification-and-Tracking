@@ -19,7 +19,7 @@ from typing import Protocol, cast
 import numpy as np
 
 from flight.libs.types import Err
-from flight.payload.model.verify import verify_io_contract, verify_model_hash
+from flight.payload.inference.verify import verify_io_contract, verify_model_hash
 
 
 class OnnxNamedValue(Protocol):

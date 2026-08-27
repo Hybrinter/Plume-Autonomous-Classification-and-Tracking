@@ -65,14 +65,14 @@ runaway tolerance.
 
 ### InferenceConfig
 
-`model_path` (active segmentor), `classifier_model_path`, `rollback_model_path`,
+`segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
 `classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
 dimensions, INT8 flag, and `latency_budget_ms`.
 
 ### CommsConfig
 
-Downlink and uplink rate caps, daily byte caps, comm window weekdays, CCSDS APID, staged model
-path, and per-pass downlink byte budget.
+Downlink and uplink rate caps, daily byte caps, comm window weekdays, CCSDS APID,
+staged segmentor and classifier paths, and per-pass downlink byte budget.
 
 ### SensorConfig
 

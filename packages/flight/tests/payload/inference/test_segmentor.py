@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from flight.libs.messages import ProcessedFrameMsg
 from flight.libs.types import MessageType, Ok
-from flight.payload.model import OnnxSegmentor, ScriptedSegmentor, SegmentorBackend
+from flight.payload.inference import OnnxSegmentor, ScriptedSegmentor, SegmentorBackend
 
 
 def _processed_frame() -> ProcessedFrameMsg:

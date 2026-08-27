@@ -3,7 +3,7 @@
 import importlib.util
 
 import pytest
-from flight.payload.model.onnx_session import load_onnx_session, onnx_tensor_shape
+from flight.payload.inference.onnx_session import load_onnx_session, onnx_tensor_shape
 
 
 def test_onnx_tensor_shape_maps_symbolic_dims() -> None:

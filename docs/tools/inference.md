@@ -18,6 +18,10 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`split`](inference/split.md) | module | Frozen train/val/test recipe and dataset hash |
 | [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |
 | [`train`](inference/train.md) | module | Plain-torch SGD loop and local run directories |
+| [`eval`](inference/eval.md) | module | Held-out split scoring for a run |
+| [`plots`](inference/plots.md) | module | Headless curves, overlays, and failure gallery |
+| [`report`](inference/report.md) | module | Figures and markdown into a run directory |
+| [`runs`](inference/runs.md) | module | List and compare local run directories |
 | [`export`](inference/export.md) | module | ONNX export, manifest, and promote |
 | [`arch`](inference/arch.md) | package | U-Net segmentor and ResNet-50 classifier |
 | [`cli`](inference/cli.md) | module | Typer commands for inference workflows |
@@ -31,8 +35,8 @@ Re-exports: `Manifest`, `GoldenScene`, `GoldenClassifierScene`,
 `onnx_inference_fn`, `onnx_classifier_inference_fn`, `binary_accuracy`,
 `mean_binary_accuracy`.
 
-Run `pact-tools inference <train|export|accept|fetch>` or
-`python -m tools.inference <train|export|accept|fetch>`.
+Run `pact-tools inference <train|eval|report|list|compare|export|accept|fetch>`
+or `python -m tools.inference <train|eval|report|list|compare|export|accept|fetch>`.
 
 ## Interactions
 

@@ -28,6 +28,18 @@ def test_tools_inference_split_imports() -> None:
     assert importlib.import_module("tools.inference.split") is not None
 
 
+def test_tools_inference_eval_imports() -> None:
+    """tools.inference.eval imports successfully."""
+    assert importlib.import_module("tools.inference.eval") is not None
+
+
 def test_tools_inference_arch_registry_imports() -> None:
     """tools.inference.arch.registry imports successfully."""
     assert importlib.import_module("tools.inference.arch.registry") is not None
+
+
+def test_tools_inference_plots_report_runs_import() -> None:
+    """plots, report, and runs import successfully."""
+    assert importlib.import_module("tools.inference.plots") is not None
+    assert importlib.import_module("tools.inference.report") is not None
+    assert importlib.import_module("tools.inference.runs") is not None

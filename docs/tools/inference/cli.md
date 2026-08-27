@@ -5,8 +5,8 @@
 
 ## Purpose
 
-The inference CLI runs training, ONNX export, artifact acceptance, and dataset
-fetch workflows.
+The inference CLI runs training, evaluation, reporting, export, acceptance, and
+dataset fetch workflows.
 
 ## Public interface
 
@@ -19,15 +19,19 @@ fetch workflows.
 ## Inputs and outputs
 
 `main(argv=None) -> int` accepts an optional argument vector without the program
-name. Commands print generated paths, acceptance details, or dataset status.
+name. Commands print generated paths, tables, acceptance details, or dataset
+status.
 
 ## Behavior
 
 1. `train` overlays options on `TrainConfig` and writes a run directory.
-2. `export` writes an ONNX graph and JSON manifest.
-3. `accept` runs the classifier or segmentor intake gate and optionally promotes
+2. `eval` scores a checkpoint on a named split.
+3. `report` writes figures and `report.md` into a run directory.
+4. `list` prints local run summaries. `compare` prints a side-by-side table.
+5. `export` writes an ONNX graph and JSON manifest.
+6. `accept` runs the classifier or segmentor intake gate and optionally promotes
    an accepted artifact.
-4. `fetch` delegates dataset status, download, unpack, and labeled preprocess
+7. `fetch` delegates dataset status, download, unpack, and labeled preprocess
    work to `tools.inference.fetch`.
 
 ## Errors and faults
@@ -42,7 +46,7 @@ None.
 
 ## Configuration
 
-Commands expose the same train, export, accept, and fetch options as their
+Commands expose the same train, export, accept, eval, and fetch options as their
 library configuration objects and functions.
 
 ## Constraints
@@ -56,6 +60,9 @@ library configuration objects and functions.
 
 - [`tools.inference`](../inference.md)
 - [`tools.inference.train`](train.md)
+- [`tools.inference.eval`](eval.md)
+- [`tools.inference.report`](report.md)
+- [`tools.inference.runs`](runs.md)
 - [`tools.inference.export`](export.md)
 - [`tools.inference.accept`](accept.md)
 - [`tools.inference.fetch`](fetch.md)

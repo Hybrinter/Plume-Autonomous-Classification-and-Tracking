@@ -1,4 +1,4 @@
-"""Typer CLI for inference training, export, acceptance, and dataset fetch.
+"""Typer CLI for inference training, export, acceptance, fetch, eval, and compare.
 
 Contains:
   - app: package-owned Typer application.
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 # stdlib
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated
 
 # third-party
@@ -198,6 +199,53 @@ def fetch_command(
     code = fetch_main(argv)
     if code != 0:
         raise typer.Exit(code=code)
+
+
+@app.command("eval")
+def eval_command(
+    run: Annotated[str, typer.Option(help="Run directory.")],
+    checkpoint: Annotated[str | None, typer.Option(help="Checkpoint path.")] = None,
+    split: Annotated[str, typer.Option(help="Split to score.")] = "test",
+) -> None:
+    """Score a checkpoint on a held-out split."""
+    from tools.inference.eval import evaluate
+
+    try:
+        path = evaluate(run, checkpoint=checkpoint, split=split)
+    except ImportError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(path)
+
+
+@app.command("report")
+def report_command(
+    run: Annotated[str, typer.Option(help="Run directory.")],
+) -> None:
+    """Write figures and report.md into a run directory."""
+    from tools.inference.report import write_report
+
+    typer.echo(write_report(run))
+
+
+@app.command("list")
+def list_command(
+    run_dir: Annotated[str, typer.Option(help="Parent directory of runs.")] = "artifacts/runs",
+) -> None:
+    """Print a table of local run directories."""
+    from tools.inference.runs import discover_runs, format_list
+
+    typer.echo(format_list(discover_runs(run_dir)), nl=False)
+
+
+@app.command("compare")
+def compare_command(
+    run: Annotated[list[str], typer.Option(help="Run directory (repeatable).")],
+) -> None:
+    """Print a side-by-side table of run summaries."""
+    from tools.inference.runs import format_compare
+
+    typer.echo(format_compare(tuple(Path(item) for item in run)), nl=False)
 
 
 def main(argv: list[str] | None = None) -> int:

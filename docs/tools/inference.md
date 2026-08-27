@@ -14,8 +14,9 @@ artifact acceptance, dataset preparation, and model metrics.
 | --- | --- | --- |
 | [`accept`](inference/accept.md) | module | Frozen ONNX intake gate |
 | [`metrics`](inference/metrics.md) | module | Classifier accuracy helpers |
-| [`data`](inference/data.md) | module | Synthetic and on-disk training batches |
-| [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, checksums, preprocess |
+| [`data`](inference/data.md) | module | Synthetic scenes, processed packs, and split loaders |
+| [`split`](inference/split.md) | module | Frozen train/val/test recipe and dataset hash |
+| [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |
 | [`train`](inference/train.md) | module | Plain-torch SGD train loop |
 | [`export`](inference/export.md) | module | ONNX export, manifest, and promote |
 | [`arch`](inference/arch.md) | package | U-Net segmentor and ResNet-50 classifier |
@@ -46,8 +47,9 @@ the SIL and does not publish on the bus.
 - `import tools.inference` does not import torch.
 - Flight must not import `tools`.
 - The smoke-plume corpus stays out of git. Run
-  `python scripts/fetch_smoke_plume_dataset.py` for checksum status. Pass
-  `--download` only on a training box.
+`python scripts/fetch_smoke_plume_dataset.py` for checksum status. Pass
+`--download` only on a training box. Pass `--preprocess` to write a labeled
+processed pack with frozen splits.
 
 ## Related documents
 

@@ -172,6 +172,7 @@ def fetch_command(
     height: Annotated[int, typer.Option(help="Processed image height.")] = 256,
     width: Annotated[int, typer.Option(help="Processed image width.")] = 256,
     limit: Annotated[int, typer.Option(help="Maximum samples; zero means all.")] = 0,
+    split_recipe: Annotated[str | None, typer.Option(help="Split recipe TOML.")] = None,
 ) -> None:
     """Inspect, download, or preprocess the smoke-plume dataset."""
     argv: list[str] = []
@@ -186,6 +187,8 @@ def fetch_command(
     if preprocess:
         argv.append("--preprocess")
     argv.extend(("--height", str(height), "--width", str(width), "--limit", str(limit)))
+    if split_recipe is not None:
+        argv.extend(("--split-recipe", split_recipe))
     code = fetch_main(argv)
     if code != 0:
         raise typer.Exit(code=code)

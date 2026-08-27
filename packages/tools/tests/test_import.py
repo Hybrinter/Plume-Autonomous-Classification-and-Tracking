@@ -21,3 +21,8 @@ def test_tools_inference_train_imports_without_torch() -> None:
 def test_tools_inference_export_imports_without_torch() -> None:
     """tools.inference.export imports without torch."""
     assert importlib.import_module("tools.inference.export") is not None
+
+
+def test_tools_inference_split_imports_without_torch() -> None:
+    """tools.inference.split imports without torch."""
+    assert importlib.import_module("tools.inference.split") is not None

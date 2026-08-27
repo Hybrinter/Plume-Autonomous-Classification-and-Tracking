@@ -1,18 +1,19 @@
 """Zenodo 4250706 fetch, checksum verify, and optional 4-band preprocess.
 
 Default invocation does not download. Pass ``--download`` to fetch missing or
-mismatched files into ``data/raw/``. ``--preprocess`` converts GeoTIFF or packed
-numpy planes into the PACT BLUE/GREEN/RED/NIR ``normalize_dn``-style [0, 1]
-domain under ``data/processed/``.
+mismatched files into ``data/raw/``. ``--preprocess`` unpacks the Zenodo
+tarballs, pairs images with segmentation labels, and writes a processed pack
+(images, masks, labels, splits, dataset hash) under ``data/processed/``.
 
 Contains:
   - DatasetManifest / DatasetFile: checksummed Zenodo file list.
   - load_dataset_manifest: parse data/manifests/zenodo_4250706.toml.
   - file_md5: md5 hex digest of a path.
-  - verify_file: size + md5 check.
+  - verify_file: size and md5 check.
   - select_pact_bands / to_model_domain: 13-band -> (4, H, W) float32 [0, 1].
   - download_file: urllib fetch with checksum.
-  - preprocess_planes / preprocess_tree: write packed numpy batches.
+  - extract_tarball / pair_sample_stems / load_mask_plane.
+  - preprocess_planes / preprocess_tree / preprocess_pack.
   - main: CLI used by scripts/fetch_smoke_plume_dataset.py.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import tarfile
 import tomllib
 import urllib.request
 from dataclasses import dataclass
@@ -29,6 +31,9 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
+
+_IMAGE_SUFFIXES = frozenset({".npy", ".tif", ".tiff"})
+_MASK_SUFFIXES = frozenset({".npy", ".png", ".tif", ".tiff"})
 
 
 def _repo_root() -> Path:
@@ -248,6 +253,195 @@ def preprocess_planes(
     return to_model_domain(planes, height, width, indices=indices, dn_scale=dn_scale)
 
 
+def extract_tarball(archive: str | Path, dest: str | Path) -> Path:
+    """Extract a gzip tarball into ``dest``.
+
+    Args:
+        archive: Path to a ``.tar.gz`` file.
+        dest: Destination directory. Created when missing.
+
+    Returns:
+        Path: The destination directory.
+
+    Raises:
+        FileNotFoundError: If the archive is missing.
+        tarfile.TarError: If the archive is malformed.
+    """
+    src = Path(archive)
+    if not src.is_file():
+        raise FileNotFoundError(f"archive not found: {src}")
+    out = Path(dest)
+    out.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(src, "r:*") as handle:
+        handle.extractall(out, filter="data")
+    return out
+
+
+def _iter_files(root: Path, suffixes: frozenset[str]) -> list[Path]:
+    """Return sorted files under root whose suffix is in suffixes."""
+    found: list[Path] = []
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix.lower() in suffixes:
+            found.append(path)
+    return sorted(found)
+
+
+def pair_sample_stems(
+    image_dir: str | Path,
+    label_dir: str | Path,
+) -> tuple[tuple[Path, Path], ...]:
+    """Pair image and mask files that share a filename stem.
+
+    Args:
+        image_dir: Directory tree of image stacks.
+        label_dir: Directory tree of segmentation masks.
+
+    Returns:
+        tuple[tuple[Path, Path], ...]: Sorted (image, mask) pairs.
+
+    Raises:
+        FileNotFoundError: If either directory is missing or no stems pair.
+    """
+    images_root = Path(image_dir)
+    labels_root = Path(label_dir)
+    if not images_root.is_dir():
+        raise FileNotFoundError(f"image directory not found: {images_root}")
+    if not labels_root.is_dir():
+        raise FileNotFoundError(f"label directory not found: {labels_root}")
+    images = {path.stem: path for path in _iter_files(images_root, _IMAGE_SUFFIXES)}
+    masks = {path.stem: path for path in _iter_files(labels_root, _MASK_SUFFIXES)}
+    stems = sorted(set(images) & set(masks))
+    if not stems:
+        raise FileNotFoundError(
+            f"no paired image/mask stems between {images_root} and {labels_root}"
+        )
+    return tuple((images[stem], masks[stem]) for stem in stems)
+
+
+def _resize_2d(plane: np.ndarray, height: int, width: int) -> np.ndarray:
+    """Nearest-neighbor resize of (h, w) to (height, width)."""
+    src_h, src_w = plane.shape
+    row = (np.arange(height) * src_h // height).astype(np.int64)
+    col = (np.arange(width) * src_w // width).astype(np.int64)
+    return cast(np.ndarray, plane[row[:, None], col])
+
+
+def load_mask_plane(path: str | Path, height: int, width: int) -> np.ndarray:
+    """Load a segmentation mask and return (1, H, W) float32 in {0, 1}.
+
+    Args:
+        path: Mask file (``.npy``, ``.png``, or GeoTIFF).
+        height: Output height.
+        width: Output width.
+
+    Returns:
+        np.ndarray[float32, (1, height, width)] in {0, 1}.
+
+    Raises:
+        FileNotFoundError: If the file is missing.
+        ValueError: If the array cannot be reduced to 2-D.
+        ImportError: If a GeoTIFF mask is present and rasterio is missing.
+    """
+    src = Path(path)
+    suffix = src.suffix.lower()
+    if suffix == ".npy":
+        arr = np.asarray(np.load(src), dtype=np.float32)
+    elif suffix in {".png", ".jpg", ".jpeg"}:
+        from matplotlib.image import imread
+
+        arr = np.asarray(imread(src), dtype=np.float32)
+    elif suffix in {".tif", ".tiff"}:
+        try:
+            import rasterio
+        except ImportError as exc:
+            raise ImportError(
+                "rasterio is required to read GeoTIFF masks; convert to .npy or install rasterio"
+            ) from exc
+        with rasterio.open(src) as handle:
+            arr = handle.read(1).astype(np.float32)
+    else:
+        raise ValueError(f"unsupported mask suffix {suffix!r}")
+    if arr.ndim == 3:
+        arr = arr[..., 0] if arr.shape[-1] in {3, 4} else arr[0]
+    if arr.ndim != 2:
+        raise ValueError(f"mask must reduce to (H, W); got {arr.shape}")
+    if arr.shape != (height, width):
+        arr = _resize_2d(arr, height, width)
+    if float(np.nanmax(arr)) <= 1.0:
+        binary = (arr >= 0.5).astype(np.float32)
+    else:
+        binary = (arr > 0.0).astype(np.float32)
+    return binary[np.newaxis, ...]
+
+
+def load_image_stack(path: str | Path) -> np.ndarray:
+    """Load one (C, h, w) source stack from npy or GeoTIFF.
+
+    Args:
+        path: Image file.
+
+    Returns:
+        np.ndarray[float32, (C, h, w)].
+
+    Raises:
+        ImportError: If a GeoTIFF is present and rasterio is missing.
+        ValueError: If rank is below 3.
+    """
+    src = Path(path)
+    suffix = src.suffix.lower()
+    if suffix == ".npy":
+        arr = np.asarray(np.load(src), dtype=np.float32)
+    elif suffix in {".tif", ".tiff"}:
+        try:
+            import rasterio
+        except ImportError as exc:
+            raise ImportError(
+                "rasterio is required to preprocess GeoTIFF files; "
+                "convert to .npy or install rasterio"
+            ) from exc
+        with rasterio.open(src) as handle:
+            arr = handle.read().astype(np.float32)
+    else:
+        raise ValueError(f"unsupported image suffix {suffix!r}")
+    if arr.ndim != 3:
+        raise ValueError(f"expected (C, H, W); got {arr.shape}")
+    return arr
+
+
+def _extract_if_needed(archive: Path, dest: Path) -> None:
+    """Extract archive into dest when dest is missing or empty."""
+    if dest.is_dir() and any(dest.iterdir()):
+        return
+    extract_tarball(archive, dest)
+
+
+def extract_zenodo_archives(raw_dir: str | Path) -> tuple[Path, Path]:
+    """Extract Zenodo image and label tarballs when present.
+
+    Args:
+        raw_dir: Directory that holds ``images.tar.gz`` and
+            ``segmentation_labels.tar.gz`` after download.
+
+    Returns:
+        tuple[Path, Path]: (image_root, label_root). When a tarball is absent,
+        the corresponding root is ``raw_dir``.
+    """
+    root = Path(raw_dir)
+    images_archive = root / "images.tar.gz"
+    labels_archive = root / "segmentation_labels.tar.gz"
+    image_root = root / "extracted" / "images"
+    label_root = root / "extracted" / "labels"
+    if images_archive.is_file():
+        _extract_if_needed(images_archive, image_root)
+    else:
+        image_root = root
+    if labels_archive.is_file():
+        _extract_if_needed(labels_archive, label_root)
+    else:
+        label_root = root
+    return image_root, label_root
+
+
 def preprocess_tree(
     source_dir: Path,
     dest_dir: Path,
@@ -273,7 +467,8 @@ def preprocess_tree(
 
     Notes:
         GeoTIFF conversion requires rasterio and runs only when ``.tif`` files
-        are present and the extra is installed.
+        are present and the extra is installed. This helper writes images only.
+        Labeled packs use ``preprocess_pack``.
     """
     npy_files = sorted(source_dir.glob("*.npy"))
     tif_files = sorted(source_dir.glob("*.tif")) + sorted(source_dir.glob("*.tiff"))
@@ -307,6 +502,73 @@ def preprocess_tree(
     )
     dest_dir.mkdir(parents=True, exist_ok=True)
     np.save(dest_dir / "images.npy", images)
+    return int(images.shape[0])
+
+
+def preprocess_pack(
+    image_dir: str | Path,
+    label_dir: str | Path,
+    dest_dir: str | Path,
+    height: int,
+    width: int,
+    indices: tuple[int, ...],
+    dn_scale: float,
+    recipe_path: str | Path | None = None,
+    source_doi: str = "",
+    limit: int = 0,
+) -> int:
+    """Pair images with masks and write a processed pack with frozen splits.
+
+    Args:
+        image_dir: Directory tree of image stacks.
+        label_dir: Directory tree of segmentation masks.
+        dest_dir: Output pack directory.
+        height: Output height.
+        width: Output width.
+        indices: Band indices when C != 4.
+        dn_scale: Source DN scale.
+        recipe_path: Split-recipe TOML. None uses the committed default.
+        source_doi: DOI stored in dataset.json.
+        limit: Max pairs (0 means all).
+
+    Returns:
+        int: Number of samples written.
+
+    Raises:
+        FileNotFoundError: If no paired stems exist.
+        ValueError: If the split recipe cannot cover the sample count.
+    """
+    from tools.inference.data import write_processed_pack
+    from tools.inference.split import load_split_recipe
+
+    pairs = pair_sample_stems(image_dir, label_dir)
+    if limit > 0:
+        pairs = pairs[:limit]
+    images_list: list[np.ndarray] = []
+    masks_list: list[np.ndarray] = []
+    labels_list: list[np.ndarray] = []
+    for image_path, mask_path in pairs:
+        stack = load_image_stack(image_path)
+        image = preprocess_planes(
+            stack, height=height, width=width, indices=indices, dn_scale=dn_scale
+        )
+        mask = load_mask_plane(mask_path, height=height, width=width)
+        label = np.array([1.0 if float(mask.max()) > 0.0 else 0.0], dtype=np.float32)
+        images_list.append(image)
+        masks_list.append(mask)
+        labels_list.append(label)
+    images = np.stack(images_list, axis=0)
+    masks = np.stack(masks_list, axis=0)
+    labels = np.stack(labels_list, axis=0)
+    recipe = load_split_recipe(recipe_path)
+    write_processed_pack(
+        dest_dir,
+        images=images,
+        masks=masks,
+        labels=labels,
+        recipe=recipe,
+        source_doi=source_doi,
+    )
     return int(images.shape[0])
 
 
@@ -348,6 +610,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height", type=int, default=256)
     parser.add_argument("--width", type=int, default=256)
     parser.add_argument("--limit", type=int, default=0, help="max preprocess samples (0 = all)")
+    parser.add_argument(
+        "--split-recipe",
+        default=None,
+        help="split recipe TOML (default: data/manifests/zenodo_4250706_splits.toml)",
+    )
     args = parser.parse_args(argv)
 
     manifest = load_dataset_manifest(args.manifest)
@@ -366,13 +633,17 @@ def main(argv: list[str] | None = None) -> int:
         download_file(entry.url, dest, entry.md5, entry.size)
         print(_status_line(entry, raw_dir))
     if args.preprocess:
-        count = preprocess_tree(
-            raw_dir,
+        image_root, label_root = extract_zenodo_archives(raw_dir)
+        count = preprocess_pack(
+            image_root,
+            label_root,
             Path(args.processed_dir),
             height=args.height,
             width=args.width,
             indices=tuple(manifest.pact_band_indices),
             dn_scale=manifest.dn_scale,
+            recipe_path=args.split_recipe,
+            source_doi=manifest.doi,
             limit=args.limit,
         )
         print(f"preprocessed {count} sample(s) -> {args.processed_dir}")

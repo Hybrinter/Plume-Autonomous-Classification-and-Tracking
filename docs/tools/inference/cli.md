@@ -27,8 +27,8 @@ name. Commands print generated paths, acceptance details, or dataset status.
 2. `export` writes an ONNX graph and JSON manifest.
 3. `accept` runs the classifier or segmentor intake gate and optionally promotes
    an accepted artifact.
-4. `fetch` delegates dataset status, download, and preprocess work to
-   `tools.inference.fetch`.
+4. `fetch` delegates dataset status, download, unpack, and labeled preprocess
+   work to `tools.inference.fetch`.
 
 ## Errors and faults
 

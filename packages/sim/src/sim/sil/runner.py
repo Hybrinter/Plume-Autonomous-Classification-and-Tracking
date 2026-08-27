@@ -32,7 +32,7 @@ from flight.libs.config import EnvironmentConfig, PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalState, MosaicFrame
 from flight.payload.control import ControlState
-from flight.payload.model import ScriptedDetector
+from flight.payload.inference import ScriptedDetector
 
 from sim.sil.stepping import step_once
 from sim.sil.validation import build_validation_system

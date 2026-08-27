@@ -158,7 +158,7 @@ status = "verified"
 
 [[requirement]]
 id = "REQ-COMM-MODEL-001"
-statement = "Models upload as authenticated chunks, reassemble + stage into storage, and activate with automatic rollback on a failed sanity check."
+statement = "A classifier and segmentor pair uploads as authenticated chunks, reassembles into one bundle, stages together, and activates with automatic rollback of the pair on a failed sanity check."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-COMM-MODEL-001"]
@@ -175,7 +175,7 @@ method = "unit"
 venue = "unit"
 modules = ["REQ-AIML-HIGH-004"]
 evidence = [
-    "packages/flight/tests/payload/model/test_model_verify.py",
+    "packages/flight/tests/payload/inference/test_model_verify.py",
     "packages/tools/tests/test_accept.py",
 ]
 status = "verified"

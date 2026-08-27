@@ -16,7 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 # Role extras (contents filled when a stack is chosen; empty for now).
 # inference = onboard model runtime; camera / gimbal = pip-installable device libs only.
-inference = []
+inference = ["onnxruntime>=1.19"]
 camera = []
 gimbal = []
 

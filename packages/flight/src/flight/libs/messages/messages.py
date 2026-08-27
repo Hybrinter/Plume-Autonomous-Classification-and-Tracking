@@ -336,11 +336,11 @@ class UploadChunkMsg:
 
 @dataclass(frozen=True)
 class ModelStagedMsg:
-    """A reassembled model artifact has been staged into storage, awaiting ACTIVATE.
+    """A reassembled classifier+segmentor pair bundle is in storage, awaiting ACTIVATE.
 
-    Published by iss_iface once a chunked model upload is fully reassembled and persisted via
+    Published by iss_iface once a chunked pair upload is fully reassembled and persisted via
     the StorageWriter. The core ModelDeployService consumes it: it fetches the bytes via the
-    StorageReader, verifies the SHA-256 + manifest, and moves the deploy state to STAGED.
+    StorageReader, verifies the SHA-256 + pair manifest, and moves the deploy state to STAGED.
     """
 
     msg_type: MessageType  # must be MessageType.MODEL_STAGED

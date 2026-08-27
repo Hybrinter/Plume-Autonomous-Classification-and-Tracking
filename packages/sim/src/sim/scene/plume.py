@@ -28,7 +28,7 @@ import numpy as np
 
 # internal
 from flight.libs.types import MosaicFrame, Ok
-from flight.payload.model import ScriptedDetector
+from flight.payload.inference import ScriptedDetector
 from flight.payload.preprocess import interleave_bands
 
 FRAME_SIZE = 1024  # mosaic plane size; band planes are 512x512

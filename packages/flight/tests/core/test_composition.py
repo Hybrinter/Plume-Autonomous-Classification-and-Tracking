@@ -17,7 +17,7 @@ from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
 from flight.payload.app import PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
-from flight.payload.model import ScriptedDetector
+from flight.payload.inference import ScriptedDetector
 from flight.payload.preprocess import MosaicCalibration
 from flight.thermal.app import ThermalApp
 

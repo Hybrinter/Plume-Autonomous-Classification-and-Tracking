@@ -1287,7 +1287,7 @@ def _model_deploy_signals() -> list[Signal]:
             "Staged input shape rank",
             "count",
             lambda ctx: (
-                float(len(ctx.system.apps.model_deploy.state.staged.input_shape))
+                float(len(ctx.system.apps.model_deploy.state.staged.classifier.input_shape))
                 if ctx.system.apps.model_deploy.state.staged is not None
                 else _NAN
             ),
@@ -1426,7 +1426,7 @@ def _enrichment_signals() -> list[Signal]:
             "Staged output shape rank",
             "count",
             lambda ctx: (
-                float(len(ctx.system.apps.model_deploy.state.staged.output_shape))
+                float(len(ctx.system.apps.model_deploy.state.staged.segmentor.output_shape))
                 if ctx.system.apps.model_deploy.state.staged is not None
                 else _NAN
             ),

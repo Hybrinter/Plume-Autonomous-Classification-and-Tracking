@@ -237,9 +237,11 @@ class IssIfaceApp:
             self._publish_exec_ack(command, AckStatus.ACCEPTED, FaultCode.NONE, result.detail)
             return
         blob = result.complete
-        stored = self.storage_writer.store("staged_model", blob, DownlinkPriority.SCIENCE_PRODUCT)
+        stored = self.storage_writer.store(
+            "staged_inference_pair", blob, DownlinkPriority.SCIENCE_PRODUCT
+        )
         if isinstance(stored, Err):
-            self._publish_fault(stored.error, "staged model store failed")
+            self._publish_fault(stored.error, "staged pair store failed")
             self._publish_exec_ack(command, AckStatus.REJECTED, stored.error, "store failed")
             return
         self.bus.publish(

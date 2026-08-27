@@ -25,7 +25,7 @@ scripted detector that yield stable plume blobs for closed-loop tests.
 
 ## Interactions
 
-Scene code imports `flight.libs.types`, `flight.payload.model`, and
+Scene code imports `flight.libs.types`, `flight.payload.inference`, and
 `flight.payload.preprocess.interleave_bands`. It does not use the message bus.
 
 GSE and tools analysis call `build_frames` and `plume_detector` when they wire a SIL run.

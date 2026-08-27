@@ -7,7 +7,7 @@ allowed by the drivers-from-composition-roots-only import contract (flight.core 
 not a source of that contract). Real-driver SDK modules are imported lazily, only
 inside the 'real' branch they back, so importing this module never requires an SDK.
 The HAL Protocols (flight.hal.interfaces) and the DetectorBackend Protocol
-(flight.payload.model) are pure-Protocol and SDK-free, so they are imported at module
+(flight.payload.inference) are pure-Protocol and SDK-free, so they are imported at module
 top to statically type each branch local; that is what removes any need for a cast or
 type: ignore at the Drivers(...) construction.
 
@@ -45,7 +45,7 @@ from flight.hal.interfaces import (
 from flight.libs.config import PactConfig
 from flight.libs.time import Clock
 from flight.libs.types import LaunchLockState, MosaicFrame, Ok
-from flight.payload.model import DetectorBackend, ScriptedDetector
+from flight.payload.inference import DetectorBackend, ScriptedDetector
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +81,8 @@ def select_drivers(
       - thermal_sensor + power_sensor follow the sensor axis: 'sim' ->
         SimScalarSensor(readings); 'real' -> RealScalarSensor().
       - gimbal: 'sim' -> SimGimbal(clock, cfg); 'real' -> RealGimbal(clock, cfg).
-      - compute: 'sim' -> the passed ScriptedDetector; 'real' -> OnnxDetector(model_path).
+      - compute: 'sim' -> the passed ScriptedDetector; 'real' -> OnnxDetector
+        (classifier + segmentor artifacts).
       - link: 'sim' -> SimStationLink(inbound_packets); 'real' -> RealStationLink(cfg, clock).
 
     Args:
@@ -149,10 +150,14 @@ def select_drivers(
     if env.compute == "sim":
         detector = _require_inputs().detector
     else:
-        from flight.payload.model import OnnxDetector
+        from flight.payload.inference import OnnxDetector
 
         detector = OnnxDetector(
-            config.inference.model_path,
+            segmentor_model_path=config.inference.segmentor_model_path,
+            classifier_model_path=config.inference.classifier_model_path,
+            confidence_gate=config.controller.confidence_gate,
+            min_blob_area_px=config.controller.min_blob_area_px,
+            logit_threshold=config.inference.classifier_logit_threshold,
             latency_budget_ms=config.inference.latency_budget_ms,
         )
 

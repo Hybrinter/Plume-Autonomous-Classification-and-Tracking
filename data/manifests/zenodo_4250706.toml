@@ -1,0 +1,32 @@
+# Zenodo record 4250706 — Mommert industrial smoke plumes.
+# Checksums are md5 as published by the Zenodo files API.
+# Default CI does not download these files.
+
+record_id = 4250706
+doi = "10.5281/zenodo.4250706"
+title = "Characterization of Industrial Smoke Plumes from Remote Sensing Data"
+citation = """Mommert, M., Sigel, M., Neuhausler, M., Scheibenreif, L., Borth, D., \"Characterization of Industrial Smoke Plumes from Remote Sensing Data\", Tackling Climate Change with Machine Learning workshop at NeurIPS 2020. https://doi.org/10.5281/zenodo.4250706"""
+
+# Sentinel-2 L2A 13-band GeoTIFF order used by this record:
+# B1, B2, B3, B4, B5, B6, B7, B8, B8A, B9, B11, B12, B10 (0-based).
+# PACT BLUE/GREEN/RED/NIR = B2/B3/B4/B8.
+pact_band_indices = [1, 2, 3, 7]
+dn_scale = 10000.0
+
+[[files]]
+key = "README.md"
+size = 2807
+md5 = "859d07bb43ab99fcd7790522717aba08"
+url = "https://zenodo.org/api/records/4250706/files/README.md/content"
+
+[[files]]
+key = "segmentation_labels.tar.gz"
+size = 340588
+md5 = "73e6124bc285b0cff100613ef9e28668"
+url = "https://zenodo.org/api/records/4250706/files/segmentation_labels.tar.gz/content"
+
+[[files]]
+key = "images.tar.gz"
+size = 6359411128
+md5 = "d87992cf622920dc0135e16bac9e2cfd"
+url = "https://zenodo.org/api/records/4250706/files/images.tar.gz/content"

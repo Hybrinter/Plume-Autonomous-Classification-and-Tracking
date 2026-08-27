@@ -5,8 +5,9 @@
 
 ## Purpose
 
-The upload module reassembles chunked model artifacts from authenticated `UPLOAD_MODEL_CHUNK`
-commands. It accumulates chunks, verifies the declared CRC-32, and returns the complete bytes.
+The upload module reassembles chunked classifier+segmentor pair bundles from authenticated
+`UPLOAD_MODEL_CHUNK` commands. It accumulates chunks, verifies the declared CRC-32, and
+returns the complete bytes.
 
 ## Public interface
 

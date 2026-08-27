@@ -211,17 +211,25 @@ def _fault(code: FaultCode, subsystem: str, detail: str) -> FaultEventMsg:
     )
 
 
-def _stage_model_action(
-    version: str, input_shape: tuple[int, ...], output_shape: tuple[int, ...]
-) -> SystemAction:
-    """Build an action that stores a model manifest blob and announces it via ModelStagedMsg.
+def _stage_model_action(version: str, channels: int) -> SystemAction:
+    """Build an action that stores a pair-manifest blob and announces ModelStagedMsg.
 
-    Faithfully drives the model-deploy stage path: it persists the manifest through the public
-    StorageWriter and publishes the ModelStagedMsg (the message iss_iface emits after reassembly),
-    so model_deploy validates the digest + manifest exactly as in flight.
+    Drives the model-deploy stage path: persist the pair bundle through StorageWriter and
+    publish ModelStagedMsg (the message iss_iface emits after reassembly). model_deploy
+    validates digest plus both network contracts exactly as in flight.
     """
     blob = json.dumps(
-        {"version": version, "input_shape": list(input_shape), "output_shape": list(output_shape)},
+        {
+            "version": version,
+            "classifier": {
+                "input_shape": [1, channels, 256, 256],
+                "output_shape": [1, 1],
+            },
+            "segmentor": {
+                "input_shape": [1, channels, 256, 256],
+                "output_shape": [1, 1, 256, 256],
+            },
+        },
         sort_keys=True,
     ).encode("utf-8")
     digest = hashlib.sha256(blob).hexdigest()
@@ -416,18 +424,18 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="model_lifecycle",
             title="Model upload -> activate -> rollback",
             description=(
-                "Stages a contract-valid model (step 2) and activates it (step 3) so it "
-                "becomes ACTIVE with the factory model retained for rollback; then stages a "
-                "contract-invalid model (step 5) and activates it (step 6), which fails the "
-                "I/O-contract sanity check and auto-rolls-back (ROLLBACK_AVAILABLE) raising "
-                "MODEL_CORRUPT (which also latches SAFE)."
+                "Stages a contract-valid classifier+segmentor pair (step 2) and activates it "
+                "(step 3) so it becomes ACTIVE with the factory pair retained for rollback; "
+                "then stages a contract-invalid pair (step 5) and activates it (step 6), which "
+                "fails the I/O-contract sanity check and auto-rolls-back (ROLLBACK_AVAILABLE) "
+                "raising MODEL_CORRUPT (which also latches SAFE)."
             ),
             category="model",
             steps=12,
             num_frames=12,
             actions=(
-                Action(2, _stage_model_action("v2", (1, 4, 256, 256), (1, 1, 256, 256))),
-                Action(5, _stage_model_action("v3_bad", (1, 3, 128, 128), (1, 1, 128, 128))),
+                Action(2, _stage_model_action("v2", 4)),
+                Action(5, _stage_model_action("v3_bad", 3)),
             ),
             injections=(
                 Injection(3, _command("ACTIVATE_MODEL", "model_deploy", {"version": "v2"}, seq=1)),

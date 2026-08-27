@@ -17,4 +17,7 @@ Package-local decisions for `packages/tools`. New records use files under
 
 | ID | File | Decision | Status |
 | --- | --- | --- | --- |
-| — | — | No package-local records yet | — |
+| ADR-TOOLS-0001 | [0001-tools-model-package.md](adr/0001-tools-model-package.md) | One `tools.model` package for train, export, and accept | Accepted |
+| ADR-TOOLS-0002 | [0002-plain-torch-train-loop.md](adr/0002-plain-torch-train-loop.md) | Plain torch train loop, no Lightning | Accepted |
+| ADR-TOOLS-0003 | [0003-two-onnx-artifacts.md](adr/0003-two-onnx-artifacts.md) | Two frozen ONNX artifacts with a classifier filter | Accepted |
+| ADR-TOOLS-0004 | [0004-dataset-out-of-git.md](adr/0004-dataset-out-of-git.md) | Dataset out of git; Zenodo fetch, not Git LFS | Accepted |

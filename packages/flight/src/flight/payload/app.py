@@ -81,7 +81,7 @@ from flight.libs.types import (
     SystemMode,
 )
 from flight.payload.control import ControlState, PayloadController
-from flight.payload.model import DetectorBackend
+from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
     MosaicCalibration,
     calibrate_mosaic,
@@ -136,7 +136,7 @@ class PayloadApp:
     Attributes:
         sensor: ImagingSensor driver (sim or real), acquire-only mosaic contract.
         gimbal: GimbalActuator driver (sim or real).
-        detector: DetectorBackend (ScriptedDetector or OnnxDetector).
+        detector: DetectorBackend (ScriptedDetector or OnnxDetector composer).
         controller: The pure PayloadController.
         bus: The typed MessageBus to publish onto.
         clock: Injected Clock (RealClock in flight, ManualClock in tests).

@@ -35,8 +35,8 @@ publishes link state and heartbeats.
 1. Publish `LinkStateMsg` with the current link state from the station driver.
 2. Drain inbound packets: run `process_inbound`, publish validated `CommandMsg`, always publish
    `CommandAckMsg`, publish `FaultEventMsg` on reject.
-3. Drain routed `UPLOAD_MODEL_CHUNK` commands: decode base64, accumulate chunks, stage the artifact
-   on completion, publish `ModelStagedMsg`.
+3. Drain routed `UPLOAD_MODEL_CHUNK` commands: decode base64, accumulate chunks, store the
+   pair bundle, publish `ModelStagedMsg`.
 4. When link state is AOS, drain `DownlinkItemMsg` values, resolve storage refs, encode CCSDS TM
    packets, and send them.
 5. Emit `HeartbeatMsg` every `watchdog_interval_s`.

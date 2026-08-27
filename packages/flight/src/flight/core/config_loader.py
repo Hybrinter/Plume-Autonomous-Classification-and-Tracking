@@ -398,9 +398,26 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
 
     inf = data.get("inference", {})
     inference_config = InferenceConfig(
-        model_path=str(inf.get("model_path", InferenceConfig.model_path)),
-        rollback_model_path=str(
-            inf.get("rollback_model_path", InferenceConfig.rollback_model_path)
+        segmentor_model_path=str(
+            inf.get("segmentor_model_path", InferenceConfig.segmentor_model_path)
+        ),
+        classifier_model_path=str(
+            inf.get("classifier_model_path", InferenceConfig.classifier_model_path)
+        ),
+        segmentor_rollback_model_path=str(
+            inf.get(
+                "segmentor_rollback_model_path",
+                InferenceConfig.segmentor_rollback_model_path,
+            )
+        ),
+        classifier_rollback_model_path=str(
+            inf.get(
+                "classifier_rollback_model_path",
+                InferenceConfig.classifier_rollback_model_path,
+            )
+        ),
+        classifier_logit_threshold=float(
+            inf.get("classifier_logit_threshold", InferenceConfig.classifier_logit_threshold)
         ),
         input_bands=tuple(inf.get("input_bands", list(InferenceConfig.input_bands))),
         input_height_px=int(inf.get("input_height_px", InferenceConfig.input_height_px)),
@@ -423,7 +440,12 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         ),
         comm_window_days=tuple(comms.get("comm_window_days", list(CommsConfig.comm_window_days))),
         ccsds_apid=int(comms.get("ccsds_apid", CommsConfig.ccsds_apid)),
-        staged_model_path=str(comms.get("staged_model_path", CommsConfig.staged_model_path)),
+        staged_segmentor_model_path=str(
+            comms.get("staged_segmentor_model_path", CommsConfig.staged_segmentor_model_path)
+        ),
+        staged_classifier_model_path=str(
+            comms.get("staged_classifier_model_path", CommsConfig.staged_classifier_model_path)
+        ),
         downlink_max_bytes_per_pass=int(
             comms.get("downlink_max_bytes_per_pass", CommsConfig.downlink_max_bytes_per_pass)
         ),

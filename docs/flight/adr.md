@@ -24,4 +24,4 @@ These repository-scope decisions apply to flight. They stay under `docs/adr/`.
 
 | ID | File | Decision | Status |
 | --- | --- | --- | --- |
-| — | — | No package-local records yet | — |
+| ADR-FLIGHT-0001 | [0001-classifier-segmentor-backends.md](adr/0001-classifier-segmentor-backends.md) | ClassifierBackend, SegmentorBackend, and blob DetectorBackend | Accepted |

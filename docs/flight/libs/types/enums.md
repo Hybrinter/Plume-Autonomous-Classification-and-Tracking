@@ -161,8 +161,8 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `SET_THERMAL_LIMIT` | Set thermal limit (`limit_c: float`) |
 | `EXIT_SAFE` | Hazardous SAFE exit (`phase: str`) |
 | `RELEASE_LAUNCH_LOCK` | Hazardous lock release (`phase: str`) |
-| `UPLOAD_MODEL_CHUNK` | Chunked model upload params |
-| `ACTIVATE_MODEL` | Activate staged model (`version: str`) |
+| `UPLOAD_MODEL_CHUNK` | Chunked classifier+segmentor pair upload params |
+| `ACTIVATE_MODEL` | Activate staged inference pair (`version: str`) |
 
 ### ParamKind
 

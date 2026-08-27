@@ -5,55 +5,37 @@
 
 ## Purpose
 
-The acceptance gate checks a frozen ONNX artifact before it enters `data/models/`. It runs
-manifest, hash, I/O contract, golden-scene IoU, and latency checks.
+This module re-exports the acceptance gate from `tools.model.accept`. New code
+imports `tools.model.accept`.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `Manifest` | class | Sidecar JSON fields for a frozen artifact |
-| `GoldenScene` | class | Input tensor and expected mask for IoU scoring |
-| `AcceptanceReport` | class | Per-check booleans and aggregate accept flag |
-| `load_manifest` | function | Parse manifest JSON |
-| `compute_iou` | function | Binary IoU between predicted and golden masks |
-| `accept_artifact` | function | Run the full gate and return a report |
-| `onnx_inference_fn` | function | Build an onnxruntime-backed inference callable |
+| `Manifest` | class | Re-export |
+| `GoldenScene` | class | Re-export |
+| `AcceptanceReport` | class | Re-export |
+| `load_manifest` | function | Re-export |
+| `compute_iou` | function | Re-export |
+| `accept_artifact` | function | Re-export |
+| `onnx_inference_fn` | function | Re-export |
+| `GoldenClassifierScene` | class | Re-export |
+| `ClassifierAcceptanceReport` | class | Re-export |
+| `accept_classifier_artifact` | function | Re-export |
+| `onnx_classifier_inference_fn` | function | Re-export |
 
 ## Inputs and outputs
 
-**`load_manifest(path) -> Manifest`**
-
-- Output: parsed `Manifest`.
-- Raises on missing or malformed JSON.
-
-**`compute_iou(pred_mask, gold_mask, threshold=0.5) -> float`**
-
-- Output: IoU in [0, 1]. Two empty masks score 1.0.
-
-**`accept_artifact(artifact_path, manifest, scenes, run_inference, ...) -> AcceptanceReport`**
-
-- Inputs: artifact path, manifest, golden scenes, inference callable, expected shapes, IoU and
-  latency thresholds.
-- Output: `AcceptanceReport` with `accepted` true only when all checks pass.
-
-**`onnx_inference_fn(artifact_path) -> InferenceFn`**
-
-- Output: callable mapping `(C, H, W)` tensor to sigmoid mask `(H, W)`.
-- Raises `ImportError` when onnxruntime is not installed.
+Same as `tools.model.accept`.
 
 ## Behavior
 
-1. Verify artifact SHA-256 against the manifest via `verify_model_hash`.
-2. Verify manifest shapes against the flight contract via `verify_io_contract`.
-3. For each golden scene, run inference, measure latency, and compute IoU.
-4. Accept when hash, contract, mean IoU, and worst latency all pass thresholds.
-5. `onnx_inference_fn` lazily imports onnxruntime and applies sigmoid to logits.
+1. Import names from `tools.model.accept`.
+2. Expose them at `tools.accept`.
 
 ## Errors and faults
 
-Uses `Result` checks from flight verify helpers. `load_manifest` and `onnx_inference_fn`
-raise on tooling errors.
+Same as `tools.model.accept`.
 
 ## Messages
 
@@ -61,16 +43,14 @@ None.
 
 ## Configuration
 
-Callers pass thresholds (`min_iou`, `max_latency_ms`, `iou_threshold`) and expected shapes
-explicitly.
+None.
 
 ## Constraints
 
-- Inference runs through an injected callable. CI tests without onnxruntime.
-- IoU is pure NumPy.
-- Training lives in a separate model repo. This gate is the intake check in this repo.
+This module has no extra logic. The gate implementation lives in
+`tools.model.accept`.
 
 ## Related documents
 
+- [`tools.model.accept`](model/accept.md)
 - [`tools`](tools.md)
-- [`flight.payload.model.verify`](flight/payload/model/verify.md)

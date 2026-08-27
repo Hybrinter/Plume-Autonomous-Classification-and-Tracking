@@ -23,7 +23,7 @@ name. Commands print generated paths, acceptance details, or dataset status.
 
 ## Behavior
 
-1. `train` overlays options on `TrainConfig` and writes a checkpoint.
+1. `train` overlays options on `TrainConfig` and writes a run directory.
 2. `export` writes an ONNX graph and JSON manifest.
 3. `accept` runs the classifier or segmentor intake gate and optionally promotes
    an accepted artifact.

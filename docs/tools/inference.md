@@ -17,7 +17,7 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`data`](inference/data.md) | module | Synthetic scenes, processed packs, and torch Dataset loaders |
 | [`split`](inference/split.md) | module | Frozen train/val/test recipe and dataset hash |
 | [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |
-| [`train`](inference/train.md) | module | Plain-torch SGD train loop |
+| [`train`](inference/train.md) | module | Plain-torch SGD loop and local run directories |
 | [`export`](inference/export.md) | module | ONNX export, manifest, and promote |
 | [`arch`](inference/arch.md) | package | U-Net segmentor and ResNet-50 classifier |
 | [`cli`](inference/cli.md) | module | Typer commands for inference workflows |

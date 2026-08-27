@@ -26,3 +26,8 @@ def test_tools_inference_export_imports() -> None:
 def test_tools_inference_split_imports() -> None:
     """tools.inference.split imports successfully."""
     assert importlib.import_module("tools.inference.split") is not None
+
+
+def test_tools_inference_arch_registry_imports_without_torch() -> None:
+    """tools.inference.arch.registry imports without torch."""
+    assert importlib.import_module("tools.inference.arch.registry") is not None

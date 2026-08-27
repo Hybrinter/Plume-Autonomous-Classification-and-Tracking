@@ -37,8 +37,9 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
             kind="segmentor",
             epochs=1,
             batch_size=2,
-            synthetic_samples=2,
+            synthetic_samples=4,
             checkpoint_path=str(ckpt),
+            run_dir=str(tmp_path / "runs"),
             seed=0,
         )
     )
@@ -88,8 +89,9 @@ def test_export_classifier_then_accept(tmp_path: Path) -> None:
             kind="classifier",
             epochs=1,
             batch_size=2,
-            synthetic_samples=2,
+            synthetic_samples=4,
             checkpoint_path=str(ckpt),
+            run_dir=str(tmp_path / "runs"),
             seed=0,
         )
     )

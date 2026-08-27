@@ -47,19 +47,23 @@ app = typer.Typer(
 @app.command("train")
 def train_command(
     kind: Annotated[InferenceKind | None, typer.Option(help="Artifact kind.")] = None,
+    arch: Annotated[str | None, typer.Option(help="Architecture name.")] = None,
     config: Annotated[str | None, typer.Option(help="Optional TOML overlay.")] = None,
     data_dir: Annotated[str | None, typer.Option(help="Training data directory.")] = None,
-    out: Annotated[str | None, typer.Option(help="Checkpoint path.")] = None,
+    out: Annotated[str | None, typer.Option(help="Optional extra last.pt copy.")] = None,
+    run_dir: Annotated[str | None, typer.Option(help="Parent directory for runs.")] = None,
+    run_id: Annotated[str | None, typer.Option(help="Run directory name.")] = None,
     epochs: Annotated[int | None, typer.Option(help="Training epochs.")] = None,
     batch_size: Annotated[int | None, typer.Option(help="Training batch size.")] = None,
     height: Annotated[int | None, typer.Option(help="Input height in pixels.")] = None,
     width: Annotated[int | None, typer.Option(help="Input width in pixels.")] = None,
     seed: Annotated[int | None, typer.Option(help="Random seed.")] = None,
 ) -> None:
-    """Train a classifier or segmentor checkpoint."""
+    """Train a classifier or segmentor and write a run directory."""
     cfg = overlay_train_config(
         load_train_config(config),
         kind=kind.value if kind is not None else None,
+        arch=arch,
         data_dir=data_dir,
         checkpoint_path=out,
         epochs=epochs,
@@ -67,6 +71,8 @@ def train_command(
         input_height_px=height,
         input_width_px=width,
         seed=seed,
+        run_dir=run_dir,
+        run_id=run_id,
     )
     try:
         path = train(cfg)

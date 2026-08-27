@@ -6,7 +6,7 @@
 ## Purpose
 
 This module runs a plain-torch SGD loop for the classifier or the segmentor.
-Importing the module does not import torch.
+Importing the module does not import torch. Each job writes a run directory.
 
 ## Public interface
 
@@ -15,7 +15,7 @@ Importing the module does not import torch.
 | `TrainConfig` | class | Frozen train hyperparameters |
 | `load_train_config` | function | Defaults plus optional TOML overlay |
 | `overlay_train_config` | function | Apply CLI field overlays |
-| `train` | function | Run SGD + `BCEWithLogitsLoss` and write a checkpoint |
+| `train` | function | Run SGD + `BCEWithLogitsLoss` and write a run directory |
 
 ## Inputs and outputs
 
@@ -23,19 +23,25 @@ Importing the module does not import torch.
 
 `overlay_train_config(cfg, ...) -> TrainConfig`.
 
-`train(config=None) -> Path`. Returns the checkpoint path. Raises `ImportError`
+`train(config=None) -> Path`. Returns the run directory. Raises `ImportError`
 when torch is missing.
+
+The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
+`checkpoints/best.pt`, and `summary.json`.
 
 ## Behavior
 
-1. Load samples from `data_dir` or from the synthetic planted-blob generator.
-2. Build a ResNet-50 classifier or a U-Net segmentor.
-3. Run SGD with `BCEWithLogitsLoss` for `epochs` batches.
-4. Write a checkpoint dict with `kind`, `state_dict`, and input geometry.
+1. Resolve architecture (`resnet50` or `unet`) and run id `{kind}-{arch}-{seed}`.
+2. Load a processed pack, an unsplit disk adapter, or a synthetic pack.
+3. Run SGD with `BCEWithLogitsLoss` for `epochs`.
+4. After each epoch, score train and val splits and append `history.csv`.
+5. Write `last.pt` every epoch. Write `best.pt` when the val metric improves.
+6. Write `summary.json` with hashes, counts, and the best epoch.
 
 ## Errors and faults
 
-`ImportError` when torch is not installed. `ValueError` on an unknown `kind`.
+`ImportError` when torch is not installed. `ValueError` on an unknown `kind`,
+architecture, or empty train split.
 
 ## Messages
 
@@ -45,16 +51,20 @@ None.
 
 `TrainConfig` defaults: `kind=segmentor`, `input_height_px=256`,
 `input_width_px=256`, `in_channels=4`, `epochs=1`, `batch_size=2`,
-`learning_rate=0.01`, `momentum=0.9`. A TOML file may overlay these fields.
+`learning_rate=0.01`, `momentum=0.9`, `weight_decay=0.0`,
+`run_dir=artifacts/runs`. Classifier val metric defaults to F1. Segmentor val
+metric defaults to mean IoU. A TOML file may overlay these fields.
 
 ## Constraints
 
-Torch imports stay inside `train` until the call runs. Spatial size comes from
-config, not from a hardcoded architecture constant.
+Torch is a required tools dependency. Spatial size comes from config, not from
+a hardcoded architecture constant. Batch indexing reads pack tensors. Device is
+CUDA when present, else CPU.
 
 ## Related documents
 
 - [`tools.inference`](../inference.md)
 - [`tools.inference.data`](data.md)
+- [`tools.inference.metrics`](metrics.md)
 - [`tools.inference.export`](export.md)
-- [`tools.inference.arch`](arch.md)
+- [`tools.inference.arch.registry`](arch/registry.md)

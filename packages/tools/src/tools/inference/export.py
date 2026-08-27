@@ -102,17 +102,11 @@ def _import_torch() -> ModuleType:
     return loaded
 
 
-def _build_model(kind: str, in_channels: int) -> nn.Module:
-    """Construct the network for `kind` (lazy arch import)."""
-    if kind == "classifier":
-        from tools.inference.arch.classifier import build_classifier
+def _build_model(kind: str, arch: str, in_channels: int) -> nn.Module:
+    """Construct the network for `kind` and `arch` (lazy registry import)."""
+    from tools.inference.arch.registry import build
 
-        return build_classifier(in_channels=in_channels)
-    if kind == "segmentor":
-        from tools.inference.arch.unet import build_segmentor
-
-        return build_segmentor(in_channels=in_channels, out_channels=1)
-    raise ValueError(f"unknown export kind {kind!r}")
+    return build(kind, arch, in_channels)
 
 
 def _output_shape(kind: str, height: int, width: int) -> tuple[int, ...]:
@@ -175,7 +169,8 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
     kind = str(payload.get("kind", config.kind))
     if kind not in _EXPORT_KINDS:
         raise ValueError(f"unknown checkpoint kind {kind!r}")
-    model = _build_model(kind, in_channels)
+    arch = str(payload.get("arch", ""))
+    model = _build_model(kind, arch, in_channels)
     model.load_state_dict(payload["state_dict"])
     model.eval()
     dummy = torch.zeros(1, in_channels, height, width, dtype=torch.float32)

@@ -23,7 +23,6 @@ from __future__ import annotations
 from pathlib import Path
 
 # third-party
-import click
 import typer
 
 # internal
@@ -31,7 +30,6 @@ from tools.analysis.characterize import run_suite, suite_names, suite_specs
 from tools.analysis.datapoints import GROUPS, REGISTRY, accumulable_names
 from tools.analysis.report import write_suite_report
 from tools.analysis.runner import scenario_names
-
 
 app = typer.Typer(
     help="Capture deterministic SIL runs and emit static telemetry report bundles.",
@@ -77,10 +75,7 @@ def list_command() -> None:
 def main(argv: list[str] | None = None) -> int:
     """Invoke the analysis CLI and return its process exit code."""
     try:
-        app(args=argv, prog_name="python -m tools.analysis", standalone_mode=False)
-    except click.exceptions.Exit as exc:
-        return exc.exit_code
-    except click.ClickException as exc:
-        exc.show()
-        return exc.exit_code
+        app(args=argv, prog_name="python -m tools.analysis")
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
     return 0

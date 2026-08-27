@@ -8,7 +8,6 @@ Contains:
 from __future__ import annotations
 
 # third-party
-import click
 import typer
 
 # internal
@@ -26,10 +25,7 @@ app.add_typer(analysis_app, name="analysis")
 def main(argv: list[str] | None = None) -> int:
     """Invoke the root tools CLI and return its process exit code."""
     try:
-        app(args=argv, prog_name="pact-tools", standalone_mode=False)
-    except click.exceptions.Exit as exc:
-        return exc.exit_code
-    except click.ClickException as exc:
-        exc.show()
-        return exc.exit_code
+        app(args=argv, prog_name="pact-tools")
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
     return 0

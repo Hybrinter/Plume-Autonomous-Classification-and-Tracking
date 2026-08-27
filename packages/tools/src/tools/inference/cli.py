@@ -10,11 +10,10 @@ Satisfies: REQ-AIML-HIGH-004.
 from __future__ import annotations
 
 # stdlib
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated
 
 # third-party
-import click
 import typer
 
 # internal
@@ -32,7 +31,7 @@ from tools.inference.fetch import main as fetch_main
 from tools.inference.train import load_train_config, overlay_train_config, train
 
 
-class InferenceKind(str, Enum):
+class InferenceKind(StrEnum):
     """Supported inference artifact kinds."""
 
     CLASSIFIER = "classifier"
@@ -165,13 +164,9 @@ def accept_command(
     context_settings={"allow_extra_args": False, "ignore_unknown_options": False},
 )
 def fetch_command(
-    manifest: Annotated[
-        str | None, typer.Option(help="Checksum manifest TOML.")
-    ] = None,
+    manifest: Annotated[str | None, typer.Option(help="Checksum manifest TOML.")] = None,
     raw_dir: Annotated[str | None, typer.Option(help="Raw dataset directory.")] = None,
-    processed_dir: Annotated[
-        str | None, typer.Option(help="Processed dataset directory.")
-    ] = None,
+    processed_dir: Annotated[str | None, typer.Option(help="Processed dataset directory.")] = None,
     download: Annotated[bool, typer.Option(help="Fetch missing or mismatched files.")] = False,
     preprocess: Annotated[bool, typer.Option(help="Write four-band PACT tensors.")] = False,
     height: Annotated[int, typer.Option(help="Processed image height.")] = 256,
@@ -199,10 +194,7 @@ def fetch_command(
 def main(argv: list[str] | None = None) -> int:
     """Invoke the inference CLI and return its process exit code."""
     try:
-        app(args=argv, prog_name="python -m tools.inference", standalone_mode=False)
-    except click.exceptions.Exit as exc:
-        return exc.exit_code
-    except click.ClickException as exc:
-        exc.show()
-        return exc.exit_code
+        app(args=argv, prog_name="python -m tools.inference")
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
     return 0

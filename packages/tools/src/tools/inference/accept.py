@@ -50,6 +50,20 @@ Shape = tuple[int | None, ...]
 InferenceFn = Callable[[torch.Tensor], torch.Tensor]
 ClassifierInferenceFn = Callable[[torch.Tensor], float]
 
+__all__ = [
+    "AcceptanceReport",
+    "ClassifierAcceptanceReport",
+    "GoldenClassifierScene",
+    "GoldenScene",
+    "Manifest",
+    "accept_artifact",
+    "accept_classifier_artifact",
+    "compute_iou",
+    "load_manifest",
+    "onnx_classifier_inference_fn",
+    "onnx_inference_fn",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class Manifest:

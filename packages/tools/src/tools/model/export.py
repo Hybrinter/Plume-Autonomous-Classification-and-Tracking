@@ -96,7 +96,10 @@ def _import_torch() -> ModuleType:
         raise ImportError(
             "torch is required for tools.model.export; install pact-tools[train]"
         ) from exc
-    return torch
+    loaded: object = torch
+    if not isinstance(loaded, ModuleType):
+        raise TypeError("torch import did not return a module")
+    return loaded
 
 
 def _build_model(kind: str, in_channels: int) -> nn.Module:

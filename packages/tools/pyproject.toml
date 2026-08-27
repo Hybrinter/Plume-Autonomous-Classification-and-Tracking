@@ -13,6 +13,7 @@ dependencies = [
     "matplotlib>=3.8",
     "pandas>=2.1",
     "pyarrow>=14.0",
+    "typer>=0.27.1",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +26,9 @@ export = [
     "onnx>=1.16",
     "onnxruntime>=1.19",
 ]
+
+[project.scripts]
+pact-tools = "tools.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tools"]

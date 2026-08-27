@@ -8,16 +8,16 @@ def test_tools_imports() -> None:
     assert importlib.import_module("tools") is not None
 
 
-def test_tools_model_imports() -> None:
-    """tools.model imports without torch."""
-    assert importlib.import_module("tools.model") is not None
+def test_tools_inference_imports() -> None:
+    """tools.inference imports without torch."""
+    assert importlib.import_module("tools.inference") is not None
 
 
-def test_tools_model_train_imports_without_torch() -> None:
-    """tools.model.train imports without torch."""
-    assert importlib.import_module("tools.model.train") is not None
+def test_tools_inference_train_imports_without_torch() -> None:
+    """tools.inference.train imports without torch."""
+    assert importlib.import_module("tools.inference.train") is not None
 
 
-def test_tools_model_export_imports_without_torch() -> None:
-    """tools.model.export imports without torch."""
-    assert importlib.import_module("tools.model.export") is not None
+def test_tools_inference_export_imports_without_torch() -> None:
+    """tools.inference.export imports without torch."""
+    assert importlib.import_module("tools.inference.export") is not None

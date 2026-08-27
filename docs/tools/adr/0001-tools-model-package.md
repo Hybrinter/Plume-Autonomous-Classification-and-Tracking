@@ -1,10 +1,10 @@
 # ADR-TOOLS-0001: One tools.model package for train, export, and accept
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-08-26
 **Topic:** restructure
 **Supersedes:** none
-**Superseded-by:** none
+**Superseded-by:** ADR-TOOLS-0005
 **Related:** ADR-REPO-0004, ADR-REPO-0011
 
 ## Context

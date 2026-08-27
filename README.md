@@ -99,6 +99,19 @@ uv sync --package pact-tools --extra train --extra export
 
 The `train` extra installs torch and torchvision. The `export` extra installs onnx.
 
+Run inference engineering workflows through the installed tools command:
+
+```bash
+pact-tools inference fetch
+pact-tools inference train --kind segmentor --out artifacts/segmentor.pt
+pact-tools inference export \
+  --kind segmentor \
+  --checkpoint artifacts/segmentor.pt \
+  --out artifacts/segmentor.onnx
+```
+
+Use `python -m tools` as an alias for `pact-tools`.
+
 Run a declarative SIL scenario through the GSE harness (from the repo root):
 
 ```python

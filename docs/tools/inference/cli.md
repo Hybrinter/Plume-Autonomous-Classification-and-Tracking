@@ -1,0 +1,61 @@
+# tools.inference.cli
+
+**Source:** `packages/tools/src/tools/inference/cli.py`
+**Kind:** module
+
+## Purpose
+
+The inference CLI runs training, ONNX export, artifact acceptance, and dataset
+fetch workflows.
+
+## Public interface
+
+| Name | Kind | Description |
+| --- | --- | --- |
+| `app` | Typer application | Inference command group |
+| `main` | function | Invoke the command group and return an exit code |
+| `InferenceKind` | enum | Classifier and segmentor command choices |
+
+## Inputs and outputs
+
+`main(argv=None) -> int` accepts an optional argument vector without the program
+name. Commands print generated paths, acceptance details, or dataset status.
+
+## Behavior
+
+1. `train` overlays options on `TrainConfig` and writes a checkpoint.
+2. `export` writes an ONNX graph and JSON manifest.
+3. `accept` runs the classifier or segmentor intake gate and optionally promotes
+   an accepted artifact.
+4. `fetch` delegates dataset status, download, and preprocess work to
+   `tools.inference.fetch`.
+
+## Errors and faults
+
+Invalid command input returns the Click usage-error exit code. Missing optional
+training or export dependencies print the import error and return 1. A failed
+acceptance gate returns 1.
+
+## Messages
+
+None.
+
+## Configuration
+
+Commands expose the same train, export, accept, and fetch options as their
+library configuration objects and functions.
+
+## Constraints
+
+- Command callbacks remain thin wrappers around importable library functions.
+- The accept command uses empty quality-scene lists. Use the Python acceptance
+  API with golden tensors for IoU or accuracy checks.
+- Torch and ONNX imports stay behind their optional extras.
+
+## Related documents
+
+- [`tools.inference`](../inference.md)
+- [`tools.inference.train`](train.md)
+- [`tools.inference.export`](export.md)
+- [`tools.inference.accept`](accept.md)
+- [`tools.inference.fetch`](fetch.md)

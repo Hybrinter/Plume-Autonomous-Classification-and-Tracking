@@ -7,7 +7,7 @@ Pass ``--download`` to fetch missing files into data/raw/.
 
 from __future__ import annotations
 
-from tools.model.fetch import main
+from tools.inference.fetch import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

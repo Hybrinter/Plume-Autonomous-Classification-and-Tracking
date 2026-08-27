@@ -11,9 +11,9 @@ messages drained from the recorder's own (passive, fan-out) subscriptions this s
 that raises is the recorder's signal to record NaN (numeric) or "" (categorical), so the registry
 never has to defend against transient None/shape surprises.
 
-Using a frozen ``Signal`` carrying a statically-typed ``ExtractorFn`` field (not a name->callable
-dispatch map) keeps the registry strict-typed and mirrors the existing ``tools.accept`` convention
-of typed ``Callable`` fields; there is no getattr-style dynamic dispatch anywhere here.
+Using a frozen ``Signal`` carrying a statically-typed ``ExtractorFn`` field (not a
+name-to-callable dispatch map) keeps the registry strict-typed. There is no
+getattr-style dynamic dispatch anywhere here.
 
 Contains:
   - SignalKind / Signal / ExtractorFn: the registry element + its value/extractor types.

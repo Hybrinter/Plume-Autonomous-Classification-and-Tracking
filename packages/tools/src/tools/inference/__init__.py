@@ -1,0 +1,49 @@
+"""tools.inference -- train, export, accept, and score frozen plume-model artifacts.
+
+This package is the single home for model engineering under tools/. SIL telemetry
+analysis stays in tools.analysis. Torch imports are lazy and live behind the
+train extra; this package imports without torch.
+
+Contains:
+  - accept: frozen ONNX intake gate (hash, I/O, IoU or accuracy, latency).
+  - metrics: classifier accuracy helpers.
+  - data: synthetic scenes and on-disk numpy adapter (torch-free).
+  - fetch: Zenodo 4250706 checksums, optional download, 4-band preprocess.
+  - train: plain-torch SGD loop.
+  - export: ONNX export, manifest write, and promote.
+  - arch: U-Net segmentor and ResNet-50 classifier (torch, imported lazily).
+  - __main__: `python -m tools.inference` subcommands.
+
+Satisfies: REQ-AIML-HIGH-004.
+"""
+
+from tools.inference.accept import (
+    AcceptanceReport,
+    ClassifierAcceptanceReport,
+    GoldenClassifierScene,
+    GoldenScene,
+    Manifest,
+    accept_artifact,
+    accept_classifier_artifact,
+    compute_iou,
+    load_manifest,
+    onnx_classifier_inference_fn,
+    onnx_inference_fn,
+)
+from tools.inference.metrics import binary_accuracy, mean_binary_accuracy
+
+__all__ = [
+    "AcceptanceReport",
+    "ClassifierAcceptanceReport",
+    "GoldenClassifierScene",
+    "GoldenScene",
+    "Manifest",
+    "accept_artifact",
+    "accept_classifier_artifact",
+    "binary_accuracy",
+    "compute_iou",
+    "load_manifest",
+    "mean_binary_accuracy",
+    "onnx_classifier_inference_fn",
+    "onnx_inference_fn",
+]

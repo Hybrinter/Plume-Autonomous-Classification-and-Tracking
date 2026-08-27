@@ -73,6 +73,27 @@ def test_load_manifest_roundtrips(tmp_path: Path) -> None:
     manifest = load_manifest(str(path))
     assert manifest.version == "v2"
     assert manifest.input_shape == (1, 4, 256, 256)
+    assert manifest.quantization == "fp32"
+
+
+def test_load_manifest_reads_quantization(tmp_path: Path) -> None:
+    """load_manifest reads an explicit quantization field."""
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "v2",
+                "model_repo_sha": "abc",
+                "dataset_hash": "ds",
+                "input_shape": [1, 4, 256, 256],
+                "output_shape": [1, 1, 256, 256],
+                "sha256": "0" * 64,
+                "quantization": "int8",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_manifest(str(path)).quantization == "int8"
 
 
 def test_accept_passes_a_good_artifact(tmp_path: Path) -> None:

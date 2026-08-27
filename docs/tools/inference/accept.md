@@ -7,12 +7,13 @@
 
 The acceptance gate checks a frozen ONNX artifact before it enters `data/models/`.
 It runs manifest, hash, I/O contract, golden-scene IoU, and latency checks.
+The manifest records `quantization` (`fp32` or `int8`).
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `Manifest` | class | Sidecar JSON fields for a frozen artifact |
+| `Manifest` | class | Sidecar JSON fields, including `quantization` |
 | `GoldenScene` | class | Input tensor and expected mask for IoU scoring |
 | `AcceptanceReport` | class | Per-check booleans and aggregate accept flag |
 | `load_manifest` | function | Parse manifest JSON |
@@ -27,6 +28,7 @@ It runs manifest, hash, I/O contract, golden-scene IoU, and latency checks.
 ## Inputs and outputs
 
 `load_manifest(path) -> Manifest`. Raises on missing or malformed JSON.
+Missing `quantization` defaults to `fp32`.
 
 `compute_iou(pred_mask, gold_mask, threshold=0.5) -> float` in [0, 1]. Two empty
 masks score 1.0.

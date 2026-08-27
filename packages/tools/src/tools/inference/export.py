@@ -1,7 +1,11 @@
-"""Torch-to-ONNX export, manifest sidecar, and promote into data/models/.
+"""Torch-to-ONNX export, manifest sidecar, optional INT8 PTQ, and promote.
 
 Importing this module does not import torch. Torch loads inside `export` after
 the train extra is installed. Graphs emit logits; they do not bake sigmoid.
+
+INT8 export is post-training static quantization with QDQ nodes. Graph input
+and output stay float32. onnxruntime loads inside the INT8 path after the
+export extra is installed.
 
 Promote copies an artifact only after `accept_artifact` (or the classifier
 gate) reports accepted.
@@ -10,6 +14,7 @@ Contains:
   - ExportConfig: frozen export hyperparameters.
   - export: write one ONNX graph plus a Manifest JSON sidecar.
   - write_manifest: serialize a Manifest.
+  - int8_artifact_path: sibling ``*.int8.onnx`` path for an FP32 artifact.
   - promote: copy a passed artifact into the destination path.
   - GateReport: protocol with accepted + detail.
 
@@ -18,16 +23,22 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
+# stdlib
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Protocol
 
+# third-party
+import numpy as np
+
+# internal
 from flight.payload.inference.verify import compute_sha256
 
 from tools.inference.accept import Manifest
+from tools.inference.data import load_processed_pack
 
 if TYPE_CHECKING:
     from torch import Tensor, nn
@@ -51,7 +62,23 @@ class GateReport(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ExportConfig:
-    """Frozen export hyperparameters."""
+    """Frozen export hyperparameters.
+
+    Attributes:
+        kind: ``classifier`` or ``segmentor``.
+        checkpoint_path: Trained ``.pt`` path.
+        output_path: Destination FP32 ``.onnx`` path.
+        in_channels: Fallback channel count when the checkpoint omits it.
+        input_height_px: Fallback height when the checkpoint omits it.
+        input_width_px: Fallback width when the checkpoint omits it.
+        version: Manifest version string.
+        model_repo_sha: Source revision recorded in the manifest.
+        dataset_hash: Training-pack digest recorded in the manifest.
+        opset: ONNX opset for ``torch.onnx.export``.
+        int8: When true, also write a sibling INT8 QDQ artifact.
+        calib_dir: Processed pack used as INT8 calibration data (train split).
+        calib_samples: Maximum calibration tensors.
+    """
 
     kind: str
     checkpoint_path: str
@@ -63,6 +90,9 @@ class ExportConfig:
     model_repo_sha: str = "unknown"
     dataset_hash: str = "synthetic"
     opset: int = 17
+    int8: bool = False
+    calib_dir: str = ""
+    calib_samples: int = 4
 
 
 def write_manifest(path: str, manifest: Manifest) -> None:
@@ -82,10 +112,130 @@ def write_manifest(path: str, manifest: Manifest) -> None:
         "input_shape": list(manifest.input_shape),
         "output_shape": list(manifest.output_shape),
         "sha256": manifest.sha256,
+        "quantization": manifest.quantization,
     }
     dest = Path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def int8_artifact_path(fp32_path: str | Path) -> Path:
+    """Return the sibling INT8 ONNX path for an FP32 artifact.
+
+    Args:
+        fp32_path: FP32 ``.onnx`` path.
+
+    Returns:
+        Path: ``<stem>.int8.onnx`` next to the FP32 file.
+    """
+    path = Path(fp32_path)
+    return path.with_name(f"{path.stem}.int8{path.suffix}")
+
+
+def _calibration_batches(
+    input_shape: tuple[int, ...],
+    calib_dir: str,
+    calib_samples: int,
+) -> list[np.ndarray]:
+    """Return NCHW float32 calibration tensors in ``[0, 1]``.
+
+    Args:
+        input_shape: Model input shape ``(1, C, H, W)``.
+        calib_dir: Processed pack directory, or empty for synthetic random data.
+        calib_samples: Maximum tensor count.
+
+    Returns:
+        list[np.ndarray]: Each item is ``(1, C, H, W)`` float32.
+
+    Raises:
+        ValueError: If a pack image geometry does not match ``input_shape``.
+        FileNotFoundError: If ``calib_dir`` is set and the pack is missing.
+    """
+    channels = int(input_shape[1])
+    height = int(input_shape[2])
+    width = int(input_shape[3])
+    n = max(int(calib_samples), 1)
+    expected = (channels, height, width)
+    if calib_dir:
+        pack = load_processed_pack(calib_dir)
+        indices = pack.splits.train[:n]
+        if not indices:
+            raise ValueError("INT8 calibration pack has an empty train split")
+        batches: list[np.ndarray] = []
+        for idx in indices:
+            image = np.ascontiguousarray(pack.images[idx], dtype=np.float32)
+            # np.ndarray[float32, (C, H, W)]
+            if tuple(int(dim) for dim in image.shape) != expected:
+                raise ValueError(f"calibration image shape {image.shape} != {expected}")
+            batches.append(image[np.newaxis, ...])
+        return batches
+    rng = np.random.default_rng(0)
+    return [rng.random((1, channels, height, width), dtype=np.float32) for _ in range(n)]
+
+
+def _export_int8(
+    fp32_path: Path,
+    input_shape: tuple[int, ...],
+    base_manifest: Manifest,
+    calib_dir: str,
+    calib_samples: int,
+) -> tuple[Path, Path, Manifest]:
+    """Write a sibling INT8 QDQ ONNX file and matching manifest.
+
+    Args:
+        fp32_path: FP32 ONNX path produced by ``export``.
+        input_shape: Graph input shape ``(1, C, H, W)``.
+        base_manifest: FP32 manifest; SHA-256 and quantization are replaced.
+        calib_dir: Processed pack directory, or empty for synthetic tensors.
+        calib_samples: Maximum calibration tensors.
+
+    Returns:
+        tuple: (int8_onnx_path, int8_manifest_path, int8_manifest).
+
+    Raises:
+        ImportError: If onnxruntime is not installed.
+        ValueError: If calibration tensors do not match the graph input.
+    """
+    try:
+        from onnxruntime.quantization import QuantFormat, QuantType, quantize_static
+        from onnxruntime.quantization.calibrate import CalibrationDataReader
+    except ImportError as exc:
+        raise ImportError(
+            "onnxruntime is required for INT8 export; install pact-tools[export]"
+        ) from exc
+
+    batches = _calibration_batches(input_shape, calib_dir, calib_samples)
+
+    class _CalibrationReader(CalibrationDataReader):  # type: ignore[misc]
+        """Yields ``{input: tensor}`` dicts, then None."""
+
+        def __init__(self) -> None:
+            self._index = 0
+
+        def get_next(self) -> dict[str, np.ndarray] | None:
+            if self._index >= len(batches):
+                return None
+            item = {"input": batches[self._index]}
+            self._index += 1
+            return item
+
+        def rewind(self) -> None:
+            self._index = 0
+
+    int8_path = int8_artifact_path(fp32_path)
+    quantize_static(
+        model_input=str(fp32_path),
+        model_output=str(int8_path),
+        calibration_data_reader=_CalibrationReader(),
+        quant_format=QuantFormat.QDQ,
+        activation_type=QuantType.QInt8,
+        weight_type=QuantType.QInt8,
+    )
+    digest = compute_sha256(str(int8_path))
+    int8_manifest = replace(base_manifest, sha256=digest, quantization="int8")
+    int8_manifest_path = int8_path.with_suffix(".json")
+    write_manifest(str(int8_manifest_path), int8_manifest)
+    return int8_path, int8_manifest_path, int8_manifest
 
 
 def _import_torch() -> ModuleType:
@@ -149,10 +299,12 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
         config: Export hyperparameters.
 
     Returns:
-        tuple: (onnx_path, manifest_path, manifest).
+        tuple: FP32 ``(onnx_path, manifest_path, manifest)``. When ``config.int8``
+        is true, a sibling INT8 pair is also written.
 
     Raises:
-        ImportError: If torch is not installed.
+        ImportError: If torch is not installed, or INT8 is requested without
+            onnxruntime.
         ValueError: If `config.kind` is unknown.
         FileNotFoundError: If the checkpoint is missing.
     """
@@ -188,9 +340,18 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
         input_shape=input_shape,
         output_shape=output_shape,
         sha256=digest,
+        quantization="fp32",
     )
     manifest_path = onnx_path.with_suffix(".json")
     write_manifest(str(manifest_path), manifest)
+    if config.int8:
+        _export_int8(
+            fp32_path=onnx_path,
+            input_shape=input_shape,
+            base_manifest=manifest,
+            calib_dir=config.calib_dir,
+            calib_samples=config.calib_samples,
+        )
     return onnx_path, manifest_path, manifest
 
 

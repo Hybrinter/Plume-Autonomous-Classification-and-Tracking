@@ -22,7 +22,7 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`plots`](inference/plots.md) | module | Headless curves, overlays, and failure gallery |
 | [`report`](inference/report.md) | module | Figures and markdown into a run directory |
 | [`runs`](inference/runs.md) | module | List and compare local run directories |
-| [`export`](inference/export.md) | module | ONNX export, manifest, and promote |
+| [`export`](inference/export.md) | module | ONNX export, optional INT8 PTQ, manifest, and promote |
 | [`arch`](inference/arch.md) | package | U-Net segmentor and ResNet-50 classifier |
 | [`cli`](inference/cli.md) | module | Typer commands for inference workflows |
 | [`__main__`](inference/__main__.md) | module | `python -m tools.inference` entry shim |
@@ -47,7 +47,7 @@ the SIL and does not publish on the bus.
 ## Constraints
 
 - Default `pact-tools` install includes torch and torchvision. The `export`
-  extra adds onnx.
+  extra adds onnx and onnxruntime.
 - Flight must not import `tools`.
 - The smoke-plume corpus stays out of git. Run
 `python scripts/fetch_smoke_plume_dataset.py` for checksum status. Pass

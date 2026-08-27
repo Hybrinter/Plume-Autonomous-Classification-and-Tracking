@@ -61,6 +61,7 @@ class Manifest:
     input_shape: Shape
     output_shape: Shape
     sha256: str
+    quantization: str = "fp32"
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +129,7 @@ def load_manifest(path: str) -> Manifest:
         input_shape=tuple(data["input_shape"]),
         output_shape=tuple(data["output_shape"]),
         sha256=str(data["sha256"]),
+        quantization=str(data.get("quantization", "fp32")),
     )
 
 

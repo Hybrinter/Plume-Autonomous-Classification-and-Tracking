@@ -27,7 +27,7 @@ from tools.inference.accept import (
     onnx_classifier_inference_fn,
     onnx_inference_fn,
 )
-from tools.inference.export import ExportConfig, export, promote
+from tools.inference.export import ExportConfig, export, int8_artifact_path, promote
 from tools.inference.fetch import main as fetch_main
 from tools.inference.train import load_train_config, overlay_train_config, train
 
@@ -93,6 +93,15 @@ def export_command(
     version: Annotated[str, typer.Option(help="Artifact version.")] = "v1",
     dataset_hash: Annotated[str, typer.Option(help="Training dataset digest.")] = "synthetic",
     repo_sha: Annotated[str, typer.Option(help="Source repository revision.")] = "unknown",
+    int8: Annotated[
+        bool, typer.Option("--int8", help="Also write a sibling INT8 QDQ ONNX file.")
+    ] = False,
+    calib_dir: Annotated[
+        str, typer.Option("--calib-dir", help="Processed pack for INT8 calibration.")
+    ] = "",
+    calib_samples: Annotated[
+        int, typer.Option("--calib-samples", help="INT8 calibration sample count.")
+    ] = 4,
 ) -> None:
     """Export a frozen ONNX artifact and manifest."""
     config = ExportConfig(
@@ -104,6 +113,9 @@ def export_command(
         version=version,
         dataset_hash=dataset_hash,
         model_repo_sha=repo_sha,
+        int8=int8,
+        calib_dir=calib_dir,
+        calib_samples=calib_samples,
     )
     try:
         onnx_path, manifest_path, _manifest = export(config)
@@ -112,6 +124,10 @@ def export_command(
         raise typer.Exit(code=1) from exc
     typer.echo(onnx_path)
     typer.echo(manifest_path)
+    if config.int8:
+        int8_path = int8_artifact_path(onnx_path)
+        typer.echo(int8_path)
+        typer.echo(int8_path.with_suffix(".json"))
 
 
 @app.command("accept")

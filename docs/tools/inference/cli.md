@@ -28,7 +28,8 @@ status.
 2. `eval` scores a checkpoint on a named split.
 3. `report` writes figures and `report.md` into a run directory.
 4. `list` prints local run summaries. `compare` prints a side-by-side table.
-5. `export` writes an ONNX graph and JSON manifest.
+5. `export` writes an ONNX graph and JSON manifest. `--int8` also writes a
+   sibling INT8 QDQ pair.
 6. `accept` runs the classifier or segmentor intake gate and optionally promotes
    an accepted artifact.
 7. `fetch` delegates dataset status, download, unpack, and labeled preprocess

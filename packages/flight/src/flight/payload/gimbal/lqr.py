@@ -56,7 +56,7 @@ class LqrController:
         try:
             P = scipy.linalg.solve_discrete_are(A, B, Q, R)  # noqa: N806
             K = np.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)  # noqa: N806
-        except (ValueError, np.linalg.LinAlgError):
+        except ValueError, np.linalg.LinAlgError:
             # Fallback to proportional control if DARE fails
             K = np.zeros((2, 4), dtype=np.float64)  # noqa: N806
             K[0, 0] = 1.0  # pan proportional

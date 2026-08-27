@@ -104,7 +104,7 @@ def process_inbound(
         params = dict(fields["params"])
         source = str(fields["source"])
         seq = int(fields["seq"])
-    except (ValueError, KeyError, TypeError):
+    except ValueError, KeyError, TypeError:
         return _reject(FaultCode.COMMAND_INVALID, "malformed command body", "", "", -1), last_seq
 
     if require_auth:

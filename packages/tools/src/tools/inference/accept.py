@@ -19,7 +19,8 @@ live callables.
 Contains:
   - Manifest / GoldenScene / GoldenClassifierScene / AcceptanceReport.
   - ClassifierAcceptanceReport: classifier-specific quality fields.
-  - load_manifest / compute_iou / accept_artifact / accept_classifier_artifact.
+  - load_manifest / accept_artifact / accept_classifier_artifact.
+  - compute_iou: re-export from tools.inference.metrics.
   - onnx_inference_fn / onnx_classifier_inference_fn.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -41,7 +42,7 @@ import numpy as np
 from flight.libs.types import Ok
 from flight.payload.inference.verify import verify_io_contract, verify_model_hash
 
-from tools.inference.metrics import mean_binary_accuracy
+from tools.inference.metrics import compute_iou, mean_binary_accuracy
 
 Shape = tuple[int | None, ...]
 InferenceFn = Callable[[np.ndarray], np.ndarray]
@@ -126,26 +127,6 @@ def load_manifest(path: str) -> Manifest:
         output_shape=tuple(data["output_shape"]),
         sha256=str(data["sha256"]),
     )
-
-
-def compute_iou(pred_mask: np.ndarray, gold_mask: np.ndarray, threshold: float = 0.5) -> float:
-    """Compute the binary intersection-over-union of a predicted vs golden mask (pure).
-
-    Args:
-        pred_mask: Predicted probability mask (H, W).
-        gold_mask: Golden probability mask (H, W).
-        threshold: Probability threshold for binarization.
-
-    Returns:
-        IoU in [0, 1]. Two empty masks (no positives in either) score 1.0 (perfect agreement).
-    """
-    pred = np.asarray(pred_mask) >= threshold
-    gold = np.asarray(gold_mask) >= threshold
-    intersection = float(np.logical_and(pred, gold).sum())
-    union = float(np.logical_or(pred, gold).sum())
-    if union == 0.0:
-        return 1.0
-    return intersection / union
 
 
 def accept_artifact(

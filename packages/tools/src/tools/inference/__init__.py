@@ -6,9 +6,10 @@ dependencies. Inference batches are torch tensors.
 
 Contains:
   - accept: frozen ONNX intake gate (hash, I/O, IoU or accuracy, latency).
-  - metrics: classifier accuracy helpers.
+  - metrics: classifier and segmentor design metrics.
   - data: synthetic scenes, processed packs, and torch Dataset split loaders.
-  - fetch: Zenodo 4250706 checksums, optional download, 4-band preprocess.
+  - split: frozen train/val/test recipe and dataset hash.
+  - fetch: Zenodo 4250706 checksums, unpack, labeled preprocess.
   - train: plain-torch SGD loop.
   - export: ONNX export, manifest write, and promote.
   - arch: U-Net segmentor and ResNet-50 classifier.
@@ -25,12 +26,15 @@ from tools.inference.accept import (
     Manifest,
     accept_artifact,
     accept_classifier_artifact,
-    compute_iou,
     load_manifest,
     onnx_classifier_inference_fn,
     onnx_inference_fn,
 )
-from tools.inference.metrics import binary_accuracy, mean_binary_accuracy
+from tools.inference.metrics import (
+    binary_accuracy,
+    compute_iou,
+    mean_binary_accuracy,
+)
 
 __all__ = [
     "AcceptanceReport",

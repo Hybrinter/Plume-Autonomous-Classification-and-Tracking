@@ -16,7 +16,7 @@ It runs manifest, hash, I/O contract, golden-scene IoU, and latency checks.
 | `GoldenScene` | class | Input tensor and expected mask for IoU scoring |
 | `AcceptanceReport` | class | Per-check booleans and aggregate accept flag |
 | `load_manifest` | function | Parse manifest JSON |
-| `compute_iou` | function | Binary IoU between predicted and golden masks |
+| `compute_iou` | function | Re-export of mask IoU from `tools.inference.metrics` |
 | `accept_artifact` | function | Run the segmentor gate and return a report |
 | `onnx_inference_fn` | function | Build an onnxruntime-backed mask callable |
 | `GoldenClassifierScene` | class | Input tensor and presence label |
@@ -68,10 +68,12 @@ Callers pass `min_iou`, `min_accuracy`, `max_latency_ms`, `iou_threshold`,
 
 ## Constraints
 
-Inference runs through an injected callable. CI tests without onnxruntime. IoU is
-pure NumPy. Classifier accuracy uses `tools.inference.metrics`.
+Inference runs through an injected callable. CI tests without onnxruntime.
+`compute_iou` comes from `tools.inference.metrics`. Classifier accuracy uses
+`tools.inference.metrics` as well.
 
 ## Related documents
 
 - [`tools.inference`](../inference.md)
+- [`tools.inference.metrics`](metrics.md)
 - [`flight.payload.inference.verify`](../../flight/payload/inference/verify.md)

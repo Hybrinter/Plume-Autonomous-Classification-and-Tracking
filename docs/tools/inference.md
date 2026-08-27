@@ -13,7 +13,7 @@ artifact acceptance, dataset preparation, and model metrics.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`accept`](inference/accept.md) | module | Frozen ONNX intake gate |
-| [`metrics`](inference/metrics.md) | module | Classifier accuracy helpers |
+| [`metrics`](inference/metrics.md) | module | Classifier and segmentor design metrics |
 | [`data`](inference/data.md) | module | Synthetic scenes, processed packs, and torch Dataset loaders |
 | [`split`](inference/split.md) | module | Frozen train/val/test recipe and dataset hash |
 | [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |

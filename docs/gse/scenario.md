@@ -24,21 +24,20 @@ from TOML files for the orchestrator.
 
 - Input: filesystem path to scenario TOML.
 - Output: frozen `Scenario`.
-- Raises `OSError`, `tomllib.TOMLDecodeError`, `KeyError`, `TypeError`, or `ValueError` on
-  malformed input.
+- Raises `OSError`, `tomllib.TOMLDecodeError`, or `ValidationError` on malformed input.
 
 ## Behavior
 
 1. `load_scenario` reads TOML with stdlib `tomllib`.
-2. It builds a `SceneSpec` from the `[scene]` table. Missing reading arrays default to
-   `(20.0,)` thermal and `(10.0,)` power.
-3. It normalizes `[[commands]]` entries into `CommandStep` tuples.
-4. It normalizes `[[assertions]]` entries with tags `"frame-portable"` or `"realtime-only"`.
-5. It returns a frozen `Scenario` with name, profile, steps, and dt.
+2. It validates the dict into a frozen `Scenario`. Missing reading arrays default to
+   `(20.0,)` thermal and `(10.0,)` power. Missing command and assertion arrays default to
+   empty tuples.
+3. Assertion tags must be `"frame-portable"` or `"realtime-only"`.
+4. It returns the frozen `Scenario` with name, profile, steps, and dt.
 
 ## Errors and faults
 
-Raises on missing files, invalid TOML, missing required fields, bad reading types, or unknown
+Raises on missing files, invalid TOML, missing required fields, unknown keys, or unknown
 assertion tags. Does not return `Result` (GSE test tooling).
 
 ## Messages

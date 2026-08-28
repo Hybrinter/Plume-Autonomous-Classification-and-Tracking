@@ -5,7 +5,7 @@ which commands to inject at which frame, and which assertions to score. Assertio
 tag: "frame-portable" assertions hold under the deterministic in-process backend (mode,
 ack status, gimbal motion, counts) and are scored; "realtime-only" assertions (e.g. wall-clock
 ack latency) are DEFINED here but recorded skipped-with-reason under the in-process backend.
-Scenarios are loaded from TOML via tomllib (stdlib). All dataclasses are frozen.
+Scenarios are loaded from TOML via tomllib (stdlib) and validated into frozen dataclasses.
 
 Contains:
   - SceneSpec: which scene to render (num_frames, seed).
@@ -21,14 +21,19 @@ from __future__ import annotations
 
 # stdlib
 import tomllib
-from dataclasses import dataclass
 from typing import Literal
+
+# third-party
+from pydantic import ConfigDict, Field, TypeAdapter
+from pydantic.dataclasses import dataclass
 
 ParamValue = str | int | float | bool
 AssertionTag = Literal["frame-portable", "realtime-only"]
 
+_SCHEMA = ConfigDict(extra="forbid")
 
-@dataclass(frozen=True, slots=True)
+
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
 class SceneSpec:
     """Which deterministic scene the harness renders for a scenario.
 
@@ -49,7 +54,7 @@ class SceneSpec:
     power_readings: tuple[float, ...] = (10.0,)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
 class CommandStep:
     """One telecommand to inject at a given frame index during a scenario run.
 
@@ -63,12 +68,12 @@ class CommandStep:
 
     at_frame: int
     command_id: str
-    params: dict[str, ParamValue]
     source: str
     seq: int
+    params: dict[str, ParamValue] = Field(default_factory=dict)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
 class Assertion:
     """One scenario assertion, scored or skipped depending on its tag.
 
@@ -88,7 +93,7 @@ class Assertion:
     tag: AssertionTag
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
 class Scenario:
     """A fully declarative GSE test case: profile + scene + commands + assertions.
 
@@ -105,10 +110,13 @@ class Scenario:
     name: str
     profile: str
     scene: SceneSpec
-    commands: tuple[CommandStep, ...]
-    assertions: tuple[Assertion, ...]
     steps: int
     dt: float
+    commands: tuple[CommandStep, ...] = ()
+    assertions: tuple[Assertion, ...] = ()
+
+
+_SCENARIO_ADAPTER = TypeAdapter(Scenario)
 
 
 def load_scenario(path: str) -> Scenario:
@@ -123,92 +131,15 @@ def load_scenario(path: str) -> Scenario:
     Raises:
         OSError: if the file cannot be read.
         tomllib.TOMLDecodeError: if the file is not valid TOML.
-        KeyError: if a required scenario/scene/command/assertion field is missing.
+        ValidationError: if a required field is missing, a tag is unknown, or a
+            value fails the schema.
 
     Notes:
         GSE test tooling, so this raises on malformed input rather than returning a Result.
-        commands/assertions are normalized to tuples so the returned Scenario is fully frozen
-        and hashable. Each assertion's tag is taken verbatim from the TOML ("frame-portable"
+        commands/assertions are normalized to tuples so the returned Scenario is fully frozen.
+        Each assertion's tag is taken verbatim from the TOML ("frame-portable"
         or "realtime-only") and is the only signal the orchestrator uses to score-vs-skip it.
     """
     with open(path, "rb") as handle:
         data = tomllib.load(handle)
-
-    scene_raw = data["scene"]
-    scene = SceneSpec(
-        num_frames=int(scene_raw["num_frames"]),
-        seed=int(scene_raw["seed"]),
-        thermal_readings=_readings(scene_raw.get("thermal_readings"), (20.0,)),
-        power_readings=_readings(scene_raw.get("power_readings"), (10.0,)),
-    )
-
-    commands = tuple(
-        CommandStep(
-            at_frame=int(cmd["at_frame"]),
-            command_id=str(cmd["command_id"]),
-            params=dict(cmd.get("params", {})),
-            source=str(cmd["source"]),
-            seq=int(cmd["seq"]),
-        )
-        for cmd in data.get("commands", [])
-    )
-
-    assertions = tuple(
-        Assertion(
-            id=str(item["id"]),
-            kind=str(item["kind"]),
-            value=item["value"],
-            tag=_parse_tag(item["tag"]),
-        )
-        for item in data.get("assertions", [])
-    )
-
-    return Scenario(
-        name=str(data["name"]),
-        profile=str(data["profile"]),
-        scene=scene,
-        commands=commands,
-        assertions=assertions,
-        steps=int(data["steps"]),
-        dt=float(data["dt"]),
-    )
-
-
-def _readings(raw: object, default: tuple[float, ...]) -> tuple[float, ...]:
-    """Normalize a raw TOML readings array into a tuple of floats, or fall back to a default.
-
-    Args:
-        raw: The value read from scene.thermal_readings / scene.power_readings (a TOML array,
-            or None when the key is absent).
-        default: The nominal-singleton fallback to use when raw is None.
-
-    Returns:
-        A tuple of floats: each element of raw coerced to float, or default when raw is None.
-
-    Raises:
-        TypeError: if raw is present but not an iterable of numeric values.
-    """
-    if raw is None:
-        return default
-    if not isinstance(raw, list):
-        raise TypeError(f"scene readings must be a list, got {type(raw).__name__}")
-    return tuple(float(value) for value in raw)
-
-
-def _parse_tag(raw: object) -> AssertionTag:
-    """Validate a raw TOML tag string against the allowed assertion tags.
-
-    Args:
-        raw: The tag value read from the TOML assertion table.
-
-    Returns:
-        The validated AssertionTag literal.
-
-    Raises:
-        ValueError: if the tag is not "frame-portable" or "realtime-only".
-    """
-    if raw == "frame-portable":
-        return "frame-portable"
-    if raw == "realtime-only":
-        return "realtime-only"
-    raise ValueError(f"unknown assertion tag: {raw!r}")
+    return _SCENARIO_ADAPTER.validate_python(data)

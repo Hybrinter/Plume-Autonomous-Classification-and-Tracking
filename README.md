@@ -109,8 +109,9 @@ needs a separate CUDA toolkit install. macOS is CPU-only. Confirm the GPU after 
 uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 ```
 
-A CUDA-enabled install prints a `+cu130` version tag on Windows and `True` for availability. The
-train loop selects CUDA when it is available; pass `--device` to override.
+A CUDA-enabled install prints a `+cu130` version tag on both Windows and Linux. Availability is
+`True` once an NVIDIA GPU and a matching driver are present. The train loop selects CUDA when it is
+available; pass `--device` to override.
 
 Run inference engineering workflows through the installed tools command:
 

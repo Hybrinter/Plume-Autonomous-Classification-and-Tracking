@@ -176,7 +176,7 @@ venue = "unit"
 modules = ["REQ-AIML-HIGH-004"]
 evidence = [
     "packages/flight/tests/payload/inference/test_model_verify.py",
-    "packages/tools/tests/test_accept.py",
+    "packages/tools/tests/inference/test_accept.py",
 ]
 status = "verified"
 

@@ -16,7 +16,7 @@ Forward and metrics stay on torch tensors.
 
 ## Inputs and outputs
 
-`evaluate(run_dir, checkpoint=None, split="test", preview_limit=8) -> Path`.
+`evaluate(run_dir, checkpoint=None, split="val", preview_limit=8) -> Path`.
 
 Returns the `eval.json` path. Also writes `predictions.npz` and updates
 `summary.json`.
@@ -39,7 +39,8 @@ None.
 
 ## Configuration
 
-Default checkpoint is `checkpoints/best.pt`. Default split is `test`.
+Default checkpoint is `checkpoints/best.pt`. Default split is `val`. Pass
+`split="test"` to score the held-out test split.
 
 ## Constraints
 

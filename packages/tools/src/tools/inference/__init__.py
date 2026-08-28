@@ -12,6 +12,7 @@ Contains:
   - fetch: Zenodo 4250706 checksums, unpack, labeled preprocess.
   - train: plain-torch SGD loop and local run directories.
   - eval / plots / report / runs: held-out scoring, figures, and compare tables.
+  - sweep: cartesian search space over the local run catalog.
   - export: ONNX export, manifest write, and promote.
   - arch: U-Net segmentor and ResNet-50 classifier.
   - __main__: `python -m tools.inference` subcommands.

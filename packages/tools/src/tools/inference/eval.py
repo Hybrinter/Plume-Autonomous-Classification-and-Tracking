@@ -120,7 +120,7 @@ def _to_numpy(tensor: torch.Tensor) -> np.ndarray:
 def evaluate(
     run_dir: str | Path,
     checkpoint: str | None = None,
-    split: str = "test",
+    split: str = "val",
     preview_limit: int = _PREVIEW_LIMIT,
 ) -> Path:
     """Score a checkpoint on a named split and write eval.json.
@@ -128,7 +128,7 @@ def evaluate(
     Args:
         run_dir: Training run directory.
         checkpoint: Optional ``.pt`` path. None uses ``checkpoints/best.pt``.
-        split: ``train``, ``val``, or ``test``.
+        split: ``train``, ``val``, or ``test``. Default ``val``.
         preview_limit: Max samples stored in ``predictions.npz`` for plots.
 
     Returns:

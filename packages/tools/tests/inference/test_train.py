@@ -5,10 +5,17 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 from tools.inference.data import make_synthetic_pack, write_processed_pack
 from tools.inference.split import SplitRecipe
-from tools.inference.train import TrainConfig, load_train_config, overlay_train_config, train
+from tools.inference.train import (
+    TrainConfig,
+    config_digest,
+    load_train_config,
+    overlay_train_config,
+    train,
+)
 
 
 def test_load_train_config_defaults() -> None:
@@ -76,6 +83,8 @@ def test_train_writes_run_directory(tmp_path: Path) -> None:
     summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     assert summary["run_id"] == "seg-test"
     assert summary["n_train"] >= 1
+    assert int(summary["n_params"]) > 0
+    assert int(summary["flops"]) > 0
 
 
 def test_train_one_step_classifier(tmp_path: Path) -> None:
@@ -143,3 +152,127 @@ def test_train_disk_adapter(tmp_path: Path) -> None:
     )
     assert extra.is_file()
     assert (root / "checkpoints" / "last.pt").is_file()
+
+
+def test_config_digest_changes_with_learning_rate() -> None:
+    """config_digest changes when an experiment field changes."""
+    base = TrainConfig(kind="segmentor", arch="unet", seed=0)
+    other = overlay_train_config(base, learning_rate=0.001)
+    assert config_digest(base) != config_digest(other)
+    same_dir = overlay_train_config(base, run_dir="/tmp/other")
+    assert config_digest(base) == config_digest(same_dir)
+
+
+def test_train_default_run_id_includes_digest(tmp_path: Path) -> None:
+    """Empty run_id writes {kind}-{arch}-{seed}-{digest8}."""
+    cfg = TrainConfig(
+        kind="segmentor",
+        epochs=1,
+        batch_size=2,
+        synthetic_samples=4,
+        input_height_px=32,
+        input_width_px=32,
+        run_dir=str(tmp_path / "runs"),
+        seed=0,
+    )
+    root = train(cfg)
+    digest = config_digest(cfg)
+    assert root.name == f"segmentor-unet-0-{digest}"
+
+
+def test_train_refuses_existing_run(tmp_path: Path) -> None:
+    """A second train on the same run_id raises FileExistsError."""
+    cfg = TrainConfig(
+        kind="segmentor",
+        epochs=1,
+        batch_size=2,
+        synthetic_samples=4,
+        input_height_px=32,
+        input_width_px=32,
+        run_dir=str(tmp_path / "runs"),
+        run_id="same",
+        seed=0,
+    )
+    train(cfg)
+    with pytest.raises(FileExistsError, match="run directory exists"):
+        train(cfg)
+
+
+def test_train_overwrite_replaces(tmp_path: Path) -> None:
+    """overwrite=True replaces an existing run directory."""
+    cfg = TrainConfig(
+        kind="segmentor",
+        epochs=1,
+        batch_size=2,
+        synthetic_samples=4,
+        input_height_px=32,
+        input_width_px=32,
+        run_dir=str(tmp_path / "runs"),
+        run_id="same",
+        seed=0,
+    )
+    first = train(cfg)
+    second = train(overlay_train_config(cfg, overwrite=True))
+    assert second == first
+    assert (second / "summary.json").is_file()
+
+
+def test_overlay_learning_rate_and_overwrite() -> None:
+    """CLI overlays replace learning_rate and overwrite when set."""
+    cfg = overlay_train_config(TrainConfig(), learning_rate=0.001, overwrite=True)
+    assert cfg.learning_rate == 0.001
+    assert cfg.overwrite is True
+    assert cfg.momentum == 0.9
+
+
+def test_train_adamw_cosine(tmp_path: Path) -> None:
+    """AdamW plus cosine writes optimizer fields into summary.json."""
+    root = train(
+        TrainConfig(
+            kind="segmentor",
+            epochs=1,
+            batch_size=2,
+            synthetic_samples=4,
+            input_height_px=32,
+            input_width_px=32,
+            run_dir=str(tmp_path / "runs"),
+            run_id="adam",
+            optimizer="adamw",
+            scheduler="cosine",
+        )
+    )
+    summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["optimizer"] == "adamw"
+    assert summary["scheduler"] == "cosine"
+
+
+def test_train_shuffle_pos_weight_augment(tmp_path: Path) -> None:
+    """shuffle, pos_weight, and augment complete one epoch."""
+    root = train(
+        TrainConfig(
+            kind="segmentor",
+            epochs=1,
+            batch_size=2,
+            synthetic_samples=4,
+            input_height_px=32,
+            input_width_px=32,
+            run_dir=str(tmp_path / "runs"),
+            run_id="loop-opts",
+            shuffle=True,
+            pos_weight=2.0,
+            augment=True,
+        )
+    )
+    assert (root / "summary.json").is_file()
+
+
+def test_train_unknown_optimizer(tmp_path: Path) -> None:
+    """Unknown optimizer raises ValueError before the loop."""
+    with pytest.raises(ValueError, match="unknown optimizer"):
+        train(
+            TrainConfig(
+                optimizer="nope",
+                run_dir=str(tmp_path / "runs"),
+                run_id="bad-opt",
+            )
+        )

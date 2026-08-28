@@ -2,7 +2,14 @@
 
 import pytest
 import torch
-from tools.inference.arch.registry import build, default_arch, resolve_arch
+from tools.inference.arch.registry import build, default_arch, known, resolve_arch
+
+
+def test_known_pairs() -> None:
+    """known() lists classifier/resnet50 and segmentor/unet."""
+    pairs = known()
+    assert ("classifier", "resnet50") in pairs
+    assert ("segmentor", "unet") in pairs
 
 
 def test_default_arch() -> None:

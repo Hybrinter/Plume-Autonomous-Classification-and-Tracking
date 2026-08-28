@@ -14,12 +14,15 @@ Builders import at module level.
 | --- | --- | --- |
 | `DEFAULT_ARCH` | constant | Kind to default architecture name |
 | `default_arch` | function | Default name for a kind |
+| `known` | function | Frozen set of kind/name pairs |
 | `resolve_arch` | function | Fill an empty name and reject unknown pairs |
 | `build` | function | Construct an untrained logits graph |
 
 ## Inputs and outputs
 
 `default_arch(kind) -> str`.
+
+`known() -> frozenset[tuple[str, str]]`.
 
 `resolve_arch(kind, arch) -> str`.
 

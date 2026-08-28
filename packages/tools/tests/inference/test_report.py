@@ -37,6 +37,20 @@ def test_write_report_with_history_only(tmp_path: Path) -> None:
     assert (tmp_path / "figures" / "curve_loss.png").is_file()
 
 
+def test_write_report_val_and_test_sections(tmp_path: Path) -> None:
+    """write_report lists val_* and test_* fields from summary.json."""
+    (tmp_path / "history.csv").write_text("epoch,split,loss\n1,train,0.4\n", encoding="utf-8")
+    (tmp_path / "summary.json").write_text(
+        '{"kind": "segmentor", "arch": "unet", "val_mean_iou": 0.4, "test_mean_iou": 0.3}\n',
+        encoding="utf-8",
+    )
+    text = write_report(tmp_path).read_text(encoding="utf-8")
+    assert "## Val" in text
+    assert "## Test" in text
+    assert "val_mean_iou" in text
+    assert "test_mean_iou" in text
+
+
 def test_overlay_figures_from_predictions(tmp_path: Path) -> None:
     """overlay_figures builds a panel from a tiny predictions.npz."""
     images = np.zeros((2, 4, 8, 8), dtype=np.float32)

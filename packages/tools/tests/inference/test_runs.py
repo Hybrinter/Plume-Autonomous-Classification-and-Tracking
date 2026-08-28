@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 
 from tools.inference.cli import main
-from tools.inference.runs import discover_runs, format_compare, format_list, load_summary
+from tools.inference.runs import (
+    discover_runs,
+    format_compare,
+    format_list,
+    load_summary,
+    rank_runs,
+)
 
 
 def _write_run(root: Path, name: str, kind: str, iou: float) -> Path:
@@ -18,6 +24,9 @@ def _write_run(root: Path, name: str, kind: str, iou: float) -> Path:
         "best_epoch": 1,
         "val_metric": "mean_iou",
         "best_val_metric": iou,
+        "n_params": 1000,
+        "flops": 2000,
+        "val_mean_iou": iou,
         "dataset_hash": "abc",
     }
     (dest / "summary.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
@@ -47,6 +56,9 @@ def test_compare_includes_eval_overlay(tmp_path: Path) -> None:
     assert row["test_mean_iou"] == 0.6
     table = format_compare((dest,))
     assert "0.6" in table
+    assert "0.4" in table
+    assert "1000" in table
+    assert "2000" in table
 
 
 def test_cli_list_and_compare(tmp_path: Path) -> None:
@@ -54,3 +66,13 @@ def test_cli_list_and_compare(tmp_path: Path) -> None:
     dest = _write_run(tmp_path, "cli-run", "classifier", 0.9)
     assert main(["list", "--run-dir", str(tmp_path)]) == 0
     assert main(["compare", "--run", str(dest)]) == 0
+    assert main(["rank", "--run-dir", str(tmp_path), "--metric", "mean_iou"]) == 0
+
+
+def test_rank_orders_higher_val_iou_first(tmp_path: Path) -> None:
+    """rank_runs puts the higher val mean IoU first, then lower FLOPs."""
+    low = _write_run(tmp_path, "low", "segmentor", 0.4)
+    high = _write_run(tmp_path, "high", "segmentor", 0.7)
+    ranked = rank_runs((low, high), "mean_iou")
+    assert ranked[0]["run_id"] == "high"
+    assert ranked[1]["run_id"] == "low"

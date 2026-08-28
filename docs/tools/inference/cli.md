@@ -25,21 +25,24 @@ status.
 ## Behavior
 
 1. `train` overlays options on `TrainConfig` and writes a run directory.
-2. `eval` scores a checkpoint on a named split.
+2. `eval` scores a checkpoint on a named split. The default split is `val`.
 3. `report` writes figures and `report.md` into a run directory.
 4. `list` prints local run summaries. `compare` prints a side-by-side table.
-5. `export` writes an ONNX graph and JSON manifest. `--int8` also writes a
+   `rank` prints the same columns in val-metric order.
+5. `sweep` expands a space TOML, trains each trial, scores val, and writes
+   JSONL. `arches` prints registered kind/name pairs.
+6. `export` writes an ONNX graph and JSON manifest. `--int8` also writes a
    sibling INT8 QDQ pair.
-6. `accept` runs the classifier or segmentor intake gate and optionally promotes
+7. `accept` runs the classifier or segmentor intake gate and optionally promotes
    an accepted artifact.
-7. `fetch` delegates dataset status, download, unpack, and labeled preprocess
+8. `fetch` delegates dataset status, download, unpack, and labeled preprocess
    work to `tools.inference.fetch`.
 
 ## Errors and faults
 
-Invalid command input returns the Click usage-error exit code. Missing optional
-training or export dependencies print the import error and return 1. A failed
-acceptance gate returns 1.
+Invalid command input returns the Click usage-error exit code. A failed train
+(`ValueError` or `FileExistsError`) or a failed acceptance gate returns 1.
+Missing optional export dependencies print the import error and return 1.
 
 ## Messages
 
@@ -48,7 +51,9 @@ None.
 ## Configuration
 
 Commands expose the same train, export, accept, eval, and fetch options as their
-library configuration objects and functions.
+library configuration objects and functions. `train` overlays every
+`TrainConfig` field. `--overwrite` sets `overwrite` true. `--shuffle` and
+`--augment` set those flags true.
 
 ## Constraints
 
@@ -64,6 +69,7 @@ library configuration objects and functions.
 - [`tools.inference.eval`](eval.md)
 - [`tools.inference.report`](report.md)
 - [`tools.inference.runs`](runs.md)
+- [`tools.inference.sweep`](sweep.md)
 - [`tools.inference.export`](export.md)
 - [`tools.inference.accept`](accept.md)
 - [`tools.inference.fetch`](fetch.md)

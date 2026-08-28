@@ -40,7 +40,7 @@ class InferenceKind(StrEnum):
 
 
 app = typer.Typer(
-    help="Train, export, accept, and fetch data for flight inference artifacts.",
+    help="Train, eval, compare, sweep, export, accept, and fetch inference artifacts.",
     no_args_is_help=True,
 )
 
@@ -59,6 +59,24 @@ def train_command(
     height: Annotated[int | None, typer.Option(help="Input height in pixels.")] = None,
     width: Annotated[int | None, typer.Option(help="Input width in pixels.")] = None,
     seed: Annotated[int | None, typer.Option(help="Random seed.")] = None,
+    in_channels: Annotated[int | None, typer.Option(help="Input band count.")] = None,
+    learning_rate: Annotated[float | None, typer.Option(help="Optimizer learning rate.")] = None,
+    momentum: Annotated[float | None, typer.Option(help="SGD momentum.")] = None,
+    weight_decay: Annotated[float | None, typer.Option(help="Weight decay.")] = None,
+    synthetic_samples: Annotated[int | None, typer.Option(help="Synthetic pack size.")] = None,
+    bit_depth: Annotated[int | None, typer.Option(help="DN bit depth.")] = None,
+    val_metric: Annotated[str | None, typer.Option(help="Best-checkpoint metric.")] = None,
+    device: Annotated[str | None, typer.Option(help="Torch device string.")] = None,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Replace an existing run directory.")
+    ] = False,
+    optimizer: Annotated[str | None, typer.Option(help="sgd or adamw.")] = None,
+    scheduler: Annotated[str | None, typer.Option(help="none or cosine.")] = None,
+    shuffle: Annotated[bool, typer.Option("--shuffle", help="Shuffle the train loader.")] = False,
+    pos_weight: Annotated[float | None, typer.Option(help="Positive-class BCE weight.")] = None,
+    augment: Annotated[
+        bool, typer.Option("--augment", help="Flip and rotate the train split.")
+    ] = False,
 ) -> None:
     """Train a classifier or segmentor and write a run directory."""
     cfg = overlay_train_config(
@@ -74,10 +92,24 @@ def train_command(
         seed=seed,
         run_dir=run_dir,
         run_id=run_id,
+        in_channels=in_channels,
+        learning_rate=learning_rate,
+        momentum=momentum,
+        weight_decay=weight_decay,
+        synthetic_samples=synthetic_samples,
+        bit_depth=bit_depth,
+        val_metric=val_metric,
+        device=device,
+        overwrite=True if overwrite else None,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        shuffle=True if shuffle else None,
+        pos_weight=pos_weight,
+        augment=True if augment else None,
     )
     try:
         path = train(cfg)
-    except ValueError as exc:
+    except (ValueError, FileExistsError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(path)
@@ -221,7 +253,7 @@ def fetch_command(
 def eval_command(
     run: Annotated[str, typer.Option(help="Run directory.")],
     checkpoint: Annotated[str | None, typer.Option(help="Checkpoint path.")] = None,
-    split: Annotated[str, typer.Option(help="Split to score.")] = "test",
+    split: Annotated[str, typer.Option(help="Split to score.")] = "val",
 ) -> None:
     """Score a checkpoint on a held-out split."""
     from tools.inference.eval import evaluate
@@ -258,6 +290,42 @@ def compare_command(
     from tools.inference.runs import format_compare
 
     typer.echo(format_compare(tuple(Path(item) for item in run)), nl=False)
+
+
+@app.command("rank")
+def rank_command(
+    run_dir: Annotated[str, typer.Option(help="Parent directory of runs.")] = "artifacts/runs",
+    metric: Annotated[str, typer.Option(help="Val metric to rank.")] = "mean_iou",
+) -> None:
+    """Print run summaries sorted by a val metric, then by FLOPs."""
+    from tools.inference.runs import discover_runs, format_rank, rank_runs
+
+    typer.echo(format_rank(rank_runs(discover_runs(run_dir), metric)), nl=False)
+
+
+@app.command("sweep")
+def sweep_command(
+    space: Annotated[str, typer.Option(help="Sweep space TOML.")],
+    out: Annotated[str | None, typer.Option(help="JSONL output path.")] = None,
+) -> None:
+    """Train a cartesian space, score val, and write sweep.jsonl."""
+    from tools.inference.sweep import sweep
+
+    try:
+        path = sweep(space, out=out)
+    except (ValueError, FileExistsError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(path)
+
+
+@app.command("arches")
+def arches_command() -> None:
+    """Print registered kind and architecture name pairs."""
+    from tools.inference.arch.registry import known
+
+    for kind, name in sorted(known()):
+        typer.echo(f"{kind}\t{name}")
 
 
 def main(argv: list[str] | None = None) -> int:

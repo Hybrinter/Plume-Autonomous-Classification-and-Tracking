@@ -21,7 +21,8 @@ This module writes figures and a markdown summary into a training run directory.
 
 1. Build history curves, overlays, and a failure gallery when files exist.
 2. Save PNGs under `run_dir/figures/`.
-3. Write `report.md` with summary fields, eval metrics, and figure links.
+3. Write `report.md` with summary fields, val and test metric sections, last
+   eval payload, and figure links.
 
 ## Errors and faults
 
@@ -38,7 +39,7 @@ None.
 ## Constraints
 
 This module does not import `tools.analysis`. Missing history or eval files skip
-those sections.
+those sections. Val and test sections come from `summary.json` keys.
 
 ## Related documents
 

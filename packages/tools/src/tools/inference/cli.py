@@ -241,7 +241,7 @@ def fetch_command(
 def eval_command(
     run: Annotated[str, typer.Option(help="Run directory.")],
     checkpoint: Annotated[str | None, typer.Option(help="Checkpoint path.")] = None,
-    split: Annotated[str, typer.Option(help="Split to score.")] = "test",
+    split: Annotated[str, typer.Option(help="Split to score.")] = "val",
 ) -> None:
     """Score a checkpoint on a held-out split."""
     from tools.inference.eval import evaluate

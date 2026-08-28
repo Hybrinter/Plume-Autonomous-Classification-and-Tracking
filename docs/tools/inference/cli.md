@@ -25,7 +25,7 @@ status.
 ## Behavior
 
 1. `train` overlays options on `TrainConfig` and writes a run directory.
-2. `eval` scores a checkpoint on a named split.
+2. `eval` scores a checkpoint on a named split. The default split is `val`.
 3. `report` writes figures and `report.md` into a run directory.
 4. `list` prints local run summaries. `compare` prints a side-by-side table.
 5. `export` writes an ONNX graph and JSON manifest. `--int8` also writes a

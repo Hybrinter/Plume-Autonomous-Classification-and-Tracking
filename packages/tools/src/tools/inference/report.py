@@ -58,10 +58,24 @@ def write_report(run_dir: str | Path) -> Path:
         "",
     ]
     if eval_payload:
-        lines.append("## Eval")
+        lines.append("## Last eval")
         lines.append("")
         for key, value in eval_payload.items():
             lines.append(f"- {key}: {value}")
+        lines.append("")
+    val_keys = [key for key in summary if str(key).startswith("val_")]
+    test_keys = [key for key in summary if str(key).startswith("test_")]
+    if val_keys:
+        lines.append("## Val")
+        lines.append("")
+        for key in val_keys:
+            lines.append(f"- {key}: {summary[key]}")
+        lines.append("")
+    if test_keys:
+        lines.append("## Test")
+        lines.append("")
+        for key in test_keys:
+            lines.append(f"- {key}: {summary[key]}")
         lines.append("")
     if written:
         lines.append("## Figures")

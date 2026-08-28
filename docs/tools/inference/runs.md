@@ -30,8 +30,8 @@ compare tables.
 ## Behavior
 
 1. Treat a directory as a run when it contains `summary.json`.
-2. Overlay `eval.json` numeric fields with a `test_` prefix when the split is
-   test.
+2. Overlay `eval.json` metric fields with a `val_` or `test_` prefix. Existing
+   keys for the other split stay in `summary.json`.
 3. Print tab-separated tables for the CLI.
 
 ## Errors and faults
@@ -45,7 +45,7 @@ None.
 ## Configuration
 
 Compare columns: run id, kind, arch, best epoch, val metric, parameter count,
-FLOPs, test F1, test mean IoU, test n, dataset hash.
+FLOPs, val F1, val mean IoU, test F1, test mean IoU, test n, dataset hash.
 
 List columns include `n_params` and `flops`.
 

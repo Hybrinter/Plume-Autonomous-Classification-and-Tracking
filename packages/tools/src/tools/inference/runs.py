@@ -24,6 +24,8 @@ _COMPARE_KEYS: tuple[str, ...] = (
     "best_val_metric",
     "n_params",
     "flops",
+    "val_f1",
+    "val_mean_iou",
     "test_f1",
     "test_mean_iou",
     "test_n",
@@ -76,7 +78,8 @@ def load_summary(run_dir: str | Path) -> dict[str, object]:
         for key, value in eval_payload.items():
             if key in {"split", "checkpoint", "kind", "arch"}:
                 continue
-            payload[f"{prefix}{key}"] = value
+            prefixed = f"{prefix}{key}"
+            payload[prefixed] = value
     payload.setdefault("run_id", root.name)
     payload["path"] = str(root)
     return payload

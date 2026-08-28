@@ -50,6 +50,8 @@ the SIL and does not publish on the bus.
 
 - Default `pact-tools` install includes torch and torchvision. The `export`
   extra adds onnx and onnxruntime.
+- A Windows install resolves torch and torchvision from the CUDA 13.0 PyTorch
+  index. Train and eval then reach an NVIDIA GPU from the default install.
 - Flight must not import `tools`.
 - The smoke-plume corpus stays out of git. Run
 `python scripts/fetch_smoke_plume_dataset.py` for checksum status. Pass

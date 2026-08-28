@@ -100,6 +100,18 @@ uv sync --package pact-tools --extra export
 The default `pact-tools` install includes torch and torchvision. The `export`
 extra installs onnx.
 
+GPU training needs no extra flag. On Windows, `torch` and `torchvision` resolve from the CUDA 13.0
+PyTorch index (`https://download.pytorch.org/whl/cu130`); on Linux the PyPI wheel already bundles
+the CUDA 13.0 runtime. Both need an NVIDIA driver that supports CUDA 13.0 or later, and neither
+needs a separate CUDA toolkit install. macOS is CPU-only. Confirm the GPU after a sync:
+
+```bash
+uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
+A CUDA-enabled install prints a `+cu130` version tag on Windows and `True` for availability. The
+train loop selects CUDA when it is available; pass `--device` to override.
+
 Run inference engineering workflows through the installed tools command:
 
 ```bash

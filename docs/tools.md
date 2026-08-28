@@ -46,6 +46,10 @@ publishes to the bus or changes flight behavior.
 - Default tools dependencies include torch and torchvision, plus Typer,
   matplotlib, pandas, pyarrow, pact-flight, and pact-sim.
 - Extra `export` installs onnx and onnxruntime.
+- A Windows install resolves torch and torchvision from the CUDA 13.0 PyTorch
+  index. A Linux or macOS install resolves both from PyPI.
+- The Windows and Linux wheels bundle the CUDA 13.0 runtime. A GPU install needs
+  an NVIDIA driver at CUDA 13.0 or later. It needs no CUDA toolkit.
 - A flight-only install does not include `pact-tools`.
 - Analysis is read-only observability over the deterministic SIL harness.
 - Acceptance runs inference through an injected callable so CI stays SDK-free.

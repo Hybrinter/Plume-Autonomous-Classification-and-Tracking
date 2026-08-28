@@ -31,6 +31,19 @@ pact-tools = "tools.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/tools"]
 
+[[tool.uv.index]]
+# CUDA 13.0 wheels for Windows training boxes. Linux torch on PyPI already carries CUDA 13.0;
+# the PyPI Windows wheel is CPU-only.
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
 [tool.uv.sources]
 pact-flight = { workspace = true }
 pact-sim = { workspace = true }
+torch = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+]
+torchvision = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+]

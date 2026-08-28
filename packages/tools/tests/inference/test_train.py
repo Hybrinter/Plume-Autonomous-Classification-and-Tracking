@@ -223,3 +223,56 @@ def test_overlay_learning_rate_and_overwrite() -> None:
     assert cfg.learning_rate == 0.001
     assert cfg.overwrite is True
     assert cfg.momentum == 0.9
+
+
+def test_train_adamw_cosine(tmp_path: Path) -> None:
+    """AdamW plus cosine writes optimizer fields into summary.json."""
+    root = train(
+        TrainConfig(
+            kind="segmentor",
+            epochs=1,
+            batch_size=2,
+            synthetic_samples=4,
+            input_height_px=32,
+            input_width_px=32,
+            run_dir=str(tmp_path / "runs"),
+            run_id="adam",
+            optimizer="adamw",
+            scheduler="cosine",
+        )
+    )
+    summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["optimizer"] == "adamw"
+    assert summary["scheduler"] == "cosine"
+
+
+def test_train_shuffle_pos_weight_augment(tmp_path: Path) -> None:
+    """shuffle, pos_weight, and augment complete one epoch."""
+    root = train(
+        TrainConfig(
+            kind="segmentor",
+            epochs=1,
+            batch_size=2,
+            synthetic_samples=4,
+            input_height_px=32,
+            input_width_px=32,
+            run_dir=str(tmp_path / "runs"),
+            run_id="loop-opts",
+            shuffle=True,
+            pos_weight=2.0,
+            augment=True,
+        )
+    )
+    assert (root / "summary.json").is_file()
+
+
+def test_train_unknown_optimizer(tmp_path: Path) -> None:
+    """Unknown optimizer raises ValueError before the loop."""
+    with pytest.raises(ValueError, match="unknown optimizer"):
+        train(
+            TrainConfig(
+                optimizer="nope",
+                run_dir=str(tmp_path / "runs"),
+                run_id="bad-opt",
+            )
+        )

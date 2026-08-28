@@ -70,6 +70,13 @@ def train_command(
     overwrite: Annotated[
         bool, typer.Option("--overwrite", help="Replace an existing run directory.")
     ] = False,
+    optimizer: Annotated[str | None, typer.Option(help="sgd or adamw.")] = None,
+    scheduler: Annotated[str | None, typer.Option(help="none or cosine.")] = None,
+    shuffle: Annotated[bool, typer.Option("--shuffle", help="Shuffle the train loader.")] = False,
+    pos_weight: Annotated[float | None, typer.Option(help="Positive-class BCE weight.")] = None,
+    augment: Annotated[
+        bool, typer.Option("--augment", help="Flip and rotate the train split.")
+    ] = False,
 ) -> None:
     """Train a classifier or segmentor and write a run directory."""
     cfg = overlay_train_config(
@@ -94,6 +101,11 @@ def train_command(
         val_metric=val_metric,
         device=device,
         overwrite=True if overwrite else None,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        shuffle=True if shuffle else None,
+        pos_weight=pos_weight,
+        augment=True if augment else None,
     )
     try:
         path = train(cfg)

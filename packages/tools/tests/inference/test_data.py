@@ -7,6 +7,7 @@ import pytest
 import torch
 from tools.inference.data import (
     SplitDataset,
+    apply_train_augment,
     load_disk_batch,
     load_processed_pack,
     load_split,
@@ -114,6 +115,20 @@ def test_load_processed_pack_rejects_hash_mismatch(tmp_path: Path) -> None:
     np.save(tmp_path / "labels.npy", tampered)
     with pytest.raises(ValueError, match="hash"):
         load_processed_pack(tmp_path)
+
+
+def test_apply_train_augment_is_deterministic() -> None:
+    """Same seed and index yield the same flip and rotation."""
+    image = torch.arange(4 * 8 * 8, dtype=torch.float32).reshape(4, 8, 8)
+    mask = torch.zeros(1, 8, 8, dtype=torch.float32)
+    mask[0, 0:2, 0:2] = 1.0
+    first_img, first_mask = apply_train_augment(image, mask, "segmentor", seed=0, index=3)
+    second_img, second_mask = apply_train_augment(image, mask, "segmentor", seed=0, index=3)
+    assert torch.equal(first_img, second_img)
+    assert torch.equal(first_mask, second_mask)
+    label = torch.tensor([1.0], dtype=torch.float32)
+    _, out_label = apply_train_augment(image, label, "classifier", seed=0, index=3)
+    assert torch.equal(out_label, label)
 
 
 def test_load_split_rejects_unknown_kind(tmp_path: Path) -> None:

@@ -49,7 +49,8 @@ None.
 
 Commands expose the same train, export, accept, eval, and fetch options as their
 library configuration objects and functions. `train` overlays every
-`TrainConfig` field. `--overwrite` sets `overwrite` true.
+`TrainConfig` field. `--overwrite` sets `overwrite` true. `--shuffle` and
+`--augment` set those flags true.
 
 ## Constraints
 

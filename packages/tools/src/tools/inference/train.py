@@ -45,6 +45,8 @@ from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
 
 _TRAIN_KINDS = frozenset({"classifier", "segmentor"})
 _VAL_METRICS = frozenset({"f1", "mean_iou", "bce"})
+_OPTIMIZERS = frozenset({"sgd", "adamw"})
+_SCHEDULERS = frozenset({"none", "cosine"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +78,11 @@ class TrainConfig:
     val_metric: str = ""
     device: str = ""
     overwrite: bool = False
+    optimizer: str = "sgd"
+    scheduler: str = "none"
+    shuffle: bool = False
+    pos_weight: float = 0.0
+    augment: bool = False
 
 
 _DIGEST_SKIP = frozenset({"run_dir", "run_id", "checkpoint_path", "overwrite"})
@@ -147,6 +154,11 @@ def load_train_config(path: str | None = None) -> TrainConfig:
         val_metric=str(data.get("val_metric", cfg.val_metric)),
         device=str(data.get("device", cfg.device)),
         overwrite=bool(data["overwrite"]) if "overwrite" in data else cfg.overwrite,
+        optimizer=str(data.get("optimizer", cfg.optimizer)),
+        scheduler=str(data.get("scheduler", cfg.scheduler)),
+        shuffle=bool(data["shuffle"]) if "shuffle" in data else cfg.shuffle,
+        pos_weight=float(data.get("pos_weight", cfg.pos_weight)),
+        augment=bool(data["augment"]) if "augment" in data else cfg.augment,
     )
 
 
@@ -172,6 +184,11 @@ def overlay_train_config(
     val_metric: str | None = None,
     device: str | None = None,
     overwrite: bool | None = None,
+    optimizer: str | None = None,
+    scheduler: str | None = None,
+    shuffle: bool | None = None,
+    pos_weight: float | None = None,
+    augment: bool | None = None,
 ) -> TrainConfig:
     """Return a copy of `cfg` with any non-None CLI overlays applied.
 
@@ -197,6 +214,11 @@ def overlay_train_config(
         val_metric: Optional best-checkpoint metric name.
         device: Optional torch device string.
         overwrite: Optional replace-existing-run flag.
+        optimizer: Optional ``sgd`` or ``adamw``.
+        scheduler: Optional ``none`` or ``cosine``.
+        shuffle: Optional train-loader shuffle flag.
+        pos_weight: Optional positive-class BCE weight. ``<= 0`` disables.
+        augment: Optional train-split flip and rotation flag.
 
     Returns:
         TrainConfig: Frozen overlay.
@@ -225,6 +247,11 @@ def overlay_train_config(
         val_metric=val_metric if val_metric is not None else cfg.val_metric,
         device=device if device is not None else cfg.device,
         overwrite=overwrite if overwrite is not None else cfg.overwrite,
+        optimizer=optimizer if optimizer is not None else cfg.optimizer,
+        scheduler=scheduler if scheduler is not None else cfg.scheduler,
+        shuffle=shuffle if shuffle is not None else cfg.shuffle,
+        pos_weight=pos_weight if pos_weight is not None else cfg.pos_weight,
+        augment=augment if augment is not None else cfg.augment,
     )
 
 
@@ -325,14 +352,52 @@ def _unsplit_disk_pack(root: Path, cfg: TrainConfig) -> ProcessedPack:
 
 
 def _loader(
-    pack: ProcessedPack, kind: str, split: str, batch_size: int
+    pack: ProcessedPack,
+    kind: str,
+    split: str,
+    batch_size: int,
+    shuffle: bool = False,
+    seed: int = 0,
+    augment: bool = False,
 ) -> DataLoader[tuple[torch.Tensor, torch.Tensor]]:
     """Return a deterministic DataLoader over one named split."""
+    generator = torch.Generator()
+    generator.manual_seed(int(seed))
     return DataLoader(
-        SplitDataset(pack, kind, split),
+        SplitDataset(pack, kind, split, augment=augment, seed=seed),
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=shuffle,
+        generator=generator,
     )
+
+
+def _make_optimizer(model: nn.Module, cfg: TrainConfig) -> torch.optim.Optimizer:
+    """Return SGD or AdamW from ``cfg.optimizer``."""
+    if cfg.optimizer == "sgd":
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=cfg.learning_rate,
+            momentum=cfg.momentum,
+            weight_decay=cfg.weight_decay,
+        )
+    if cfg.optimizer == "adamw":
+        return torch.optim.AdamW(
+            model.parameters(),
+            lr=cfg.learning_rate,
+            weight_decay=cfg.weight_decay,
+        )
+    raise ValueError(f"unknown optimizer {cfg.optimizer!r}")
+
+
+def _make_scheduler(
+    optimizer: torch.optim.Optimizer, cfg: TrainConfig
+) -> torch.optim.lr_scheduler.LRScheduler | None:
+    """Return a cosine scheduler, or None when ``scheduler`` is ``none``."""
+    if cfg.scheduler in {"", "none"}:
+        return None
+    if cfg.scheduler == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(int(cfg.epochs), 1))
+    raise ValueError(f"unknown scheduler {cfg.scheduler!r}")
 
 
 def _gather(
@@ -431,7 +496,8 @@ def train(config: TrainConfig | None = None) -> Path:
         Path: Run directory containing config, history, checkpoints, and summary.
 
     Raises:
-        ValueError: If `config.kind` or architecture is unknown.
+        ValueError: If `config.kind`, architecture, optimizer, or scheduler is
+            unknown, or the train split is empty.
         FileExistsError: If the run directory already has ``summary.json`` and
             ``overwrite`` is false.
 
@@ -443,6 +509,10 @@ def train(config: TrainConfig | None = None) -> Path:
     cfg = config if config is not None else TrainConfig()
     if cfg.kind not in _TRAIN_KINDS:
         raise ValueError(f"unknown train kind {cfg.kind!r}")
+    if cfg.optimizer not in _OPTIMIZERS:
+        raise ValueError(f"unknown optimizer {cfg.optimizer!r}")
+    if cfg.scheduler not in _SCHEDULERS:
+        raise ValueError(f"unknown scheduler {cfg.scheduler!r}")
     arch = resolve_arch(cfg.kind, cfg.arch)
     val_metric = _default_val_metric(cfg.kind, cfg.val_metric)
     run_id = cfg.run_id if cfg.run_id else f"{cfg.kind}-{arch}-{cfg.seed}-{config_digest(cfg)}"
@@ -460,20 +530,29 @@ def train(config: TrainConfig | None = None) -> Path:
     n_params = count_params(model)
     flops = count_flops(model, (1, cfg.in_channels, cfg.input_height_px, cfg.input_width_px))
     model.to(device)
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        lr=cfg.learning_rate,
-        momentum=cfg.momentum,
-        weight_decay=cfg.weight_decay,
-    )
-    loss_fn = torch.nn.BCEWithLogitsLoss()
+    optimizer = _make_optimizer(model, cfg)
+    scheduler = _make_scheduler(optimizer, cfg)
+    if cfg.pos_weight > 0.0:
+        weight = torch.tensor([cfg.pos_weight], dtype=torch.float32, device=device)
+        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=weight)
+    else:
+        loss_fn = torch.nn.BCEWithLogitsLoss()
     batch = max(int(cfg.batch_size), 1)
     train_idx = pack.splits.train
     val_idx = pack.splits.val
     if not train_idx:
         raise ValueError("train split is empty")
-    train_loader = _loader(pack, cfg.kind, "train", batch)
-    val_loader = _loader(pack, cfg.kind, "val", batch) if val_idx else None
+    train_loader = _loader(
+        pack,
+        cfg.kind,
+        "train",
+        batch,
+        shuffle=cfg.shuffle,
+        seed=cfg.seed,
+        augment=cfg.augment,
+    )
+    train_score_loader = _loader(pack, cfg.kind, "train", batch, seed=cfg.seed)
+    val_loader = _loader(pack, cfg.kind, "val", batch, seed=cfg.seed) if val_idx else None
 
     _write_config_toml(run_root / "config.toml", cfg)
     history_path = run_root / "history.csv"
@@ -491,9 +570,11 @@ def train(config: TrainConfig | None = None) -> Path:
             loss = loss_fn(logits, batch_y)
             loss.backward()
             optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
 
         rows: list[dict[str, object]] = []
-        train_logits, train_targets = _gather(model, train_loader, device)
+        train_logits, train_targets = _gather(model, train_score_loader, device)
         train_metrics = _score(cfg.kind, train_logits, train_targets)
         rows.append({"epoch": epoch, "split": "train", **train_metrics})
         if val_loader is not None:
@@ -544,6 +625,8 @@ def train(config: TrainConfig | None = None) -> Path:
         "device": device,
         "n_params": n_params,
         "flops": flops,
+        "optimizer": cfg.optimizer,
+        "scheduler": cfg.scheduler,
     }
     (run_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return run_root

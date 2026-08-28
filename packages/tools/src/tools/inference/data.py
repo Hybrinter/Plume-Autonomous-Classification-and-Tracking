@@ -9,6 +9,7 @@ Contains:
   - SampleBatch: one image tensor plus classifier or segmentor targets.
   - ProcessedPack: memmap-backed tensors plus split index and dataset hash.
   - SplitDataset: torch Dataset over one named split.
+  - apply_train_augment: seeded flip and 90-degree rotation on the train split.
   - make_synthetic_batch: planted-blob scenes for a 1-step train smoke test.
   - make_synthetic_pack: even-index blobs with masks and labels.
   - write_processed_pack: persist tensors, splits, and dataset.json.
@@ -114,13 +115,22 @@ class SplitDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     ``(1,)`` label or a segmentor ``(1, H, W)`` mask.
     """
 
-    def __init__(self, pack: ProcessedPack, kind: str, split: str) -> None:
+    def __init__(
+        self,
+        pack: ProcessedPack,
+        kind: str,
+        split: str,
+        augment: bool = False,
+        seed: int = 0,
+    ) -> None:
         """Index one split of ``pack`` for ``kind``.
 
         Args:
             pack: Loaded processed pack.
             kind: ``classifier`` or ``segmentor``.
             split: ``train``, ``val``, or ``test``.
+            augment: When true, apply train-only flip and rotation.
+            seed: RNG seed combined with the sample index for aug.
 
         Raises:
             ValueError: If kind is unknown or the split is empty.
@@ -133,6 +143,8 @@ class SplitDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         self._pack = pack
         self._kind = kind
         self._indices = indices
+        self._augment = bool(augment)
+        self._seed = int(seed)
 
     def __len__(self) -> int:
         """Return the number of samples in the split."""
@@ -153,11 +165,48 @@ class SplitDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             target = self._pack.labels[idx]
             if target.ndim == 0:
                 target = target.reshape(1)
-            return image, target
-        target = self._pack.masks[idx]
-        if target.ndim == 2:
-            target = target.unsqueeze(0)
+        else:
+            target = self._pack.masks[idx]
+            if target.ndim == 2:
+                target = target.unsqueeze(0)
+        if self._augment:
+            image, target = apply_train_augment(image, target, self._kind, self._seed, int(index))
         return image, target
+
+
+def apply_train_augment(
+    image: torch.Tensor,
+    target: torch.Tensor,
+    kind: str,
+    seed: int,
+    index: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Apply a seeded horizontal flip and 90-degree rotation.
+
+    Args:
+        image: torch.Tensor[float32, (C, H, W)].
+        target: Classifier ``(1,)`` label or segmentor ``(1, H, W)`` mask.
+        kind: ``classifier`` or ``segmentor``.
+        seed: Train seed.
+        index: Dataset index in the split.
+
+    Returns:
+        tuple: Transformed image and target. Classifier labels stay unchanged.
+    """
+    rng = torch.Generator()
+    rng.manual_seed(int(seed) + int(index) * 1_000_003)
+    out_image = image
+    out_target = target
+    if float(torch.rand(1, generator=rng).item()) >= 0.5:
+        out_image = torch.flip(out_image, dims=(-1,))
+        if kind == "segmentor":
+            out_target = torch.flip(out_target, dims=(-1,))
+    turns = int(torch.randint(0, 4, (1,), generator=rng).item())
+    if turns:
+        out_image = torch.rot90(out_image, turns, dims=(-2, -1))
+        if kind == "segmentor":
+            out_target = torch.rot90(out_target, turns, dims=(-2, -1))
+    return out_image, out_target
 
 
 def make_synthetic_batch(

@@ -22,6 +22,8 @@ _COMPARE_KEYS: tuple[str, ...] = (
     "best_epoch",
     "val_metric",
     "best_val_metric",
+    "n_params",
+    "flops",
     "test_f1",
     "test_mean_iou",
     "test_n",
@@ -98,7 +100,16 @@ def format_list(runs: tuple[Path, ...]) -> str:
     Returns:
         str: Header plus one row per run.
     """
-    headers = ("run_id", "kind", "arch", "best_epoch", "best_val_metric", "dataset_hash")
+    headers = (
+        "run_id",
+        "kind",
+        "arch",
+        "best_epoch",
+        "best_val_metric",
+        "n_params",
+        "flops",
+        "dataset_hash",
+    )
     lines = ["\t".join(headers)]
     for path in runs:
         row = load_summary(path)

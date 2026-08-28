@@ -31,6 +31,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from tools.inference.arch.registry import build, resolve_arch
+from tools.inference.cost import count_flops, count_params
 from tools.inference.data import (
     ProcessedPack,
     SplitDataset,
@@ -456,6 +457,8 @@ def train(config: TrainConfig | None = None) -> Path:
     device = cfg.device if cfg.device else ("cuda" if torch.cuda.is_available() else "cpu")
     pack = _pack_from_config(cfg, run_root)
     model = build(cfg.kind, arch, cfg.in_channels)
+    n_params = count_params(model)
+    flops = count_flops(model, (1, cfg.in_channels, cfg.input_height_px, cfg.input_width_px))
     model.to(device)
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -539,6 +542,8 @@ def train(config: TrainConfig | None = None) -> Path:
         "n_test": len(pack.splits.test),
         "epochs": cfg.epochs,
         "device": device,
+        "n_params": n_params,
+        "flops": flops,
     }
     (run_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return run_root

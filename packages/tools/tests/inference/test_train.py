@@ -83,6 +83,8 @@ def test_train_writes_run_directory(tmp_path: Path) -> None:
     summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     assert summary["run_id"] == "seg-test"
     assert summary["n_train"] >= 1
+    assert int(summary["n_params"]) > 0
+    assert int(summary["flops"]) > 0
 
 
 def test_train_one_step_classifier(tmp_path: Path) -> None:

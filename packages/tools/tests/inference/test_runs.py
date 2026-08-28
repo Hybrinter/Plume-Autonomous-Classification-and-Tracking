@@ -18,6 +18,8 @@ def _write_run(root: Path, name: str, kind: str, iou: float) -> Path:
         "best_epoch": 1,
         "val_metric": "mean_iou",
         "best_val_metric": iou,
+        "n_params": 1000,
+        "flops": 2000,
         "dataset_hash": "abc",
     }
     (dest / "summary.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
@@ -47,6 +49,8 @@ def test_compare_includes_eval_overlay(tmp_path: Path) -> None:
     assert row["test_mean_iou"] == 0.6
     table = format_compare((dest,))
     assert "0.6" in table
+    assert "1000" in table
+    assert "2000" in table
 
 
 def test_cli_list_and_compare(tmp_path: Path) -> None:

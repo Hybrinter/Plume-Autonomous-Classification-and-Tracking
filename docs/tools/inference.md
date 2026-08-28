@@ -18,6 +18,7 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`split`](inference/split.md) | module | Frozen train/val/test recipe and dataset hash |
 | [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |
 | [`train`](inference/train.md) | module | Plain-torch SGD loop and local run directories |
+| [`cost`](inference/cost.md) | module | Parameter and FLOP counts for a logits graph |
 | [`eval`](inference/eval.md) | module | Held-out split scoring for a run |
 | [`plots`](inference/plots.md) | module | Headless curves, overlays, and failure gallery |
 | [`report`](inference/report.md) | module | Figures and markdown into a run directory |

@@ -44,8 +44,10 @@ None.
 
 ## Configuration
 
-Compare columns: run id, kind, arch, best epoch, val metric, test F1, test
-mean IoU, test n, dataset hash.
+Compare columns: run id, kind, arch, best epoch, val metric, parameter count,
+FLOPs, test F1, test mean IoU, test n, dataset hash.
+
+List columns include `n_params` and `flops`.
 
 ## Constraints
 
@@ -55,4 +57,5 @@ Torch-free. Runs live under `artifacts/runs/` by default.
 
 - [`tools.inference.train`](train.md)
 - [`tools.inference.eval`](eval.md)
+- [`tools.inference.cost`](cost.md)
 - [`tools.inference.cli`](cli.md)

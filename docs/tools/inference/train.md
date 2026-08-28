@@ -42,7 +42,8 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 4. Run SGD with `BCEWithLogitsLoss` for `epochs`. Shuffle is off.
 5. After each epoch, score train and val splits and append `history.csv`.
 6. Write `last.pt` every epoch. Write `best.pt` when the val metric improves.
-7. Write `summary.json` with hashes, counts, and the best epoch.
+7. Write `summary.json` with hashes, counts, `n_params`, `flops`, and the best
+   epoch.
 
 ## Errors and faults
 
@@ -72,6 +73,7 @@ CUDA when present, else CPU.
 ## Related documents
 
 - [`tools.inference`](../inference.md)
+- [`tools.inference.cost`](cost.md)
 - [`tools.inference.data`](data.md)
 - [`tools.inference.metrics`](metrics.md)
 - [`tools.inference.export`](export.md)

@@ -37,6 +37,7 @@ from pathlib import Path
 
 # third-party
 import numpy as np
+import torch
 
 # internal
 from flight.libs.types import Ok
@@ -46,8 +47,8 @@ from tools.inference.metrics import compute_iou as compute_iou
 from tools.inference.metrics import mean_binary_accuracy
 
 Shape = tuple[int | None, ...]
-InferenceFn = Callable[[np.ndarray], np.ndarray]
-ClassifierInferenceFn = Callable[[np.ndarray], float]
+InferenceFn = Callable[[torch.Tensor], torch.Tensor]
+ClassifierInferenceFn = Callable[[torch.Tensor], float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,15 +67,15 @@ class Manifest:
 class GoldenScene:
     """One golden evaluation case: a preprocessed input tensor and its expected mask."""
 
-    input_tensor: np.ndarray  # np.ndarray[float32, (C, H, W)]
-    gold_mask: np.ndarray  # np.ndarray[float32, (H, W)] in [0, 1]
+    input_tensor: torch.Tensor  # torch.Tensor[float32, (C, H, W)]
+    gold_mask: torch.Tensor  # torch.Tensor[float32, (H, W)] in [0, 1]
 
 
 @dataclass(frozen=True, slots=True)
 class GoldenClassifierScene:
     """One golden classifier case: a preprocessed tensor and a presence label."""
 
-    input_tensor: np.ndarray  # np.ndarray[float32, (C, H, W)]
+    input_tensor: torch.Tensor  # torch.Tensor[float32, (C, H, W)]
     label_positive: bool
 
 
@@ -172,7 +173,7 @@ def accept_artifact(
         pred = run_inference(scene.input_tensor)
         worst_latency_ms = max(worst_latency_ms, (time.perf_counter() - start) * 1000.0)
         ious.append(compute_iou(pred, scene.gold_mask, iou_threshold))
-    mean_iou = float(np.mean(ious)) if ious else 0.0
+    mean_iou = sum(ious) / float(len(ious)) if ious else 0.0
     iou_ok = bool(scenes) and mean_iou >= min_iou
     latency_ok = worst_latency_ms <= max_latency_ms
 
@@ -212,10 +213,11 @@ def onnx_inference_fn(artifact_path: str) -> InferenceFn:
     session = onnxruntime.InferenceSession(artifact_path)
     input_name = session.get_inputs()[0].name
 
-    def _run(tensor: np.ndarray) -> np.ndarray:
-        logits = session.run(None, {input_name: tensor[np.newaxis, ...]})[0]
+    def _run(tensor: torch.Tensor) -> torch.Tensor:
+        array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
+        logits = session.run(None, {input_name: array[np.newaxis, ...]})[0]
         probs = 1.0 / (1.0 + np.exp(-logits))
-        return np.asarray(probs[0, 0], dtype=np.float32)
+        return torch.from_numpy(np.asarray(probs[0, 0], dtype=np.float32))
 
     return _run
 
@@ -305,8 +307,9 @@ def onnx_classifier_inference_fn(artifact_path: str) -> ClassifierInferenceFn:
     session = onnxruntime.InferenceSession(artifact_path)
     input_name = session.get_inputs()[0].name
 
-    def _run(tensor: np.ndarray) -> float:
-        logits = session.run(None, {input_name: tensor[np.newaxis, ...]})[0]
+    def _run(tensor: torch.Tensor) -> float:
+        array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
+        logits = session.run(None, {input_name: array[np.newaxis, ...]})[0]
         return float(np.asarray(logits, dtype=np.float32).reshape(-1)[0])
 
     return _run

@@ -1,17 +1,12 @@
-"""Eval tests. Torch-backed cases skip when the train extra is absent."""
+"""Eval tests."""
 
-import importlib.util
 import json
 from pathlib import Path
 
-import pytest
 from tools.inference.eval import evaluate
 from tools.inference.train import TrainConfig, train
 
-_HAS_TORCH = importlib.util.find_spec("torch") is not None
 
-
-@pytest.mark.skipif(not _HAS_TORCH, reason="torch extra not installed")
 def test_evaluate_writes_eval_json(tmp_path: Path) -> None:
     """evaluate scores the test split of a tiny synthetic run."""
     root = train(

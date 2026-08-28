@@ -210,11 +210,7 @@ def eval_command(
     """Score a checkpoint on a held-out split."""
     from tools.inference.eval import evaluate
 
-    try:
-        path = evaluate(run, checkpoint=checkpoint, split=split)
-    except ImportError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+    path = evaluate(run, checkpoint=checkpoint, split=split)
     typer.echo(path)
 
 

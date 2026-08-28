@@ -47,7 +47,8 @@ Figure size is 9.0 by 4.5 inches at 110 DPI for curves.
 
 ## Constraints
 
-No display is required. This module does not import `tools.analysis`.
+No display is required. This module does not import `tools.analysis`. Overlay
+figures read numpy arrays from `predictions.npz`.
 
 ## Related documents
 

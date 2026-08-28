@@ -34,8 +34,9 @@ masks score 1.0.
 `accept_artifact(...) -> AcceptanceReport`. `accepted` is true only when all
 checks pass.
 
-`onnx_inference_fn(artifact_path) -> InferenceFn` maps `(C, H, W)` to a sigmoid
-mask `(H, W)`. Raises `ImportError` when onnxruntime is not installed.
+`onnx_inference_fn(artifact_path) -> InferenceFn` maps `(C, H, W)` torch
+tensors to a sigmoid mask `(H, W)`. Raises `ImportError` when onnxruntime is
+not installed. The onnxruntime session consumes numpy arrays.
 
 `accept_classifier_artifact(...) -> ClassifierAcceptanceReport`. A frame is
 positive when logit >= `logit_threshold` (default 0.0).
@@ -68,9 +69,9 @@ Callers pass `min_iou`, `min_accuracy`, `max_latency_ms`, `iou_threshold`,
 
 ## Constraints
 
-Inference runs through an injected callable. CI tests without onnxruntime.
-`compute_iou` comes from `tools.inference.metrics`. Classifier accuracy uses
-`tools.inference.metrics` as well.
+Golden scenes carry torch tensors. Injected test callables take tensors.
+`onnx_inference_fn` converts to numpy for onnxruntime. `compute_iou` comes from
+`tools.inference.metrics`. Classifier accuracy uses the same metrics module.
 
 ## Related documents
 

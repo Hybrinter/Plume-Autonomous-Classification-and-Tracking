@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import numpy as np
+import torch
 from tools.inference.accept import GoldenClassifierScene, GoldenScene, compute_iou
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -16,8 +17,14 @@ def test_golden_fixtures_load() -> None:
     assert positive.shape == (4, 8, 8)
     assert negative.shape == (4, 8, 8)
     assert mask.shape == (8, 8)
-    scene = GoldenScene(input_tensor=positive, gold_mask=mask)
-    assert compute_iou(scene.gold_mask, mask) == 1.0
-    clf = GoldenClassifierScene(input_tensor=positive, label_positive=True)
+    scene = GoldenScene(
+        input_tensor=torch.from_numpy(np.ascontiguousarray(positive)),
+        gold_mask=torch.from_numpy(np.ascontiguousarray(mask)),
+    )
+    assert compute_iou(scene.gold_mask, torch.from_numpy(np.ascontiguousarray(mask))) == 1.0
+    clf = GoldenClassifierScene(
+        input_tensor=torch.from_numpy(np.ascontiguousarray(positive)),
+        label_positive=True,
+    )
     assert clf.label_positive is True
     assert float(negative.sum()) == 0.0

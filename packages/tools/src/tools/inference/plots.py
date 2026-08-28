@@ -144,7 +144,7 @@ def overlay_figures(predictions_npz: str | Path, limit: int = 4) -> list[Labeled
     cols = 3 if kind == "segmentor" else 2
     figure, axes = plt.subplots(n, cols, figsize=(3.2 * cols, 3.0 * n), dpi=_DPI)
     axes_arr = np.atleast_2d(axes)
-    probs = sigmoid(logits)
+    probs = np.asarray(sigmoid(logits).detach().cpu().numpy())
     for i in range(n):
         axes_arr[i, 0].imshow(_rgb(images[i]))
         axes_arr[i, 0].set_title("input")

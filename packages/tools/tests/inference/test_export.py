@@ -3,8 +3,8 @@
 import importlib.util
 from pathlib import Path
 
-import numpy as np
 import pytest
+import torch
 from tools.inference.accept import (
     GoldenClassifierScene,
     GoldenScene,
@@ -20,7 +20,7 @@ _skip_no_onnx = pytest.mark.skipif(
 )
 
 
-def _gold_mask_for(tensor: np.ndarray, scenes: list[GoldenScene]) -> np.ndarray:
+def _gold_mask_for(tensor: torch.Tensor, scenes: list[GoldenScene]) -> torch.Tensor:
     """Return the gold mask of the matching scene (perfect predictor)."""
     for scene in scenes:
         if scene.input_tensor is tensor:
@@ -55,8 +55,8 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
     assert manifest.input_shape == (1, 4, 256, 256)
     assert manifest.output_shape == (1, 1, 256, 256)
 
-    tensor = np.zeros((4, 256, 256), dtype=np.float32)
-    gold = np.zeros((256, 256), dtype=np.float32)
+    tensor = torch.zeros((4, 256, 256), dtype=torch.float32)
+    gold = torch.zeros((256, 256), dtype=torch.float32)
     gold[64:192, 64:192] = 1.0
     scenes = [GoldenScene(input_tensor=tensor, gold_mask=gold)]
     report = accept_artifact(
@@ -103,7 +103,7 @@ def test_export_classifier_then_accept(tmp_path: Path) -> None:
         )
     )
     assert manifest.output_shape == (1, 1)
-    tensor = np.zeros((4, 256, 256), dtype=np.float32)
+    tensor = torch.zeros((4, 256, 256), dtype=torch.float32)
     scenes = [GoldenClassifierScene(input_tensor=tensor, label_positive=True)]
     report = accept_classifier_artifact(
         str(onnx_path),

@@ -6,7 +6,7 @@
 ## Purpose
 
 This module scores a trained checkpoint on a named split and writes `eval.json`.
-Importing the module does not import torch.
+Forward and metrics stay on torch tensors.
 
 ## Public interface
 
@@ -30,8 +30,8 @@ Returns the `eval.json` path. Also writes `predictions.npz` and updates
 
 ## Errors and faults
 
-`ImportError` when torch is not installed. `FileNotFoundError` when the run,
-checkpoint, or pack is missing. `ValueError` on an unknown split name.
+`FileNotFoundError` when the run, checkpoint, or pack is missing. `ValueError`
+on an unknown split name.
 
 ## Messages
 
@@ -43,8 +43,8 @@ Default checkpoint is `checkpoints/best.pt`. Default split is `test`.
 
 ## Constraints
 
-Torch imports are lazy inside `evaluate`. This module does not import
-`tools.analysis`.
+`predictions.npz` stores numpy arrays for the plot layer. This module does not
+import `tools.analysis`.
 
 ## Related documents
 

@@ -1,4 +1,4 @@
-"""Classifier and segmentation scoring helpers (pure NumPy).
+"""Classifier and segmentation scoring helpers (torch).
 
 This module holds design metrics for both heads. Acceptance and training import
 these helpers. Graphs emit logits; ROC, PR, and Brier use sigmoid probabilities.
@@ -10,7 +10,7 @@ Contains:
   - confusion_counts / precision_recall_f1: thresholded binary scores.
   - roc_auc / average_precision / brier_score / reliability_bins.
   - classifier_metrics / segmentor_metrics: split-level summaries.
-  - binary_cross_entropy_with_logits: numpy BCE for reports.
+  - binary_cross_entropy_with_logits: BCE for reports.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
@@ -20,10 +20,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import torch
+import torch.nn.functional as functional
 
 BLOB_GATE = 0.55
 MASK_THRESHOLD = 0.5
 LOGIT_THRESHOLD = 0.0
+_LOGIT_CLAMP = 60.0
+_EPS = 1e-12
+
+ArrayLike = torch.Tensor | np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,17 +110,33 @@ class SegmentorMetrics:
     bce: float
 
 
-def sigmoid(logits: np.ndarray) -> np.ndarray:
+def _as_tensor(value: ArrayLike, *, dtype: torch.dtype | None = None) -> torch.Tensor:
+    """Return a CPU tensor view of ``value``."""
+    tensor = value if isinstance(value, torch.Tensor) else torch.as_tensor(value)
+    if dtype is not None and tensor.dtype != dtype:
+        tensor = tensor.to(dtype=dtype)
+    return tensor
+
+
+def _as_bool(value: ArrayLike) -> torch.Tensor:
+    """Ravel ``value`` to a 1-D bool tensor (nonzero is True)."""
+    tensor = _as_tensor(value).reshape(-1)
+    if tensor.dtype == torch.bool:
+        return tensor
+    return tensor != 0
+
+
+def sigmoid(logits: ArrayLike) -> torch.Tensor:
     """Return elementwise logistic sigmoid of logits.
 
     Args:
         logits: Unbounded scores.
 
     Returns:
-        np.ndarray[float64]: Probabilities in (0, 1) with the same shape.
+        torch.Tensor: Probabilities in (0, 1) with the same shape.
     """
-    clipped = np.clip(np.asarray(logits, dtype=np.float64), -60.0, 60.0)
-    return 1.0 / (1.0 + np.exp(-clipped))
+    tensor = _as_tensor(logits, dtype=torch.float64)
+    return torch.sigmoid(tensor.clamp(-_LOGIT_CLAMP, _LOGIT_CLAMP))
 
 
 def binary_accuracy(pred_positive: bool, label_positive: bool) -> float:
@@ -153,7 +175,7 @@ def mean_binary_accuracy(
     return total / float(len(pred_positive))
 
 
-def compute_iou(pred_mask: np.ndarray, gold_mask: np.ndarray, threshold: float = 0.5) -> float:
+def compute_iou(pred_mask: ArrayLike, gold_mask: ArrayLike, threshold: float = 0.5) -> float:
     """Compute the binary intersection-over-union of a predicted vs golden mask.
 
     Args:
@@ -164,16 +186,16 @@ def compute_iou(pred_mask: np.ndarray, gold_mask: np.ndarray, threshold: float =
     Returns:
         float: IoU in [0, 1]. Two empty masks score 1.0.
     """
-    pred = np.asarray(pred_mask) >= threshold
-    gold = np.asarray(gold_mask) >= threshold
-    intersection = float(np.logical_and(pred, gold).sum())
-    union = float(np.logical_or(pred, gold).sum())
+    pred = _as_tensor(pred_mask) >= threshold
+    gold = _as_tensor(gold_mask) >= threshold
+    intersection = float(torch.logical_and(pred, gold).sum().item())
+    union = float(torch.logical_or(pred, gold).sum().item())
     if union == 0.0:
         return 1.0
     return intersection / union
 
 
-def compute_dice(pred_mask: np.ndarray, gold_mask: np.ndarray, threshold: float = 0.5) -> float:
+def compute_dice(pred_mask: ArrayLike, gold_mask: ArrayLike, threshold: float = 0.5) -> float:
     """Compute the binary Dice coefficient of a predicted vs golden mask.
 
     Args:
@@ -184,16 +206,16 @@ def compute_dice(pred_mask: np.ndarray, gold_mask: np.ndarray, threshold: float 
     Returns:
         float: Dice in [0, 1]. Two empty masks score 1.0.
     """
-    pred = np.asarray(pred_mask) >= threshold
-    gold = np.asarray(gold_mask) >= threshold
-    intersection = float(np.logical_and(pred, gold).sum())
-    total = float(pred.sum() + gold.sum())
+    pred = _as_tensor(pred_mask) >= threshold
+    gold = _as_tensor(gold_mask) >= threshold
+    intersection = float(torch.logical_and(pred, gold).sum().item())
+    total = float(pred.sum().item() + gold.sum().item())
     if total == 0.0:
         return 1.0
     return (2.0 * intersection) / total
 
 
-def confusion_counts(pred_positive: np.ndarray, label_positive: np.ndarray) -> ConfusionCounts:
+def confusion_counts(pred_positive: ArrayLike, label_positive: ArrayLike) -> ConfusionCounts:
     """Return confusion counts for aligned boolean arrays.
 
     Args:
@@ -206,14 +228,14 @@ def confusion_counts(pred_positive: np.ndarray, label_positive: np.ndarray) -> C
     Raises:
         ValueError: If lengths differ.
     """
-    pred = np.asarray(pred_positive, dtype=bool).ravel()
-    label = np.asarray(label_positive, dtype=bool).ravel()
-    if pred.size != label.size:
+    pred = _as_bool(pred_positive)
+    label = _as_bool(label_positive)
+    if pred.numel() != label.numel():
         raise ValueError("pred_positive and label_positive must have equal length")
-    tp = int(np.logical_and(pred, label).sum())
-    fp = int(np.logical_and(pred, np.logical_not(label)).sum())
-    tn = int(np.logical_and(np.logical_not(pred), np.logical_not(label)).sum())
-    fn = int(np.logical_and(np.logical_not(pred), label).sum())
+    tp = int(torch.logical_and(pred, label).sum().item())
+    fp = int(torch.logical_and(pred, torch.logical_not(label)).sum().item())
+    tn = int(torch.logical_and(torch.logical_not(pred), torch.logical_not(label)).sum().item())
+    fn = int(torch.logical_and(torch.logical_not(pred), label).sum().item())
     return ConfusionCounts(tp=tp, fp=fp, tn=tn, fn=fn)
 
 
@@ -243,7 +265,16 @@ def precision_recall_f1(counts: ConfusionCounts) -> tuple[float, float, float]:
     return precision, recall, f1
 
 
-def roc_auc(scores: np.ndarray, labels: np.ndarray) -> float:
+def _flatten_pair(scores: ArrayLike, labels: ArrayLike) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return 1-D float64 score and label tensors of equal length."""
+    score_t = _as_tensor(scores, dtype=torch.float64).reshape(-1)
+    label_t = _as_tensor(labels, dtype=torch.float64).reshape(-1)
+    if score_t.numel() != label_t.numel():
+        raise ValueError("scores and labels must have equal length")
+    return score_t, label_t
+
+
+def roc_auc(scores: ArrayLike, labels: ArrayLike) -> float:
     """Return ROC-AUC from scores and binary labels.
 
     Args:
@@ -253,26 +284,23 @@ def roc_auc(scores: np.ndarray, labels: np.ndarray) -> float:
     Returns:
         float: Area under the ROC curve. 0.0 when n is 0 or a class is missing.
     """
-    y = np.asarray(labels, dtype=np.float64).ravel()
-    s = np.asarray(scores, dtype=np.float64).ravel()
-    if y.size == 0 or y.size != s.size:
-        if y.size != s.size:
-            raise ValueError("scores and labels must have equal length")
+    score_t, label_t = _flatten_pair(scores, labels)
+    if score_t.numel() == 0:
         return 0.0
-    n_pos = float(y.sum())
-    n_neg = float(y.size) - n_pos
+    n_pos = float(label_t.sum().item())
+    n_neg = float(label_t.numel()) - n_pos
     if n_pos == 0.0 or n_neg == 0.0:
         return 0.0
-    order = np.argsort(-s, kind="mergesort")
-    y_sorted = y[order]
-    tps = np.cumsum(y_sorted)
-    fps = np.cumsum(1.0 - y_sorted)
-    tpr = np.concatenate(([0.0], tps / n_pos))
-    fpr = np.concatenate(([0.0], fps / n_neg))
-    return float(np.trapezoid(tpr, fpr))
+    order = torch.argsort(score_t, descending=True, stable=True)
+    y_sorted = label_t[order]
+    tps = torch.cumsum(y_sorted, dim=0)
+    fps = torch.cumsum(1.0 - y_sorted, dim=0)
+    tpr = torch.cat((torch.zeros(1, dtype=torch.float64), tps / n_pos))
+    fpr = torch.cat((torch.zeros(1, dtype=torch.float64), fps / n_neg))
+    return float(torch.trapezoid(tpr, fpr).item())
 
 
-def average_precision(scores: np.ndarray, labels: np.ndarray) -> float:
+def average_precision(scores: ArrayLike, labels: ArrayLike) -> float:
     """Return average precision (area under the precision-recall curve).
 
     Args:
@@ -283,27 +311,24 @@ def average_precision(scores: np.ndarray, labels: np.ndarray) -> float:
         float: Average precision in [0, 1]. 0.0 when n is 0 or there is no
         positive label.
     """
-    y = np.asarray(labels, dtype=np.float64).ravel()
-    s = np.asarray(scores, dtype=np.float64).ravel()
-    if y.size == 0:
+    score_t, label_t = _flatten_pair(scores, labels)
+    if score_t.numel() == 0:
         return 0.0
-    if y.size != s.size:
-        raise ValueError("scores and labels must have equal length")
-    n_pos = float(y.sum())
+    n_pos = float(label_t.sum().item())
     if n_pos == 0.0:
         return 0.0
-    order = np.argsort(-s, kind="mergesort")
-    y_sorted = y[order]
-    tps = np.cumsum(y_sorted)
-    fps = np.cumsum(1.0 - y_sorted)
-    precision = tps / np.maximum(tps + fps, 1e-12)
+    order = torch.argsort(score_t, descending=True, stable=True)
+    y_sorted = label_t[order]
+    tps = torch.cumsum(y_sorted, dim=0)
+    fps = torch.cumsum(1.0 - y_sorted, dim=0)
+    precision = tps / torch.clamp(tps + fps, min=_EPS)
     recall = tps / n_pos
-    recall_ext = np.concatenate(([0.0], recall))
-    precision_ext = np.concatenate(([1.0], precision))
-    return float(np.sum(np.diff(recall_ext) * precision_ext[1:]))
+    recall_ext = torch.cat((torch.zeros(1, dtype=torch.float64), recall))
+    precision_ext = torch.cat((torch.ones(1, dtype=torch.float64), precision))
+    return float(torch.sum((recall_ext[1:] - recall_ext[:-1]) * precision_ext[1:]).item())
 
 
-def brier_score(probs: np.ndarray, labels: np.ndarray) -> float:
+def brier_score(probs: ArrayLike, labels: ArrayLike) -> float:
     """Return mean squared error between probabilities and labels.
 
     Args:
@@ -313,18 +338,15 @@ def brier_score(probs: np.ndarray, labels: np.ndarray) -> float:
     Returns:
         float: Brier score. 0.0 when n is 0.
     """
-    p = np.asarray(probs, dtype=np.float64).ravel()
-    y = np.asarray(labels, dtype=np.float64).ravel()
-    if p.size == 0:
+    prob_t, label_t = _flatten_pair(probs, labels)
+    if prob_t.numel() == 0:
         return 0.0
-    if p.size != y.size:
-        raise ValueError("probs and labels must have equal length")
-    return float(np.mean((p - y) ** 2))
+    return float(torch.mean((prob_t - label_t) ** 2).item())
 
 
 def reliability_bins(
-    probs: np.ndarray,
-    labels: np.ndarray,
+    probs: ArrayLike,
+    labels: ArrayLike,
     n_bins: int = 10,
 ) -> tuple[ReliabilityBin, ...]:
     """Return calibration bins of mean confidence versus mean label.
@@ -342,35 +364,32 @@ def reliability_bins(
     """
     if n_bins < 1:
         raise ValueError("n_bins must be >= 1")
-    p = np.asarray(probs, dtype=np.float64).ravel()
-    y = np.asarray(labels, dtype=np.float64).ravel()
-    if p.size != y.size:
-        raise ValueError("probs and labels must have equal length")
-    if p.size == 0:
+    prob_t, label_t = _flatten_pair(probs, labels)
+    if prob_t.numel() == 0:
         return ()
-    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    edges = torch.linspace(0.0, 1.0, n_bins + 1, dtype=torch.float64)
     bins: list[ReliabilityBin] = []
     for i in range(n_bins):
         lo = edges[i]
         hi = edges[i + 1]
         if i == n_bins - 1:
-            mask = (p >= lo) & (p <= hi)
+            in_bin = (prob_t >= lo) & (prob_t <= hi)
         else:
-            mask = (p >= lo) & (p < hi)
-        count = int(mask.sum())
+            in_bin = (prob_t >= lo) & (prob_t < hi)
+        count = int(in_bin.sum().item())
         if count == 0:
             continue
         bins.append(
             ReliabilityBin(
-                confidence=float(p[mask].mean()),
-                accuracy=float(y[mask].mean()),
+                confidence=float(prob_t[in_bin].mean().item()),
+                accuracy=float(label_t[in_bin].mean().item()),
                 count=count,
             )
         )
     return tuple(bins)
 
 
-def binary_cross_entropy_with_logits(logits: np.ndarray, targets: np.ndarray) -> float:
+def binary_cross_entropy_with_logits(logits: ArrayLike, targets: ArrayLike) -> float:
     """Return mean BCE with logits (numerically stable).
 
     Args:
@@ -380,37 +399,35 @@ def binary_cross_entropy_with_logits(logits: np.ndarray, targets: np.ndarray) ->
     Returns:
         float: Mean BCE. 0.0 when n is 0.
     """
-    z = np.asarray(logits, dtype=np.float64)
-    y = np.asarray(targets, dtype=np.float64)
-    if z.size == 0:
+    logit_t = _as_tensor(logits, dtype=torch.float32)
+    target_t = _as_tensor(targets, dtype=torch.float32)
+    if logit_t.numel() == 0:
         return 0.0
-    if z.shape != y.shape:
+    if logit_t.shape != target_t.shape:
         raise ValueError("logits and targets must have the same shape")
-    # log(1 + exp(z)) - y z, stable via max(z, 0) + log(1 + exp(-|z|)) - y z
-    loss = np.maximum(z, 0.0) - z * y + np.log1p(np.exp(-np.abs(z)))
-    return float(np.mean(loss))
+    return float(functional.binary_cross_entropy_with_logits(logit_t, target_t).item())
 
 
 def classifier_metrics(
-    logits: np.ndarray,
-    labels: np.ndarray,
+    logits: ArrayLike,
+    labels: ArrayLike,
     logit_threshold: float = LOGIT_THRESHOLD,
 ) -> ClassifierMetrics:
     """Score a classifier split from logits and labels.
 
     Args:
-        logits: np.ndarray[float, (N,) or (N, 1)].
-        labels: np.ndarray[float, (N,) or (N, 1)] in {0, 1}.
+        logits: Tensor[float, (N,) or (N, 1)].
+        labels: Tensor[float, (N,) or (N, 1)] in {0, 1}.
         logit_threshold: Positive when logit >= this value. Default 0.0.
 
     Returns:
         ClassifierMetrics: Thresholded and ranking scores. n=0 yields zeros.
     """
-    z = np.asarray(logits, dtype=np.float64).ravel()
-    y = np.asarray(labels, dtype=np.float64).ravel()
-    if z.size != y.size:
+    logit_t = _as_tensor(logits, dtype=torch.float64).reshape(-1)
+    label_t = _as_tensor(labels, dtype=torch.float64).reshape(-1)
+    if logit_t.numel() != label_t.numel():
         raise ValueError("logits and labels must have equal length")
-    n = int(z.size)
+    n = int(logit_t.numel())
     if n == 0:
         return ClassifierMetrics(
             n=0,
@@ -423,47 +440,47 @@ def classifier_metrics(
             brier=0.0,
             bce=0.0,
         )
-    pred = z >= logit_threshold
-    label_bool = y >= 0.5
+    pred = logit_t >= logit_threshold
+    label_bool = label_t >= 0.5
     counts = confusion_counts(pred, label_bool)
     precision, recall, f1 = precision_recall_f1(counts)
-    accuracy = float((pred == label_bool).mean())
-    probs = sigmoid(z)
+    accuracy = float((pred == label_bool).to(dtype=torch.float64).mean().item())
+    probs = sigmoid(logit_t)
     return ClassifierMetrics(
         n=n,
         accuracy=accuracy,
         precision=precision,
         recall=recall,
         f1=f1,
-        roc_auc=roc_auc(z, y),
-        pr_auc=average_precision(z, y),
-        brier=brier_score(probs, y),
-        bce=binary_cross_entropy_with_logits(z, y),
+        roc_auc=roc_auc(logit_t, label_t),
+        pr_auc=average_precision(logit_t, label_t),
+        brier=brier_score(probs, label_t),
+        bce=binary_cross_entropy_with_logits(logit_t, label_t),
     )
 
 
-def _iter_masks(stack: np.ndarray) -> list[np.ndarray]:
+def _iter_masks(stack: ArrayLike) -> list[torch.Tensor]:
     """Yield 2-D masks from (N, H, W) or (N, 1, H, W)."""
-    arr = np.asarray(stack)
+    arr = _as_tensor(stack)
     if arr.ndim == 2:
         return [arr]
     if arr.ndim == 3:
         return [arr[i] for i in range(arr.shape[0])]
     if arr.ndim == 4:
         return [arr[i, 0] for i in range(arr.shape[0])]
-    raise ValueError(f"expected (H, W), (N, H, W), or (N, 1, H, W); got {arr.shape}")
+    raise ValueError(f"expected (H, W), (N, H, W), or (N, 1, H, W); got {tuple(arr.shape)}")
 
 
 def segmentor_metrics(
-    logits: np.ndarray,
-    masks: np.ndarray,
+    logits: ArrayLike,
+    masks: ArrayLike,
     mask_threshold: float = MASK_THRESHOLD,
     blob_gate: float = BLOB_GATE,
 ) -> SegmentorMetrics:
     """Score a segmentor split from logits and gold masks.
 
     Args:
-        logits: np.ndarray[float, (N, 1, H, W) or (N, H, W)].
+        logits: Tensor[float, (N, 1, H, W) or (N, H, W)].
         masks: Gold masks with the same rank, values in {0, 1}.
         mask_threshold: Probability threshold for IoU and Dice. Default 0.5.
         blob_gate: Onboard blob-gate threshold. Default 0.55.
@@ -492,14 +509,11 @@ def segmentor_metrics(
         ious.append(compute_iou(probs, gold_mask, mask_threshold))
         dices.append(compute_dice(probs, gold_mask, mask_threshold))
         blob_ious.append(compute_iou(probs, gold_mask, blob_gate))
-    bce = binary_cross_entropy_with_logits(
-        np.asarray(logits, dtype=np.float64),
-        np.asarray(masks, dtype=np.float64),
-    )
+    bce = binary_cross_entropy_with_logits(logits, masks)
     return SegmentorMetrics(
         n=n,
-        mean_iou=float(np.mean(ious)),
-        mean_dice=float(np.mean(dices)),
-        mean_iou_blob_gate=float(np.mean(blob_ious)),
+        mean_iou=float(torch.tensor(ious, dtype=torch.float64).mean().item()),
+        mean_dice=float(torch.tensor(dices, dtype=torch.float64).mean().item()),
+        mean_iou_blob_gate=float(torch.tensor(blob_ious, dtype=torch.float64).mean().item()),
         bce=bce,
     )

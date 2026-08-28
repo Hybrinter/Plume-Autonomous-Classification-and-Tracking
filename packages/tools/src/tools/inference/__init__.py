@@ -6,7 +6,7 @@ dependencies. Inference batches are torch tensors.
 
 Contains:
   - accept: frozen ONNX intake gate (hash, I/O, IoU or accuracy, latency).
-  - metrics: classifier and segmentor design metrics.
+  - metrics: torch classifier and segmentor design metrics.
   - data: synthetic scenes, processed packs, and torch Dataset split loaders.
   - split: frozen train/val/test recipe and dataset hash.
   - fetch: Zenodo 4250706 checksums, unpack, labeled preprocess.

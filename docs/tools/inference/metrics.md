@@ -5,8 +5,8 @@
 
 ## Purpose
 
-This module scores classifier presence predictions and segmentor masks. It stays
-torch-free.
+This module scores classifier presence predictions and segmentor masks. Inputs
+are torch tensors. NumPy arrays convert at the call edge.
 
 ## Public interface
 
@@ -25,8 +25,11 @@ torch-free.
 | `classifier_metrics` | function | Split-level classifier summary |
 | `segmentor_metrics` | function | Split-level mask overlap summary |
 | `binary_cross_entropy_with_logits` | function | Mean BCE on logits |
+| `sigmoid` | function | Element-wise logistic |
 | `ClassifierMetrics` | class | Classifier summary fields |
 | `SegmentorMetrics` | class | Segmentor summary fields |
+| `ConfusionCounts` | class | tp, fp, tn, fn |
+| `ReliabilityBin` | class | One calibration bin |
 
 ## Inputs and outputs
 
@@ -67,7 +70,7 @@ None.
 
 ## Constraints
 
-Pure NumPy. No torch. No file I/O.
+Pure torch reductions. No Lightning. No torchmetrics. No file I/O.
 
 ## Related documents
 

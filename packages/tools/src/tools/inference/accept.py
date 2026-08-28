@@ -42,7 +42,8 @@ import numpy as np
 from flight.libs.types import Ok
 from flight.payload.inference.verify import verify_io_contract, verify_model_hash
 
-from tools.inference.metrics import compute_iou, mean_binary_accuracy
+from tools.inference.metrics import compute_iou as compute_iou
+from tools.inference.metrics import mean_binary_accuracy
 
 Shape = tuple[int | None, ...]
 InferenceFn = Callable[[np.ndarray], np.ndarray]

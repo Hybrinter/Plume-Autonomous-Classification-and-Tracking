@@ -37,9 +37,9 @@ status.
 
 ## Errors and faults
 
-Invalid command input returns the Click usage-error exit code. Missing optional
-training or export dependencies print the import error and return 1. A failed
-acceptance gate returns 1.
+Invalid command input returns the Click usage-error exit code. A failed train
+(`ValueError` or `FileExistsError`) or a failed acceptance gate returns 1.
+Missing optional export dependencies print the import error and return 1.
 
 ## Messages
 
@@ -48,7 +48,8 @@ None.
 ## Configuration
 
 Commands expose the same train, export, accept, eval, and fetch options as their
-library configuration objects and functions.
+library configuration objects and functions. `train` overlays every
+`TrainConfig` field. `--overwrite` sets `overwrite` true.
 
 ## Constraints
 

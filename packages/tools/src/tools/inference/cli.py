@@ -59,6 +59,17 @@ def train_command(
     height: Annotated[int | None, typer.Option(help="Input height in pixels.")] = None,
     width: Annotated[int | None, typer.Option(help="Input width in pixels.")] = None,
     seed: Annotated[int | None, typer.Option(help="Random seed.")] = None,
+    in_channels: Annotated[int | None, typer.Option(help="Input band count.")] = None,
+    learning_rate: Annotated[float | None, typer.Option(help="Optimizer learning rate.")] = None,
+    momentum: Annotated[float | None, typer.Option(help="SGD momentum.")] = None,
+    weight_decay: Annotated[float | None, typer.Option(help="Weight decay.")] = None,
+    synthetic_samples: Annotated[int | None, typer.Option(help="Synthetic pack size.")] = None,
+    bit_depth: Annotated[int | None, typer.Option(help="DN bit depth.")] = None,
+    val_metric: Annotated[str | None, typer.Option(help="Best-checkpoint metric.")] = None,
+    device: Annotated[str | None, typer.Option(help="Torch device string.")] = None,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Replace an existing run directory.")
+    ] = False,
 ) -> None:
     """Train a classifier or segmentor and write a run directory."""
     cfg = overlay_train_config(
@@ -74,10 +85,19 @@ def train_command(
         seed=seed,
         run_dir=run_dir,
         run_id=run_id,
+        in_channels=in_channels,
+        learning_rate=learning_rate,
+        momentum=momentum,
+        weight_decay=weight_decay,
+        synthetic_samples=synthetic_samples,
+        bit_depth=bit_depth,
+        val_metric=val_metric,
+        device=device,
+        overwrite=True if overwrite else None,
     )
     try:
         path = train(cfg)
-    except ValueError as exc:
+    except (ValueError, FileExistsError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(path)

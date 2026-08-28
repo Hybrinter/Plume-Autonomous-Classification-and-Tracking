@@ -30,3 +30,25 @@ def test_cli_train_unknown_arch(tmp_path: Path) -> None:
         ]
     )
     assert code == 1
+
+
+def test_cli_train_overwrite_flag(tmp_path: Path) -> None:
+    """Train CLI --overwrite replaces an existing named run."""
+    argv = [
+        "train",
+        "--kind",
+        "segmentor",
+        "--run-dir",
+        str(tmp_path),
+        "--run-id",
+        "cli-run",
+        "--epochs",
+        "1",
+        "--height",
+        "32",
+        "--width",
+        "32",
+    ]
+    assert main(argv) == 0
+    assert main(argv) != 0
+    assert main([*argv, "--overwrite"]) == 0

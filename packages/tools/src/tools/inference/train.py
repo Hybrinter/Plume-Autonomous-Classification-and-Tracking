@@ -9,6 +9,7 @@ Contains:
   - TrainConfig: frozen hyperparameters.
   - load_train_config: dataclass defaults overlaid with an optional TOML file.
   - overlay_train_config: CLI field overlays.
+  - config_digest: 8-hex identity of experiment fields.
   - train: run the loop and write a run directory.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -17,10 +18,11 @@ Satisfies: REQ-AIML-HIGH-004.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import subprocess
 import tomllib
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +74,30 @@ class TrainConfig:
     run_id: str = ""
     val_metric: str = ""
     device: str = ""
+    overwrite: bool = False
+
+
+_DIGEST_SKIP = frozenset({"run_dir", "run_id", "checkpoint_path", "overwrite"})
+
+
+def config_digest(cfg: TrainConfig) -> str:
+    """Return an 8-hex digest of the train fields that identify an experiment.
+
+    Args:
+        cfg: Frozen train hyperparameters.
+
+    Returns:
+        str: First eight hex characters of SHA-256 over the JSON of fields
+        other than ``run_dir``, ``run_id``, ``checkpoint_path``, and
+        ``overwrite``.
+    """
+    payload = {
+        item.name: getattr(cfg, item.name)
+        for item in fields(TrainConfig)
+        if item.name not in _DIGEST_SKIP
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:8]
 
 
 def load_train_config(path: str | None = None) -> TrainConfig:
@@ -119,6 +145,7 @@ def load_train_config(path: str | None = None) -> TrainConfig:
         run_id=str(data.get("run_id", cfg.run_id)),
         val_metric=str(data.get("val_metric", cfg.val_metric)),
         device=str(data.get("device", cfg.device)),
+        overwrite=bool(data["overwrite"]) if "overwrite" in data else cfg.overwrite,
     )
 
 
@@ -135,6 +162,15 @@ def overlay_train_config(
     seed: int | None = None,
     run_dir: str | None = None,
     run_id: str | None = None,
+    in_channels: int | None = None,
+    learning_rate: float | None = None,
+    momentum: float | None = None,
+    weight_decay: float | None = None,
+    synthetic_samples: int | None = None,
+    bit_depth: int | None = None,
+    val_metric: str | None = None,
+    device: str | None = None,
+    overwrite: bool | None = None,
 ) -> TrainConfig:
     """Return a copy of `cfg` with any non-None CLI overlays applied.
 
@@ -151,30 +187,43 @@ def overlay_train_config(
         seed: Optional RNG seed.
         run_dir: Optional parent directory for runs.
         run_id: Optional run directory name.
+        in_channels: Optional input band count.
+        learning_rate: Optional SGD learning rate.
+        momentum: Optional SGD momentum.
+        weight_decay: Optional weight decay.
+        synthetic_samples: Optional synthetic pack size.
+        bit_depth: Optional DN bit depth.
+        val_metric: Optional best-checkpoint metric name.
+        device: Optional torch device string.
+        overwrite: Optional replace-existing-run flag.
 
     Returns:
         TrainConfig: Frozen overlay.
     """
-    return TrainConfig(
+    return replace(
+        cfg,
         kind=kind if kind is not None else cfg.kind,
         arch=arch if arch is not None else cfg.arch,
         input_height_px=input_height_px if input_height_px is not None else cfg.input_height_px,
         input_width_px=input_width_px if input_width_px is not None else cfg.input_width_px,
-        in_channels=cfg.in_channels,
+        in_channels=in_channels if in_channels is not None else cfg.in_channels,
         epochs=epochs if epochs is not None else cfg.epochs,
         batch_size=batch_size if batch_size is not None else cfg.batch_size,
-        learning_rate=cfg.learning_rate,
-        momentum=cfg.momentum,
-        weight_decay=cfg.weight_decay,
+        learning_rate=learning_rate if learning_rate is not None else cfg.learning_rate,
+        momentum=momentum if momentum is not None else cfg.momentum,
+        weight_decay=weight_decay if weight_decay is not None else cfg.weight_decay,
         seed=seed if seed is not None else cfg.seed,
-        synthetic_samples=cfg.synthetic_samples,
+        synthetic_samples=(
+            synthetic_samples if synthetic_samples is not None else cfg.synthetic_samples
+        ),
         data_dir=data_dir if data_dir is not None else cfg.data_dir,
         checkpoint_path=checkpoint_path if checkpoint_path is not None else cfg.checkpoint_path,
-        bit_depth=cfg.bit_depth,
+        bit_depth=bit_depth if bit_depth is not None else cfg.bit_depth,
         run_dir=run_dir if run_dir is not None else cfg.run_dir,
         run_id=run_id if run_id is not None else cfg.run_id,
-        val_metric=cfg.val_metric,
-        device=cfg.device,
+        val_metric=val_metric if val_metric is not None else cfg.val_metric,
+        device=device if device is not None else cfg.device,
+        overwrite=overwrite if overwrite is not None else cfg.overwrite,
     )
 
 
@@ -382,6 +431,8 @@ def train(config: TrainConfig | None = None) -> Path:
 
     Raises:
         ValueError: If `config.kind` or architecture is unknown.
+        FileExistsError: If the run directory already has ``summary.json`` and
+            ``overwrite`` is false.
 
     Notes:
         `checkpoints/last.pt` updates every epoch. `checkpoints/best.pt` stores
@@ -393,8 +444,10 @@ def train(config: TrainConfig | None = None) -> Path:
         raise ValueError(f"unknown train kind {cfg.kind!r}")
     arch = resolve_arch(cfg.kind, cfg.arch)
     val_metric = _default_val_metric(cfg.kind, cfg.val_metric)
-    run_id = cfg.run_id if cfg.run_id else f"{cfg.kind}-{arch}-{cfg.seed}"
+    run_id = cfg.run_id if cfg.run_id else f"{cfg.kind}-{arch}-{cfg.seed}-{config_digest(cfg)}"
     run_root = Path(cfg.run_dir) / run_id
+    if (run_root / "summary.json").is_file() and not cfg.overwrite:
+        raise FileExistsError(f"run directory exists: {run_root}")
     run_root.mkdir(parents=True, exist_ok=True)
     ckpt_dir = run_root / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)

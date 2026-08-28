@@ -19,23 +19,15 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 import torch
 from torch import nn
 
 ENCODER_CHANNELS: tuple[int, int, int, int] = (64, 128, 256, 512)
 
-# Annotated Any so torch-free mypy (CI extra=dev, no torch) and the train extra
-# both see a stable subclass target. nn.Module is a real class at runtime.
-_ModuleBase: Any = nn.Module
 
-
-class _TorchModule(_ModuleBase):  # type: ignore[misc]
-    """Runtime nn.Module base for the U-Net stages."""
-
-
-class ConvBlock(_TorchModule):
+class ConvBlock(nn.Module):
     """Two padded 3x3 convolutions with batch-norm and ReLU.
 
     Padding keeps height and width unchanged. Bias is off because batch-norm
@@ -71,7 +63,7 @@ class ConvBlock(_TorchModule):
         return cast(torch.Tensor, self.block(x))
 
 
-class EncoderStage(_TorchModule):
+class EncoderStage(nn.Module):
     """Downsample by 2 then extract features."""
 
     def __init__(self, in_channels: int, out_channels: int) -> None:
@@ -97,7 +89,7 @@ class EncoderStage(_TorchModule):
         return cast(torch.Tensor, self.conv(self.pool(x)))
 
 
-class DecoderStage(_TorchModule):
+class DecoderStage(nn.Module):
     """Bilinear upsample, concatenate the skip tensor, then ConvBlock."""
 
     def __init__(self, in_channels: int, skip_channels: int, out_channels: int) -> None:
@@ -130,7 +122,7 @@ class DecoderStage(_TorchModule):
         return cast(torch.Tensor, self.conv(torch.cat((x_up, skip), dim=1)))
 
 
-class UNet(_TorchModule):
+class UNet(nn.Module):
     """Four-level bilinear U-Net with a single logit channel.
 
     Stem ConvBlock at 64 channels, three encoder stages to 512, a 512-channel

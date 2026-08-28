@@ -7,16 +7,17 @@
 
 The acceptance gate checks a frozen ONNX artifact before it enters `data/models/`.
 It runs manifest, hash, I/O contract, golden-scene IoU, and latency checks.
+The manifest records `quantization` (`fp32` or `int8`).
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `Manifest` | class | Sidecar JSON fields for a frozen artifact |
+| `Manifest` | class | Sidecar JSON fields, including `quantization` |
 | `GoldenScene` | class | Input tensor and expected mask for IoU scoring |
 | `AcceptanceReport` | class | Per-check booleans and aggregate accept flag |
 | `load_manifest` | function | Parse manifest JSON |
-| `compute_iou` | function | Binary IoU between predicted and golden masks |
+| `compute_iou` | function | Re-export of mask IoU from `tools.inference.metrics` |
 | `accept_artifact` | function | Run the segmentor gate and return a report |
 | `onnx_inference_fn` | function | Build an onnxruntime-backed mask callable |
 | `GoldenClassifierScene` | class | Input tensor and presence label |
@@ -27,6 +28,7 @@ It runs manifest, hash, I/O contract, golden-scene IoU, and latency checks.
 ## Inputs and outputs
 
 `load_manifest(path) -> Manifest`. Raises on missing or malformed JSON.
+Missing `quantization` defaults to `fp32`.
 
 `compute_iou(pred_mask, gold_mask, threshold=0.5) -> float` in [0, 1]. Two empty
 masks score 1.0.
@@ -34,8 +36,9 @@ masks score 1.0.
 `accept_artifact(...) -> AcceptanceReport`. `accepted` is true only when all
 checks pass.
 
-`onnx_inference_fn(artifact_path) -> InferenceFn` maps `(C, H, W)` to a sigmoid
-mask `(H, W)`. Raises `ImportError` when onnxruntime is not installed.
+`onnx_inference_fn(artifact_path) -> InferenceFn` maps `(C, H, W)` torch
+tensors to a sigmoid mask `(H, W)`. Raises `ImportError` when onnxruntime is
+not installed. The onnxruntime session consumes numpy arrays.
 
 `accept_classifier_artifact(...) -> ClassifierAcceptanceReport`. A frame is
 positive when logit >= `logit_threshold` (default 0.0).
@@ -68,10 +71,12 @@ Callers pass `min_iou`, `min_accuracy`, `max_latency_ms`, `iou_threshold`,
 
 ## Constraints
 
-Inference runs through an injected callable. CI tests without onnxruntime. IoU is
-pure NumPy. Classifier accuracy uses `tools.inference.metrics`.
+Golden scenes carry torch tensors. Injected test callables take tensors.
+`onnx_inference_fn` converts to numpy for onnxruntime. `compute_iou` comes from
+`tools.inference.metrics`. Classifier accuracy uses the same metrics module.
 
 ## Related documents
 
 - [`tools.inference`](../inference.md)
+- [`tools.inference.metrics`](metrics.md)
 - [`flight.payload.inference.verify`](../../flight/payload/inference/verify.md)

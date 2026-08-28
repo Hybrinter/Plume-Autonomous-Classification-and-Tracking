@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-import numpy as np
+import torch
 from tools.inference.accept import (
     GoldenClassifierScene,
     GoldenScene,
@@ -37,8 +37,8 @@ def _artifact(tmp_path: Path) -> tuple[str, Manifest]:
 
 def _scene(positive: bool) -> GoldenScene:
     """A golden scene whose gold mask has a positive region (or is empty)."""
-    tensor = np.zeros((4, 8, 8), dtype=np.float32)
-    gold = np.zeros((8, 8), dtype=np.float32)
+    tensor = torch.zeros((4, 8, 8), dtype=torch.float32)
+    gold = torch.zeros((8, 8), dtype=torch.float32)
     if positive:
         gold[2:6, 2:6] = 1.0
     return GoldenScene(input_tensor=tensor, gold_mask=gold)
@@ -46,10 +46,10 @@ def _scene(positive: bool) -> GoldenScene:
 
 def test_compute_iou() -> None:
     """compute_iou is 1.0 for identical masks and < 1 for partial overlap."""
-    a = np.zeros((4, 4), dtype=np.float32)
+    a = torch.zeros((4, 4), dtype=torch.float32)
     a[0:2, 0:2] = 1.0
     assert compute_iou(a, a) == 1.0
-    b = np.zeros((4, 4), dtype=np.float32)
+    b = torch.zeros((4, 4), dtype=torch.float32)
     b[1:3, 1:3] = 1.0
     assert 0.0 < compute_iou(a, b) < 1.0
 
@@ -73,6 +73,27 @@ def test_load_manifest_roundtrips(tmp_path: Path) -> None:
     manifest = load_manifest(str(path))
     assert manifest.version == "v2"
     assert manifest.input_shape == (1, 4, 256, 256)
+    assert manifest.quantization == "fp32"
+
+
+def test_load_manifest_reads_quantization(tmp_path: Path) -> None:
+    """load_manifest reads an explicit quantization field."""
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "v2",
+                "model_repo_sha": "abc",
+                "dataset_hash": "ds",
+                "input_shape": [1, 4, 256, 256],
+                "output_shape": [1, 1, 256, 256],
+                "sha256": "0" * 64,
+                "quantization": "int8",
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_manifest(str(path)).quantization == "int8"
 
 
 def test_accept_passes_a_good_artifact(tmp_path: Path) -> None:
@@ -128,7 +149,7 @@ def test_accept_rejects_low_iou(tmp_path: Path) -> None:
         path,
         manifest,
         scenes,
-        run_inference=lambda t: np.zeros((8, 8), dtype=np.float32),  # predicts nothing
+        run_inference=lambda t: torch.zeros((8, 8), dtype=torch.float32),  # predicts nothing
         expected_input=_EXP_IN,
         expected_output=_EXP_OUT,
         min_iou=0.5,
@@ -138,7 +159,7 @@ def test_accept_rejects_low_iou(tmp_path: Path) -> None:
     assert not report.accepted
 
 
-def _gold_for(tensor: np.ndarray, scenes: list[GoldenScene]) -> np.ndarray:
+def _gold_for(tensor: torch.Tensor, scenes: list[GoldenScene]) -> torch.Tensor:
     """Return the gold mask of the scene whose input tensor matches (perfect predictor stub)."""
     for scene in scenes:
         if scene.input_tensor is tensor:
@@ -157,14 +178,14 @@ def test_accept_classifier_passes_with_injected_logits(tmp_path: Path) -> None:
         output_shape=(1, 1),
         sha256=manifest.sha256,
     )
-    tensor_pos = np.ones((4, 8, 8), dtype=np.float32)
-    tensor_neg = np.zeros((4, 8, 8), dtype=np.float32)
+    tensor_pos = torch.ones((4, 8, 8), dtype=torch.float32)
+    tensor_neg = torch.zeros((4, 8, 8), dtype=torch.float32)
     scenes = [
         GoldenClassifierScene(input_tensor=tensor_pos, label_positive=True),
         GoldenClassifierScene(input_tensor=tensor_neg, label_positive=False),
     ]
 
-    def _run(tensor: np.ndarray) -> float:
+    def _run(tensor: torch.Tensor) -> float:
         return 1.0 if tensor is tensor_pos else -1.0
 
     report = accept_classifier_artifact(
@@ -194,7 +215,7 @@ def test_accept_classifier_rejects_low_accuracy(tmp_path: Path) -> None:
     )
     scenes = [
         GoldenClassifierScene(
-            input_tensor=np.zeros((4, 8, 8), dtype=np.float32),
+            input_tensor=torch.zeros((4, 8, 8), dtype=torch.float32),
             label_positive=True,
         )
     ]

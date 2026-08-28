@@ -1,6 +1,5 @@
 """Segmentor and classifier network builders.
 
-Importing this package does not import torch. Import `tools.inference.arch.unet` or
-`tools.inference.arch.classifier` only from train/export after the train extra is
-installed.
+`build` constructs a U-Net segmentor or a ResNet-50 classifier. Torch is a
+required tools dependency.
 """

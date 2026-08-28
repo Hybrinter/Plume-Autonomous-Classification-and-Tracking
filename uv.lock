@@ -897,6 +897,8 @@ dependencies = [
     { name = "pact-sim" },
     { name = "pandas" },
     { name = "pyarrow" },
+    { name = "torch" },
+    { name = "torchvision" },
     { name = "typer" },
 ]
 
@@ -904,10 +906,6 @@ dependencies = [
 export = [
     { name = "onnx" },
     { name = "onnxruntime" },
-]
-train = [
-    { name = "torch" },
-    { name = "torchvision" },
 ]
 
 [package.metadata]
@@ -919,11 +917,11 @@ requires-dist = [
     { name = "pact-sim", editable = "packages/sim" },
     { name = "pandas", specifier = ">=2.1" },
     { name = "pyarrow", specifier = ">=14.0" },
-    { name = "torch", marker = "extra == 'train'", specifier = ">=2.2" },
-    { name = "torchvision", marker = "extra == 'train'", specifier = ">=0.17" },
+    { name = "torch", specifier = ">=2.2" },
+    { name = "torchvision", specifier = ">=0.17" },
     { name = "typer", specifier = ">=0.27.1" },
 ]
-provides-extras = ["train", "export"]
+provides-extras = ["export"]
 
 [[package]]
 name = "pandas"

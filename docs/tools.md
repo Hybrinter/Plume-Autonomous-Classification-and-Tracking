@@ -24,7 +24,7 @@ and SIL telemetry analysis under `tools.analysis`.
 `tools.analysis`.
 
 Run inference workflows with
-`pact-tools inference <train|export|accept|fetch>`.
+`pact-tools inference <train|eval|report|list|compare|export|accept|fetch>`.
 
 Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.
@@ -43,10 +43,9 @@ publishes to the bus or changes flight behavior.
 
 ## Constraints
 
-- Default tools dependencies stay on the tools package (Typer, matplotlib,
-  pandas, pyarrow, plus pact-flight and pact-sim).
-- Optional extra `train` installs torch and torchvision. Extra `export` installs
-  onnx.
+- Default tools dependencies include torch and torchvision, plus Typer,
+  matplotlib, pandas, pyarrow, pact-flight, and pact-sim.
+- Extra `export` installs onnx and onnxruntime.
 - A flight-only install does not include `pact-tools`.
 - Analysis is read-only observability over the deterministic SIL harness.
 - Acceptance runs inference through an injected callable so CI stays SDK-free.

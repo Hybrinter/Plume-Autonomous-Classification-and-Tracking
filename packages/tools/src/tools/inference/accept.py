@@ -19,7 +19,8 @@ live callables.
 Contains:
   - Manifest / GoldenScene / GoldenClassifierScene / AcceptanceReport.
   - ClassifierAcceptanceReport: classifier-specific quality fields.
-  - load_manifest / compute_iou / accept_artifact / accept_classifier_artifact.
+  - load_manifest / accept_artifact / accept_classifier_artifact.
+  - compute_iou: re-export from tools.inference.metrics.
   - onnx_inference_fn / onnx_classifier_inference_fn.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -36,16 +37,32 @@ from pathlib import Path
 
 # third-party
 import numpy as np
+import torch
 
 # internal
 from flight.libs.types import Ok
 from flight.payload.inference.verify import verify_io_contract, verify_model_hash
 
+from tools.inference.metrics import compute_iou as compute_iou
 from tools.inference.metrics import mean_binary_accuracy
 
 Shape = tuple[int | None, ...]
-InferenceFn = Callable[[np.ndarray], np.ndarray]
-ClassifierInferenceFn = Callable[[np.ndarray], float]
+InferenceFn = Callable[[torch.Tensor], torch.Tensor]
+ClassifierInferenceFn = Callable[[torch.Tensor], float]
+
+__all__ = [
+    "AcceptanceReport",
+    "ClassifierAcceptanceReport",
+    "GoldenClassifierScene",
+    "GoldenScene",
+    "Manifest",
+    "accept_artifact",
+    "accept_classifier_artifact",
+    "compute_iou",
+    "load_manifest",
+    "onnx_classifier_inference_fn",
+    "onnx_inference_fn",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,21 +75,22 @@ class Manifest:
     input_shape: Shape
     output_shape: Shape
     sha256: str
+    quantization: str = "fp32"
 
 
 @dataclass(frozen=True, slots=True)
 class GoldenScene:
     """One golden evaluation case: a preprocessed input tensor and its expected mask."""
 
-    input_tensor: np.ndarray  # np.ndarray[float32, (C, H, W)]
-    gold_mask: np.ndarray  # np.ndarray[float32, (H, W)] in [0, 1]
+    input_tensor: torch.Tensor  # torch.Tensor[float32, (C, H, W)]
+    gold_mask: torch.Tensor  # torch.Tensor[float32, (H, W)] in [0, 1]
 
 
 @dataclass(frozen=True, slots=True)
 class GoldenClassifierScene:
     """One golden classifier case: a preprocessed tensor and a presence label."""
 
-    input_tensor: np.ndarray  # np.ndarray[float32, (C, H, W)]
+    input_tensor: torch.Tensor  # torch.Tensor[float32, (C, H, W)]
     label_positive: bool
 
 
@@ -125,27 +143,8 @@ def load_manifest(path: str) -> Manifest:
         input_shape=tuple(data["input_shape"]),
         output_shape=tuple(data["output_shape"]),
         sha256=str(data["sha256"]),
+        quantization=str(data.get("quantization", "fp32")),
     )
-
-
-def compute_iou(pred_mask: np.ndarray, gold_mask: np.ndarray, threshold: float = 0.5) -> float:
-    """Compute the binary intersection-over-union of a predicted vs golden mask (pure).
-
-    Args:
-        pred_mask: Predicted probability mask (H, W).
-        gold_mask: Golden probability mask (H, W).
-        threshold: Probability threshold for binarization.
-
-    Returns:
-        IoU in [0, 1]. Two empty masks (no positives in either) score 1.0 (perfect agreement).
-    """
-    pred = np.asarray(pred_mask) >= threshold
-    gold = np.asarray(gold_mask) >= threshold
-    intersection = float(np.logical_and(pred, gold).sum())
-    union = float(np.logical_or(pred, gold).sum())
-    if union == 0.0:
-        return 1.0
-    return intersection / union
 
 
 def accept_artifact(
@@ -190,7 +189,7 @@ def accept_artifact(
         pred = run_inference(scene.input_tensor)
         worst_latency_ms = max(worst_latency_ms, (time.perf_counter() - start) * 1000.0)
         ious.append(compute_iou(pred, scene.gold_mask, iou_threshold))
-    mean_iou = float(np.mean(ious)) if ious else 0.0
+    mean_iou = sum(ious) / float(len(ious)) if ious else 0.0
     iou_ok = bool(scenes) and mean_iou >= min_iou
     latency_ok = worst_latency_ms <= max_latency_ms
 
@@ -230,10 +229,11 @@ def onnx_inference_fn(artifact_path: str) -> InferenceFn:
     session = onnxruntime.InferenceSession(artifact_path)
     input_name = session.get_inputs()[0].name
 
-    def _run(tensor: np.ndarray) -> np.ndarray:
-        logits = session.run(None, {input_name: tensor[np.newaxis, ...]})[0]
+    def _run(tensor: torch.Tensor) -> torch.Tensor:
+        array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
+        logits = session.run(None, {input_name: array[np.newaxis, ...]})[0]
         probs = 1.0 / (1.0 + np.exp(-logits))
-        return np.asarray(probs[0, 0], dtype=np.float32)
+        return torch.from_numpy(np.asarray(probs[0, 0], dtype=np.float32))
 
     return _run
 
@@ -323,8 +323,9 @@ def onnx_classifier_inference_fn(artifact_path: str) -> ClassifierInferenceFn:
     session = onnxruntime.InferenceSession(artifact_path)
     input_name = session.get_inputs()[0].name
 
-    def _run(tensor: np.ndarray) -> float:
-        logits = session.run(None, {input_name: tensor[np.newaxis, ...]})[0]
+    def _run(tensor: torch.Tensor) -> float:
+        array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
+        logits = session.run(None, {input_name: array[np.newaxis, ...]})[0]
         return float(np.asarray(logits, dtype=np.float32).reshape(-1)[0])
 
     return _run

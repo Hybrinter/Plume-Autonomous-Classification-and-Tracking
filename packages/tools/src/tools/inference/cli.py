@@ -1,4 +1,4 @@
-"""Typer CLI for inference training, export, acceptance, and dataset fetch.
+"""Typer CLI for inference training, export, acceptance, fetch, eval, and compare.
 
 Contains:
   - app: package-owned Typer application.
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 # stdlib
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated
 
 # third-party
@@ -26,7 +27,7 @@ from tools.inference.accept import (
     onnx_classifier_inference_fn,
     onnx_inference_fn,
 )
-from tools.inference.export import ExportConfig, export, promote
+from tools.inference.export import ExportConfig, export, int8_artifact_path, promote
 from tools.inference.fetch import main as fetch_main
 from tools.inference.train import load_train_config, overlay_train_config, train
 
@@ -47,19 +48,23 @@ app = typer.Typer(
 @app.command("train")
 def train_command(
     kind: Annotated[InferenceKind | None, typer.Option(help="Artifact kind.")] = None,
+    arch: Annotated[str | None, typer.Option(help="Architecture name.")] = None,
     config: Annotated[str | None, typer.Option(help="Optional TOML overlay.")] = None,
     data_dir: Annotated[str | None, typer.Option(help="Training data directory.")] = None,
-    out: Annotated[str | None, typer.Option(help="Checkpoint path.")] = None,
+    out: Annotated[str | None, typer.Option(help="Optional extra last.pt copy.")] = None,
+    run_dir: Annotated[str | None, typer.Option(help="Parent directory for runs.")] = None,
+    run_id: Annotated[str | None, typer.Option(help="Run directory name.")] = None,
     epochs: Annotated[int | None, typer.Option(help="Training epochs.")] = None,
     batch_size: Annotated[int | None, typer.Option(help="Training batch size.")] = None,
     height: Annotated[int | None, typer.Option(help="Input height in pixels.")] = None,
     width: Annotated[int | None, typer.Option(help="Input width in pixels.")] = None,
     seed: Annotated[int | None, typer.Option(help="Random seed.")] = None,
 ) -> None:
-    """Train a classifier or segmentor checkpoint."""
+    """Train a classifier or segmentor and write a run directory."""
     cfg = overlay_train_config(
         load_train_config(config),
         kind=kind.value if kind is not None else None,
+        arch=arch,
         data_dir=data_dir,
         checkpoint_path=out,
         epochs=epochs,
@@ -67,10 +72,12 @@ def train_command(
         input_height_px=height,
         input_width_px=width,
         seed=seed,
+        run_dir=run_dir,
+        run_id=run_id,
     )
     try:
         path = train(cfg)
-    except ImportError as exc:
+    except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(path)
@@ -86,6 +93,15 @@ def export_command(
     version: Annotated[str, typer.Option(help="Artifact version.")] = "v1",
     dataset_hash: Annotated[str, typer.Option(help="Training dataset digest.")] = "synthetic",
     repo_sha: Annotated[str, typer.Option(help="Source repository revision.")] = "unknown",
+    int8: Annotated[
+        bool, typer.Option("--int8", help="Also write a sibling INT8 QDQ ONNX file.")
+    ] = False,
+    calib_dir: Annotated[
+        str, typer.Option("--calib-dir", help="Processed pack for INT8 calibration.")
+    ] = "",
+    calib_samples: Annotated[
+        int, typer.Option("--calib-samples", help="INT8 calibration sample count.")
+    ] = 4,
 ) -> None:
     """Export a frozen ONNX artifact and manifest."""
     config = ExportConfig(
@@ -97,6 +113,9 @@ def export_command(
         version=version,
         dataset_hash=dataset_hash,
         model_repo_sha=repo_sha,
+        int8=int8,
+        calib_dir=calib_dir,
+        calib_samples=calib_samples,
     )
     try:
         onnx_path, manifest_path, _manifest = export(config)
@@ -105,6 +124,10 @@ def export_command(
         raise typer.Exit(code=1) from exc
     typer.echo(onnx_path)
     typer.echo(manifest_path)
+    if config.int8:
+        int8_path = int8_artifact_path(onnx_path)
+        typer.echo(int8_path)
+        typer.echo(int8_path.with_suffix(".json"))
 
 
 @app.command("accept")
@@ -172,6 +195,7 @@ def fetch_command(
     height: Annotated[int, typer.Option(help="Processed image height.")] = 256,
     width: Annotated[int, typer.Option(help="Processed image width.")] = 256,
     limit: Annotated[int, typer.Option(help="Maximum samples; zero means all.")] = 0,
+    split_recipe: Annotated[str | None, typer.Option(help="Split recipe TOML.")] = None,
 ) -> None:
     """Inspect, download, or preprocess the smoke-plume dataset."""
     argv: list[str] = []
@@ -186,9 +210,54 @@ def fetch_command(
     if preprocess:
         argv.append("--preprocess")
     argv.extend(("--height", str(height), "--width", str(width), "--limit", str(limit)))
+    if split_recipe is not None:
+        argv.extend(("--split-recipe", split_recipe))
     code = fetch_main(argv)
     if code != 0:
         raise typer.Exit(code=code)
+
+
+@app.command("eval")
+def eval_command(
+    run: Annotated[str, typer.Option(help="Run directory.")],
+    checkpoint: Annotated[str | None, typer.Option(help="Checkpoint path.")] = None,
+    split: Annotated[str, typer.Option(help="Split to score.")] = "test",
+) -> None:
+    """Score a checkpoint on a held-out split."""
+    from tools.inference.eval import evaluate
+
+    path = evaluate(run, checkpoint=checkpoint, split=split)
+    typer.echo(path)
+
+
+@app.command("report")
+def report_command(
+    run: Annotated[str, typer.Option(help="Run directory.")],
+) -> None:
+    """Write figures and report.md into a run directory."""
+    from tools.inference.report import write_report
+
+    typer.echo(write_report(run))
+
+
+@app.command("list")
+def list_command(
+    run_dir: Annotated[str, typer.Option(help="Parent directory of runs.")] = "artifacts/runs",
+) -> None:
+    """Print a table of local run directories."""
+    from tools.inference.runs import discover_runs, format_list
+
+    typer.echo(format_list(discover_runs(run_dir)), nl=False)
+
+
+@app.command("compare")
+def compare_command(
+    run: Annotated[list[str], typer.Option(help="Run directory (repeatable).")],
+) -> None:
+    """Print a side-by-side table of run summaries."""
+    from tools.inference.runs import format_compare
+
+    typer.echo(format_compare(tuple(Path(item) for item in run)), nl=False)
 
 
 def main(argv: list[str] | None = None) -> int:

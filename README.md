@@ -94,10 +94,11 @@ uv sync --package pact-flight --no-dev
 ### Training box
 
 ```bash
-uv sync --package pact-tools --extra train --extra export
+uv sync --package pact-tools --extra export
 ```
 
-The `train` extra installs torch and torchvision. The `export` extra installs onnx.
+The default `pact-tools` install includes torch and torchvision. The `export`
+extra installs onnx.
 
 Run inference engineering workflows through the installed tools command:
 

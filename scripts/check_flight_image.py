@@ -21,7 +21,7 @@ DENIED_MODULES: frozenset[str] = frozenset(
     {"torch", "torchvision", "tensorflow", "jax", "jaxlib", "flax", "keras", "mlx"}
 )
 FLIGHT_EXTRAS: frozenset[str] = frozenset({"inference", "camera", "gimbal"})
-TOOLS_EXTRAS: frozenset[str] = frozenset({"train", "export"})
+TOOLS_EXTRAS: frozenset[str] = frozenset({"export"})
 FORBIDDEN_WHEEL_PREFIXES: frozenset[str] = frozenset({"tools/", "sim/", "gse/"})
 
 

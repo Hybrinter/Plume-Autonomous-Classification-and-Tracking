@@ -53,6 +53,8 @@ def test_denied_constants_cover_expected_names() -> None:
     assert mod.DENIED_MODULES == frozenset(
         {"torch", "torchvision", "tensorflow", "jax", "jaxlib", "flax", "keras", "mlx"}
     )
+    assert mod.FLIGHT_EXTRAS == frozenset({"inference", "camera", "gimbal"})
+    assert mod.TOOLS_EXTRAS == frozenset({"export"})
 
 
 def test_load_optional_dependency_keys_reads_pyproject(tmp_path: Path) -> None:

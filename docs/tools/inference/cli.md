@@ -28,11 +28,14 @@ status.
 2. `eval` scores a checkpoint on a named split. The default split is `val`.
 3. `report` writes figures and `report.md` into a run directory.
 4. `list` prints local run summaries. `compare` prints a side-by-side table.
-5. `export` writes an ONNX graph and JSON manifest. `--int8` also writes a
+   `rank` prints the same columns in val-metric order.
+5. `sweep` expands a space TOML, trains each trial, scores val, and writes
+   JSONL. `arches` prints registered kind/name pairs.
+6. `export` writes an ONNX graph and JSON manifest. `--int8` also writes a
    sibling INT8 QDQ pair.
-6. `accept` runs the classifier or segmentor intake gate and optionally promotes
+7. `accept` runs the classifier or segmentor intake gate and optionally promotes
    an accepted artifact.
-7. `fetch` delegates dataset status, download, unpack, and labeled preprocess
+8. `fetch` delegates dataset status, download, unpack, and labeled preprocess
    work to `tools.inference.fetch`.
 
 ## Errors and faults
@@ -66,6 +69,7 @@ library configuration objects and functions. `train` overlays every
 - [`tools.inference.eval`](eval.md)
 - [`tools.inference.report`](report.md)
 - [`tools.inference.runs`](runs.md)
+- [`tools.inference.sweep`](sweep.md)
 - [`tools.inference.export`](export.md)
 - [`tools.inference.accept`](accept.md)
 - [`tools.inference.fetch`](fetch.md)

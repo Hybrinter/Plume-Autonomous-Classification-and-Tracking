@@ -40,7 +40,7 @@ class InferenceKind(StrEnum):
 
 
 app = typer.Typer(
-    help="Train, export, accept, and fetch data for flight inference artifacts.",
+    help="Train, eval, compare, sweep, export, accept, and fetch inference artifacts.",
     no_args_is_help=True,
 )
 
@@ -290,6 +290,42 @@ def compare_command(
     from tools.inference.runs import format_compare
 
     typer.echo(format_compare(tuple(Path(item) for item in run)), nl=False)
+
+
+@app.command("rank")
+def rank_command(
+    run_dir: Annotated[str, typer.Option(help="Parent directory of runs.")] = "artifacts/runs",
+    metric: Annotated[str, typer.Option(help="Val metric to rank.")] = "mean_iou",
+) -> None:
+    """Print run summaries sorted by a val metric, then by FLOPs."""
+    from tools.inference.runs import discover_runs, format_rank, rank_runs
+
+    typer.echo(format_rank(rank_runs(discover_runs(run_dir), metric)), nl=False)
+
+
+@app.command("sweep")
+def sweep_command(
+    space: Annotated[str, typer.Option(help="Sweep space TOML.")],
+    out: Annotated[str | None, typer.Option(help="JSONL output path.")] = None,
+) -> None:
+    """Train a cartesian space, score val, and write sweep.jsonl."""
+    from tools.inference.sweep import sweep
+
+    try:
+        path = sweep(space, out=out)
+    except (ValueError, FileExistsError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(path)
+
+
+@app.command("arches")
+def arches_command() -> None:
+    """Print registered kind and architecture name pairs."""
+    from tools.inference.arch.registry import known
+
+    for kind, name in sorted(known()):
+        typer.echo(f"{kind}\t{name}")
 
 
 def main(argv: list[str] | None = None) -> int:

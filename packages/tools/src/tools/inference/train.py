@@ -9,6 +9,7 @@ Contains:
   - TrainConfig: frozen hyperparameters.
   - load_train_config: dataclass defaults overlaid with an optional TOML file.
   - overlay_train_config: CLI field overlays.
+  - apply_train_mapping: overlay from a string-key mapping.
   - config_digest: 8-hex identity of experiment fields.
   - train: run the loop and write a run directory.
 
@@ -126,39 +127,81 @@ def load_train_config(path: str | None = None) -> TrainConfig:
     if path is None:
         return cfg
     data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+    payload: dict[str, object] = dict(data)
+    return apply_train_mapping(cfg, payload)
+
+
+def _as_int(value: object) -> int:
+    """Coerce a mapping value to int."""
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise TypeError(f"expected int-compatible value, got {type(value)}")
+    return int(value)
+
+
+def _as_float(value: object) -> float:
+    """Coerce a mapping value to float."""
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise TypeError(f"expected float-compatible value, got {type(value)}")
+    return float(value)
+
+
+def _as_bool(value: object) -> bool:
+    """Coerce a mapping value to bool."""
+    if not isinstance(value, bool):
+        raise TypeError(f"expected bool, got {type(value)}")
+    return value
+
+
+def apply_train_mapping(cfg: TrainConfig, data: dict[str, object]) -> TrainConfig:
+    """Return ``cfg`` overlaid with known TrainConfig keys in ``data``.
+
+    Args:
+        cfg: Base config.
+        data: Mapping of field names to TOML or JSON values.
+
+    Returns:
+        TrainConfig: Frozen overlay.
+
+    Raises:
+        ValueError: If a key is unknown or ``kind`` is not classifier or
+            segmentor.
+    """
     valid = {item.name for item in fields(TrainConfig)}
-    kind = str(data["kind"]) if "kind" in data else cfg.kind
-    if kind not in _TRAIN_KINDS:
-        raise ValueError(f"unknown train kind {kind!r}")
     unknown = [key for key in data if key not in valid]
     if unknown:
         raise ValueError(f"unknown train config keys {unknown!r}")
-    return TrainConfig(
+    kind = str(data["kind"]) if "kind" in data else None
+    if kind is not None and kind not in _TRAIN_KINDS:
+        raise ValueError(f"unknown train kind {kind!r}")
+    return overlay_train_config(
+        cfg,
         kind=kind,
-        arch=str(data.get("arch", cfg.arch)),
-        input_height_px=int(data.get("input_height_px", cfg.input_height_px)),
-        input_width_px=int(data.get("input_width_px", cfg.input_width_px)),
-        in_channels=int(data.get("in_channels", cfg.in_channels)),
-        epochs=int(data.get("epochs", cfg.epochs)),
-        batch_size=int(data.get("batch_size", cfg.batch_size)),
-        learning_rate=float(data.get("learning_rate", cfg.learning_rate)),
-        momentum=float(data.get("momentum", cfg.momentum)),
-        weight_decay=float(data.get("weight_decay", cfg.weight_decay)),
-        seed=int(data.get("seed", cfg.seed)),
-        synthetic_samples=int(data.get("synthetic_samples", cfg.synthetic_samples)),
-        data_dir=str(data.get("data_dir", cfg.data_dir)),
-        checkpoint_path=str(data.get("checkpoint_path", cfg.checkpoint_path)),
-        bit_depth=int(data.get("bit_depth", cfg.bit_depth)),
-        run_dir=str(data.get("run_dir", cfg.run_dir)),
-        run_id=str(data.get("run_id", cfg.run_id)),
-        val_metric=str(data.get("val_metric", cfg.val_metric)),
-        device=str(data.get("device", cfg.device)),
-        overwrite=bool(data["overwrite"]) if "overwrite" in data else cfg.overwrite,
-        optimizer=str(data.get("optimizer", cfg.optimizer)),
-        scheduler=str(data.get("scheduler", cfg.scheduler)),
-        shuffle=bool(data["shuffle"]) if "shuffle" in data else cfg.shuffle,
-        pos_weight=float(data.get("pos_weight", cfg.pos_weight)),
-        augment=bool(data["augment"]) if "augment" in data else cfg.augment,
+        arch=str(data["arch"]) if "arch" in data else None,
+        input_height_px=_as_int(data["input_height_px"]) if "input_height_px" in data else None,
+        input_width_px=_as_int(data["input_width_px"]) if "input_width_px" in data else None,
+        in_channels=_as_int(data["in_channels"]) if "in_channels" in data else None,
+        epochs=_as_int(data["epochs"]) if "epochs" in data else None,
+        batch_size=_as_int(data["batch_size"]) if "batch_size" in data else None,
+        learning_rate=_as_float(data["learning_rate"]) if "learning_rate" in data else None,
+        momentum=_as_float(data["momentum"]) if "momentum" in data else None,
+        weight_decay=_as_float(data["weight_decay"]) if "weight_decay" in data else None,
+        seed=_as_int(data["seed"]) if "seed" in data else None,
+        synthetic_samples=(
+            _as_int(data["synthetic_samples"]) if "synthetic_samples" in data else None
+        ),
+        data_dir=str(data["data_dir"]) if "data_dir" in data else None,
+        checkpoint_path=str(data["checkpoint_path"]) if "checkpoint_path" in data else None,
+        bit_depth=_as_int(data["bit_depth"]) if "bit_depth" in data else None,
+        run_dir=str(data["run_dir"]) if "run_dir" in data else None,
+        run_id=str(data["run_id"]) if "run_id" in data else None,
+        val_metric=str(data["val_metric"]) if "val_metric" in data else None,
+        device=str(data["device"]) if "device" in data else None,
+        overwrite=_as_bool(data["overwrite"]) if "overwrite" in data else None,
+        optimizer=str(data["optimizer"]) if "optimizer" in data else None,
+        scheduler=str(data["scheduler"]) if "scheduler" in data else None,
+        shuffle=_as_bool(data["shuffle"]) if "shuffle" in data else None,
+        pos_weight=_as_float(data["pos_weight"]) if "pos_weight" in data else None,
+        augment=_as_bool(data["augment"]) if "augment" in data else None,
     )
 
 

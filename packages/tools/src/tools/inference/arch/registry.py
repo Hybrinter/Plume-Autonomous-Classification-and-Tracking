@@ -3,6 +3,7 @@
 Contains:
   - DEFAULT_ARCH: kind to default architecture name.
   - default_arch: resolve an empty name.
+  - known: frozen set of kind/name pairs.
   - build: construct an untrained network for a kind and name.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -21,6 +22,16 @@ DEFAULT_ARCH: dict[str, str] = {
 }
 
 _KNOWN: frozenset[tuple[str, str]] = frozenset({("classifier", "resnet50"), ("segmentor", "unet")})
+
+
+def known() -> frozenset[tuple[str, str]]:
+    """Return the frozen set of registered ``(kind, name)`` pairs.
+
+    Returns:
+        frozenset[tuple[str, str]]: Currently ``classifier/resnet50`` and
+        ``segmentor/unet``.
+    """
+    return _KNOWN
 
 
 def default_arch(kind: str) -> str:

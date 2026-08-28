@@ -16,6 +16,8 @@ compare tables.
 | `load_summary` | function | `summary.json` plus eval overlay fields |
 | `format_list` | function | Text table of discovered runs |
 | `format_compare` | function | Side-by-side table of selected fields |
+| `rank_runs` | function | Sort summaries by a val metric then FLOPs |
+| `format_rank` | function | Compare table in ranked order |
 
 ## Inputs and outputs
 
@@ -27,12 +29,18 @@ compare tables.
 
 `format_compare(runs) -> str`.
 
+`rank_runs(runs, metric) -> tuple[dict, ...]`.
+
+`format_rank(rows) -> str`.
+
 ## Behavior
 
 1. Treat a directory as a run when it contains `summary.json`.
 2. Overlay `eval.json` metric fields with a `val_` or `test_` prefix. Existing
    keys for the other split stay in `summary.json`.
 3. Print tab-separated tables for the CLI.
+4. `rank_runs` sorts by `val_<metric>` (or `best_val_metric`). `bce` is
+   minimized. Other metrics are maximized. FLOPs break ties.
 
 ## Errors and faults
 
@@ -59,3 +67,4 @@ Torch-free. Runs live under `artifacts/runs/` by default.
 - [`tools.inference.eval`](eval.md)
 - [`tools.inference.cost`](cost.md)
 - [`tools.inference.cli`](cli.md)
+- [`tools.inference.sweep`](sweep.md)

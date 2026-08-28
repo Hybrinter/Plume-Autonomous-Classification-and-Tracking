@@ -19,6 +19,7 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |
 | [`train`](inference/train.md) | module | Plain-torch SGD loop and local run directories |
 | [`cost`](inference/cost.md) | module | Parameter and FLOP counts for a logits graph |
+| [`sweep`](inference/sweep.md) | module | Cartesian search space, val eval, and JSONL |
 | [`eval`](inference/eval.md) | module | Held-out split scoring for a run |
 | [`plots`](inference/plots.md) | module | Headless curves, overlays, and failure gallery |
 | [`report`](inference/report.md) | module | Figures and markdown into a run directory |
@@ -36,8 +37,8 @@ Re-exports: `Manifest`, `GoldenScene`, `GoldenClassifierScene`,
 `onnx_inference_fn`, `onnx_classifier_inference_fn`, `binary_accuracy`,
 `mean_binary_accuracy`.
 
-Run `pact-tools inference <train|eval|report|list|compare|export|accept|fetch>`
-or `python -m tools.inference <train|eval|report|list|compare|export|accept|fetch>`.
+Run `pact-tools inference <train|eval|report|list|compare|rank|sweep|arches|export|accept|fetch>`
+or `python -m tools.inference <train|eval|report|list|compare|rank|sweep|arches|export|accept|fetch>`.
 
 ## Interactions
 

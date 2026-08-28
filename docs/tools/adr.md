@@ -26,3 +26,4 @@ Package-local decisions for `packages/tools`. New records use files under
 | ADR-TOOLS-0007 | [0007-int8-qdq-ptq.md](adr/0007-int8-qdq-ptq.md) | INT8 is post-training QDQ PTQ; I/O stays float32 | Accepted |
 | ADR-TOOLS-0008 | [0008-torch-required-tools-dep.md](adr/0008-torch-required-tools-dep.md) | Torch and torchvision are required tools deps | Accepted |
 | ADR-TOOLS-0009 | [0009-unique-run-directories.md](adr/0009-unique-run-directories.md) | Unique run directories; refuse overwrite | Accepted |
+| ADR-TOOLS-0010 | [0010-local-cartesian-sweep.md](adr/0010-local-cartesian-sweep.md) | Local cartesian sweep over the run catalog | Accepted |

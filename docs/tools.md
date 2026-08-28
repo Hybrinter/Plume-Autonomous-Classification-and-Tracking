@@ -24,7 +24,7 @@ and SIL telemetry analysis under `tools.analysis`.
 `tools.analysis`.
 
 Run inference workflows with
-`pact-tools inference <train|eval|report|list|compare|export|accept|fetch>`.
+`pact-tools inference <train|eval|report|list|compare|rank|sweep|arches|export|accept|fetch>`.
 
 Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.

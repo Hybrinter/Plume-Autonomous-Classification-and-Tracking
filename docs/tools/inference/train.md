@@ -16,6 +16,7 @@ directory.
 | `TrainConfig` | class | Frozen train hyperparameters |
 | `load_train_config` | function | Defaults plus optional TOML overlay |
 | `overlay_train_config` | function | Apply CLI field overlays |
+| `apply_train_mapping` | function | Overlay from a string-key mapping |
 | `config_digest` | function | 8-hex identity of experiment fields |
 | `train` | function | Run SGD + `BCEWithLogitsLoss` and write a run directory |
 
@@ -24,6 +25,8 @@ directory.
 `load_train_config(path=None) -> TrainConfig`.
 
 `overlay_train_config(cfg, ...) -> TrainConfig`.
+
+`apply_train_mapping(cfg, data) -> TrainConfig`.
 
 `config_digest(cfg) -> str`.
 
@@ -83,3 +86,4 @@ Unknown `optimizer` or `scheduler` values raise `ValueError`.
 - [`tools.inference.metrics`](metrics.md)
 - [`tools.inference.export`](export.md)
 - [`tools.inference.arch.registry`](arch/registry.md)
+- [`tools.inference.sweep`](sweep.md)

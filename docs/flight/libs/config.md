@@ -6,8 +6,8 @@
 ## Purpose
 
 The config package holds frozen dataclasses for every tunable flight parameter. The config
-loader maps TOML into these types. Subsystems receive typed config slices; they do not read
-TOML directly.
+loader validates TOML into these types. Subsystems receive typed config slices; they do not
+read TOML directly.
 
 ## Contents
 

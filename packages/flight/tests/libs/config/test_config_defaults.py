@@ -12,6 +12,7 @@ from pathlib import Path
 
 from flight.libs.config import (
     CommandIngressConfig,
+    CommandRouterConfig,
     CommsConfig,
     ControllerConfig,
     EnvironmentConfig,
@@ -49,6 +50,7 @@ _SECTION_TO_DATACLASS = {
     "gimbal": GimbalConfig,
     "link": LinkConfig,
     "command_ingress": CommandIngressConfig,
+    "command_router": CommandRouterConfig,
     "environment": EnvironmentConfig,
 }
 

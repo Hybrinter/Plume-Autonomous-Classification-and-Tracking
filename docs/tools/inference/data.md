@@ -5,20 +5,22 @@
 
 ## Purpose
 
-This module builds training batches as numpy arrays. It stays torch-free.
+This module builds training batches as CPU float32 torch tensors. On-disk packs
+stay numpy `.npy` files with frozen splits.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SampleBatch` | class | Images plus classifier or segmentor targets |
-| `ProcessedPack` | class | Memmap pack with frozen splits and hash |
+| `ProcessedPack` | class | Memmap-backed pack with frozen splits and hash |
+| `SplitDataset` | class | Torch Dataset over one named split |
 | `make_synthetic_batch` | function | Planted-blob synthetic scene |
 | `make_synthetic_pack` | function | Even-index blobs with masks and labels |
 | `write_processed_pack` | function | Write npy tensors, splits, and dataset.json |
 | `load_disk_batch` | function | Packed `images.npy` plus labels or masks |
 | `load_processed_pack` | function | Memmap loader with hash check |
-| `load_split` | function | One named split from a processed pack |
+| `load_split` | function | One named split as a `SplitDataset` |
 
 ## Inputs and outputs
 
@@ -32,10 +34,11 @@ This module builds training batches as numpy arrays. It stays torch-free.
 
 `load_processed_pack(data_dir, bit_depth=12) -> ProcessedPack`.
 
-`load_split(data_dir, kind, split, bit_depth=12) -> SampleBatch`.
+`load_split(data_dir, kind, split, bit_depth=12) -> SplitDataset`.
 
-Images are `(N, C, H, W)` float32 in `[0, 1]`. Classifier targets are `(N, 1)`.
-Segmentor targets are `(N, 1, H, W)`.
+Images are `(N, C, H, W)` float32 in `[0, 1]` on CPU. Classifier targets are
+`(N, 1)`. Segmentor targets are `(N, 1, H, W)`. `SplitDataset` items are one
+sample: image `(C, H, W)` and a matching target.
 
 ## Behavior
 
@@ -46,6 +49,7 @@ Segmentor targets are `(N, 1, H, W)`.
 5. Values above 1.0 pass through `normalize_dn` with `bit_depth`.
 6. `load_split` indexes `train`, `val`, or `test` from `splits.json`.
 7. `load_processed_pack` rejects a `dataset.json` hash that does not match the files.
+8. `write_processed_pack` writes numpy `.npy` files from torch or numpy inputs.
 
 ## Errors and faults
 
@@ -62,8 +66,8 @@ None.
 
 ## Constraints
 
-This module imports `flight.payload.preprocess.normalize_dn`. It does not import
-torch. Pack images load as a memmap when they already sit in `[0, 1]`.
+This module imports `flight.payload.preprocess.normalize_dn`. Pack images load
+as a copy-on-write memmap when they already sit in `[0, 1]`.
 
 ## Related documents
 

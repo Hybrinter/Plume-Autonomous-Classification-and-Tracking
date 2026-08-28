@@ -22,7 +22,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
+import torch
 
 
 def _repo_root() -> Path:
@@ -161,14 +161,16 @@ def assign_splits(n: int, recipe: SplitRecipe) -> SplitIndex:
         ValueError: If n < 3 or the recipe is invalid.
 
     Notes:
-        The permutation uses ``numpy.random.Generator``. Rounding keeps at least
-        one sample in each split when n >= 3. Leftover indices go to train.
+        The permutation uses ``torch.randperm`` with ``recipe.seed``. Rounding
+        keeps at least one sample in each split when n >= 3. Leftover indices
+        go to train.
     """
     _validate_recipe(recipe)
     if n < 3:
         raise ValueError(f"need at least 3 samples to split; got {n}")
-    rng = np.random.default_rng(recipe.seed)
-    order = [int(v) for v in rng.permutation(n)]
+    generator = torch.Generator()
+    generator.manual_seed(recipe.seed)
+    order = [int(v) for v in torch.randperm(n, generator=generator).tolist()]
     n_val = max(1, int(round(recipe.val_fraction * n)))
     n_test = max(1, int(round(recipe.test_fraction * n)))
     if n_val + n_test >= n:

@@ -9,20 +9,20 @@ def test_tools_imports() -> None:
 
 
 def test_tools_inference_imports() -> None:
-    """tools.inference imports without torch."""
+    """tools.inference imports successfully."""
     assert importlib.import_module("tools.inference") is not None
 
 
-def test_tools_inference_train_imports_without_torch() -> None:
-    """tools.inference.train imports without torch."""
+def test_tools_inference_train_imports() -> None:
+    """tools.inference.train imports successfully."""
     assert importlib.import_module("tools.inference.train") is not None
 
 
-def test_tools_inference_export_imports_without_torch() -> None:
-    """tools.inference.export imports without torch."""
+def test_tools_inference_export_imports() -> None:
+    """tools.inference.export imports successfully."""
     assert importlib.import_module("tools.inference.export") is not None
 
 
-def test_tools_inference_split_imports_without_torch() -> None:
-    """tools.inference.split imports without torch."""
+def test_tools_inference_split_imports() -> None:
+    """tools.inference.split imports successfully."""
     assert importlib.import_module("tools.inference.split") is not None

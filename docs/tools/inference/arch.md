@@ -22,13 +22,12 @@ builders. Train and export import these modules lazily.
 
 ## Interactions
 
-Train and export import arch modules inside functions. `import tools.inference` does
-not import torch.
+Train and export import arch modules to construct networks.
 
 ## Constraints
 
-Submodule import requires the `train` extra (torch and torchvision). The graphs
-emit logits. Flight applies sigmoid on the segmentor output.
+Submodule import uses torch and torchvision from the default tools install. The
+graphs emit logits. Flight applies sigmoid on the segmentor output.
 
 ## Related documents
 

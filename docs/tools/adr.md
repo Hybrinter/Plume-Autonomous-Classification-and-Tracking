@@ -22,3 +22,4 @@ Package-local decisions for `packages/tools`. New records use files under
 | ADR-TOOLS-0003 | [0003-two-onnx-artifacts.md](adr/0003-two-onnx-artifacts.md) | Two frozen ONNX artifacts with a classifier filter | Accepted |
 | ADR-TOOLS-0004 | [0004-dataset-out-of-git.md](adr/0004-dataset-out-of-git.md) | Dataset out of git; Zenodo fetch, not Git LFS | Accepted |
 | ADR-TOOLS-0005 | [0005-tools-cli-and-inference-package.md](adr/0005-tools-cli-and-inference-package.md) | Use a nested tools CLI and inference package | Accepted |
+| ADR-TOOLS-0008 | [0008-torch-required-tools-dep.md](adr/0008-torch-required-tools-dep.md) | Torch and torchvision are required tools deps | Accepted |

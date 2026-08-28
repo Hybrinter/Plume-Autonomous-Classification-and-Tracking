@@ -14,7 +14,7 @@ artifact acceptance, dataset preparation, and model metrics.
 | --- | --- | --- |
 | [`accept`](inference/accept.md) | module | Frozen ONNX intake gate |
 | [`metrics`](inference/metrics.md) | module | Classifier accuracy helpers |
-| [`data`](inference/data.md) | module | Synthetic scenes, processed packs, and split loaders |
+| [`data`](inference/data.md) | module | Synthetic scenes, processed packs, and torch Dataset loaders |
 | [`split`](inference/split.md) | module | Frozen train/val/test recipe and dataset hash |
 | [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |
 | [`train`](inference/train.md) | module | Plain-torch SGD train loop |
@@ -42,9 +42,8 @@ the SIL and does not publish on the bus.
 
 ## Constraints
 
-- Default `pact-tools` install does not pull torch. The `train` extra adds torch
-  and torchvision. The `export` extra adds onnx.
-- `import tools.inference` does not import torch.
+- Default `pact-tools` install includes torch and torchvision. The `export`
+  extra adds onnx.
 - Flight must not import `tools`.
 - The smoke-plume corpus stays out of git. Run
 `python scripts/fetch_smoke_plume_dataset.py` for checksum status. Pass

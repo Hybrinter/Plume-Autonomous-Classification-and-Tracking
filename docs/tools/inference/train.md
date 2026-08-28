@@ -49,9 +49,8 @@ None.
 
 ## Constraints
 
-Torch imports are lazy inside `train`. Spatial size comes from config, not from
-a hardcoded architecture constant. The default `pact-tools` extra set does not
-install torch.
+Torch imports stay inside `train` until the call runs. Spatial size comes from
+config, not from a hardcoded architecture constant.
 
 ## Related documents
 

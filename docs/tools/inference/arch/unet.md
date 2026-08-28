@@ -48,9 +48,8 @@ a constructor field.
 
 ## Constraints
 
-This module imports torch at import time. Call it only from train or export
-after the train extra is installed. The implementation does not copy third-party
-U-Net sources.
+This module imports torch at import time. The implementation does not copy
+third-party U-Net sources.
 
 ## Related documents
 

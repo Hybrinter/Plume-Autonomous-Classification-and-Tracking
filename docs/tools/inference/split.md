@@ -56,7 +56,7 @@ Default recipe path is `data/manifests/zenodo_4250706_splits.toml`.
 ## Constraints
 
 The recipe applies to sorted paired filenames after preprocess. The corpus
-file list is not stored in git. This module does not import torch.
+file list is not stored in git. Split permutation uses `torch.randperm`.
 
 ## Related documents
 

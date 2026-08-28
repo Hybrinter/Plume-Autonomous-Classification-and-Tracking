@@ -1,13 +1,10 @@
-"""Train-loop tests. Torch-backed cases skip when the train extra is absent."""
+"""Train-loop tests."""
 
-import importlib.util
 from pathlib import Path
 
 import numpy as np
-import pytest
+import torch
 from tools.inference.train import TrainConfig, load_train_config, overlay_train_config, train
-
-_HAS_TORCH = importlib.util.find_spec("torch") is not None
 
 
 def test_load_train_config_defaults() -> None:
@@ -36,11 +33,8 @@ def test_overlay_train_config_cli() -> None:
     assert cfg.batch_size == 2
 
 
-@pytest.mark.skipif(not _HAS_TORCH, reason="torch extra not installed")
 def test_train_one_step_segmentor_256(tmp_path: Path) -> None:
     """One SGD step on synthetic (N, 4, 256, 256) writes a segmentor checkpoint."""
-    import torch
-
     out = tmp_path / "seg.pt"
     path = train(
         TrainConfig(
@@ -58,11 +52,8 @@ def test_train_one_step_segmentor_256(tmp_path: Path) -> None:
     assert payload["input_height_px"] == 256
 
 
-@pytest.mark.skipif(not _HAS_TORCH, reason="torch extra not installed")
 def test_train_one_step_classifier_256(tmp_path: Path) -> None:
     """One SGD step on synthetic (N, 4, 256, 256) writes a classifier checkpoint."""
-    import torch
-
     out = tmp_path / "clf.pt"
     path = train(
         TrainConfig(
@@ -79,7 +70,6 @@ def test_train_one_step_classifier_256(tmp_path: Path) -> None:
     assert payload["kind"] == "classifier"
 
 
-@pytest.mark.skipif(not _HAS_TORCH, reason="torch extra not installed")
 def test_train_disk_adapter(tmp_path: Path) -> None:
     """Train reads a packed numpy directory when data_dir is set."""
     images = np.zeros((2, 4, 32, 32), dtype=np.float32)

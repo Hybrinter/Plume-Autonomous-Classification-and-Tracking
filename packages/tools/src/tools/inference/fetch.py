@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
+import torch
 
 _IMAGE_SUFFIXES = frozenset({".npy", ".tif", ".tiff"})
 _MASK_SUFFIXES = frozenset({".npy", ".png", ".tif", ".tiff"})
@@ -557,9 +558,12 @@ def preprocess_pack(
         images_list.append(image)
         masks_list.append(mask)
         labels_list.append(label)
-    images = np.stack(images_list, axis=0)
-    masks = np.stack(masks_list, axis=0)
-    labels = np.stack(labels_list, axis=0)
+    images_np = np.stack(images_list, axis=0)
+    masks_np = np.stack(masks_list, axis=0)
+    labels_np = np.stack(labels_list, axis=0)
+    images = torch.from_numpy(np.ascontiguousarray(images_np, dtype=np.float32))
+    masks = torch.from_numpy(np.ascontiguousarray(masks_np, dtype=np.float32))
+    labels = torch.from_numpy(np.ascontiguousarray(labels_np, dtype=np.float32))
     recipe = load_split_recipe(recipe_path)
     write_processed_pack(
         dest_dir,

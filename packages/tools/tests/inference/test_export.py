@@ -14,9 +14,9 @@ from tools.inference.accept import (
 from tools.inference.export import ExportConfig, export, promote
 from tools.inference.train import TrainConfig, train
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("torch") is None,
-    reason="torch extra not installed",
+_skip_no_onnx = pytest.mark.skipif(
+    importlib.util.find_spec("onnx") is None,
+    reason="onnx extra not installed",
 )
 
 
@@ -28,6 +28,7 @@ def _gold_mask_for(tensor: np.ndarray, scenes: list[GoldenScene]) -> np.ndarray:
     return scenes[0].gold_mask
 
 
+@_skip_no_onnx
 def test_export_segmentor_then_accept(tmp_path: Path) -> None:
     """1-step synthetic 256 segmentor exports ONNX logits and passes injected accept."""
     ckpt = tmp_path / "seg.pt"
@@ -78,6 +79,7 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
         assert pred.shape == (256, 256)
 
 
+@_skip_no_onnx
 def test_export_classifier_then_accept(tmp_path: Path) -> None:
     """1-step synthetic 256 classifier exports (1, 1) logits and passes injected accept."""
     ckpt = tmp_path / "clf.pt"

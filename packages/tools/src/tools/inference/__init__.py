@@ -1,17 +1,17 @@
 """tools.inference -- train, export, accept, and score frozen plume-model artifacts.
 
 This package is the single home for model engineering under tools/. SIL telemetry
-analysis stays in tools.analysis. Torch imports are lazy and live behind the
-train extra; this package imports without torch.
+analysis stays in tools.analysis. Torch and torchvision are required tools
+dependencies. Inference batches are torch tensors.
 
 Contains:
   - accept: frozen ONNX intake gate (hash, I/O, IoU or accuracy, latency).
   - metrics: classifier accuracy helpers.
-  - data: synthetic scenes and on-disk numpy adapter (torch-free).
+  - data: synthetic scenes, processed packs, and torch Dataset split loaders.
   - fetch: Zenodo 4250706 checksums, optional download, 4-band preprocess.
   - train: plain-torch SGD loop.
   - export: ONNX export, manifest write, and promote.
-  - arch: U-Net segmentor and ResNet-50 classifier (torch, imported lazily).
+  - arch: U-Net segmentor and ResNet-50 classifier.
   - __main__: `python -m tools.inference` subcommands.
 
 Satisfies: REQ-AIML-HIGH-004.

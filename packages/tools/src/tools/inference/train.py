@@ -24,8 +24,6 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from tools.inference.data import SampleBatch, load_disk_batch, make_synthetic_batch
 
 if TYPE_CHECKING:
@@ -216,8 +214,8 @@ def train(config: TrainConfig | None = None) -> Path:
     )
     loss_fn = torch.nn.BCEWithLogitsLoss()
     samples = _load_samples(cfg)
-    images = torch.from_numpy(_as_contiguous(samples.images))
-    targets = torch.from_numpy(_as_contiguous(samples.targets))
+    images = samples.images.to(dtype=torch.float32)
+    targets = samples.targets.to(dtype=torch.float32)
     n = int(images.shape[0])
     batch = max(int(cfg.batch_size), 1)
     for _epoch in range(cfg.epochs):
@@ -245,15 +243,3 @@ def train(config: TrainConfig | None = None) -> Path:
         out,
     )
     return out
-
-
-def _as_contiguous(array: np.ndarray) -> np.ndarray:
-    """Return a C-contiguous float32 numpy view for torch.from_numpy.
-
-    Args:
-        array: Array-like training tensor.
-
-    Returns:
-        np.ndarray[float32]: Contiguous copy when needed.
-    """
-    return np.ascontiguousarray(array, dtype=np.float32)

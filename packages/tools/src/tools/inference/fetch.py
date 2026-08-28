@@ -26,12 +26,13 @@ import hashlib
 import tarfile
 import tomllib
 import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 import numpy as np
 import torch
+from pydantic import ConfigDict, TypeAdapter, field_validator
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 _IMAGE_SUFFIXES = frozenset({".npy", ".tif", ".tiff"})
 _MASK_SUFFIXES = frozenset({".npy", ".png", ".tif", ".tiff"})
@@ -56,7 +57,10 @@ DEFAULT_PACT_BAND_INDICES: tuple[int, int, int, int] = (1, 2, 3, 7)
 DEFAULT_DN_SCALE = 10000.0
 
 
-@dataclass(frozen=True, slots=True)
+_SCHEMA = ConfigDict(extra="forbid")
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_SCHEMA)
 class DatasetFile:
     """One Zenodo file entry."""
 
@@ -66,7 +70,7 @@ class DatasetFile:
     url: str
 
 
-@dataclass(frozen=True, slots=True)
+@pydantic_dataclass(frozen=True, slots=True, config=_SCHEMA)
 class DatasetManifest:
     """Pinned Zenodo record plus file checksums."""
 
@@ -74,9 +78,15 @@ class DatasetManifest:
     doi: str
     title: str
     citation: str
-    pact_band_indices: tuple[int, ...]
-    dn_scale: float
     files: tuple[DatasetFile, ...]
+    pact_band_indices: tuple[int, ...] = DEFAULT_PACT_BAND_INDICES
+    dn_scale: float = DEFAULT_DN_SCALE
+
+    @field_validator("citation")
+    @classmethod
+    def _strip_citation(cls, value: str) -> str:
+        """Strip leading and trailing whitespace from the citation string."""
+        return value.strip()
 
 
 def load_dataset_manifest(path: str | Path | None = None) -> DatasetManifest:
@@ -89,29 +99,12 @@ def load_dataset_manifest(path: str | Path | None = None) -> DatasetManifest:
         DatasetManifest: Record metadata and file list.
 
     Raises:
-        OSError / tomllib.TOMLDecodeError / KeyError: on a missing or malformed file.
+        OSError / tomllib.TOMLDecodeError: on a missing or malformed file.
+        ValidationError: if a required field is missing or a key is unknown.
     """
     dest = Path(path) if path is not None else DEFAULT_MANIFEST
     data = tomllib.loads(dest.read_text(encoding="utf-8"))
-    files = tuple(
-        DatasetFile(
-            key=str(item["key"]),
-            size=int(item["size"]),
-            md5=str(item["md5"]),
-            url=str(item["url"]),
-        )
-        for item in data["files"]
-    )
-    indices = tuple(int(v) for v in data.get("pact_band_indices", DEFAULT_PACT_BAND_INDICES))
-    return DatasetManifest(
-        record_id=int(data["record_id"]),
-        doi=str(data["doi"]),
-        title=str(data["title"]),
-        citation=str(data["citation"]).strip(),
-        pact_band_indices=indices,
-        dn_scale=float(data.get("dn_scale", DEFAULT_DN_SCALE)),
-        files=files,
-    )
+    return TypeAdapter(DatasetManifest).validate_python(data)
 
 
 def file_md5(path: str | Path) -> str:

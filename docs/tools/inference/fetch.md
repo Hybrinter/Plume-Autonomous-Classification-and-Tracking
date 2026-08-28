@@ -45,7 +45,7 @@ a 4-band processed pack with frozen splits.
 
 ## Behavior
 
-1. Parse the committed TOML manifest.
+1. Parse the committed TOML manifest through the `DatasetManifest` schema.
 2. Print the dataset citation and DOI.
 3. Report ok / missing / mismatch for each file under `data/raw/`.
 4. Download only when `--download` is set.

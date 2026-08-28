@@ -38,7 +38,7 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
 **`load_scenario_spec(path) -> ScenarioSpec`**
 
 - Converts GSE TOML commands to post-ingress `CommandMsg` injections via the command
-  dictionary. Ignores GSE assertions.
+  dictionary. Ignores GSE assertions. Extra GSE keys are ignored by the file schema.
 
 ## Behavior
 

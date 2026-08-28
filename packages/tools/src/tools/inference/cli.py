@@ -76,7 +76,7 @@ def train_command(
     )
     try:
         path = train(cfg)
-    except ImportError as exc:
+    except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(path)

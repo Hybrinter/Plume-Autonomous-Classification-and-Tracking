@@ -6,7 +6,7 @@
 ## Purpose
 
 The arch package holds the segmentor U-Net and the ResNet-50 classifier
-builders. Train and export import these modules lazily.
+builders. Train and export import these modules.
 
 ## Contents
 
@@ -14,7 +14,7 @@ builders. Train and export import these modules lazily.
 | --- | --- | --- |
 | [`unet`](arch/unet.md) | module | Clean-room bilinear U-Net, 64-512 channels |
 | [`classifier`](arch/classifier.md) | module | torchvision ResNet-50 with a 4-channel stem |
-| [`registry`](arch/registry.md) | module | Kind plus name to a lazy builder |
+| [`registry`](arch/registry.md) | module | Kind plus name to a builder |
 
 ## Package interface
 

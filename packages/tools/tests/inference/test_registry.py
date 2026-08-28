@@ -1,9 +1,8 @@
-"""Architecture registry tests (resolve is torch-free; build skips without torch)."""
-
-import importlib.util
+"""Architecture registry tests."""
 
 import pytest
-from tools.inference.arch.registry import default_arch, resolve_arch
+import torch
+from tools.inference.arch.registry import build, default_arch, resolve_arch
 
 
 def test_default_arch() -> None:
@@ -22,12 +21,8 @@ def test_resolve_arch_fills_empty_and_rejects_unknown() -> None:
         resolve_arch("segmentor", "resnet50")
 
 
-@pytest.mark.skipif(importlib.util.find_spec("torch") is None, reason="torch extra not installed")
 def test_build_classifier_and_segmentor() -> None:
     """Registry build returns graphs with the flight I/O ranks."""
-    import torch
-    from tools.inference.arch.registry import build
-
     clf = build("classifier", "resnet50", 4).eval()
     seg = build("segmentor", "unet", 4).eval()
     x = torch.zeros(1, 4, 32, 32)

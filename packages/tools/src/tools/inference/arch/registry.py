@@ -1,8 +1,5 @@
 """Architecture registry: kind plus name to a builder.
 
-Importing this module does not import torch. `build` imports the U-Net or
-ResNet-50 constructor only after the train extra is installed.
-
 Contains:
   - DEFAULT_ARCH: kind to default architecture name.
   - default_arch: resolve an empty name.
@@ -13,10 +10,10 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from torch import nn
 
-if TYPE_CHECKING:
-    from torch import nn
+from tools.inference.arch.classifier import build_classifier
+from tools.inference.arch.unet import build_segmentor
 
 DEFAULT_ARCH: dict[str, str] = {
     "classifier": "resnet50",
@@ -75,19 +72,10 @@ def build(kind: str, arch: str, in_channels: int) -> nn.Module:
 
     Raises:
         ValueError: If the pair is unknown.
-        ImportError: If torch is not installed.
-
-    Notes:
-        Builders import inside this function. Importing the registry module
-        does not import torch.
     """
     name = resolve_arch(kind, arch)
     if kind == "classifier" and name == "resnet50":
-        from tools.inference.arch.classifier import build_classifier
-
         return build_classifier(in_channels=in_channels)
     if kind == "segmentor" and name == "unet":
-        from tools.inference.arch.unet import build_segmentor
-
         return build_segmentor(in_channels=in_channels, out_channels=1)
     raise ValueError(f"unknown architecture {kind}/{name}")

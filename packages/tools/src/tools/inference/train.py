@@ -1,12 +1,9 @@
 """Plain-torch train loop for the classifier and the segmentor.
 
-Importing this module does not import torch. Torch and torchvision load inside
-`train` after the `pact-tools[train]` extra is installed.
-
 The loop is SGD + BCEWithLogitsLoss over a frozen TrainConfig. Each run writes
 a directory with config.toml, history.csv, last and best checkpoints, and
 summary.json. Data is a processed pack with frozen splits, an unsplit disk
-adapter, or a synthetic pack.
+adapter, or a synthetic pack. Batches come from ``DataLoader(SplitDataset)``.
 
 Contains:
   - TrainConfig: frozen hyperparameters.
@@ -25,15 +22,16 @@ import subprocess
 import tomllib
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import numpy as np
 import torch
+from torch import nn
+from torch.utils.data import DataLoader
 
-from tools.inference.arch.registry import resolve_arch
+from tools.inference.arch.registry import build, resolve_arch
 from tools.inference.data import (
     ProcessedPack,
+    SplitDataset,
     load_disk_batch,
     load_processed_pack,
     make_synthetic_pack,
@@ -41,9 +39,6 @@ from tools.inference.data import (
 )
 from tools.inference.metrics import classifier_metrics, segmentor_metrics
 from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
-
-if TYPE_CHECKING:
-    from torch import nn
 
 _TRAIN_KINDS = frozenset({"classifier", "segmentor"})
 _VAL_METRICS = frozenset({"f1", "mean_iou", "bce"})
@@ -183,20 +178,6 @@ def overlay_train_config(
     )
 
 
-def _import_torch() -> ModuleType:
-    """Import torch or raise a tools-extra error."""
-    try:
-        import torch
-    except ImportError as exc:
-        raise ImportError(
-            "torch is required for tools.inference.train; install pact-tools[train]"
-        ) from exc
-    loaded: object = torch
-    if not isinstance(loaded, ModuleType):
-        raise TypeError("torch import did not return a module")
-    return loaded
-
-
 def _repo_sha() -> str:
     """Return HEAD SHA, or ``unknown`` when git is unavailable."""
     try:
@@ -293,57 +274,38 @@ def _unsplit_disk_pack(root: Path, cfg: TrainConfig) -> ProcessedPack:
     )
 
 
-def _batch_indices(indices: tuple[int, ...], batch: int) -> list[tuple[int, ...]]:
-    """Split indices into contiguous batches."""
-    chunks: list[tuple[int, ...]] = []
-    start = 0
-    n = len(indices)
-    while start < n:
-        end = min(start + batch, n)
-        chunks.append(indices[start:end])
-        start = end
-    return chunks
-
-
-def _index_array(array: torch.Tensor | np.ndarray, indices: tuple[int, ...]) -> np.ndarray:
-    """Return a contiguous float32 numpy slice of ``array`` at ``indices``."""
-    if isinstance(array, torch.Tensor):
-        idx = torch.as_tensor(indices, dtype=torch.long)
-        return np.ascontiguousarray(array[idx].detach().cpu().numpy(), dtype=np.float32)
-    idx = np.asarray(indices, dtype=np.int64)
-    return np.ascontiguousarray(array[idx], dtype=np.float32)
+def _loader(
+    pack: ProcessedPack, kind: str, split: str, batch_size: int
+) -> DataLoader[tuple[torch.Tensor, torch.Tensor]]:
+    """Return a deterministic DataLoader over one named split."""
+    return DataLoader(
+        SplitDataset(pack, kind, split),
+        batch_size=batch_size,
+        shuffle=False,
+    )
 
 
 def _gather(
     model: nn.Module,
-    torch: ModuleType,
-    pack: ProcessedPack,
-    indices: tuple[int, ...],
-    kind: str,
-    batch: int,
+    loader: DataLoader[tuple[torch.Tensor, torch.Tensor]],
     device: str,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Run eval-mode inference over indices and return logits plus targets."""
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Run eval-mode inference over a loader and return logits plus targets."""
     model.eval()
-    logit_chunks: list[np.ndarray] = []
-    target_chunks: list[np.ndarray] = []
+    logit_chunks: list[torch.Tensor] = []
+    target_chunks: list[torch.Tensor] = []
     with torch.no_grad():
-        for chunk in _batch_indices(indices, batch):
-            images = torch.from_numpy(_index_array(pack.images, chunk)).to(device)
-            logits = model(images)
-            logit_chunks.append(np.asarray(logits.detach().cpu().numpy(), dtype=np.float32))
-            if kind == "classifier":
-                target_chunks.append(_index_array(pack.labels, chunk))
-            else:
-                target_chunks.append(_index_array(pack.masks, chunk))
+        for images, targets in loader:
+            logits = model(images.to(device))
+            logit_chunks.append(logits.detach().cpu())
+            target_chunks.append(targets.cpu())
     if not logit_chunks:
-        empty_logits = np.zeros((0, 1), dtype=np.float32)
-        empty_targets = np.zeros((0, 1), dtype=np.float32)
-        return empty_logits, empty_targets
-    return np.concatenate(logit_chunks, axis=0), np.concatenate(target_chunks, axis=0)
+        empty = torch.zeros((0, 1), dtype=torch.float32)
+        return empty, empty
+    return torch.cat(logit_chunks, dim=0), torch.cat(target_chunks, dim=0)
 
 
-def _score(kind: str, logits: np.ndarray, targets: np.ndarray) -> dict[str, float]:
+def _score(kind: str, logits: torch.Tensor, targets: torch.Tensor) -> dict[str, float]:
     """Return a flat metric dict for one split."""
     if kind == "classifier":
         report = classifier_metrics(logits, targets)
@@ -386,7 +348,6 @@ def _is_better(name: str, current: float, best: float) -> bool:
 
 
 def _write_checkpoint(
-    torch: ModuleType,
     path: Path,
     model: nn.Module,
     cfg: TrainConfig,
@@ -420,7 +381,6 @@ def train(config: TrainConfig | None = None) -> Path:
         Path: Run directory containing config, history, checkpoints, and summary.
 
     Raises:
-        ImportError: If torch is not installed.
         ValueError: If `config.kind` or architecture is unknown.
 
     Notes:
@@ -439,13 +399,9 @@ def train(config: TrainConfig | None = None) -> Path:
     ckpt_dir = run_root / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    torch = _import_torch()
     torch.manual_seed(cfg.seed)
     device = cfg.device if cfg.device else ("cuda" if torch.cuda.is_available() else "cpu")
     pack = _pack_from_config(cfg, run_root)
-
-    from tools.inference.arch.registry import build
-
     model = build(cfg.kind, arch, cfg.in_channels)
     model.to(device)
     optimizer = torch.optim.SGD(
@@ -460,6 +416,8 @@ def train(config: TrainConfig | None = None) -> Path:
     val_idx = pack.splits.val
     if not train_idx:
         raise ValueError("train split is empty")
+    train_loader = _loader(pack, cfg.kind, "train", batch)
+    val_loader = _loader(pack, cfg.kind, "val", batch) if val_idx else None
 
     _write_config_toml(run_root / "config.toml", cfg)
     history_path = run_root / "history.csv"
@@ -469,12 +427,9 @@ def train(config: TrainConfig | None = None) -> Path:
 
     for epoch in range(1, int(cfg.epochs) + 1):
         model.train()
-        for chunk in _batch_indices(train_idx, batch):
-            batch_x = torch.from_numpy(_index_array(pack.images, chunk)).to(device)
-            if cfg.kind == "classifier":
-                batch_y = torch.from_numpy(_index_array(pack.labels, chunk)).to(device)
-            else:
-                batch_y = torch.from_numpy(_index_array(pack.masks, chunk)).to(device)
+        for batch_x, batch_y in train_loader:
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
             optimizer.zero_grad()
             logits = model(batch_x)
             loss = loss_fn(logits, batch_y)
@@ -482,13 +437,11 @@ def train(config: TrainConfig | None = None) -> Path:
             optimizer.step()
 
         rows: list[dict[str, object]] = []
-        train_logits, train_targets = _gather(
-            model, torch, pack, train_idx, cfg.kind, batch, device
-        )
+        train_logits, train_targets = _gather(model, train_loader, device)
         train_metrics = _score(cfg.kind, train_logits, train_targets)
         rows.append({"epoch": epoch, "split": "train", **train_metrics})
-        if val_idx:
-            val_logits, val_targets = _gather(model, torch, pack, val_idx, cfg.kind, batch, device)
+        if val_loader is not None:
+            val_logits, val_targets = _gather(model, val_loader, device)
             val_metrics = _score(cfg.kind, val_logits, val_targets)
             rows.append({"epoch": epoch, "split": "val", **val_metrics})
             score = _val_score(val_metrics, val_metric)
@@ -507,13 +460,11 @@ def train(config: TrainConfig | None = None) -> Path:
                 writer.writerows(rows)
 
         last_path = ckpt_dir / "last.pt"
-        _write_checkpoint(torch, last_path, model, cfg, arch, pack.meta.dataset_hash, epoch)
+        _write_checkpoint(last_path, model, cfg, arch, pack.meta.dataset_hash, epoch)
         if best_score is None or _is_better(val_metric, score, best_score):
             best_score = score
             best_epoch = epoch
-            _write_checkpoint(
-                torch, ckpt_dir / "best.pt", model, cfg, arch, pack.meta.dataset_hash, epoch
-            )
+            _write_checkpoint(ckpt_dir / "best.pt", model, cfg, arch, pack.meta.dataset_hash, epoch)
 
     if cfg.checkpoint_path:
         extra = Path(cfg.checkpoint_path)

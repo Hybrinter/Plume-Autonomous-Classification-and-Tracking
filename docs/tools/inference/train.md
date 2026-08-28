@@ -6,7 +6,8 @@
 ## Purpose
 
 This module runs a plain-torch SGD loop for the classifier or the segmentor.
-Importing the module does not import torch. Each job writes a run directory.
+Batches come from a `DataLoader` over `SplitDataset`. Each job writes a run
+directory.
 
 ## Public interface
 
@@ -23,8 +24,7 @@ Importing the module does not import torch. Each job writes a run directory.
 
 `overlay_train_config(cfg, ...) -> TrainConfig`.
 
-`train(config=None) -> Path`. Returns the run directory. Raises `ImportError`
-when torch is missing.
+`train(config=None) -> Path`. Returns the run directory.
 
 The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 `checkpoints/best.pt`, and `summary.json`.
@@ -33,15 +33,14 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 
 1. Resolve architecture (`resnet50` or `unet`) and run id `{kind}-{arch}-{seed}`.
 2. Load a processed pack, an unsplit disk adapter, or a synthetic pack.
-3. Run SGD with `BCEWithLogitsLoss` for `epochs`.
+3. Run SGD with `BCEWithLogitsLoss` for `epochs`. Shuffle is off.
 4. After each epoch, score train and val splits and append `history.csv`.
 5. Write `last.pt` every epoch. Write `best.pt` when the val metric improves.
 6. Write `summary.json` with hashes, counts, and the best epoch.
 
 ## Errors and faults
 
-`ImportError` when torch is not installed. `ValueError` on an unknown `kind`,
-architecture, or empty train split.
+`ValueError` on an unknown `kind`, architecture, or empty train split.
 
 ## Messages
 
@@ -58,7 +57,7 @@ metric defaults to mean IoU. A TOML file may overlay these fields.
 ## Constraints
 
 Torch is a required tools dependency. Spatial size comes from config, not from
-a hardcoded architecture constant. Batch indexing reads pack tensors. Device is
+a hardcoded architecture constant. The train loader does not shuffle. Device is
 CUDA when present, else CPU.
 
 ## Related documents

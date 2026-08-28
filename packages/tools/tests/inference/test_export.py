@@ -89,9 +89,9 @@ def test_calibration_batches_random() -> None:
     batches = _calibration_batches((1, 4, 8, 8), "", 3)
     assert len(batches) == 3
     assert batches[0].shape == (1, 4, 8, 8)
-    assert batches[0].dtype == np.float32
-    assert float(batches[0].min()) >= 0.0
-    assert float(batches[0].max()) <= 1.0
+    assert batches[0].dtype == torch.float32
+    assert float(batches[0].min().item()) >= 0.0
+    assert float(batches[0].max().item()) <= 1.0
 
 
 def test_calibration_batches_from_pack(tmp_path: Path) -> None:
@@ -103,6 +103,7 @@ def test_calibration_batches_from_pack(tmp_path: Path) -> None:
     batches = _calibration_batches((1, 4, 8, 8), str(tmp_path), 2)
     assert len(batches) == 2
     assert batches[0].shape == (1, 4, 8, 8)
+    assert batches[0].dtype == torch.float32
 
 
 @_skip_no_onnx

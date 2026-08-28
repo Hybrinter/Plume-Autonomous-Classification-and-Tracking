@@ -1,11 +1,11 @@
 """Torch-to-ONNX export, manifest sidecar, optional INT8 PTQ, and promote.
 
-Importing this module does not import torch. Torch loads inside `export` after
-the train extra is installed. Graphs emit logits; they do not bake sigmoid.
+Graphs emit logits; they do not bake sigmoid.
 
 INT8 export is post-training static quantization with QDQ nodes. Graph input
 and output stay float32. onnxruntime loads inside the INT8 path after the
-export extra is installed.
+export extra is installed. Calibration tensors convert to numpy only for
+``CalibrationDataReader``.
 
 Promote copies an artifact only after `accept_artifact` (or the classifier
 gate) reports accepted.
@@ -23,25 +23,20 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
-# stdlib
 import json
 import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
-from types import ModuleType
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-# third-party
 import numpy as np
-
-# internal
+import torch
 from flight.payload.inference.verify import compute_sha256
+from torch import Tensor, nn
 
 from tools.inference.accept import Manifest
+from tools.inference.arch.registry import build
 from tools.inference.data import load_processed_pack
-
-if TYPE_CHECKING:
-    from torch import Tensor, nn
 
 _EXPORT_KINDS = frozenset({"classifier", "segmentor"})
 
@@ -136,7 +131,7 @@ def _calibration_batches(
     input_shape: tuple[int, ...],
     calib_dir: str,
     calib_samples: int,
-) -> list[np.ndarray]:
+) -> list[torch.Tensor]:
     """Return NCHW float32 calibration tensors in ``[0, 1]``.
 
     Args:
@@ -145,7 +140,7 @@ def _calibration_batches(
         calib_samples: Maximum tensor count.
 
     Returns:
-        list[np.ndarray]: Each item is ``(1, C, H, W)`` float32.
+        list[torch.Tensor]: Each item is ``(1, C, H, W)`` float32 on CPU.
 
     Raises:
         ValueError: If a pack image geometry does not match ``input_shape``.
@@ -161,16 +156,19 @@ def _calibration_batches(
         indices = pack.splits.train[:n]
         if not indices:
             raise ValueError("INT8 calibration pack has an empty train split")
-        batches: list[np.ndarray] = []
+        batches: list[torch.Tensor] = []
         for idx in indices:
-            image = np.ascontiguousarray(pack.images[idx], dtype=np.float32)
-            # np.ndarray[float32, (C, H, W)]
+            image = pack.images[idx]
             if tuple(int(dim) for dim in image.shape) != expected:
-                raise ValueError(f"calibration image shape {image.shape} != {expected}")
-            batches.append(image[np.newaxis, ...])
+                raise ValueError(f"calibration image shape {tuple(image.shape)} != {expected}")
+            batches.append(image.unsqueeze(0).to(dtype=torch.float32))
         return batches
-    rng = np.random.default_rng(0)
-    return [rng.random((1, channels, height, width), dtype=np.float32) for _ in range(n)]
+    generator = torch.Generator()
+    generator.manual_seed(0)
+    return [
+        torch.rand((1, channels, height, width), generator=generator, dtype=torch.float32)
+        for _ in range(n)
+    ]
 
 
 def _export_int8(
@@ -215,7 +213,10 @@ def _export_int8(
         def get_next(self) -> dict[str, np.ndarray] | None:
             if self._index >= len(batches):
                 return None
-            item = {"input": batches[self._index]}
+            array = np.ascontiguousarray(
+                batches[self._index].detach().cpu().numpy(), dtype=np.float32
+            )
+            item = {"input": array}
             self._index += 1
             return item
 
@@ -238,24 +239,8 @@ def _export_int8(
     return int8_path, int8_manifest_path, int8_manifest
 
 
-def _import_torch() -> ModuleType:
-    """Import torch or raise a tools-extra error."""
-    try:
-        import torch
-    except ImportError as exc:
-        raise ImportError(
-            "torch is required for tools.inference.export; install pact-tools[train]"
-        ) from exc
-    loaded: object = torch
-    if not isinstance(loaded, ModuleType):
-        raise TypeError("torch import did not return a module")
-    return loaded
-
-
 def _build_model(kind: str, arch: str, in_channels: int) -> nn.Module:
-    """Construct the network for `kind` and `arch` (lazy registry import)."""
-    from tools.inference.arch.registry import build
-
+    """Construct the network for `kind` and `arch`."""
     return build(kind, arch, in_channels)
 
 
@@ -270,11 +255,10 @@ def _output_shape(kind: str, height: int, width: int) -> tuple[int, ...]:
 
 def _onnx_export(model: nn.Module, dummy: Tensor, output_path: str, opset: int) -> None:
     """Write an ONNX graph with logits named ``logits``."""
-    torch = _import_torch()
     try:
         torch.onnx.export(
             model,
-            dummy,
+            (dummy,),
             output_path,
             input_names=["input"],
             output_names=["logits"],
@@ -284,7 +268,7 @@ def _onnx_export(model: nn.Module, dummy: Tensor, output_path: str, opset: int) 
     except TypeError:
         torch.onnx.export(
             model,
-            dummy,
+            (dummy,),
             output_path,
             input_names=["input"],
             output_names=["logits"],
@@ -303,14 +287,12 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
         is true, a sibling INT8 pair is also written.
 
     Raises:
-        ImportError: If torch is not installed, or INT8 is requested without
-            onnxruntime.
+        ImportError: If INT8 is requested without onnxruntime.
         ValueError: If `config.kind` is unknown.
         FileNotFoundError: If the checkpoint is missing.
     """
     if config.kind not in _EXPORT_KINDS:
         raise ValueError(f"unknown export kind {config.kind!r}")
-    torch = _import_torch()
     try:
         payload = torch.load(config.checkpoint_path, map_location="cpu", weights_only=True)
     except TypeError:

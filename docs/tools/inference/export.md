@@ -45,10 +45,9 @@ a passed artifact into `data/models/`.
 
 ## Errors and faults
 
-`ImportError` when torch is not installed, or when INT8 export runs without
-onnxruntime. `ValueError` on an unknown kind, a rejected promote, or a
-calibration geometry mismatch. `FileNotFoundError` on a missing checkpoint or
-calibration pack.
+`ImportError` when INT8 export runs without onnxruntime. `ValueError` on an
+unknown kind, a rejected promote, or a calibration geometry mismatch.
+`FileNotFoundError` on a missing checkpoint or calibration pack.
 
 ## Messages
 
@@ -62,11 +61,12 @@ repo SHA, dataset hash, ONNX opset (default 17), `int8`, `calib_dir`, and
 
 ## Constraints
 
-Importing the module does not import torch or onnxruntime. Classifier output
-shape is `(1, 1)`. Segmentor output shape is `(1, 1, H, W)`. Destination names
-in flight config are `data/models/active_classifier.onnx` and
+Torch imports at module level. onnxruntime imports inside the INT8 path.
+Classifier output shape is `(1, 1)`. Segmentor output shape is `(1, 1, H, W)`.
+Destination names in flight config are `data/models/active_classifier.onnx` and
 `data/models/active_segmentor.onnx`. INT8 export lives behind the `export`
-extra. Flight `use_int8` does not select the INT8 file.
+extra. Flight `use_int8` does not select the INT8 file. Calibration tensors
+convert to numpy only for the onnxruntime reader.
 
 ## Related documents
 

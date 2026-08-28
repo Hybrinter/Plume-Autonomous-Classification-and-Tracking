@@ -5,8 +5,9 @@
 
 ## Purpose
 
-The module defines frozen dataclasses for all tunable flight parameters. Default field values
-match `config/default.toml`.
+The module defines frozen schema dataclasses for all tunable flight parameters. Default field
+values match `config/default.toml`. Field constraints and cross-field checks run when a config
+object is constructed.
 
 ## Public interface
 
@@ -32,22 +33,25 @@ match `config/default.toml`.
 Each config class is constructed with keyword arguments or defaults. `PactConfig()` with no
 arguments yields a fully functional development configuration.
 
-`config_loader.load_config()` is the sole TOML entry point. It returns `PactConfig`.
+`config_loader.load_config()` is the sole TOML entry point. It validates a merged TOML dict
+into `PactConfig`.
 
 ## Behavior
 
 1. Each subsystem receives its sub-config slice at construction time.
 2. Frozen dataclasses prevent runtime mutation after load.
 3. Tuple fields hold array-like values. TOML arrays load as lists and map into tuples.
-4. `EnvironmentConfig` names sim/real axes for sensor, gimbal, compute, link, and clock.
-5. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
-6. `CommandIngressConfig` names the HMAC key path and accepted command sources.
-7. Routable targets and hazardous commands come from the command dictionary, not from router
+4. Unknown keys and out-of-range values fail at construction.
+5. `EnvironmentConfig` names sim/real axes for sensor, gimbal, compute, link, and clock.
+6. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
+7. `CommandIngressConfig` names the HMAC key path and accepted command sources.
+8. Routable targets and hazardous commands come from the command dictionary, not from router
    config fields.
 
 ## Errors and faults
 
-None from this module. Invalid TOML or out-of-range values fail in `config_loader` at startup.
+Construction raises `ValidationError` for unknown keys, out-of-range fields, and cross-field
+violations. `config_loader.load_config()` maps those errors to `Err(str)`.
 
 ## Messages
 

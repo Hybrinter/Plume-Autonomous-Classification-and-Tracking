@@ -21,8 +21,11 @@ import json
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Self
 
 import torch
+from pydantic import ConfigDict, TypeAdapter, model_validator
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 
 def _repo_root() -> Path:
@@ -39,7 +42,10 @@ _PACK_HASH_FILES: tuple[str, ...] = ("images.npy", "masks.npy", "labels.npy", "s
 _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
 
 
-@dataclass(frozen=True, slots=True)
+_SCHEMA = ConfigDict(extra="forbid")
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_SCHEMA)
 class SplitRecipe:
     """Seeded fractional split recipe.
 
@@ -54,6 +60,12 @@ class SplitRecipe:
     train_fraction: float = 0.70
     val_fraction: float = 0.15
     test_fraction: float = 0.15
+
+    @model_validator(mode="after")
+    def _fractions_sum_to_one(self) -> Self:
+        """Reject non-positive fractions or a set that does not sum to 1."""
+        _validate_recipe(self)
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,19 +134,12 @@ def load_split_recipe(path: str | Path | None = None) -> SplitRecipe:
         SplitRecipe: Seed and fractions.
 
     Raises:
-        OSError / tomllib.TOMLDecodeError / KeyError: on a missing or malformed file.
+        OSError / tomllib.TOMLDecodeError: on a missing or malformed file.
         ValueError: If fractions are not positive or do not sum to 1.
     """
     dest = Path(path) if path is not None else DEFAULT_SPLIT_RECIPE
     data = tomllib.loads(dest.read_text(encoding="utf-8"))
-    recipe = SplitRecipe(
-        seed=int(data.get("seed", 0)),
-        train_fraction=float(data.get("train_fraction", 0.70)),
-        val_fraction=float(data.get("val_fraction", 0.15)),
-        test_fraction=float(data.get("test_fraction", 0.15)),
-    )
-    _validate_recipe(recipe)
-    return recipe
+    return TypeAdapter(SplitRecipe).validate_python(data)
 
 
 def _validate_recipe(recipe: SplitRecipe) -> None:

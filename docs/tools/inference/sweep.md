@@ -32,7 +32,8 @@ Each JSONL record holds `run_id`, `path`, `kind`, `arch`, `learning_rate`,
 2. Treat list values as search axes. Treat scalars as fixed fields.
 3. Expand the cartesian product in sorted axis-name order. Truncate to
    `max_runs` when that value is positive.
-4. Reject a scalar `run_id` and an unknown architecture pair.
+4. Overlay each trial onto `TrainConfig` (unknown train keys fail the schema) and
+   reject an unknown architecture pair.
 5. Call `train` then `evaluate(..., split="val")` for each trial.
 6. Write one JSON object per line to the JSONL path.
 

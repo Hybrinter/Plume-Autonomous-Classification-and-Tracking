@@ -5,7 +5,7 @@
 
 ## Purpose
 
-The config loader merges TOML files and maps them into the frozen `PactConfig` hierarchy.
+The config loader merges TOML files and validates them into the frozen `PactConfig` schema.
 No subsystem reads TOML directly.
 
 ## Public interface
@@ -25,20 +25,13 @@ No subsystem reads TOML directly.
 
 1. Load the base TOML file at `config_path`.
 2. When `override_path` is set, load the override and deep-merge it on top of the base.
-3. Run `_validate` on the merged dict.
-4. Map the merged dict to `PactConfig` via `_build_pact_config`.
-5. Return `Ok(config)` or `Err` on any failure.
+3. Validate the merged dict with the `PactConfig` schema.
+4. Return `Ok(config)` or `Err` on any failure.
 
-**Validation steps in `_validate`:**
-
-1. Reject unknown top-level sections and unknown keys within each section.
-2. Check per-section numeric ranges for controller, inference, sensor, fault, storage,
-   comms, preprocessing, link, command_ingress, and command_router fields.
-3. Check cross-field rules: gimbal travel envelope, stow/home pose bounds, mosaic layout
-   permutation, and inference input band membership.
-
-**Mapping:** Each TOML section maps to one frozen dataclass in `flight.libs.config`.
-Environment axes resolve to `"sim"` or `"real"` literals.
+The schema rejects unknown sections and unknown keys. Field constraints cover numeric
+ranges, APID width, port bounds, even mosaic dimensions, and non-empty strings. Cross-field
+rules cover the gimbal travel envelope, stow and home poses, mosaic layout permutation,
+and inference input-band membership.
 
 ## Errors and faults
 
@@ -49,7 +42,7 @@ Returns `Err(str)` for:
 - Unknown section or key
 - Out-of-range field value
 - Cross-field violation (gimbal bounds, mosaic layout, input bands)
-- Mapping error (`KeyError`, `TypeError`, `ValueError`)
+- Schema validation error
 
 ## Messages
 
@@ -57,7 +50,7 @@ None.
 
 ## Configuration
 
-Reads all TOML sections backed by `_SECTION_TO_CLASS`:
+Reads all TOML sections backed by the `PactConfig` schema:
 
 | Section | Dataclass |
 | --- | --- |

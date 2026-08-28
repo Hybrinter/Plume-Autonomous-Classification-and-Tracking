@@ -54,7 +54,8 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 ## Errors and faults
 
 `ValueError` on an unknown `kind`, architecture, optimizer, scheduler, or empty
-train split. `FileExistsError` when the run directory exists and `overwrite` is
+train split. Unknown `kind`, `optimizer`, and `scheduler` fail at schema
+construction. `FileExistsError` when the run directory exists and `overwrite` is
 false.
 
 ## Messages

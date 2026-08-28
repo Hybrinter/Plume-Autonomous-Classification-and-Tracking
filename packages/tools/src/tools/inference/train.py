@@ -23,11 +23,13 @@ import hashlib
 import json
 import subprocess
 import tomllib
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import torch
+from pydantic import ConfigDict, TypeAdapter
+from pydantic.dataclasses import dataclass
 from torch import nn
 from torch.utils.data import DataLoader
 
@@ -44,13 +46,17 @@ from tools.inference.data import (
 from tools.inference.metrics import classifier_metrics, segmentor_metrics
 from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
 
+TrainKind = Literal["classifier", "segmentor"]
+OptimizerName = Literal["sgd", "adamw"]
+SchedulerName = Literal["none", "cosine"]
 _TRAIN_KINDS = frozenset({"classifier", "segmentor"})
 _VAL_METRICS = frozenset({"f1", "mean_iou", "bce"})
 _OPTIMIZERS = frozenset({"sgd", "adamw"})
 _SCHEDULERS = frozenset({"none", "cosine"})
+_SCHEMA = ConfigDict(extra="forbid")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
 class TrainConfig:
     """Frozen train hyperparameters.
 
@@ -59,7 +65,7 @@ class TrainConfig:
     these fields.
     """
 
-    kind: str = "segmentor"
+    kind: TrainKind = "segmentor"
     arch: str = ""
     input_height_px: int = 256
     input_width_px: int = 256
@@ -79,11 +85,14 @@ class TrainConfig:
     val_metric: str = ""
     device: str = ""
     overwrite: bool = False
-    optimizer: str = "sgd"
-    scheduler: str = "none"
+    optimizer: OptimizerName = "sgd"
+    scheduler: SchedulerName = "none"
     shuffle: bool = False
     pos_weight: float = 0.0
     augment: bool = False
+
+
+_TRAIN_ADAPTER = TypeAdapter(TrainConfig)
 
 
 _DIGEST_SKIP = frozenset({"run_dir", "run_id", "checkpoint_path", "overwrite"})
@@ -119,9 +128,9 @@ def load_train_config(path: str | None = None) -> TrainConfig:
         TrainConfig: Frozen config.
 
     Raises:
-        OSError / tomllib.TOMLDecodeError / KeyError: on a missing or malformed
-        file (tools-side engineering check).
-        ValueError: If `kind` is not classifier or segmentor.
+        OSError / tomllib.TOMLDecodeError: on a missing or malformed file
+        (tools-side engineering check).
+        ValidationError: If a key is unknown or a field fails the schema.
     """
     cfg = TrainConfig()
     if path is None:
@@ -129,27 +138,6 @@ def load_train_config(path: str | None = None) -> TrainConfig:
     data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     payload: dict[str, object] = dict(data)
     return apply_train_mapping(cfg, payload)
-
-
-def _as_int(value: object) -> int:
-    """Coerce a mapping value to int."""
-    if isinstance(value, bool) or not isinstance(value, int | float | str):
-        raise TypeError(f"expected int-compatible value, got {type(value)}")
-    return int(value)
-
-
-def _as_float(value: object) -> float:
-    """Coerce a mapping value to float."""
-    if isinstance(value, bool) or not isinstance(value, int | float | str):
-        raise TypeError(f"expected float-compatible value, got {type(value)}")
-    return float(value)
-
-
-def _as_bool(value: object) -> bool:
-    """Coerce a mapping value to bool."""
-    if not isinstance(value, bool):
-        raise TypeError(f"expected bool, got {type(value)}")
-    return value
 
 
 def apply_train_mapping(cfg: TrainConfig, data: dict[str, object]) -> TrainConfig:
@@ -163,46 +151,11 @@ def apply_train_mapping(cfg: TrainConfig, data: dict[str, object]) -> TrainConfi
         TrainConfig: Frozen overlay.
 
     Raises:
-        ValueError: If a key is unknown or ``kind`` is not classifier or
-            segmentor.
+        ValidationError: If a key is unknown or a field fails the schema.
     """
-    valid = {item.name for item in fields(TrainConfig)}
-    unknown = [key for key in data if key not in valid]
-    if unknown:
-        raise ValueError(f"unknown train config keys {unknown!r}")
-    kind = str(data["kind"]) if "kind" in data else None
-    if kind is not None and kind not in _TRAIN_KINDS:
-        raise ValueError(f"unknown train kind {kind!r}")
-    return overlay_train_config(
-        cfg,
-        kind=kind,
-        arch=str(data["arch"]) if "arch" in data else None,
-        input_height_px=_as_int(data["input_height_px"]) if "input_height_px" in data else None,
-        input_width_px=_as_int(data["input_width_px"]) if "input_width_px" in data else None,
-        in_channels=_as_int(data["in_channels"]) if "in_channels" in data else None,
-        epochs=_as_int(data["epochs"]) if "epochs" in data else None,
-        batch_size=_as_int(data["batch_size"]) if "batch_size" in data else None,
-        learning_rate=_as_float(data["learning_rate"]) if "learning_rate" in data else None,
-        momentum=_as_float(data["momentum"]) if "momentum" in data else None,
-        weight_decay=_as_float(data["weight_decay"]) if "weight_decay" in data else None,
-        seed=_as_int(data["seed"]) if "seed" in data else None,
-        synthetic_samples=(
-            _as_int(data["synthetic_samples"]) if "synthetic_samples" in data else None
-        ),
-        data_dir=str(data["data_dir"]) if "data_dir" in data else None,
-        checkpoint_path=str(data["checkpoint_path"]) if "checkpoint_path" in data else None,
-        bit_depth=_as_int(data["bit_depth"]) if "bit_depth" in data else None,
-        run_dir=str(data["run_dir"]) if "run_dir" in data else None,
-        run_id=str(data["run_id"]) if "run_id" in data else None,
-        val_metric=str(data["val_metric"]) if "val_metric" in data else None,
-        device=str(data["device"]) if "device" in data else None,
-        overwrite=_as_bool(data["overwrite"]) if "overwrite" in data else None,
-        optimizer=str(data["optimizer"]) if "optimizer" in data else None,
-        scheduler=str(data["scheduler"]) if "scheduler" in data else None,
-        shuffle=_as_bool(data["shuffle"]) if "shuffle" in data else None,
-        pos_weight=_as_float(data["pos_weight"]) if "pos_weight" in data else None,
-        augment=_as_bool(data["augment"]) if "augment" in data else None,
-    )
+    merged: dict[str, object] = {item.name: getattr(cfg, item.name) for item in fields(TrainConfig)}
+    merged.update(data)
+    return _TRAIN_ADAPTER.validate_python(merged)
 
 
 def overlay_train_config(
@@ -266,36 +219,58 @@ def overlay_train_config(
     Returns:
         TrainConfig: Frozen overlay.
     """
-    return replace(
-        cfg,
-        kind=kind if kind is not None else cfg.kind,
-        arch=arch if arch is not None else cfg.arch,
-        input_height_px=input_height_px if input_height_px is not None else cfg.input_height_px,
-        input_width_px=input_width_px if input_width_px is not None else cfg.input_width_px,
-        in_channels=in_channels if in_channels is not None else cfg.in_channels,
-        epochs=epochs if epochs is not None else cfg.epochs,
-        batch_size=batch_size if batch_size is not None else cfg.batch_size,
-        learning_rate=learning_rate if learning_rate is not None else cfg.learning_rate,
-        momentum=momentum if momentum is not None else cfg.momentum,
-        weight_decay=weight_decay if weight_decay is not None else cfg.weight_decay,
-        seed=seed if seed is not None else cfg.seed,
-        synthetic_samples=(
-            synthetic_samples if synthetic_samples is not None else cfg.synthetic_samples
-        ),
-        data_dir=data_dir if data_dir is not None else cfg.data_dir,
-        checkpoint_path=checkpoint_path if checkpoint_path is not None else cfg.checkpoint_path,
-        bit_depth=bit_depth if bit_depth is not None else cfg.bit_depth,
-        run_dir=run_dir if run_dir is not None else cfg.run_dir,
-        run_id=run_id if run_id is not None else cfg.run_id,
-        val_metric=val_metric if val_metric is not None else cfg.val_metric,
-        device=device if device is not None else cfg.device,
-        overwrite=overwrite if overwrite is not None else cfg.overwrite,
-        optimizer=optimizer if optimizer is not None else cfg.optimizer,
-        scheduler=scheduler if scheduler is not None else cfg.scheduler,
-        shuffle=shuffle if shuffle is not None else cfg.shuffle,
-        pos_weight=pos_weight if pos_weight is not None else cfg.pos_weight,
-        augment=augment if augment is not None else cfg.augment,
-    )
+    updates: dict[str, object] = {}
+    if kind is not None:
+        updates["kind"] = kind
+    if arch is not None:
+        updates["arch"] = arch
+    if data_dir is not None:
+        updates["data_dir"] = data_dir
+    if checkpoint_path is not None:
+        updates["checkpoint_path"] = checkpoint_path
+    if epochs is not None:
+        updates["epochs"] = epochs
+    if batch_size is not None:
+        updates["batch_size"] = batch_size
+    if input_height_px is not None:
+        updates["input_height_px"] = input_height_px
+    if input_width_px is not None:
+        updates["input_width_px"] = input_width_px
+    if seed is not None:
+        updates["seed"] = seed
+    if run_dir is not None:
+        updates["run_dir"] = run_dir
+    if run_id is not None:
+        updates["run_id"] = run_id
+    if in_channels is not None:
+        updates["in_channels"] = in_channels
+    if learning_rate is not None:
+        updates["learning_rate"] = learning_rate
+    if momentum is not None:
+        updates["momentum"] = momentum
+    if weight_decay is not None:
+        updates["weight_decay"] = weight_decay
+    if synthetic_samples is not None:
+        updates["synthetic_samples"] = synthetic_samples
+    if bit_depth is not None:
+        updates["bit_depth"] = bit_depth
+    if val_metric is not None:
+        updates["val_metric"] = val_metric
+    if device is not None:
+        updates["device"] = device
+    if overwrite is not None:
+        updates["overwrite"] = overwrite
+    if optimizer is not None:
+        updates["optimizer"] = optimizer
+    if scheduler is not None:
+        updates["scheduler"] = scheduler
+    if shuffle is not None:
+        updates["shuffle"] = shuffle
+    if pos_weight is not None:
+        updates["pos_weight"] = pos_weight
+    if augment is not None:
+        updates["augment"] = augment
+    return apply_train_mapping(cfg, updates) if updates else cfg
 
 
 def _repo_sha() -> str:

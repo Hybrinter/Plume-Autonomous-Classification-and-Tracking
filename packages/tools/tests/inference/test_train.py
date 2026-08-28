@@ -266,13 +266,7 @@ def test_train_shuffle_pos_weight_augment(tmp_path: Path) -> None:
     assert (root / "summary.json").is_file()
 
 
-def test_train_unknown_optimizer(tmp_path: Path) -> None:
-    """Unknown optimizer raises ValueError before the loop."""
-    with pytest.raises(ValueError, match="unknown optimizer"):
-        train(
-            TrainConfig(
-                optimizer="nope",
-                run_dir=str(tmp_path / "runs"),
-                run_id="bad-opt",
-            )
-        )
+def test_train_unknown_optimizer() -> None:
+    """Unknown optimizer fails schema validation."""
+    with pytest.raises(ValueError, match="optimizer"):
+        TrainConfig(optimizer="nope")  # type: ignore[arg-type]

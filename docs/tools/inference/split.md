@@ -36,6 +36,8 @@ pack.
 ## Behavior
 
 1. Load seed and fractions from TOML. Default fractions are 0.70 / 0.15 / 0.15.
+   The recipe schema rejects unknown keys and fractions that are not positive or
+   that do not sum to 1.0.
 2. Permute `range(n)` with the recipe seed.
 3. Give at least one index to val and test. Send leftover indices to train.
 4. Hash `images.npy`, `masks.npy`, `labels.npy`, and `splits.json` by file digest.

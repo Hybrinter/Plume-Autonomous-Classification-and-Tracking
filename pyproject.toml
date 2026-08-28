@@ -44,6 +44,7 @@ markers = [
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
 # The workspace-member smoke tests share the basename test_import.py. namespace_packages +
 # explicit_package_bases let mypy map them to distinct src-layout module paths instead of
 # colliding on a single "test_import" name.
@@ -54,6 +55,11 @@ explicit_package_bases = true
 # falls back to Any for every cross-package symbol, silently disabling strict checking across
 # modules. With these src dirs on the path, strict type-checking holds across the whole workspace.
 mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
 
 [tool.ruff]
 line-length = 100

@@ -14,7 +14,7 @@ thread scheduler. It is the flight composition root and the shared wiring entry 
 | --- | --- | --- |
 | [`main`](core/main.md) | module | Production entry: load config, build drivers, run the scheduler |
 | [`composition`](core/composition.md) | module | Driver-agnostic app wiring and bus queue policy |
-| [`config_loader`](core/config_loader.md) | module | TOML merge, validation, and `PactConfig` mapping |
+| [`config_loader`](core/config_loader.md) | module | TOML merge and `PactConfig` schema validation |
 | [`scheduler`](core/scheduler.md) | module | Daemon-thread scheduler with crash supervision |
 | [`select_drivers`](core/select_drivers.md) | module | Environment-axis driver selection |
 | [`command_router`](core/command_router.md) | module | Command routing service shell |

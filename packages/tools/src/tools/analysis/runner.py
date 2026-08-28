@@ -46,6 +46,10 @@ from flight.libs.messages import (
 )
 from flight.libs.time import ManualClock
 from flight.libs.types import DownlinkPriority, FaultCode, LinkState, MessageType, Ok
+
+# third-party
+from pydantic import ConfigDict, Field, TypeAdapter
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilSystem, build_sil_system
 
@@ -524,6 +528,46 @@ def scenario_names() -> tuple[str, ...]:
     return tuple(SCENARIOS)
 
 
+_FILE_SCHEMA = ConfigDict(extra="ignore")
+_ParamValue = str | int | float | bool
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_FILE_SCHEMA)
+class _SceneFile:
+    """GSE [scene] subset used by analysis capture (assertions ignored)."""
+
+    num_frames: int
+    seed: int
+    thermal_readings: tuple[float, ...] = (25.0,)
+    power_readings: tuple[float, ...] = (30.0,)
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_FILE_SCHEMA)
+class _CommandFile:
+    """GSE [[commands]] row used to build a post-ingress CommandMsg injection."""
+
+    at_frame: int
+    command_id: str
+    source: str
+    seq: int
+    params: dict[str, _ParamValue] = Field(default_factory=dict)
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_FILE_SCHEMA)
+class _ScenarioFile:
+    """GSE scenario TOML subset. Extra keys such as assertions are ignored."""
+
+    name: str
+    profile: str
+    scene: _SceneFile
+    steps: int
+    dt: float
+    commands: tuple[_CommandFile, ...] = ()
+
+
+_SCENARIO_FILE_ADAPTER = TypeAdapter(_ScenarioFile)
+
+
 def load_scenario_spec(path: str | Path) -> ScenarioSpec:
     """Adapt an existing scenarios/*.toml file (the GSE schema) into a ScenarioSpec.
 
@@ -539,53 +583,44 @@ def load_scenario_spec(path: str | Path) -> ScenarioSpec:
     Raises:
         OSError: if the file cannot be read.
         tomllib.TOMLDecodeError: if the file is not valid TOML.
-        KeyError: if a required field is missing.
+        ValidationError: if a required field is missing.
 
     Notes:
         Command targets are resolved from the flight command dictionary, so a declared command
         routes to the same subsystem it would in flight. This raises (test/CLI tooling) rather
-        than returning a Result.
+        than returning a Result. Extra GSE keys such as assertions are ignored.
     """
     data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
-    scene = data["scene"]
+    parsed = _SCENARIO_FILE_ADAPTER.validate_python(data)
     injections = tuple(
         Injection(
-            int(cmd["at_frame"]),
+            cmd.at_frame,
             _command(
-                str(cmd["command_id"]),
-                _target_for(str(cmd["command_id"])),
-                dict(cmd.get("params", {})),
-                source=str(cmd["source"]),
-                seq=int(cmd["seq"]),
+                cmd.command_id,
+                _target_for(cmd.command_id),
+                dict(cmd.params),
+                source=cmd.source,
+                seq=cmd.seq,
             ),
         )
-        for cmd in data.get("commands", [])
+        for cmd in parsed.commands
     )
     return ScenarioSpec(
-        name=f"file_{data['name']}",
-        title=f"Scenario file: {data['name']}",
+        name=f"file_{parsed.name}",
+        title=f"Scenario file: {parsed.name}",
         description=(
-            f"Captured from scenarios/{data['name']}.toml (profile {data['profile']}); GSE "
+            f"Captured from scenarios/{parsed.name}.toml (profile {parsed.profile}); GSE "
             "assertions are not scored -- the run is captured passively for analysis."
         ),
         category="scenario-file",
-        steps=int(data["steps"]),
-        dt=float(data["dt"]),
-        num_frames=int(scene["num_frames"]),
-        seed=int(scene["seed"]),
-        thermal_readings=_readings(scene.get("thermal_readings"), (25.0,)),
-        power_readings=_readings(scene.get("power_readings"), (30.0,)),
+        steps=parsed.steps,
+        dt=parsed.dt,
+        num_frames=parsed.scene.num_frames,
+        seed=parsed.scene.seed,
+        thermal_readings=parsed.scene.thermal_readings,
+        power_readings=parsed.scene.power_readings,
         injections=injections,
     )
-
-
-def _readings(raw: object, default: tuple[float, ...]) -> tuple[float, ...]:
-    """Normalize an optional TOML readings array into a float tuple, or fall back to a default."""
-    if raw is None:
-        return default
-    if not isinstance(raw, list):
-        raise TypeError(f"scene readings must be a list, got {type(raw).__name__}")
-    return tuple(float(value) for value in raw)
 
 
 def _target_for(command_id: str) -> str:

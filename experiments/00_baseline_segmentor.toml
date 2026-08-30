@@ -1,0 +1,32 @@
+# Stage 0: the current segmentor, recorded as the reference point.
+#
+# The shipped 64-128-256-512 U-Net with random weights, trained with BCE under
+# SGD. The segmentor corpus is 1,437 images, so the epoch budget is larger than
+# the classifier's for a comparable number of gradient steps.
+
+kind = "segmentor"
+arch = "unet"
+data_dir = "data/processed/segmentor"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 60
+batch_size = 16
+patience = 15
+eval_interval = 1
+
+optimizer = "sgd"
+learning_rate = 0.01
+momentum = 0.9
+weight_decay = 0.0
+scheduler = "cosine"
+loss = "bce"
+
+shuffle = true
+augment = false
+amp = true
+seed = 0
+val_metric = "mean_iou"

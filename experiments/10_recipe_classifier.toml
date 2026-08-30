@@ -1,0 +1,35 @@
+# Stage 1: training recipe for the classifier, architecture held fixed.
+#
+# ResNet-18 with ImageNet weights stands in for the whole catalog here. It is
+# about three times cheaper per epoch than ResNet-50, and a recipe that suits
+# one ImageNet-pretrained residual backbone suits the others closely enough to
+# start stage 2 from. Stage 2 re-checks the recipe on the winning architecture.
+#
+# 2 optimizers x 3 learning rates x 2 objectives = 12 trials.
+
+kind = "classifier"
+arch = "resnet18_pt"
+data_dir = "data/processed/classifier"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 15
+batch_size = 64
+patience = 5
+eval_interval = 1
+
+optimizer = ["sgd", "adamw"]
+learning_rate = [0.01, 0.001, 0.0001]
+loss = ["bce", "focal"]
+
+momentum = 0.9
+weight_decay = 0.0001
+scheduler = "cosine"
+shuffle = true
+augment = true
+amp = true
+seed = 0
+val_metric = "f1"

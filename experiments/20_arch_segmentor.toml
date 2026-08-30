@@ -1,0 +1,124 @@
+# Stage 2: segmentor architecture, training recipe held fixed.
+#
+# The recipe below comes from the completed stage 1 sweep, but it is not that
+# sweep's single best cell. Stage 1 ranked its top four within 0.005 mean IoU:
+# SGD at 0.01 scored 0.6010 with focal_dice and 0.5999 with bce_dice, and AdamW
+# at 0.001 scored 0.5961 and 0.5957 with the same two objectives. A 0.005 spread
+# on a 216-image validation split is noise, so those four cells are tied and the
+# ranking among them cannot carry a decision.
+#
+# What separates them is how far each falls when the learning rate is wrong,
+# which matters here because stage 1 tuned the rate on `unet_w32` alone while
+# this stage spans stem widths from 8 to 64, a decoder-free dilated family, and
+# ImageNet-pretrained encoders. The best rate will not be the same for all of
+# them. Across a tenfold rate change SGD moved 0.07 mean IoU (0.6010 down to
+# 0.5326) against AdamW's 0.03 (0.5961 down to 0.5674), so AdamW degrades more
+# gently when a given architecture prefers a different rate. Fine-tuning also
+# argues the same way: SGD at 0.01 is aggressive enough to wash out pretrained
+# features before the decoder has learned to read them, which would report a
+# handicap on the `runet` entries as an architectural result.
+#
+# Holding a single recipe across every architecture is what makes the frontier
+# comparable, so the recipe should be the robust member of a tied group rather
+# than the nominal winner. Stage 2.7 re-tunes the rate on the selected
+# architecture, which is where the tuning is worth spending.
+#
+# The architecture axis walks the size ladder in three directions at once,
+# because they trade quality for size differently:
+#
+#   - Width (`w64` down to `w8`). Parameters fall with the square of the stem
+#     width, so this is the strongest size lever and the first one to measure.
+#   - Depth (`d3`). Dropping a stage removes the widest block of all, which is
+#     a large size cut, and costs the coarsest receptive field. Plumes are
+#     large relative to a 128 px tile, so the coarse stage may not earn itself.
+#   - Separable convolutions (`sep`). These cut parameters at a fixed width and
+#     depth, which is a different point from simply narrowing the network.
+#
+# The `runet` entries test the opposite bet: spend parameters on an
+# ImageNet-pretrained encoder and keep the decoder thin. The annotated corpus
+# is only 1,437 images, so pretrained features may beat any scratch network
+# regardless of size.
+#
+# `runet18` carries no `_pt` and is therefore the same graph as `runet18_pt`
+# with random weights, down to the parameter count of 12,464,017. It is here as
+# a control. Every pretrained entry costs at least 11.7 M parameters, which is
+# more than any scratch U-Net below `unet`, so a `runet` win would otherwise be
+# unattributable: it could come from the ImageNet features or simply from the
+# capacity that carrying them requires. Running the same graph from scratch
+# separates the two, and only the pretraining half of that answer would justify
+# paying for the encoder.
+#
+# The `dilatenet` entries are not an encoder-decoder at all. They downsample
+# twice, then grow the receptive field with dilated convolutions and resize the
+# logits back, which removes the decoder and every skip connection. A decoder
+# exists to restore detail the encoder destroyed, and plumes are large, diffuse
+# and soft-edged rather than finely bounded, so this measures whether that
+# detail is something the task actually needs. A short probe at `w32` reached
+# mean IoU 0.435 and flattened, which is under the acceptance gate, so the
+# family is carried here at wider settings to find whether it is capacity or
+# the missing decoder that limits it.
+#
+# The epoch budget is 120 against stage 1's 50. Stage 1's Dice-family trials
+# peaked at epoch 43 on average out of 50, and 7 of those 18 trials peaked
+# within two epochs of the cap, so a meaningful share of them were still
+# improving when the budget ended them. A frontier measured at a cap ranks
+# architectures partly by how fast they start rather than by where they arrive.
+# Patience 20 keeps the larger budget affordable, since a run that has genuinely
+# settled exits well before the cap.
+#
+# The same reading is why `focal` alone is absent from the recipe: its trials
+# peaked at epoch 19 on average and then fell away, and none of them reached the
+# cap, so raising the budget would not have rescued them.
+#
+# Two seeds per architecture. The corpus is small enough that seed-to-seed
+# spread can exceed the gap between neighbouring architectures, and a frontier
+# drawn through single runs would read that noise as a result. Stage 2.5 adds
+# further seeds at the knee, where the spread actually decides something.
+#
+# 18 architectures x 2 seeds = 36 trials.
+
+kind = "segmentor"
+data_dir = "data/processed/segmentor"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 120
+batch_size = 16
+patience = 20
+eval_interval = 1
+
+arch = [
+  "unet",
+  "unet_w32",
+  "unet_w16",
+  "unet_w8",
+  "unet_w32_d3",
+  "unet_w16_d3",
+  "unet_w32_sep",
+  "unet_w16_sep",
+  "unet_w8_sep",
+  "runet18",
+  "runet18_pt",
+  "runet18_pt_x8",
+  "runet18_pt_x32",
+  "runet34_pt",
+  "dilatenet_w32",
+  "dilatenet_w64",
+  "dilatenet_w128",
+  "dilatenet_w64_full",
+]
+seed = [0, 1]
+
+optimizer = "adamw"
+learning_rate = 0.001
+loss = "focal_dice"
+momentum = 0.9
+weight_decay = 0.0001
+scheduler = "cosine"
+shuffle = true
+augment = true
+amp = true
+val_metric = "mean_iou"

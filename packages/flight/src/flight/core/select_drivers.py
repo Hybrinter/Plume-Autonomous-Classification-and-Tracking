@@ -82,7 +82,7 @@ def select_drivers(
         SimScalarSensor(readings); 'real' -> RealScalarSensor().
       - gimbal: 'sim' -> SimGimbal(clock, cfg); 'real' -> RealGimbal(clock, cfg).
       - compute: 'sim' -> the passed ScriptedDetector; 'real' -> OnnxDetector
-        (classifier + segmentor artifacts).
+        (classifier + segmentor artifacts, I/O contract from inference config).
       - link: 'sim' -> SimStationLink(inbound_packets); 'real' -> RealStationLink(cfg, clock).
 
     Args:
@@ -94,7 +94,8 @@ def select_drivers(
         A Drivers bundle with each axis resolved to a sim stand-in or a real driver.
 
     Raises:
-        ValueError: If any selected axis is 'sim' but sim_inputs is None.
+        ValueError: If any selected axis is 'sim' but sim_inputs is None, or the
+            real ONNX artifacts fail the inference I/O contract.
         SystemExit: If the real-sensor startup exposure or gain command fails.
 
     Notes:
@@ -152,13 +153,20 @@ def select_drivers(
     else:
         from flight.payload.inference import OnnxDetector
 
+        inf = config.inference
+        bands = len(inf.input_bands)
+        height = inf.input_height_px
+        width = inf.input_width_px
         detector = OnnxDetector(
-            segmentor_model_path=config.inference.segmentor_model_path,
-            classifier_model_path=config.inference.classifier_model_path,
+            segmentor_model_path=inf.segmentor_model_path,
+            classifier_model_path=inf.classifier_model_path,
             confidence_gate=config.controller.confidence_gate,
             min_blob_area_px=config.controller.min_blob_area_px,
-            logit_threshold=config.inference.classifier_logit_threshold,
-            latency_budget_ms=config.inference.latency_budget_ms,
+            logit_threshold=inf.classifier_logit_threshold,
+            latency_budget_ms=inf.latency_budget_ms,
+            expected_input_shape=(1, bands, height, width),
+            expected_segmentor_output_shape=(1, 1, height, width),
+            expected_classifier_output_shape=(1, 1),
         )
 
     # --- link (station transport) ---

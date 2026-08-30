@@ -32,6 +32,8 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
 - Output: `Drivers` with each axis resolved.
 - Raises `ValueError` when any axis is `sim` and `sim_inputs` is `None`.
 - Raises `SystemExit` when real-sensor exposure or gain setup returns `Err`.
+- Raises `ValueError` when the real compute axis loads an ONNX file whose
+  shapes do not match the inference I/O contract.
 
 ## Behavior
 
@@ -41,8 +43,9 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
    `RealScalarSensor` for both scalars.
 3. **Gimbal axis:** `sim` selects `SimGimbal`. `real` selects `RealGimbal`.
 4. **Compute axis:** `sim` uses the passed `ScriptedDetector`. `real` constructs
-   `OnnxDetector` with `segmentor_model_path`, `classifier_model_path`, logit threshold, and latency
-   budget.
+   `OnnxDetector` from `inference.segmentor_model_path` and
+   `inference.classifier_model_path`, with the logit threshold, latency budget,
+   and I/O contract `(1, C, H, W)` from `input_bands` and `input_*_px`.
 5. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
 6. **Launch lock:** always `SimLaunchLock`. Flight with `sim_inputs=None` starts ENGAGED.
    SIL uses `sim_inputs.launch_lock_engaged` (default RELEASED).
@@ -52,7 +55,8 @@ Real driver SDK modules import lazily inside the `real` branches only.
 
 ## Errors and faults
 
-- `ValueError`: a `sim` axis without `sim_inputs`.
+- `ValueError`: a `sim` axis without `sim_inputs`, or a real ONNX artifact
+  whose shapes do not match the inference I/O contract.
 - `SystemExit`: real-sensor exposure or gain command failure.
 
 ## Messages

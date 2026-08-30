@@ -1,0 +1,17 @@
+{
+  "version": "v1",
+  "model_repo_sha": "36d22223ab32d4ce617f25c3ea93febf7a62ea7c",
+  "dataset_hash": "67a777e50cfa729bc28e2eea0497be916d47fd64bd79b774bafe1f57caa9dba2",
+  "input_shape": [
+    1,
+    4,
+    256,
+    256
+  ],
+  "output_shape": [
+    1,
+    1
+  ],
+  "sha256": "a20cf1518be7f44825c590dbcbb0f38e8ff108dfaf1cfaf27eca506444e7895d",
+  "quantization": "fp32"
+}

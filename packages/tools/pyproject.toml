@@ -24,6 +24,11 @@ export = [
     "onnx>=1.16",
     "onnxruntime>=1.19",
 ]
+# data = GeoTIFF readers for the Zenodo corpus preprocess step. Training boxes only;
+# the processed .npy pack this produces needs none of it.
+data = [
+    "rasterio>=1.3",
+]
 
 [project.scripts]
 pact-tools = "tools.cli:main"

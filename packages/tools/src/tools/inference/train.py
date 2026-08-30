@@ -1,9 +1,16 @@
 """Plain-torch train loop for the classifier and the segmentor.
 
-The loop is SGD + BCEWithLogitsLoss over a frozen TrainConfig. Each run writes
-a directory with config.toml, history.csv, last and best checkpoints, and
-summary.json. Data is a processed pack with frozen splits, an unsplit disk
-adapter, or a synthetic pack. Batches come from ``DataLoader(SplitDataset)``.
+The loop runs a frozen TrainConfig: SGD or AdamW against one of the objectives
+in :mod:`tools.inference.losses`, optionally under CUDA mixed precision. Each
+run writes a directory with config.toml, history.csv, last and best
+checkpoints, and summary.json. Data is a processed pack with frozen splits, an
+unsplit disk adapter, or a synthetic pack. Batches come from
+``DataLoader(SplitDataset)``.
+
+Two knobs exist for long searches rather than for model quality. ``patience``
+abandons a run once the validation metric stops improving, and
+``eval_interval`` scores less often than every epoch; scoring walks both splits
+in full, so it can cost about as much as training the epoch did.
 
 Contains:
   - TrainConfig: frozen hyperparameters.
@@ -12,6 +19,9 @@ Contains:
   - apply_train_mapping: overlay from a string-key mapping.
   - config_digest: 8-hex identity of experiment fields.
   - train: run the loop and write a run directory.
+  - is_cuda_oom: detect a CUDA allocator failure.
+  - next_batch_after_oom: halve a batch size, or raise at size 1.
+  - fit_batch_size: lower the batch until one training step fits.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
@@ -22,7 +32,9 @@ import csv
 import hashlib
 import json
 import subprocess
+import time
 import tomllib
+from collections.abc import Callable
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, Literal
@@ -42,6 +54,13 @@ from tools.inference.data import (
     load_processed_pack,
     make_synthetic_pack,
     write_processed_pack,
+)
+from tools.inference.losses import (
+    DEFAULT_FOCAL_ALPHA,
+    DEFAULT_FOCAL_GAMMA,
+    LOSS_NAMES,
+    LossName,
+    build_loss,
 )
 from tools.inference.metrics import classifier_metrics, segmentor_metrics
 from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
@@ -90,6 +109,12 @@ class TrainConfig:
     shuffle: bool = False
     pos_weight: float = 0.0
     augment: bool = False
+    loss: LossName = "bce"
+    focal_gamma: float = DEFAULT_FOCAL_GAMMA
+    focal_alpha: float = DEFAULT_FOCAL_ALPHA
+    amp: bool = False
+    patience: int = 0
+    eval_interval: int = 1
 
 
 _TRAIN_ADAPTER = TypeAdapter(TrainConfig)
@@ -185,6 +210,12 @@ def overlay_train_config(
     shuffle: bool | None = None,
     pos_weight: float | None = None,
     augment: bool | None = None,
+    loss: str | None = None,
+    focal_gamma: float | None = None,
+    focal_alpha: float | None = None,
+    amp: bool | None = None,
+    patience: int | None = None,
+    eval_interval: int | None = None,
 ) -> TrainConfig:
     """Return a copy of `cfg` with any non-None CLI overlays applied.
 
@@ -215,6 +246,13 @@ def overlay_train_config(
         shuffle: Optional train-loader shuffle flag.
         pos_weight: Optional positive-class BCE weight. ``<= 0`` disables.
         augment: Optional train-split flip and rotation flag.
+        loss: Optional objective name from ``tools.inference.losses``.
+        focal_gamma: Optional focal focusing exponent.
+        focal_alpha: Optional focal positive-class weight.
+        amp: Optional CUDA mixed-precision flag.
+        patience: Optional early-stop patience in scored epochs. ``<= 0``
+            disables.
+        eval_interval: Optional epochs between scoring passes.
 
     Returns:
         TrainConfig: Frozen overlay.
@@ -270,6 +308,18 @@ def overlay_train_config(
         updates["pos_weight"] = pos_weight
     if augment is not None:
         updates["augment"] = augment
+    if loss is not None:
+        updates["loss"] = loss
+    if focal_gamma is not None:
+        updates["focal_gamma"] = focal_gamma
+    if focal_alpha is not None:
+        updates["focal_alpha"] = focal_alpha
+    if amp is not None:
+        updates["amp"] = amp
+    if patience is not None:
+        updates["patience"] = patience
+    if eval_interval is not None:
+        updates["eval_interval"] = eval_interval
     return apply_train_mapping(cfg, updates) if updates else cfg
 
 
@@ -320,7 +370,9 @@ def _pack_from_config(cfg: TrainConfig, run_root: Path) -> ProcessedPack:
     if cfg.data_dir:
         root = Path(cfg.data_dir)
         if (root / "splits.json").is_file():
-            return load_processed_pack(root, bit_depth=cfg.bit_depth)
+            return load_processed_pack(
+                root, bit_depth=cfg.bit_depth, load_masks=cfg.kind != "classifier"
+            )
         return _unsplit_disk_pack(root, cfg)
     images, masks, labels = make_synthetic_pack(
         n=max(int(cfg.synthetic_samples), 3),
@@ -369,6 +421,23 @@ def _unsplit_disk_pack(root: Path, cfg: TrainConfig) -> ProcessedPack:
     )
 
 
+def _loader_for(
+    dataset: SplitDataset,
+    batch_size: int,
+    shuffle: bool = False,
+    seed: int = 0,
+) -> DataLoader[tuple[torch.Tensor, torch.Tensor]]:
+    """Return a deterministic DataLoader over an already-built split dataset."""
+    generator = torch.Generator()
+    generator.manual_seed(int(seed))
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        generator=generator,
+    )
+
+
 def _loader(
     pack: ProcessedPack,
     kind: str,
@@ -379,14 +448,8 @@ def _loader(
     augment: bool = False,
 ) -> DataLoader[tuple[torch.Tensor, torch.Tensor]]:
     """Return a deterministic DataLoader over one named split."""
-    generator = torch.Generator()
-    generator.manual_seed(int(seed))
-    return DataLoader(
-        SplitDataset(pack, kind, split, augment=augment, seed=seed),
-        batch_size=batch_size,
-        shuffle=shuffle,
-        generator=generator,
-    )
+    dataset = SplitDataset(pack, kind, split, augment=augment, seed=seed)
+    return _loader_for(dataset, batch_size, shuffle=shuffle, seed=seed)
 
 
 def _make_optimizer(model: nn.Module, cfg: TrainConfig) -> torch.optim.Optimizer:
@@ -504,6 +567,70 @@ def _write_checkpoint(
     torch.save(payload, path)
 
 
+def is_cuda_oom(exc: BaseException) -> bool:
+    """Return True when ``exc`` is a CUDA allocator failure.
+
+    Args:
+        exc: Exception raised during a CUDA step.
+
+    Returns:
+        bool: True for ``torch.cuda.OutOfMemoryError`` and for a
+            ``RuntimeError`` whose message names out of memory.
+    """
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    if type(exc).__name__ == "OutOfMemoryError":
+        return True
+    text = str(exc).lower()
+    return isinstance(exc, RuntimeError) and "out of memory" in text
+
+
+def next_batch_after_oom(batch: int) -> int:
+    """Return ``batch // 2``, or raise when the size is already 1.
+
+    Args:
+        batch: Batch size that just failed to fit.
+
+    Returns:
+        int: Next smaller size, at least 1.
+
+    Raises:
+        RuntimeError: If ``batch`` is 1 or less.
+    """
+    if batch <= 1:
+        raise RuntimeError("CUDA out of memory at batch_size=1")
+    return max(batch // 2, 1)
+
+
+def fit_batch_size(requested: int, attempt: Callable[[int], None]) -> int:
+    """Return a batch size at or below ``requested`` that ``attempt`` accepts.
+
+    Args:
+        requested: Requested batch size. Values below 1 are treated as 1.
+        attempt: Called with the candidate size. Must raise a CUDA
+            out-of-memory error when that size does not fit.
+
+    Returns:
+        int: The first size ``attempt`` accepts, walking ``requested``,
+            ``requested // 2``, and so on down to 1.
+
+    Raises:
+        RuntimeError: If size 1 still raises CUDA OOM.
+        BaseException: Any non-OOM exception from ``attempt``.
+    """
+    batch = max(int(requested), 1)
+    while True:
+        try:
+            attempt(batch)
+            return batch
+        except BaseException as exc:
+            if not is_cuda_oom(exc):
+                raise
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            batch = next_batch_after_oom(batch)
+
+
 def train(config: TrainConfig | None = None) -> Path:
     """Run SGD + BCEWithLogitsLoss and write a run directory.
 
@@ -522,7 +649,9 @@ def train(config: TrainConfig | None = None) -> Path:
     Notes:
         `checkpoints/last.pt` updates every epoch. `checkpoints/best.pt` stores
         the best validation score. Classifier default val metric is F1.
-        Segmentor default val metric is mean IoU.
+        Segmentor default val metric is mean IoU. A CUDA out-of-memory error on
+        the first step halves ``batch_size`` and retries down to 1. The written
+        ``config.toml`` stores the size that fitted, so later eval uses it.
     """
     cfg = config if config is not None else TrainConfig()
     if cfg.kind not in _TRAIN_KINDS:
@@ -531,6 +660,8 @@ def train(config: TrainConfig | None = None) -> Path:
         raise ValueError(f"unknown optimizer {cfg.optimizer!r}")
     if cfg.scheduler not in _SCHEDULERS:
         raise ValueError(f"unknown scheduler {cfg.scheduler!r}")
+    if cfg.loss not in LOSS_NAMES:
+        raise ValueError(f"unknown loss {cfg.loss!r}")
     arch = resolve_arch(cfg.kind, cfg.arch)
     val_metric = _default_val_metric(cfg.kind, cfg.val_metric)
     run_id = cfg.run_id if cfg.run_id else f"{cfg.kind}-{arch}-{cfg.seed}-{config_digest(cfg)}"
@@ -543,53 +674,95 @@ def train(config: TrainConfig | None = None) -> Path:
 
     torch.manual_seed(cfg.seed)
     device = cfg.device if cfg.device else ("cuda" if torch.cuda.is_available() else "cpu")
+    # Every batch has the same shape, so letting cuDNN benchmark once and reuse
+    # the winning algorithm pays for itself across a multi-epoch run.
+    torch.backends.cudnn.benchmark = device.startswith("cuda")
     pack = _pack_from_config(cfg, run_root)
-    model = build(cfg.kind, arch, cfg.in_channels)
-    n_params = count_params(model)
-    flops = count_flops(model, (1, cfg.in_channels, cfg.input_height_px, cfg.input_width_px))
-    model.to(device)
-    optimizer = _make_optimizer(model, cfg)
-    scheduler = _make_scheduler(optimizer, cfg)
-    if cfg.pos_weight > 0.0:
-        weight = torch.tensor([cfg.pos_weight], dtype=torch.float32, device=device)
-        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=weight)
-    else:
-        loss_fn = torch.nn.BCEWithLogitsLoss()
-    batch = max(int(cfg.batch_size), 1)
+    cost_model = build(cfg.kind, arch, cfg.in_channels)
+    n_params = count_params(cost_model)
+    flops = count_flops(cost_model, (1, cfg.in_channels, cfg.input_height_px, cfg.input_width_px))
+    del cost_model
     train_idx = pack.splits.train
     val_idx = pack.splits.val
     if not train_idx:
         raise ValueError("train split is empty")
-    train_loader = _loader(
-        pack,
-        cfg.kind,
-        "train",
-        batch,
-        shuffle=cfg.shuffle,
-        seed=cfg.seed,
-        augment=cfg.augment,
-    )
+    train_dataset = SplitDataset(pack, cfg.kind, "train", augment=cfg.augment, seed=cfg.seed)
+    use_amp = bool(cfg.amp) and device.startswith("cuda")
+
+    def _warmup(candidate: int) -> None:
+        probe = build(cfg.kind, arch, cfg.in_channels).to(device)
+        try:
+            opt = _make_optimizer(probe, cfg)
+            criterion = build_loss(
+                cfg.loss,
+                pos_weight=cfg.pos_weight,
+                focal_gamma=cfg.focal_gamma,
+                focal_alpha=cfg.focal_alpha,
+            ).to(device)
+            loader = _loader_for(train_dataset, candidate, shuffle=False, seed=cfg.seed)
+            batch_x, batch_y = next(iter(loader))
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+            opt.zero_grad(set_to_none=True)
+            with torch.amp.autocast("cuda", enabled=use_amp):
+                loss = criterion(probe(batch_x), batch_y)
+            if use_amp:
+                probe_scaler = torch.amp.GradScaler("cuda", enabled=True)
+                probe_scaler.scale(loss).backward()
+            else:
+                loss.backward()
+        finally:
+            del probe
+            if device.startswith("cuda"):
+                torch.cuda.empty_cache()
+
+    batch = fit_batch_size(int(cfg.batch_size), _warmup)
+    written = apply_train_mapping(cfg, {"batch_size": batch}) if batch != cfg.batch_size else cfg
+    torch.manual_seed(cfg.seed)
+    model = build(cfg.kind, arch, cfg.in_channels)
+    model.to(device)
+    optimizer = _make_optimizer(model, cfg)
+    scheduler = _make_scheduler(optimizer, cfg)
+    loss_fn = build_loss(
+        cfg.loss,
+        pos_weight=cfg.pos_weight,
+        focal_gamma=cfg.focal_gamma,
+        focal_alpha=cfg.focal_alpha,
+    ).to(device)
+    train_loader = _loader_for(train_dataset, batch, shuffle=cfg.shuffle, seed=cfg.seed)
     train_score_loader = _loader(pack, cfg.kind, "train", batch, seed=cfg.seed)
     val_loader = _loader(pack, cfg.kind, "val", batch, seed=cfg.seed) if val_idx else None
 
-    _write_config_toml(run_root / "config.toml", cfg)
+    _write_config_toml(run_root / "config.toml", written)
     history_path = run_root / "history.csv"
     history_fields: list[str] | None = None
     best_score: float | None = None
     best_epoch = 0
+    stale_epochs = 0
+    stopped_early = False
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    eval_interval = max(int(cfg.eval_interval), 1)
+    started_at = time.perf_counter()
 
     for epoch in range(1, int(cfg.epochs) + 1):
         model.train()
+        train_dataset.set_epoch(epoch)
         for batch_x, batch_y in train_loader:
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
-            optimizer.zero_grad()
-            logits = model(batch_x)
-            loss = loss_fn(logits, batch_y)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            with torch.amp.autocast("cuda", enabled=use_amp):
+                logits = model(batch_x)
+                loss = loss_fn(logits, batch_y)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
         if scheduler is not None:
             scheduler.step()
+        # Scoring runs both splits in full, so it can cost as much as the epoch
+        # itself. The final epoch is always scored so a run never ends unscored.
+        if epoch % eval_interval != 0 and epoch != int(cfg.epochs):
+            continue
 
         rows: list[dict[str, object]] = []
         train_logits, train_targets = _gather(model, train_score_loader, device)
@@ -619,8 +792,15 @@ def train(config: TrainConfig | None = None) -> Path:
         if best_score is None or _is_better(val_metric, score, best_score):
             best_score = score
             best_epoch = epoch
+            stale_epochs = 0
             _write_checkpoint(ckpt_dir / "best.pt", model, cfg, arch, pack.meta.dataset_hash, epoch)
+        else:
+            stale_epochs += 1
+            if int(cfg.patience) > 0 and stale_epochs >= int(cfg.patience):
+                stopped_early = True
+                break
 
+    train_seconds = time.perf_counter() - started_at
     if cfg.checkpoint_path:
         extra = Path(cfg.checkpoint_path)
         extra.parent.mkdir(parents=True, exist_ok=True)
@@ -645,6 +825,11 @@ def train(config: TrainConfig | None = None) -> Path:
         "flops": flops,
         "optimizer": cfg.optimizer,
         "scheduler": cfg.scheduler,
+        "loss": cfg.loss,
+        "amp": use_amp,
+        "batch_size": batch,
+        "stopped_early": stopped_early,
+        "train_seconds": round(train_seconds, 3),
     }
     (run_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return run_root

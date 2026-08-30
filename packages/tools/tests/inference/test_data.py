@@ -106,7 +106,15 @@ def test_write_and_load_split(tmp_path: Path) -> None:
     assert total == 6
 
 
-def test_load_processed_pack_rejects_hash_mismatch(tmp_path: Path) -> None:
+def test_load_processed_pack_skips_masks(tmp_path: Path) -> None:
+    """load_masks=False stores a dummy mask tensor and still yields labels."""
+    images, masks, labels = make_synthetic_pack(4, 4, 8, 8, seed=3)
+    write_processed_pack(tmp_path, images, masks, labels, SplitRecipe(seed=3))
+    pack = load_processed_pack(tmp_path, load_masks=False)
+    assert pack.labels.shape == (4, 1)
+    assert pack.masks.shape == (4, 1, 1, 1)
+    full = load_processed_pack(tmp_path, load_masks=True)
+    assert full.masks.shape == (4, 1, 8, 8)
     """A tampered labels.npy fails the dataset.json hash check."""
     images, masks, labels = make_synthetic_pack(4, 4, 8, 8, seed=1)
     write_processed_pack(tmp_path, images, masks, labels, SplitRecipe(seed=1))

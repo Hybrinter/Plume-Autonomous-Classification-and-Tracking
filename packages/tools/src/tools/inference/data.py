@@ -7,14 +7,16 @@ On-disk packs stay `images.npy`, `masks.npy`, `labels.npy`, `splits.json`, and
 
 Contains:
   - SampleBatch: one image tensor plus classifier or segmentor targets.
-  - ProcessedPack: memmap-backed tensors plus split index and dataset hash.
+  - ProcessedPack: memmap or tensor images plus split index and dataset hash.
+  - _row_image: copy one pack image row to a CPU tensor.
   - SplitDataset: torch Dataset over one named split.
   - apply_train_augment: seeded flip and 90-degree rotation on the train split.
   - make_synthetic_batch: planted-blob scenes for a 1-step train smoke test.
   - make_synthetic_pack: even-index blobs with masks and labels.
   - write_processed_pack: persist tensors, splits, and dataset.json.
   - load_disk_batch: read `images.npy` plus `labels.npy` or `masks.npy`.
-  - load_processed_pack / load_split: split-aware pack loader.
+  - load_processed_pack / load_split: split-aware pack loader. Classifier
+    loads skip ``masks.npy``.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
@@ -87,20 +89,43 @@ class SampleBatch:
     targets: torch.Tensor
 
 
+_MATERIALIZE_BYTES = 512 * 1024 * 1024
+
+
+def _row_image(store: torch.Tensor | np.ndarray, index: int) -> torch.Tensor:
+    """Return one ``(C, H, W)`` float32 CPU image, copying a memmap row.
+
+    Args:
+        store: Full pack image array or tensor.
+        index: Pack index.
+
+    Returns:
+        torch.Tensor: One sample. A numpy row is copied so the caller owns it.
+    """
+    item = store[index]
+    if isinstance(item, torch.Tensor):
+        return item
+    row = np.array(item, dtype=np.float32, copy=True)
+    return torch.from_numpy(np.ascontiguousarray(row))
+
+
 @dataclass(frozen=True, slots=True)
 class ProcessedPack:
     """On-disk processed corpus with frozen splits.
 
     Attributes:
-        images: torch.Tensor[float32, (N, C, H, W)] in [0, 1] on CPU.
-        masks: torch.Tensor[float32, (N, 1, H, W)] in {0, 1} on CPU.
+        images: ``(N, C, H, W)`` float32 in ``[0, 1]``. Small packs are a CPU
+            tensor. Packs whose ``images.npy`` exceeds ``_MATERIALIZE_BYTES``
+            keep a read-only memmap so the loader does not commit the file.
+        masks: torch.Tensor[float32, (N, 1, H, W)] in {0, 1} on CPU. When
+            masks were not requested, this is a ``(N, 1, 1, 1)`` zero tensor.
         labels: torch.Tensor[float32, (N, 1)] in {0, 1} on CPU.
         splits: Frozen train/val/test indices.
         meta: Pack identity including dataset_hash.
         pack_dir: Filesystem directory of the pack.
     """
 
-    images: torch.Tensor
+    images: torch.Tensor | np.ndarray
     masks: torch.Tensor
     labels: torch.Tensor
     splits: SplitIndex
@@ -145,6 +170,21 @@ class SplitDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         self._indices = indices
         self._augment = bool(augment)
         self._seed = int(seed)
+        self._epoch = 0
+
+    def set_epoch(self, epoch: int) -> None:
+        """Advance the augmentation stream to a new epoch.
+
+        Args:
+            epoch: Epoch number, counted from one by the train loop.
+
+        Notes:
+            The transform for a sample is drawn from ``(seed, epoch, index)``.
+            Without the epoch term every sample would keep one fixed flip and
+            rotation for the whole run, which permutes the dataset once rather
+            than augmenting it.
+        """
+        self._epoch = int(epoch)
 
     def __len__(self) -> int:
         """Return the number of samples in the split."""
@@ -160,7 +200,7 @@ class SplitDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             tuple: Image ``(C, H, W)`` and target matching ``kind``.
         """
         idx = self._indices[int(index)]
-        image = self._pack.images[idx]
+        image = _row_image(self._pack.images, idx)
         if self._kind == "classifier":
             target = self._pack.labels[idx]
             if target.ndim == 0:
@@ -170,7 +210,9 @@ class SplitDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
             if target.ndim == 2:
                 target = target.unsqueeze(0)
         if self._augment:
-            image, target = apply_train_augment(image, target, self._kind, self._seed, int(index))
+            image, target = apply_train_augment(
+                image, target, self._kind, self._seed, int(index), self._epoch
+            )
         return image, target
 
 
@@ -180,6 +222,7 @@ def apply_train_augment(
     kind: str,
     seed: int,
     index: int,
+    epoch: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Apply a seeded horizontal flip and 90-degree rotation.
 
@@ -189,12 +232,14 @@ def apply_train_augment(
         kind: ``classifier`` or ``segmentor``.
         seed: Train seed.
         index: Dataset index in the split.
+        epoch: Epoch number. Samples take a new transform each epoch, which is
+            what makes this augmentation rather than a one-time permutation.
 
     Returns:
         tuple: Transformed image and target. Classifier labels stay unchanged.
     """
     rng = torch.Generator()
-    rng.manual_seed(int(seed) + int(index) * 1_000_003)
+    rng.manual_seed(int(seed) + int(index) * 1_000_003 + int(epoch) * 7_919)
     out_image = image
     out_target = target
     if float(torch.rand(1, generator=rng).item()) >= 0.5:
@@ -421,15 +466,21 @@ def load_disk_batch(
     raise ValueError(f"unknown train kind {kind!r}")
 
 
-def load_processed_pack(data_dir: str | Path, bit_depth: int = 12) -> ProcessedPack:
+def load_processed_pack(
+    data_dir: str | Path,
+    bit_depth: int = 12,
+    load_masks: bool = True,
+) -> ProcessedPack:
     """Load a processed pack with memmap-backed tensors and frozen splits.
 
     Args:
         data_dir: Directory with the pack files.
         bit_depth: ADC bit depth for DN-valued `images.npy`.
+        load_masks: When false, skip ``masks.npy`` and store a ``(N, 1, 1, 1)``
+            zero tensor. Classifier loaders do not read masks.
 
     Returns:
-        ProcessedPack: CPU tensors, splits, and meta.
+        ProcessedPack: CPU tensors or an image memmap, splits, and meta.
 
     Raises:
         FileNotFoundError: If a required pack file is missing.
@@ -437,28 +488,40 @@ def load_processed_pack(data_dir: str | Path, bit_depth: int = 12) -> ProcessedP
             do not match.
 
     Notes:
-        Images load through a copy-on-write memmap. DN-valued images copy into
-        a normalized array. Masks and labels stay memmap-backed tensors.
+        Probe one sample to choose the DN versus unit-interval branch. A pack
+        already in ``[0, 1]`` whose ``images.npy`` exceeds
+        ``_MATERIALIZE_BYTES`` stays a read-only memmap. Copy-on-write of a
+        multi-gigabyte file exhausts the Windows page file.
     """
     root = Path(data_dir)
-    raw_images = np.load(root / "images.npy", mmap_mode="c")
+    raw_images = np.load(root / "images.npy", mmap_mode="r")
     if raw_images.ndim != 4:
         raise ValueError(f"images.npy must have shape (N, C, H, W); got {raw_images.shape}")
-    if float(np.nanmax(raw_images)) <= 1.0:
+    probe = np.asarray(raw_images[0], dtype=np.float32)
+    unit_interval = float(np.nanmax(probe)) <= 1.0
+    images: torch.Tensor | np.ndarray
+    if unit_interval and int(raw_images.nbytes) > _MATERIALIZE_BYTES:
+        images = raw_images
+    elif unit_interval:
         images = _as_tensor(raw_images)
     else:
         images = _as_tensor(_maybe_normalize(np.asarray(raw_images), bit_depth))
-    masks_np = np.load(root / "masks.npy", mmap_mode="c")
-    if masks_np.ndim == 3:
-        masks_np = np.asarray(masks_np, dtype=np.float32)[:, np.newaxis, ...]
-    masks = _as_tensor(masks_np)
-    labels_np = np.load(root / "labels.npy", mmap_mode="c")
+    n = int(raw_images.shape[0])
+    if load_masks:
+        masks_np = np.load(root / "masks.npy", mmap_mode="r")
+        if masks_np.ndim == 3:
+            masks_np = np.asarray(masks_np, dtype=np.float32)[:, np.newaxis, ...]
+        masks = _as_tensor(masks_np)
+        if int(masks.shape[0]) != n:
+            raise ValueError("masks.npy N does not match images.npy N")
+    else:
+        masks = torch.zeros((n, 1, 1, 1), dtype=torch.float32)
+    labels_np = np.load(root / "labels.npy", mmap_mode="r")
     if labels_np.ndim == 1:
         labels_np = np.asarray(labels_np, dtype=np.float32).reshape(-1, 1)
     labels = _as_tensor(labels_np)
-    n = int(images.shape[0])
-    if int(masks.shape[0]) != n or int(labels.shape[0]) != n:
-        raise ValueError("masks.npy or labels.npy N does not match images.npy N")
+    if int(labels.shape[0]) != n:
+        raise ValueError("labels.npy N does not match images.npy N")
     splits = load_splits(root / "splits.json")
     digest = compute_dataset_hash(root)
     meta_path = root / "dataset.json"
@@ -471,9 +534,9 @@ def load_processed_pack(data_dir: str | Path, bit_depth: int = 12) -> ProcessedP
             dataset_hash=digest,
             source_doi="",
             n=n,
-            height=int(images.shape[2]),
-            width=int(images.shape[3]),
-            in_channels=int(images.shape[1]),
+            height=int(raw_images.shape[2]),
+            width=int(raw_images.shape[3]),
+            in_channels=int(raw_images.shape[1]),
         )
     return ProcessedPack(
         images=images,
@@ -506,5 +569,5 @@ def load_split(
         ValueError: If kind or split is unknown, or the split is empty.
         FileNotFoundError: If pack files are missing.
     """
-    pack = load_processed_pack(data_dir, bit_depth=bit_depth)
+    pack = load_processed_pack(data_dir, bit_depth=bit_depth, load_masks=kind != "classifier")
     return SplitDataset(pack, kind, split)

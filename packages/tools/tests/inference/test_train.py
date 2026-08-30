@@ -12,7 +12,10 @@ from tools.inference.split import SplitRecipe
 from tools.inference.train import (
     TrainConfig,
     config_digest,
+    fit_batch_size,
+    is_cuda_oom,
     load_train_config,
+    next_batch_after_oom,
     overlay_train_config,
     train,
 )
@@ -85,6 +88,45 @@ def test_train_writes_run_directory(tmp_path: Path) -> None:
     assert summary["n_train"] >= 1
     assert int(summary["n_params"]) > 0
     assert int(summary["flops"]) > 0
+    assert int(summary["batch_size"]) == 2
+
+
+def test_is_cuda_oom_detects_runtime_out_of_memory() -> None:
+    """CUDA OOM is a RuntimeError that names out of memory, not every RuntimeError."""
+    assert is_cuda_oom(RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"))
+    assert not is_cuda_oom(RuntimeError("shape mismatch"))
+    assert not is_cuda_oom(ValueError("CUDA out of memory"))
+
+
+def test_next_batch_after_oom_halves_and_stops_at_one() -> None:
+    """A failed batch size halves; size 1 cannot shrink further."""
+    assert next_batch_after_oom(8) == 4
+    assert next_batch_after_oom(3) == 1
+    with pytest.raises(RuntimeError, match="batch_size=1"):
+        next_batch_after_oom(1)
+
+
+def test_fit_batch_size_walks_down_until_attempt_accepts() -> None:
+    """fit_batch_size keeps the first size whose attempt does not raise OOM."""
+    seen: list[int] = []
+
+    def attempt(batch: int) -> None:
+        seen.append(batch)
+        if batch > 2:
+            raise RuntimeError("CUDA out of memory")
+
+    assert fit_batch_size(8, attempt) == 2
+    assert seen == [8, 4, 2]
+
+
+def test_fit_batch_size_raises_when_size_one_still_ooms() -> None:
+    """A probe that never fits raises at batch size 1 rather than looping."""
+
+    def attempt(_batch: int) -> None:
+        raise RuntimeError("CUDA out of memory")
+
+    with pytest.raises(RuntimeError, match="batch_size=1"):
+        fit_batch_size(4, attempt)
 
 
 def test_train_one_step_classifier(tmp_path: Path) -> None:

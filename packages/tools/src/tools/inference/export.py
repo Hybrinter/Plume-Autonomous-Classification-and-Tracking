@@ -36,7 +36,7 @@ from torch import Tensor, nn
 
 from tools.inference.accept import Manifest
 from tools.inference.arch.registry import build
-from tools.inference.data import load_processed_pack
+from tools.inference.data import _row_image, load_processed_pack
 
 _EXPORT_KINDS = frozenset({"classifier", "segmentor"})
 
@@ -152,13 +152,13 @@ def _calibration_batches(
     n = max(int(calib_samples), 1)
     expected = (channels, height, width)
     if calib_dir:
-        pack = load_processed_pack(calib_dir)
+        pack = load_processed_pack(calib_dir, load_masks=False)
         indices = pack.splits.train[:n]
         if not indices:
             raise ValueError("INT8 calibration pack has an empty train split")
         batches: list[torch.Tensor] = []
         for idx in indices:
-            image = pack.images[idx]
+            image = _row_image(pack.images, idx)
             if tuple(int(dim) for dim in image.shape) != expected:
                 raise ValueError(f"calibration image shape {tuple(image.shape)} != {expected}")
             batches.append(image.unsqueeze(0).to(dtype=torch.float32))

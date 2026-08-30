@@ -264,6 +264,21 @@ def _build_and_check_wheel(repo: Path, out_dir: Path) -> list[str]:
     return findings
 
 
+def venv_python(venv_dir: Path) -> Path:
+    """Return the interpreter path inside a venv, for the running platform.
+
+    Args:
+        venv_dir: root of a virtual environment.
+
+    Returns:
+        Path to the interpreter. Windows venvs place it in ``Scripts`` with an
+        ``.exe`` suffix; every other platform uses ``bin``.
+    """
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
 def run_full_check(repo: Path) -> int:
     """Create an isolated venv, install pact-flight, and probe the result.
 
@@ -284,7 +299,7 @@ def run_full_check(repo: Path) -> int:
             detail = (venv.stdout + venv.stderr).strip()
             return _fail("check_flight_image: failed to create probe venv", detail=detail)
 
-        python = venv_dir / "bin" / "python"
+        python = venv_python(venv_dir)
         install_error = _install_flight(repo, python)
         if install_error is not None:
             detail = (install_error.stdout + install_error.stderr).strip()

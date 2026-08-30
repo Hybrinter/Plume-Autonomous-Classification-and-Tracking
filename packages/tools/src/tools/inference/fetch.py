@@ -1,9 +1,19 @@
-"""Zenodo 4250706 fetch, checksum verify, and optional 4-band preprocess.
+"""Zenodo 4250706 fetch, checksum verify, and 4-band preprocess.
 
 Default invocation does not download. Pass ``--download`` to fetch missing or
-mismatched files into ``data/raw/``. ``--preprocess`` unpacks the Zenodo
-tarballs, pairs images with segmentation labels, and writes a processed pack
-(images, masks, labels, splits, dataset hash) under ``data/processed/``.
+mismatched files into ``data/raw/``. ``--preprocess`` reads the Zenodo tarballs
+and writes processed packs (images, masks, labels, splits, dataset hash) under
+``data/processed/``.
+
+Preprocessing reads the archives as streams rather than extracting them. Two
+properties of the corpus force that. Filenames embed an ISO timestamp with
+colons, which Windows rejects as a path character, and the images expand to
+about 8 GB that nothing later needs on disk.
+
+The corpus supports the two models unequally, so preprocessing writes two
+packs. All 21,350 images carry a plume-presence label in their class
+directory, but polygon masks cover only 1,437 of them. The classifier pack
+holds the whole corpus; the segmentor pack holds the annotated subset.
 
 Contains:
   - DatasetManifest / DatasetFile: checksummed Zenodo file list.
@@ -14,6 +24,8 @@ Contains:
   - download_file: urllib fetch with checksum.
   - extract_tarball / pair_sample_stems / load_mask_plane.
   - preprocess_planes / preprocess_tree / preprocess_pack.
+  - ZenodoIndex / read_annotation_archive / index_image_archive.
+  - preprocess_zenodo_archives: stream both archives into two packs.
   - main: CLI used by scripts/fetch_smoke_plume_dataset.py.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -23,10 +35,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import tarfile
 import tomllib
 import urllib.request
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 import numpy as np
@@ -34,8 +48,21 @@ import torch
 from pydantic import ConfigDict, TypeAdapter, field_validator
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
+from tools.inference.annotations import annotation_stem, parse_polygons, rasterize_polygons
+from tools.inference.split import (
+    DatasetMeta,
+    SplitRecipe,
+    assign_splits,
+    compute_dataset_hash,
+    load_split_recipe,
+    write_dataset_meta,
+    write_splits,
+)
+
 _IMAGE_SUFFIXES = frozenset({".npy", ".tif", ".tiff"})
 _MASK_SUFFIXES = frozenset({".npy", ".png", ".tif", ".tiff"})
+_GEOTIFF_SUFFIXES = frozenset({".tif", ".tiff"})
+_POSITIVE_DIR = "positive"
 
 
 def _repo_root() -> Path:
@@ -569,6 +596,297 @@ def preprocess_pack(
     return int(images.shape[0])
 
 
+@dataclass(frozen=True, slots=True)
+class ZenodoIndex:
+    """Sorted contents of the Zenodo image archive.
+
+    Attributes:
+        stems: Image stems in sorted order. Split assignment uses this order.
+        positive_stems: Stems the corpus files under ``positive``.
+        annotated_stems: Stems that have a segmentation annotation.
+    """
+
+    stems: tuple[str, ...]
+    positive_stems: frozenset[str]
+    annotated_stems: frozenset[str]
+
+
+def _member_stem(name: str) -> str:
+    """Return the filename stem of a tar member path."""
+    return PurePosixPath(name).stem
+
+
+def read_annotation_archive(labels_archive: str | Path) -> dict[str, tuple[np.ndarray, ...]]:
+    """Return percentage-space polygons for every annotated stem.
+
+    Args:
+        labels_archive: ``segmentation_labels.tar.gz`` path.
+
+    Returns:
+        dict[str, tuple[np.ndarray, ...]]: Image stem to its polygons. A stem
+        annotated as having no plume maps to an empty tuple, which is a
+        negative rather than a missing entry.
+
+    Raises:
+        FileNotFoundError: If the archive is missing.
+        tarfile.TarError: If the archive is malformed.
+
+    Notes:
+        Annotations are read straight out of the archive. Corpus filenames
+        embed an ISO timestamp containing colons, which Windows rejects as a
+        path character, so extracting the archive to disk is not portable.
+    """
+    src = Path(labels_archive)
+    if not src.is_file():
+        raise FileNotFoundError(f"archive not found: {src}")
+    polygons: dict[str, tuple[np.ndarray, ...]] = {}
+    with tarfile.open(src, "r|gz") as handle:
+        for member in handle:
+            if not member.isfile() or not member.name.endswith(".json"):
+                continue
+            payload = handle.extractfile(member)
+            if payload is None:
+                continue
+            stem = annotation_stem(PurePosixPath(member.name).name)
+            polygons[stem] = parse_polygons(json.loads(payload.read().decode("utf-8")))
+    return polygons
+
+
+def index_image_archive(
+    images_archive: str | Path,
+    annotated_stems: frozenset[str],
+) -> ZenodoIndex:
+    """Walk the image archive and record stems and their class directory.
+
+    Args:
+        images_archive: ``images.tar.gz`` path.
+        annotated_stems: Stems that have a segmentation annotation.
+
+    Returns:
+        ZenodoIndex: Sorted stems plus the positive and annotated subsets.
+
+    Raises:
+        FileNotFoundError: If the archive is missing.
+        tarfile.TarError: If the archive is malformed.
+
+    Notes:
+        A gzip stream can only be read forward, so the archive is walked once
+        here to learn its size and class labels, then a second time to fill the
+        pack. Preallocating the pack is what makes a corpus larger than memory
+        writable.
+    """
+    src = Path(images_archive)
+    if not src.is_file():
+        raise FileNotFoundError(f"archive not found: {src}")
+    stems: list[str] = []
+    positive: set[str] = set()
+    with tarfile.open(src, "r|gz") as handle:
+        for member in handle:
+            if not member.isfile():
+                continue
+            if PurePosixPath(member.name).suffix.lower() not in _GEOTIFF_SUFFIXES:
+                continue
+            stem = _member_stem(member.name)
+            stems.append(stem)
+            if PurePosixPath(member.name).parent.name == _POSITIVE_DIR:
+                positive.add(stem)
+    ordered = tuple(sorted(stems))
+    return ZenodoIndex(
+        stems=ordered,
+        positive_stems=frozenset(positive),
+        annotated_stems=frozenset(annotated_stems & set(ordered)),
+    )
+
+
+def _read_geotiff_bytes(payload: bytes) -> np.ndarray:
+    """Return the (C, h, w) float32 band stack of an in-memory GeoTIFF."""
+    try:
+        import rasterio
+    except ImportError as exc:
+        raise ImportError(
+            "rasterio is required to preprocess the Zenodo GeoTIFF corpus; "
+            "install the pact-tools 'data' extra"
+        ) from exc
+    with rasterio.io.MemoryFile(payload) as memfile, memfile.open() as handle:
+        return np.asarray(handle.read(), dtype=np.float32)
+
+
+def _finalize_pack(
+    dest: Path,
+    n: int,
+    height: int,
+    width: int,
+    in_channels: int,
+    recipe: SplitRecipe,
+    source_doi: str,
+) -> None:
+    """Write splits and identity for a pack whose tensors are already on disk."""
+    write_splits(dest / "splits.json", assign_splits(n, recipe))
+    meta = DatasetMeta(
+        dataset_hash=compute_dataset_hash(dest),
+        source_doi=source_doi,
+        n=n,
+        height=height,
+        width=width,
+        in_channels=in_channels,
+    )
+    write_dataset_meta(dest / "dataset.json", meta)
+
+
+def preprocess_zenodo_archives(
+    images_archive: str | Path,
+    labels_archive: str | Path,
+    classifier_dir: str | Path | None,
+    segmentor_dir: str | Path | None,
+    height: int = 256,
+    width: int = 256,
+    indices: tuple[int, ...] = DEFAULT_PACT_BAND_INDICES,
+    dn_scale: float = DEFAULT_DN_SCALE,
+    recipe_path: str | Path | None = None,
+    source_doi: str = "",
+    limit: int = 0,
+) -> tuple[int, int]:
+    """Stream the Zenodo archives into a classifier pack and a segmentor pack.
+
+    Args:
+        images_archive: ``images.tar.gz`` path.
+        labels_archive: ``segmentation_labels.tar.gz`` path.
+        classifier_dir: Output directory for the whole-corpus pack, or None to
+            skip it.
+        segmentor_dir: Output directory for the annotated-subset pack, or None
+            to skip it.
+        height: Output height.
+        width: Output width.
+        indices: Band indices into the 13-band source stack.
+        dn_scale: Source DN scale.
+        recipe_path: Split-recipe TOML. None uses the committed default.
+        source_doi: DOI recorded in each ``dataset.json``.
+        limit: Max classifier samples (0 means all). The segmentor pack is
+            capped to the annotated stems within that prefix.
+
+    Returns:
+        tuple[int, int]: Sample counts written to the classifier pack and the
+        segmentor pack.
+
+    Raises:
+        FileNotFoundError: If an archive is missing.
+        ImportError: If rasterio is not installed.
+        ValueError: If no samples are selected for a requested pack.
+
+    Notes:
+        The two packs cover different populations on purpose. Plume presence is
+        labelled for all 21,350 images by their class directory, but polygon
+        masks exist for only 1,437 of them. Training a segmentor on the whole
+        corpus would present the unannotated majority as empty masks and teach
+        it to predict nothing, so the segmentor pack holds the annotated subset
+        alone.
+    """
+    polygons = read_annotation_archive(labels_archive)
+    index = index_image_archive(images_archive, frozenset(polygons))
+    stems = index.stems[:limit] if limit > 0 else index.stems
+    selected = set(stems)
+    seg_stems = tuple(stem for stem in stems if stem in index.annotated_stems)
+    if classifier_dir is not None and not stems:
+        raise ValueError("no images selected for the classifier pack")
+    if segmentor_dir is not None and not seg_stems:
+        raise ValueError("no annotated images selected for the segmentor pack")
+
+    recipe = load_split_recipe(recipe_path)
+    cls_writer = (
+        _PackWriter(Path(classifier_dir), stems, height, width, len(indices))
+        if classifier_dir is not None
+        else None
+    )
+    seg_writer = (
+        _PackWriter(Path(segmentor_dir), seg_stems, height, width, len(indices))
+        if segmentor_dir is not None
+        else None
+    )
+
+    with tarfile.open(Path(images_archive), "r|gz") as handle:
+        for member in handle:
+            if not member.isfile():
+                continue
+            if PurePosixPath(member.name).suffix.lower() not in _GEOTIFF_SUFFIXES:
+                continue
+            stem = _member_stem(member.name)
+            if stem not in selected:
+                continue
+            payload = handle.extractfile(member)
+            if payload is None:
+                continue
+            planes = _read_geotiff_bytes(payload.read())
+            image = preprocess_planes(
+                planes, height=height, width=width, indices=indices, dn_scale=dn_scale
+            )
+            label = 1.0 if stem in index.positive_stems else 0.0
+            mask = rasterize_polygons(polygons.get(stem, ()), height, width)[np.newaxis, ...]
+            if cls_writer is not None:
+                cls_writer.write(stem, image, mask, label)
+            if seg_writer is not None and stem in index.annotated_stems:
+                seg_writer.write(stem, image, mask, label)
+
+    written_cls = 0
+    written_seg = 0
+    if cls_writer is not None:
+        written_cls = cls_writer.close()
+        _finalize_pack(
+            cls_writer.dest, written_cls, height, width, len(indices), recipe, source_doi
+        )
+    if seg_writer is not None:
+        written_seg = seg_writer.close()
+        _finalize_pack(
+            seg_writer.dest, written_seg, height, width, len(indices), recipe, source_doi
+        )
+    return written_cls, written_seg
+
+
+class _PackWriter:
+    """Fill preallocated pack tensors on disk, one sample at a time."""
+
+    def __init__(
+        self,
+        dest: Path,
+        stems: tuple[str, ...],
+        height: int,
+        width: int,
+        in_channels: int,
+    ) -> None:
+        """Preallocate ``images.npy``, ``masks.npy``, and ``labels.npy``."""
+        dest.mkdir(parents=True, exist_ok=True)
+        self.dest = dest
+        self._slot = {stem: position for position, stem in enumerate(stems)}
+        self._seen = 0
+        n = len(stems)
+        self._images = np.lib.format.open_memmap(
+            dest / "images.npy", mode="w+", dtype=np.float32, shape=(n, in_channels, height, width)
+        )
+        self._masks = np.lib.format.open_memmap(
+            dest / "masks.npy", mode="w+", dtype=np.float32, shape=(n, 1, height, width)
+        )
+        self._labels = np.lib.format.open_memmap(
+            dest / "labels.npy", mode="w+", dtype=np.float32, shape=(n, 1)
+        )
+        (dest / "stems.json").write_text(json.dumps(list(stems), indent=0), encoding="utf-8")
+
+    def write(self, stem: str, image: np.ndarray, mask: np.ndarray, label: float) -> None:
+        """Store one sample at the slot its sorted stem reserved."""
+        position = self._slot.get(stem)
+        if position is None:
+            return
+        self._images[position] = image
+        self._masks[position] = mask
+        self._labels[position, 0] = label
+        self._seen += 1
+
+    def close(self) -> int:
+        """Flush the memmaps and return the number of samples written."""
+        self._images.flush()
+        self._masks.flush()
+        self._labels.flush()
+        return self._seen
+
+
 def _status_line(entry: DatasetFile, raw_dir: Path) -> str:
     """Return a one-line presence/checksum status for a manifest file."""
     path = raw_dir / entry.key
@@ -594,6 +912,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--raw-dir", default=str(DEFAULT_RAW))
     parser.add_argument("--processed-dir", default=str(DEFAULT_PROCESSED))
+    parser.add_argument(
+        "--classifier-dir",
+        default=None,
+        help="classifier pack directory (default: <processed-dir>/classifier)",
+    )
+    parser.add_argument(
+        "--segmentor-dir",
+        default=None,
+        help="segmentor pack directory (default: <processed-dir>/segmentor)",
+    )
     parser.add_argument(
         "--download",
         action="store_true",
@@ -630,11 +958,16 @@ def main(argv: list[str] | None = None) -> int:
         download_file(entry.url, dest, entry.md5, entry.size)
         print(_status_line(entry, raw_dir))
     if args.preprocess:
-        image_root, label_root = extract_zenodo_archives(raw_dir)
-        count = preprocess_pack(
-            image_root,
-            label_root,
-            Path(args.processed_dir),
+        processed = Path(args.processed_dir)
+        classifier_dir = (
+            Path(args.classifier_dir) if args.classifier_dir else processed / "classifier"
+        )
+        segmentor_dir = Path(args.segmentor_dir) if args.segmentor_dir else processed / "segmentor"
+        n_cls, n_seg = preprocess_zenodo_archives(
+            raw_dir / "images.tar.gz",
+            raw_dir / "segmentation_labels.tar.gz",
+            classifier_dir,
+            segmentor_dir,
             height=args.height,
             width=args.width,
             indices=tuple(manifest.pact_band_indices),
@@ -643,7 +976,8 @@ def main(argv: list[str] | None = None) -> int:
             source_doi=manifest.doi,
             limit=args.limit,
         )
-        print(f"preprocessed {count} sample(s) -> {args.processed_dir}")
+        print(f"classifier pack: {n_cls} sample(s) -> {classifier_dir}")
+        print(f"segmentor pack: {n_seg} sample(s) -> {segmentor_dir}")
     return 0
 
 

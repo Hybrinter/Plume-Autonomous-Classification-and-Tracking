@@ -13,7 +13,7 @@ composition roots. Each driver satisfies the matching HAL Protocol structurally.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`sensor`](drivers_sim/sensor.md) | driver | `SimSensor` replays scripted mosaic frames |
-| [`gimbal`](drivers_sim/gimbal.md) | driver | `SimGimbal` first-order gimbal dynamics |
+| [`gimbal`](drivers_sim/gimbal.md) | driver | `SimGimbal` inertia-plant gimbal dynamics |
 | [`station`](drivers_sim/station.md) | driver | `SimStationLink` replays inbound CCSDS packets |
 | [`scalar`](drivers_sim/scalar.md) | driver | `SimScalarSensor` replays scalar readings |
 | [`launch_lock`](drivers_sim/launch_lock.md) | driver | `SimLaunchLock` in-memory launch lock |

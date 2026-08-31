@@ -1,8 +1,8 @@
 """Gimbal-actuator hardware abstraction.
 
 Defines the GimbalActuator protocol that formalizes the closed-loop gimbal command
-set (absolute angle, rate, home, stow, encoder readback, stow switch), plus the
-GimbalPosition readback type carrying a monotonic encoder timestamp.
+set (absolute angle, rate, torque, home, stow, encoder readback, stow switch), plus
+the GimbalPosition readback type carrying a monotonic encoder timestamp.
 
 The driver enforces the hardware envelope (travel/slew limits); the arbiter enforces
 the mission envelope (defense in depth). The legacy send_command delta path was removed
@@ -40,9 +40,10 @@ class GimbalPosition:
 class GimbalActuator(Protocol):
     """Hardware abstraction for the payload pointing gimbal.
 
-    The closed-loop surface covers absolute-angle, rate, home, and stow commands,
-    plus encoder position readback and stow-switch sensing. The driver enforces the
-    hardware envelope; the arbiter enforces the mission envelope (defense in depth).
+    The closed-loop surface covers absolute-angle, rate, torque, home, and stow
+    commands, plus encoder position readback and stow-switch sensing. The driver
+    enforces the hardware envelope; the arbiter enforces the mission envelope
+    (defense in depth).
     """
 
     def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
@@ -53,6 +54,10 @@ class GimbalActuator(Protocol):
         self, az_rate_deg_per_s: float, el_rate_deg_per_s: float
     ) -> Result[None, FaultCode]:
         """Command axis rates; the driver clamps to the hardware slew envelope."""
+        ...
+
+    def set_torque(self, az_nm: float, el_nm: float) -> Result[None, FaultCode]:
+        """Command axis torques in newton-metres."""
         ...
 
     def home(self) -> Result[None, FaultCode]:

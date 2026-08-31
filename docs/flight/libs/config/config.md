@@ -90,8 +90,8 @@ and `power_limit_w`.
 
 ### GimbalConfig
 
-Azimuth and elevation travel limits, stow and home poses, sim dynamics parameters, and PTU
-serial settings.
+Azimuth and elevation travel limits, stow and home poses, 2x2 inertia `J_kg_m2` and
+damping `B_nms_per_rad`, sim dynamics parameters, and PTU serial settings.
 
 ### LinkConfig
 

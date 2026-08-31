@@ -2,8 +2,9 @@
 
 from pathlib import Path
 
+import pytest
 from flight.core import load_config
-from flight.libs.config import PactConfig
+from flight.libs.config import GimbalConfig, PactConfig
 from flight.libs.types import Err, Ok
 
 
@@ -170,6 +171,18 @@ def test_gimbal_inverted_travel_limits_rejected(tmp_path: Path) -> None:
     )
     assert isinstance(result, Err)
     assert "az_" in result.error
+
+
+def test_gimbal_non_spd_inertia_rejected() -> None:
+    """J_kg_m2 must be a symmetric positive-definite 2x2."""
+    with pytest.raises(ValueError, match="positive definite"):
+        GimbalConfig(J_kg_m2=(1.0, 0.0, 0.0, -1.0))
+
+
+def test_gimbal_asymmetric_inertia_rejected() -> None:
+    """J_kg_m2 must be symmetric."""
+    with pytest.raises(ValueError, match="symmetric"):
+        GimbalConfig(J_kg_m2=(1.0, 0.2, 0.0, 1.0))
 
 
 def test_stow_pose_outside_travel_rejected(tmp_path: Path) -> None:

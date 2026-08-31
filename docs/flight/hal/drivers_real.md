@@ -13,7 +13,7 @@ constructs these drivers when the environment config selects a real axis.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`sensor`](drivers_real/sensor.md) | driver | `RealSensor` FLIR Blackfly S over PySpin |
-| [`gimbal`](drivers_real/gimbal.md) | driver | `RealGimbal` serial PTU gimbal |
+| [`gimbal`](drivers_real/gimbal.md) | driver | `RealGimbal` serial PTU gimbal (`set_torque` stub) |
 | [`station`](drivers_real/station.md) | driver | `RealStationLink` TCP-in / UDP-out CCSDS link |
 | [`scalar`](drivers_real/scalar.md) | stub | `RealScalarSensor` placeholder (returns 0.0) |
 

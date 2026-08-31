@@ -1,12 +1,14 @@
-"""Simulated gimbal with first-order dynamics, travel/slew limits, and encoder noise.
+"""Simulated gimbal with inertia-plant torque dynamics, rate/position modes, and encoder noise.
 
 Position integrates lazily: every public call first advances the internal state by the
 clock time elapsed since the previous call, so the same driver is honest under the
-threaded flight loop (RealClock) and the stepped SIL (ManualClock). ABSOLUTE/STOW/HOME
-approach their target with a first-order exponential response clamped to the hardware
-slew envelope; RATE integrates the clamped commanded rates. Position is clamped to the
-travel limits after every update. Encoder reads add seeded Gaussian noise and carry
-the monotonic read timestamp.
+threaded flight loop (RealClock) and the stepped SIL (ManualClock). Torque mode
+integrates J ω̇ + B ω = τ in SI units (rad, N·m) and converts pose to degrees for the
+encoder surface. ABSOLUTE/STOW/HOME approach their target with a first-order
+exponential response clamped to the hardware slew envelope; RATE integrates the
+clamped commanded rates. Position is clamped to the travel limits after every update;
+an axis that hits a stop has its angular rate zeroed. Encoder reads add seeded
+Gaussian noise and carry the monotonic read timestamp.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-002.
 """
@@ -26,17 +28,29 @@ from flight.libs.time import Clock
 from flight.libs.types import FaultCode, GimbalCommandMode, Ok, Result
 
 _STOW_TOLERANCE_DEG = 0.5  # switch closes within this of the stow pose
+_DEG_PER_RAD = 180.0 / math.pi
+_RAD_PER_DEG = math.pi / 180.0
+
+
+def _as_2x2(values: tuple[float, ...]) -> np.ndarray:  # np.ndarray[float64, (2, 2)]
+    """Reshape a row-major length-4 tuple into a 2x2 matrix."""
+    return np.array([[values[0], values[1]], [values[2], values[3]]], dtype=np.float64)
 
 
 class SimGimbal:
-    """Gimbal driver with first-order dynamics for SIL (satisfies GimbalActuator).
+    """Gimbal driver with inertia and first-order dynamics for SIL (satisfies GimbalActuator).
 
     Attributes (internal):
         _clock: Injected time source; used to measure elapsed time between calls.
         _cfg: GimbalConfig (dynamics, limits, poses, noise).
         _az: Current azimuth pose (degrees).
         _el: Current elevation pose (degrees).
-        _mode: Active command mode; None means no command issued yet.
+        _omega: Angular rate in rad/s, shape (2,) for azimuth then elevation.
+        _tau: Applied torque in N·m, shape (2,).
+        _J_inv: Inverse inertia matrix (kg m^2)^-1.
+        _B: Viscous damping matrix (N m s / rad).
+        _torque_mode: True after set_torque until a rate or position command.
+        _mode: Active command mode for rate/position paths; None until first command.
         _target_az: Target azimuth for ABSOLUTE/STOW/HOME modes.
         _target_el: Target elevation for ABSOLUTE/STOW/HOME modes.
         _rate_az: Commanded azimuth rate (deg/s) for RATE mode.
@@ -65,6 +79,12 @@ class SimGimbal:
         self._cfg = cfg if cfg is not None else GimbalConfig()
         self._az = az_deg
         self._el = el_deg
+        self._omega = np.zeros(2, dtype=np.float64)  # np.ndarray[float64, (2,)]
+        self._tau = np.zeros(2, dtype=np.float64)  # np.ndarray[float64, (2,)]
+        inertia = _as_2x2(self._cfg.J_kg_m2)
+        self._J_inv = np.linalg.inv(inertia)  # np.ndarray[float64, (2, 2)]
+        self._B = _as_2x2(self._cfg.B_nms_per_rad)
+        self._torque_mode = False
         self._mode: GimbalCommandMode | None = None
         self._target_az = az_deg
         self._target_el = el_deg
@@ -75,15 +95,30 @@ class SimGimbal:
         self._rng = np.random.default_rng(self._cfg.sim_seed)
 
     def _clamp_travel(self) -> None:
-        """Clamp the integrated pose into the configured travel limits."""
+        """Clamp the integrated pose into the configured travel limits and zero rate at a stop."""
         cfg = self._cfg
-        self._az = min(max(self._az, cfg.az_min_deg), cfg.az_max_deg)
-        self._el = min(max(self._el, cfg.el_min_deg), cfg.el_max_deg)
+        if self._az <= cfg.az_min_deg:
+            self._az = cfg.az_min_deg
+            if self._omega[0] < 0.0:
+                self._omega[0] = 0.0
+        elif self._az >= cfg.az_max_deg:
+            self._az = cfg.az_max_deg
+            if self._omega[0] > 0.0:
+                self._omega[0] = 0.0
+        if self._el <= cfg.el_min_deg:
+            self._el = cfg.el_min_deg
+            if self._omega[1] < 0.0:
+                self._omega[1] = 0.0
+        elif self._el >= cfg.el_max_deg:
+            self._el = cfg.el_max_deg
+            if self._omega[1] > 0.0:
+                self._omega[1] = 0.0
 
     def _integrate(self) -> None:
         """Advance the pose by the clock time elapsed since the last call.
 
         Notes:
+            Torque mode: integrates J ω̇ + B ω = τ in SI, then converts to degrees.
             RATE mode: integrates clamped commanded rates.
             ABSOLUTE/STOW/HOME modes: first-order exponential approach toward the
             target, clamped to the hardware slew envelope per step.
@@ -96,15 +131,29 @@ class SimGimbal:
             return
         cfg = self._cfg
         max_step = cfg.max_hw_slew_rate_deg_per_s * dt
-        if self._mode is GimbalCommandMode.RATE:
-            self._az += min(max(self._rate_az * dt, -max_step), max_step)
-            self._el += min(max(self._rate_el * dt, -max_step), max_step)
+        if self._torque_mode:
+            residual = self._tau - self._B @ self._omega
+            omega_dot = self._J_inv @ residual
+            self._omega = self._omega + omega_dot * dt
+            max_w = cfg.max_hw_slew_rate_deg_per_s * _RAD_PER_DEG
+            self._omega = np.clip(self._omega, -max_w, max_w)
+            self._az += float(self._omega[0]) * dt * _DEG_PER_RAD
+            self._el += float(self._omega[1]) * dt * _DEG_PER_RAD
+        elif self._mode is GimbalCommandMode.RATE:
+            az_step = min(max(self._rate_az * dt, -max_step), max_step)
+            el_step = min(max(self._rate_el * dt, -max_step), max_step)
+            self._az += az_step
+            self._el += el_step
+            self._omega[0] = az_step / dt * _RAD_PER_DEG
+            self._omega[1] = el_step / dt * _RAD_PER_DEG
         elif self._mode is not None:
             alpha = 1.0 - math.exp(-dt / cfg.sim_time_constant_s)
-            az_step = (self._target_az - self._az) * alpha
-            el_step = (self._target_el - self._el) * alpha
-            self._az += min(max(az_step, -max_step), max_step)
-            self._el += min(max(el_step, -max_step), max_step)
+            az_step = min(max((self._target_az - self._az) * alpha, -max_step), max_step)
+            el_step = min(max((self._target_el - self._el) * alpha, -max_step), max_step)
+            self._az += az_step
+            self._el += el_step
+            self._omega[0] = az_step / dt * _RAD_PER_DEG
+            self._omega[1] = el_step / dt * _RAD_PER_DEG
         self._clamp_travel()
 
     def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
@@ -122,6 +171,7 @@ class SimGimbal:
         self._target_az = min(max(az_deg, cfg.az_min_deg), cfg.az_max_deg)
         self._target_el = min(max(el_deg, cfg.el_min_deg), cfg.el_max_deg)
         self._mode = GimbalCommandMode.ABSOLUTE
+        self._torque_mode = False
         self._stow_commanded = False
         return Ok(None)
 
@@ -142,6 +192,25 @@ class SimGimbal:
         self._rate_az = min(max(az_rate_deg_per_s, -limit), limit)
         self._rate_el = min(max(el_rate_deg_per_s, -limit), limit)
         self._mode = GimbalCommandMode.RATE
+        self._torque_mode = False
+        self._stow_commanded = False
+        return Ok(None)
+
+    def set_torque(self, az_nm: float, el_nm: float) -> Result[None, FaultCode]:
+        """Apply axis torques in newton-metres and switch to the inertia plant.
+
+        Args:
+            az_nm: Azimuth torque in N·m.
+            el_nm: Elevation torque in N·m.
+
+        Returns:
+            Ok(None) always.
+        """
+        self._integrate()
+        self._tau[0] = az_nm
+        self._tau[1] = el_nm
+        self._torque_mode = True
+        self._mode = None
         self._stow_commanded = False
         return Ok(None)
 
@@ -154,6 +223,7 @@ class SimGimbal:
         self._integrate()
         self._target_az, self._target_el = self._cfg.home_az_deg, self._cfg.home_el_deg
         self._mode = GimbalCommandMode.HOME
+        self._torque_mode = False
         self._stow_commanded = False
         return Ok(None)
 
@@ -166,6 +236,7 @@ class SimGimbal:
         self._integrate()
         self._target_az, self._target_el = self._cfg.stow_az_deg, self._cfg.stow_el_deg
         self._mode = GimbalCommandMode.STOW
+        self._torque_mode = False
         self._stow_commanded = True
         return Ok(None)
 

@@ -96,6 +96,9 @@ sim_seed = 0
 serial_port = ""
 serial_baud = 9600
 counts_per_deg = 77.6
+# Row-major 2x2 inertia (kg m^2) and viscous damping (N m s / rad). Placeholders.
+J_kg_m2 = [1.0, 0.0, 0.0, 1.0]
+B_nms_per_rad = [0.1, 0.0, 0.0, 0.1]
 
 [link]
 command_tcp_host = "127.0.0.1"

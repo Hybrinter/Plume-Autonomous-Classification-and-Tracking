@@ -95,3 +95,14 @@ def test_missing_pyserial_raises_import_error(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(ImportError):
         RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
+
+
+def test_set_torque_is_a_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    """set_torque returns Ok and does not write the serial port."""
+    _install_fake_serial(monkeypatch)
+    from flight.hal.drivers_real import RealGimbal
+
+    gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
+    result = gimbal.set_torque(0.5, -0.25)
+    assert isinstance(result, Ok)
+    assert gimbal._port.writes == []

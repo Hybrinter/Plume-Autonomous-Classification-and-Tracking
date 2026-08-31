@@ -8,8 +8,10 @@ uses GimbalConfig.counts_per_deg. Verbs: PP/TP = pan/tilt absolute position comm
 or (bare) position query; PS/TS = pan/tilt rate. The exact verb set is a documented
 reference assumption to be validated at HIL bring-up against the actual unit's manual.
 The driver enforces the travel and slew envelopes by clamping before conversion
-(defense in depth below the arbiter's mission limits). A lock serializes transactions
-(capture loop vs control plane). Driver-level failures map to GIMBAL_FAULT.
+(defense in depth below the arbiter's mission limits). set_torque is a stub: the
+hardware mapping is not selected yet and the method returns Ok(None). A lock
+serializes transactions (capture loop vs control plane). Driver-level failures
+map to GIMBAL_FAULT.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-004.
 """
@@ -139,6 +141,19 @@ class RealGimbal:
                 result = self._transact(f"{verb}{self._counts(value)}")
                 if isinstance(result, Err):
                     return Err(result.error)
+        return Ok(None)
+
+    def set_torque(self, az_nm: float, el_nm: float) -> Result[None, FaultCode]:
+        """Accept a torque command. The mapping to hardware is a stub.
+
+        Inputs:
+            az_nm (float): Azimuth torque in N·m (unused until the actuator is selected).
+            el_nm (float): Elevation torque in N·m (unused until the actuator is selected).
+
+        Outputs:
+            Result[None, FaultCode]: Ok(None). The serial PTU has no torque verb yet.
+        """
+        del az_nm, el_nm
         return Ok(None)
 
     def home(self) -> Result[None, FaultCode]:

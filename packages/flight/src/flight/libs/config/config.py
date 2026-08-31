@@ -23,6 +23,25 @@ from pydantic.dataclasses import dataclass
 
 _SCHEMA = ConfigDict(extra="forbid")
 _MOSAIC_BANDS: frozenset[str] = frozenset({"BLUE", "GREEN", "RED", "NIR"})
+_SYMMETRY_TOL = 1e-12
+
+
+def _require_len_4(name: str, values: tuple[float, ...]) -> None:
+    """Reject a row-major 2x2 that is not length 4."""
+    if len(values) != 4:
+        raise ValueError(f"{name} must have length 4 (row-major 2x2)")
+
+
+def _require_spd_2x2(name: str, values: tuple[float, ...]) -> None:
+    """Reject a 2x2 inertia that is not symmetric positive definite."""
+    _require_len_4(name, values)
+    a, b, c, d = values
+    if abs(b - c) > _SYMMETRY_TOL:
+        raise ValueError(f"{name} must be symmetric")
+    det = a * d - b * c
+    if a <= 0.0 or det <= 0.0:
+        raise ValueError(f"{name} must be positive definite")
+
 
 # ---------------------------------------------------------------------------
 # Per-subsystem config dataclasses
@@ -169,8 +188,8 @@ class FaultConfig:
 class GimbalConfig:
     """Configuration for the gimbal hardware envelope, poses, sim dynamics, and link.
 
-    Fields cover the travel limits, configured stow/home poses, SimGimbal first-order
-    dynamics parameters for SIL, and the serial link for the real PTU driver.
+    Fields cover the travel limits, configured stow/home poses, SimGimbal inertia and
+    first-order dynamics parameters for SIL, and the serial link for the real PTU driver.
 
     Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
     """
@@ -190,10 +209,12 @@ class GimbalConfig:
     serial_port: str = ""
     serial_baud: int = 9600
     counts_per_deg: float = 77.6
+    J_kg_m2: tuple[float, ...] = Field(default=(1.0, 0.0, 0.0, 1.0))  # noqa: N815
+    B_nms_per_rad: tuple[float, ...] = Field(default=(0.1, 0.0, 0.0, 0.1))  # noqa: N815
 
     @model_validator(mode="after")
     def _travel_envelope(self) -> Self:
-        """Reject inverted travel limits or stow/home poses outside the envelope."""
+        """Reject inverted travel limits, poses outside the envelope, or a bad inertia matrix."""
         if self.az_min_deg >= self.az_max_deg:
             raise ValueError("az_min_deg must be < az_max_deg")
         if self.el_min_deg >= self.el_max_deg:
@@ -206,6 +227,8 @@ class GimbalConfig:
             raise ValueError("home_az_deg must be within [az_min_deg, az_max_deg]")
         if not (self.el_min_deg <= self.home_el_deg <= self.el_max_deg):
             raise ValueError("home_el_deg must be within [el_min_deg, el_max_deg]")
+        _require_spd_2x2("J_kg_m2", self.J_kg_m2)
+        _require_len_4("B_nms_per_rad", self.B_nms_per_rad)
         return self
 
 

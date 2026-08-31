@@ -14,9 +14,8 @@ Contains:
   - build_frames: N radiometrically-plausible (1024, 1024) uint16 MosaicFrame frames with
     monotonic frame_ids, deterministic for a given seed. The plume sits off-center at
     band-plane (340, 340) so its boresight displacement drives TRACKING commands.
-  - plume_detector: a ScriptedDetector whose 256x256 mask yields one persistent blob (the
-    mask is at inference-tensor resolution: the 512 band plane decimated 2x in search
-    mode, where the plume appears at tensor ~(170, 170)).
+  - plume_detector: a ScriptedDetector whose 512x512 mask yields one persistent blob at
+    the same off-boresight location as the rendered plume (band-plane ~340, 340).
 
 Satisfies: REQ-AIML-IMAG-001, REQ-AIML-PREP-001.
 """
@@ -32,7 +31,7 @@ from flight.payload.inference import ScriptedDetector
 from flight.payload.preprocess import interleave_bands
 
 FRAME_SIZE = 1024  # mosaic plane size; band planes are 512x512
-DETECTOR_SIZE = 256  # inference tensor size; the 512 band plane decimated 2x in search mode
+DETECTOR_SIZE = 512  # inference tensor size; full demosaiced band plane
 _BIT_DEPTH = 12
 _FULL_SCALE = float(2**_BIT_DEPTH - 1)
 # Background and plume amplitudes as fractions of full scale, per band plane in
@@ -63,10 +62,9 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
 
     Notes:
         The Gaussian plume is centered at band-plane pixel (340, 340) with sigma 24 px:
-        ~119 px off the 512-plane boresight (256, 256), above the minimum deadband and
-        below the maximum, so TRACKING commands flow. In decimated search mode it appears
-        at tensor ~(170, 170), inside the scripted mask region [145:195, 145:195]. Noise
-        is i.i.d. Gaussian with sigma 2 DN, per-frame from the seeded RNG.
+        ~119 px off the 512-plane boresight (256, 256). The scripted mask sits on the same
+        plane coordinates. Noise is i.i.d. Gaussian with sigma 2 DN, per-frame from the
+        seeded RNG.
     """
     rng = np.random.default_rng(seed)
     half = FRAME_SIZE // 2
@@ -106,17 +104,14 @@ def plume_detector() -> ScriptedDetector:
 
     Returns:
         ScriptedDetector: With a 50x50 unit-probability square (area 2500 px, confidence
-        1.0) at tensor [145:195, 145:195] -- above the default gates. The mask is at
-        inference-tensor resolution (256), matching the scene plume's decimated
-        search-mode position.
+        1.0) at plane [315:365, 315:365] -- above the default gates. The mask is the full
+        512 band plane. The centroid (~339.5, ~339.5) is ~83 px off boresight.
 
     Notes:
-        The centroid (~169.5, ~169.5) back-projects in search mode (scale 0.5) to
-        band-plane (~339, ~339): ~117 px off the 512-plane boresight, between the minimum
-        and maximum deadbands, letting TRACKING issue RATE commands that move the gimbal
-        off the origin in the closed loop. In TRACKING ROI mode (scale 1.0, crop clamped
-        at the plane edge) the displacement stays below the maximum deadband.
+        Identity crop and scale 1 map tensor pixels onto the band plane with no
+        back-projection. TRACKING issues RATE commands that move the gimbal off the origin
+        in the closed loop.
     """
     mask = np.zeros((DETECTOR_SIZE, DETECTOR_SIZE), dtype=np.float32)  # np.ndarray[float32, (H, W)]
-    mask[145:195, 145:195] = 1.0  # centroid ~ (169.5, 169.5) in tensor space
+    mask[315:365, 315:365] = 1.0  # centroid ~ (339.5, 339.5) in plane space
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)

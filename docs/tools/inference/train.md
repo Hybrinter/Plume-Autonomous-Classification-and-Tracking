@@ -97,7 +97,8 @@ stop.
 ## Constraints
 
 Torch is a required tools dependency. Spatial size comes from config, not from
-a hardcoded architecture constant. Device is CUDA when present, else CPU.
+a hardcoded architecture constant. Defaults stay at 256 px. Flight inference
+input is 512 px. Device is CUDA when present, else CPU.
 Unknown `optimizer`, `scheduler`, or `loss` values raise `ValueError`.
 
 ## Related documents

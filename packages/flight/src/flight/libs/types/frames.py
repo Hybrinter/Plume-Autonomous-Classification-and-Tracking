@@ -37,6 +37,8 @@ class MosaicFrame:
             Typed as object to avoid a numpy import at the flight.libs level.
         exposure_us (float): Exposure time in microseconds.
         gain_db (float): Analogue gain in dB.
+        capture_monotonic_s (float): Monotonic shutter time in seconds. Zero means the
+            payload app stamps ingest with its loop `now`.
 
     Outputs:
         Frozen dataclass instance (immutable after construction).
@@ -52,3 +54,4 @@ class MosaicFrame:
     mosaic: object  # np.ndarray[uint16, (H, W)]
     exposure_us: float
     gain_db: float
+    capture_monotonic_s: float = 0.0

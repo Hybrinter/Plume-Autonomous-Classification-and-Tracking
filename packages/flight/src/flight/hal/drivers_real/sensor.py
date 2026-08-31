@@ -124,6 +124,7 @@ class RealSensor:
                     mosaic=mosaic,
                     exposure_us=float(self._cam.ExposureTime.GetValue()),
                     gain_db=float(self._cam.Gain.GetValue()),
+                    capture_monotonic_s=self._clock.monotonic_s(),
                 )
             )
 

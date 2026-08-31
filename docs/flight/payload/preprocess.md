@@ -35,7 +35,7 @@ in-process processed frame record.
 ## Constraints
 
 All functions are pure. Calibration runs on the raw mosaic plane before CFA separation.
-Quality flags run on the full band plane before ROI crop or decimation. The package does
+Quality flags run on the full band plane. The live app does not crop or decimate. The package does
 not read TOML or load files; artifact loading lives in `flight.payload.calibration_io`.
 
 ## Related documents

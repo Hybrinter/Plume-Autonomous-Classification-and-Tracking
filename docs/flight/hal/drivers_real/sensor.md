@@ -36,8 +36,8 @@ Construction raises `ImportError` when PySpin is not installed.
 2. `start_acquisition()` begins streaming. `acquire_frame()` waits up to the timeout for
    the next image.
 3. A complete image copies into a uint16 numpy array and releases the SDK buffer.
-4. The driver stamps `timestamp_utc` from the injected clock and reads exposure and gain
-   from the node map.
+4. The driver stamps `timestamp_utc` from the injected clock, sets `capture_monotonic_s`
+   from `Clock.monotonic_s()`, and reads exposure and gain from the node map.
 5. A lock serializes all node-map access between capture and control calls.
 6. `stop_acquisition()` ends streaming.
 

@@ -79,8 +79,8 @@ _SCHEMA = ConfigDict(extra="forbid")
 class TrainConfig:
     """Frozen train hyperparameters.
 
-    Defaults match the flight inference contract (4 bands, 256 px) and a short
-    SGD schedule. Spatial size is not frozen in the network; it comes from
+    Defaults are 4 bands and 256 px (tools train and export size; flight inference
+    input is 512). Spatial size is not frozen in the network; it comes from
     these fields.
     """
 

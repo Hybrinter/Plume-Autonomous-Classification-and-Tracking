@@ -27,7 +27,7 @@ def _drivers() -> Drivers:
     return Drivers(
         sensor=SimSensor([]),
         gimbal=SimGimbal(clock=ManualClock()),
-        detector=ScriptedDetector(np.zeros((256, 256), dtype=np.float32)),
+        detector=ScriptedDetector(np.zeros((512, 512), dtype=np.float32)),
         station=SimStationLink([]),
         thermal_sensor=SimScalarSensor([20.0]),
         power_sensor=SimScalarSensor([10.0]),

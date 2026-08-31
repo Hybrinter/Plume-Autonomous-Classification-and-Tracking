@@ -21,12 +21,13 @@ Package-local decisions live under `docs/<package>/adr/`.
 | ADR-REPO-0005 | [0005-pure-core-thin-shell.md](adr/0005-pure-core-thin-shell.md) | Pure-core + thin-shell apps; `Result` over exceptions | Accepted |
 | ADR-REPO-0006 | [0006-iss-attached-reliability-posture.md](adr/0006-iss-attached-reliability-posture.md) | ISS-attached reliability posture | Accepted |
 | ADR-REPO-0007 | [0007-raw-mosaic-sensor-ingest.md](adr/0007-raw-mosaic-sensor-ingest.md) | Raw-mosaic sensor ingest contract | Accepted |
-| ADR-REPO-0008 | [0008-closed-loop-gimbal-pointing.md](adr/0008-closed-loop-gimbal-pointing.md) | Closed-loop gimbal pointing | Accepted |
+| ADR-REPO-0008 | [0008-closed-loop-gimbal-pointing.md](adr/0008-closed-loop-gimbal-pointing.md) | Closed-loop gimbal pointing | Superseded |
 | ADR-REPO-0009 | [0009-iss-link-transport-command-ingress.md](adr/0009-iss-link-transport-command-ingress.md) | ISS link transport + authenticated command ingress | Accepted |
 | ADR-REPO-0010 | [0010-validation-configuration-matrix.md](adr/0010-validation-configuration-matrix.md) | Validation as a configuration matrix with a VCRM spine | Accepted |
 | ADR-REPO-0011 | [0011-ship-flight-as-isolated-package.md](adr/0011-ship-flight-as-isolated-package.md) | Ship flight as an isolated package | Accepted |
 | ADR-REPO-0012 | [0012-tests-mirror-src-package-tree.md](adr/0012-tests-mirror-src-package-tree.md) | Tests mirror the tree inside `src/<package>/` | Accepted |
 | ADR-REPO-0013 | [0013-pydantic-toml-schemas.md](adr/0013-pydantic-toml-schemas.md) | Pydantic dataclasses for TOML file schemas | Accepted |
+| ADR-REPO-0014 | [0014-cascaded-gimbal-lqg.md](adr/0014-cascaded-gimbal-lqg.md) | Cascaded gimbal LQG with software rate PI | Accepted |
 
 ## Notes
 

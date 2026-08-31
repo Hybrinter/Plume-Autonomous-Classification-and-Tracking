@@ -49,7 +49,7 @@ Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_
 
 ## Constraints
 
-Quality evaluation runs on the full band plane before ROI crop or decimation. A slew
+Quality evaluation runs on the full band plane. A slew
 rate of 0.0 disables motion smear flagging when the rate is unknown.
 
 ## Related documents

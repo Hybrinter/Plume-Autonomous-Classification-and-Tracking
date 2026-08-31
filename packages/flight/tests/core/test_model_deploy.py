@@ -46,12 +46,12 @@ def _manifest(
     data: dict[str, object] = {
         "version": version,
         "classifier": {
-            "input_shape": [1, classifier_channels, 256, 256],
+            "input_shape": [1, classifier_channels, 512, 512],
             "output_shape": [1, 1],
         },
         "segmentor": {
-            "input_shape": [1, segmentor_channels, 256, 256],
-            "output_shape": [1, 1, 256, 256],
+            "input_shape": [1, segmentor_channels, 512, 512],
+            "output_shape": [1, 1, 512, 512],
         },
     }
     if omit is not None:
@@ -98,14 +98,14 @@ def test_parse_manifest_and_contract() -> None:
     """parse_manifest extracts both contracts; contract_ok compares shapes."""
     parsed = parse_manifest(_manifest("v2"))
     assert parsed is not None
-    assert parsed.classifier.input_shape == (1, 4, 256, 256)
+    assert parsed.classifier.input_shape == (1, 4, 512, 512)
     assert parsed.classifier.output_shape == (1, 1)
-    assert parsed.segmentor.output_shape == (1, 1, 256, 256)
+    assert parsed.segmentor.output_shape == (1, 1, 512, 512)
     assert contract_ok(
         parsed.segmentor.input_shape,
         parsed.segmentor.output_shape,
-        (1, 4, 256, 256),
-        (1, 1, 256, 256),
+        (1, 4, 512, 512),
+        (1, 1, 512, 512),
     )
     assert parse_manifest(b"not json") is None
 

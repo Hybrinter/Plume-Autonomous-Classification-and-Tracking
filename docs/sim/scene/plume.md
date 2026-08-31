@@ -13,7 +13,7 @@ The plume scene module renders radiometrically plausible raw mosaic frames. It a
 | Name | Kind | Description |
 | --- | --- | --- |
 | `FRAME_SIZE` | constant | Mosaic plane size (1024 px) |
-| `DETECTOR_SIZE` | constant | Inference tensor size (256 px) |
+| `DETECTOR_SIZE` | constant | Inference tensor size (512 px) |
 | `build_frames` | function | Render N uint16 mosaic frames with monotonic `frame_id` |
 | `plume_detector` | function | Return a `ScriptedDetector` with a 50x50 unit mask |
 
@@ -26,7 +26,7 @@ The plume scene module renders radiometrically plausible raw mosaic frames. It a
 
 **`plume_detector() -> ScriptedDetector`**
 
-- Output: detector with mask region `[145:195, 145:195]` at tensor resolution, confidence
+- Output: detector with mask region `[315:365, 315:365]` on the 512 plane, confidence
   gate 0.55, minimum blob area 15 px.
 
 ## Behavior
@@ -37,7 +37,8 @@ The plume scene module renders radiometrically plausible raw mosaic frames. It a
    2 DN), and quantizes to 12-bit.
 3. It interleaves four band planes into the 2x2 CFA mosaic via `interleave_bands`.
 4. It assigns `frame_id` values 1 through `num_frames` with fixed timestamp metadata.
-5. `plume_detector` fills a 256x256 float mask with a central square at unit probability.
+5. `plume_detector` fills a 512x512 float mask with a square at unit probability around
+   the same plane coordinates.
 
 ## Errors and faults
 
@@ -54,8 +55,8 @@ None.
 ## Constraints
 
 - NIR band amplitude is highest inside the plume region.
-- In search mode (scale 0.5) the plume appears at tensor ~(170, 170), inside the mask.
-- The centroid back-projects to ~117 px off the 512-plane boresight, within deadband limits.
+- Identity crop and scale 1 map the mask onto the band plane with no back-projection.
+- The centroid sits ~83 px off the 512-plane boresight.
 
 ## Related documents
 

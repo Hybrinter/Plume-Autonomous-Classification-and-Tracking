@@ -28,7 +28,8 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 **`InProcessBackend.step(now) -> None`**
 
 - Input: monotonic seconds.
-- Side effect: advances clock, calls `ValidationHarness.step` (which calls `step_once`).
+- Side effect: calls `ValidationHarness.step(now, dt)` which advances the clock in inner
+  chunks via `step_once`.
 
 **`InProcessBackend.inject_command(step) -> None`**
 
@@ -52,7 +53,8 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 4. For sim link, it pre-builds signed TC packets with `build_tc_packet` and passes them as
    `inbound_packets`.
 5. It creates bus subscriptions before the first step.
-6. Each `step` advances the shared `ManualClock` then runs the harness step.
+6. Each `step` passes `dt = now - clock` into `ValidationHarness.step`. `step_once`
+   advances the clock in inner chunks.
 7. `collect` drains subscriptions, reads gimbal position with a noise tolerance, and polls
    emulator downlink on real link.
 8. `shutdown` closes the emulator and station link.

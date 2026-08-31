@@ -72,7 +72,7 @@ Kalman noise parameters, LQR cost weights, inner PI (`kp`, `ki`, `tau_max_nm`,
 
 `segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
 `classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
-dimensions, INT8 flag, and `latency_budget_ms`.
+dimensions (512, equal to the band plane), INT8 flag, and `latency_budget_ms`.
 
 ### CommsConfig
 

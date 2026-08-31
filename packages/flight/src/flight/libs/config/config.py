@@ -109,8 +109,8 @@ class InferenceConfig:
     classifier_rollback_model_path: str = "data/models/rollback_classifier.onnx"
     classifier_logit_threshold: float = 0.0
     input_bands: tuple[str, ...] = Field(default=("BLUE", "GREEN", "RED", "NIR"), min_length=1)
-    input_height_px: int = Field(default=256, gt=0)
-    input_width_px: int = Field(default=256, gt=0)
+    input_height_px: int = Field(default=512, gt=0)
+    input_width_px: int = Field(default=512, gt=0)
     use_int8: bool = False
     latency_budget_ms: float = Field(default=500.0, gt=0.0)
 

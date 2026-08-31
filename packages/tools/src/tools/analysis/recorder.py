@@ -158,10 +158,11 @@ def record_run(
     Raises:
         ValueError: if steps is not positive.
 
-    Notes:
-        Subscriptions are created before the first step, so step 1 is captured. The loop mirrors
-        SilHarness.run_steps exactly (advance clock, advance now, step_once) but owns the threaded
-        state so the payload/FDIR internals are observable.
+        Notes:
+            Subscriptions are created before the first step, so step 1 is captured. The loop
+            mirrors SilHarness.run_steps (`now` then step_once, which advances the clock in
+            inner chunks) and owns the threaded state so the payload/FDIR internals are
+            observable.
     """
     if steps <= 0:
         raise ValueError(f"steps must be positive, got {steps}")
@@ -178,7 +179,6 @@ def record_run(
     now = 0.0
     for step in range(1, steps + 1):
         now += dt
-        system.clock.advance(dt)
         if pre_step is not None:
             pre_step(system, step)
         payload_state, fault_entries = step_once(
@@ -190,6 +190,7 @@ def record_run(
             now,
             payload_state,
             fault_entries,
+            dt,
         )
         messages: dict[type, tuple[object, ...]] = {
             message_type: _drain(subscription)

@@ -26,7 +26,6 @@ def test_step_once_processes_one_frame_per_call() -> None:
     now = 0.0
     for _ in range(3):
         now += 1.0
-        system.clock.advance(1.0)
         payload_state, fault_entries = step_once(
             system.apps,
             system.sensor,
@@ -36,6 +35,7 @@ def test_step_once_processes_one_frame_per_call() -> None:
             now,
             payload_state,
             fault_entries,
+            1.0,
         )
 
     inference_count = 0

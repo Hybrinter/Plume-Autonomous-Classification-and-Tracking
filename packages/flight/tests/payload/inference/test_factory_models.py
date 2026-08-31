@@ -33,8 +33,13 @@ def _manifest(artifact: Path) -> dict[str, object]:
 @pytest.mark.skipif(
     not _CLASSIFIER.is_file() or not _SEGMENTOR.is_file(), reason="factory ONNX absent"
 )
-def test_factory_pair_matches_flight_contract() -> None:
-    """Active classifier and segmentor load, hash-check, and score an empty frame."""
+def test_factory_pair_loads_at_train_export_size() -> None:
+    """Shipped factory ONNX is 256. Flight inference input is 512 until retraining."""
+    from flight.libs.config import PactConfig
+
+    flight = PactConfig().inference
+    assert flight.input_height_px == 512
+    assert flight.input_width_px == 512
     cls_manifest = _manifest(_CLASSIFIER)
     seg_manifest = _manifest(_SEGMENTOR)
     assert cls_manifest["input_shape"] == [1, 4, 256, 256]

@@ -43,14 +43,13 @@ None.
 
 ## Configuration
 
-Uses `InferenceConfig.input_height_px` and `input_width_px` for ROI size in the
-payload app.
+Uses `InferenceConfig.input_height_px` and `input_width_px` for ROI size when a caller
+requests a crop.
 
 ## Constraints
 
-All functions are pure. In search mode the app decimates the full plane and sets
-`crop_origin=(0,0)` with `scale_factor=1/factor`. In TRACKING mode it calls
-`crop_to_roi` at full resolution with `scale_factor=1.0`.
+All functions are pure. The live payload app does not call this module. It passes the
+full band plane with crop origin `(0, 0)` and scale 1. Tests keep the library.
 
 ## Related documents
 

@@ -64,7 +64,9 @@ composition root.
 ## Constraints
 
 onnxruntime loads only when an ONNX backend is constructed. The module never imports
-real or sim HAL drivers. Scripted and ONNX paths share `extract_blobs`.
+real or sim HAL drivers. Scripted and ONNX paths share `extract_blobs`. Flight inference
+input is 512x512. Training and export still produce 256x256 ONNX artifacts. CI uses
+`ScriptedDetector`. A 256 artifact does not match the 512 contract until retrained.
 
 ## Related documents
 

@@ -6,15 +6,14 @@
 ## Purpose
 
 The payload package runs the science imaging loop. It acquires mosaic frames, preprocesses
-them, runs detection, steps the pure control core, and drives the gimbal. The package
-holds one app shell and several pure libraries for preprocessing, detection, tracking,
-and gimbal control.
+them, runs detection, and ingests vision. A control thread or SIL tick runs the inner PI
+and outer LQG and drives the gimbal.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`app`](payload/app.md) | app shell | Per-frame loop: acquire, preprocess, detect, control, actuate |
+| [`app`](payload/app.md) | app shell | Imaging ingest plus control-thread / SIL torque ticks |
 | [`control`](payload/control.md) | pure module | Ingest, outer LQG, and inner rate PI |
 | [`calibration_io`](payload/calibration_io.md) | module | Loads checksummed mosaic calibration artifacts at startup |
 | [`blobs`](payload/blobs.md) | module | Connected-component blob extraction from a probability mask |

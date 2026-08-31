@@ -140,11 +140,12 @@ class ValidationHarness:
         """Return the payload arbiter's current GimbalState (test/inspection accessor)."""
         return self._payload_state.arbiter.gimbal_state
 
-    def step(self, now: float) -> None:
+    def step(self, now: float, dt: float = 1.0) -> None:
         """Advance every subsystem one cycle over the shared bus (delegates to step_once).
 
         Args:
-            now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
+            now: Monotonic seconds at the end of this cycle.
+            dt: Seconds covered by this cycle; inner ticks advance the shared clock.
         """
         system = self._system
         self._payload_state, self._fault_entries = step_once(
@@ -156,14 +157,13 @@ class ValidationHarness:
             now,
             self._payload_state,
             self._fault_entries,
+            dt,
         )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:
-        """Run count deterministic steps, advancing `now` and the shared clock by dt each step.
+        """Run count deterministic steps, advancing `now` by dt each step.
 
-        Advancing the shared ManualClock each step lets time-integrating sim drivers (e.g. the
-        SimGimbal first-order dynamics) integrate between steps; for real drivers the advanced
-        `now` still drives the arbiter and watchdog deterministically.
+        step_once advances the shared ManualClock in inner chunks.
 
         Args:
             count: Number of steps to run.
@@ -172,8 +172,7 @@ class ValidationHarness:
         now = 0.0
         for _ in range(count):
             now += dt
-            self._system.clock.advance(dt)
-            self.step(now)
+            self.step(now, dt)
 
 
 def load_profile_config(config_path: str, override_path: str) -> PactConfig:

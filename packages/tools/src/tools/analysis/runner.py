@@ -226,12 +226,12 @@ def _stage_model_action(version: str, channels: int) -> SystemAction:
         {
             "version": version,
             "classifier": {
-                "input_shape": [1, channels, 256, 256],
+                "input_shape": [1, channels, 512, 512],
                 "output_shape": [1, 1],
             },
             "segmentor": {
-                "input_shape": [1, channels, 256, 256],
-                "output_shape": [1, 1, 256, 256],
+                "input_shape": [1, channels, 512, 512],
+                "output_shape": [1, 1, 512, 512],
             },
         },
         sort_keys=True,

@@ -42,8 +42,7 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
         nonlocal now
         for _ in range(steps):
             now += 1.0
-            system.clock.advance(1.0)
-            harness.step(now)
+            harness.step(now, dt=1.0)
 
     advance(6)  # plume present, but the lock inhibits all gimbal motion
     locked_pos = system.gimbal.read_position()

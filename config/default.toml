@@ -49,8 +49,8 @@ segmentor_rollback_model_path = "data/models/rollback_segmentor.onnx"
 classifier_rollback_model_path = "data/models/rollback_classifier.onnx"
 classifier_logit_threshold = 0.0
 input_bands = ["BLUE", "GREEN", "RED", "NIR"]
-input_height_px = 256
-input_width_px = 256
+input_height_px = 512
+input_width_px = 512
 use_int8 = false
 latency_budget_ms = 500.0   # TBD — update when Jetson Xavier benchmark is complete
 

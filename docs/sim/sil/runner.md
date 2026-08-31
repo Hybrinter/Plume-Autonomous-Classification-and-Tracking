@@ -26,15 +26,15 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 - Output: frozen `SilSystem` with concrete `SimSensor`, `SimGimbal`, `SimStationLink`, and
   scalar sensors.
 
-**`SilHarness.step(now) -> None`**
+**`SilHarness.step(now, dt=1.0) -> None`**
 
-- Input: monotonic seconds for arbiter and watchdog.
+- Inputs: monotonic seconds at cycle end, scenario `dt`.
 - Side effect: advances one cycle via `step_once`; updates threaded payload and fault state.
 
 **`SilHarness.run_steps(count, dt=1.0) -> None`**
 
 - Inputs: step count, seconds per step.
-- Side effect: advances clock and `now`, then calls `step` each iteration.
+- Side effect: advances `now`, then calls `step(now, dt)`. `step_once` advances the clock.
 
 **`SilHarness.payload_gimbal_state() -> GimbalState`**
 

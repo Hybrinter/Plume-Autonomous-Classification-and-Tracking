@@ -18,7 +18,7 @@ to the payload app. It is not a bus message.
 
 | Entry point | Inputs | Outputs |
 | --- | --- | --- |
-| `MosaicFrame(...)` | `timestamp_utc`, `frame_id`, `mosaic`, `exposure_us`, `gain_db` | Frozen `MosaicFrame` instance |
+| `MosaicFrame(...)` | `timestamp_utc`, `frame_id`, `mosaic`, `exposure_us`, `gain_db`, optional `capture_monotonic_s` | Frozen `MosaicFrame` instance |
 
 Fields:
 
@@ -29,6 +29,7 @@ Fields:
 | `mosaic` | `object` | `np.ndarray[uint16, (H, W)]` raw 2x2-CFA mosaic plane |
 | `exposure_us` | `float` | Exposure time in microseconds |
 | `gain_db` | `float` | Analogue gain in dB |
+| `capture_monotonic_s` | `float` | Monotonic shutter time in seconds (0 = app uses loop `now`) |
 
 ## Behavior
 

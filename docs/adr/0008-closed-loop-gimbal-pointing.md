@@ -1,6 +1,7 @@
 # ADR 0008: Closed-loop gimbal pointing
 
-**Status:** Accepted (2026-06-11)
+**Status:** Superseded
+**Superseded-by:** ADR-REPO-0014
 
 **Implements:** spec Section 5 (Pointing and gimbal control) and the SAFE-actuation parts of
 Section 6 (FDIR) of `docs/superpowers/specs/2026-06-09-pact-flight-final-state-design.md`.

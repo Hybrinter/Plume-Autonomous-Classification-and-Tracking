@@ -75,6 +75,8 @@ caller before this function runs.
 - SDK modules (PySpin, pyserial, onnxruntime, socket) load only inside `real` branches.
 - No real launch-lock driver exists. Every profile uses `SimLaunchLock`.
 - Each branch local is typed with its HAL protocol. No casts are used at construction.
+- Factory ONNX artifacts are 256 px. Real compute checks `InferenceConfig` input size
+  (512). A 256 artifact fails that I/O contract until retrained.
 
 ## Related documents
 

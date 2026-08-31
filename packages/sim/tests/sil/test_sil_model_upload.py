@@ -21,12 +21,12 @@ def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 
         {
             "version": version,
             "classifier": {
-                "input_shape": [1, classifier_channels, 256, 256],
+                "input_shape": [1, classifier_channels, 512, 512],
                 "output_shape": [1, 1],
             },
             "segmentor": {
-                "input_shape": [1, segmentor_channels, 256, 256],
-                "output_shape": [1, 1, 256, 256],
+                "input_shape": [1, segmentor_channels, 512, 512],
+                "output_shape": [1, 1, 512, 512],
             },
         }
     ).encode("utf-8")
@@ -77,8 +77,7 @@ def test_model_upload_activate_then_rollback() -> None:
         nonlocal now
         for _ in range(steps):
             now += 1.0
-            system.clock.advance(1.0)
-            harness.step(now)
+            harness.step(now, dt=1.0)
 
     def activate(seq: int) -> None:
         system.station.enqueue(

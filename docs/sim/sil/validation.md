@@ -25,7 +25,7 @@ deterministically. GSE imports this surface and does not touch flight compositio
   uplink HMAC key.
 - Output: `ValidationSystem` with HAL protocol-typed driver fields.
 
-**`ValidationHarness.step(now) -> None`**
+**`ValidationHarness.step(now, dt=1.0) -> None`**
 
 - Same contract as `SilHarness.step`. Delegates to `step_once`.
 

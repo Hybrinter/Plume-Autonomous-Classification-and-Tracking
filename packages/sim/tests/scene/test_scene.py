@@ -51,7 +51,7 @@ def test_plume_detector_finds_one_blob() -> None:
         msg_type=MessageType.PROCESSED_FRAME,
         timestamp_utc="t",
         frame_id=1,
-        tensor=np.zeros((4, 256, 256), dtype=np.float32),
+        tensor=np.zeros((4, 512, 512), dtype=np.float32),
         quality_flags=frozenset(),
         crop_origin_px=(0, 0),
         scale_factor=1.0,

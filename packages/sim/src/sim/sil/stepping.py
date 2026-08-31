@@ -1,7 +1,8 @@
 """Driver-agnostic single-step body for the SIL harness and the GSE in-process backend.
 
 step_once reproduces exactly one deterministic SIL cycle: poll mode changes, acquire +
-process one payload frame (if available), sample housekeeping, pump the ISS bridge, publish
+ingest one payload frame (if available), run inner torque ticks and at least one outer
+LQG tick over the scenario dt, sample housekeeping, pump the ISS bridge, publish
 per-subsystem liveness heartbeats, then run the FDIR tick. It is Protocol-typed
 (ImagingSensor / GimbalActuator / MessageBus) so both SilHarness and the GSE InProcessBackend
 can reuse it without depending on concrete drivers. State (payload ControlState + the FDIR
@@ -35,18 +36,14 @@ def step_once(
     now: float,
     payload_state: ControlState,
     fault_entries: dict[str, WatchdogEntry],
+    dt: float = 1.0,
 ) -> tuple[ControlState, dict[str, WatchdogEntry]]:
     """Advance every subsystem one deterministic cycle over the shared bus.
 
-    Order: poll mode changes -> acquire + process one payload frame (if available) -> ISS
-    bridge pump (ingress publishes CommandMsg; downlink egress sends the prior pass's
-    DownlinkItemMsg) -> command router (CommandMsg -> RoutedCommandMsg + acks) -> housekeeping
-    handle-commands + sample -> storage tick (persist telemetry/faults + ledger) -> downlink
-    manager tick (enqueue downlinkables + emit DownlinkItemMsg) -> publish per-subsystem liveness
-    heartbeats -> FDIR tick (drains heartbeats + faults + routed EXIT_SAFE, publishes any SAFE +
-    the SafetyStateMsg). Ingress, routing, and target execution all occur in one cycle so a
-    routed command is executed and acked the same step it ingests; downlink items emitted this
-    cycle are transmitted by iss_iface on the next.
+    Order: poll mode changes -> acquire + ingest one payload frame (if available) ->
+    inner/outer control ticks over `dt` (clock advanced per inner chunk) -> ISS
+    bridge pump -> command router -> housekeeping -> storage -> downlink -> heartbeats
+    -> FDIR tick.
 
     Args:
         apps: The wired SystemApps (payload / fault / iss_iface / thermal / electrical).
@@ -54,31 +51,48 @@ def step_once(
         gimbal: The gimbal actuator Protocol whose position feeds the payload controller.
         bus: The shared in-process MessageBus all apps publish/subscribe on.
         clock: The ManualClock supplying wall-clock timestamps for the heartbeats.
-        now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
+        now: Monotonic seconds at the end of this cycle.
         payload_state: The payload ControlState threaded in from the previous cycle.
         fault_entries: The FDIR watchdog entries threaded in from the previous cycle.
+        dt: Scenario step duration in seconds. Inner ticks chunk this interval.
 
     Returns:
         A tuple of the new payload ControlState and the new FDIR watchdog entries.
-
-    Notes:
-        Driver-agnostic by construction: it imports only HAL Protocols + apps, never a
-        concrete driver, so the GSE in-process backend reuses it verbatim. The body is the
-        single source of truth for one SIL cycle; SilHarness.step delegates here.
     """
+    del gimbal
     safe_commanded, safe_cleared = apps.payload.poll_mode_changes()
     apps.payload.poll_lock_state()
     acquired = sensor.acquire_frame()
     if isinstance(acquired, Ok):
-        pos = gimbal.read_position()
         payload_state, _ = apps.payload.process_frame(
             acquired.value,
             payload_state,
             now,
             0.0,
-            pos.value if isinstance(pos, Ok) else None,
-            safe_commanded,
-            safe_cleared,
+            None,
+            False,
+            False,
+        )
+
+    cfg = apps.payload.controller.cfg
+    step_dt = dt
+    if step_dt <= 0.0:
+        n_inner = 0
+        chunk = 0.0
+        t0 = now
+    else:
+        n_inner = max(1, int(round(step_dt / cfg.dt_inner_max_s)))
+        chunk = step_dt / n_inner
+        t0 = now - step_dt
+    for i in range(n_inner):
+        clock.advance(chunk)
+        t_i = t0 + (i + 1) * chunk
+        payload_state, _ = apps.payload.apply_control(
+            payload_state,
+            t_i,
+            chunk,
+            safe_commanded if i == 0 else False,
+            safe_cleared if i == 0 else False,
         )
 
     apps.iss_iface.tick()

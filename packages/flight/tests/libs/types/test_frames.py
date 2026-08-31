@@ -15,4 +15,5 @@ def test_mosaic_frame_holds_uint16_plane() -> None:
         gain_db=0.0,
     )
     assert frame.frame_id == 1
+    assert frame.capture_monotonic_s == 0.0
     assert np.asarray(frame.mosaic).dtype == np.uint16

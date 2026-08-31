@@ -24,7 +24,10 @@ _SEGMENTOR = _REPO / "data" / "models" / "active_segmentor.onnx"
 
 def _manifest(artifact: Path) -> dict[str, object]:
     """Load the JSON sidecar next to an ONNX artifact."""
-    return json.loads(artifact.with_suffix(".json").read_text(encoding="utf-8"))
+    payload = json.loads(artifact.with_suffix(".json").read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"expected JSON object in {artifact.with_suffix('.json')}")
+    return {str(key): value for key, value in payload.items()}
 
 
 @pytest.mark.skipif(

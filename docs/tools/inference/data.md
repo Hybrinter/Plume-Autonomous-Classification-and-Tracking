@@ -33,7 +33,7 @@ stay numpy `.npy` files with frozen splits.
 
 `load_disk_batch(data_dir, kind, bit_depth=12) -> SampleBatch`.
 
-`load_processed_pack(data_dir, bit_depth=12) -> ProcessedPack`.
+`load_processed_pack(data_dir, bit_depth=12, load_masks=true) -> ProcessedPack`.
 
 `load_split(data_dir, kind, split, bit_depth=12) -> SplitDataset`.
 
@@ -52,6 +52,8 @@ sample: image `(C, H, W)` and a matching target.
 5. Values above 1.0 pass through `normalize_dn` with `bit_depth`.
 6. `load_split` indexes `train`, `val`, or `test` from `splits.json`.
 7. `load_processed_pack` rejects a `dataset.json` hash that does not match the files.
+   Image files larger than 512 MiB stay a read-only memmap. `load_masks=false`
+   skips `masks.npy`.
 8. `write_processed_pack` writes numpy `.npy` files from torch or numpy inputs.
 9. `apply_train_augment` flips width with probability 0.5 and rotates by
    `k * 90` degrees. The same geometric op applies to a segmentor mask.
@@ -72,8 +74,8 @@ None.
 
 ## Constraints
 
-This module imports `flight.payload.preprocess.normalize_dn`. Pack images load
-as a copy-on-write memmap when they already sit in `[0, 1]`.
+This module imports `flight.payload.preprocess.normalize_dn`. Image files
+larger than 512 MiB stay a read-only memmap when values already sit in `[0, 1]`.
 
 ## Related documents
 

@@ -40,6 +40,7 @@ def _repo_root() -> Path:
 DEFAULT_SPLIT_RECIPE = _repo_root() / "data" / "manifests" / "zenodo_4250706_splits.toml"
 _PACK_HASH_FILES: tuple[str, ...] = ("images.npy", "masks.npy", "labels.npy", "splits.json")
 _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+_HASH_CHUNK_BYTES = 8 * 1024 * 1024
 
 
 _SCHEMA = ConfigDict(extra="forbid")
@@ -247,7 +248,9 @@ def compute_dataset_hash(pack_dir: str | Path) -> str:
 
     Notes:
         The hash is the SHA-256 of ``name:file_sha256`` lines. It does not hash
-        the full concatenated bytes, so it stays cheap on a large corpus.
+        the full concatenated bytes, so it stays cheap on a large corpus. Each
+        file is digested in fixed-size chunks, so a pack larger than memory
+        still hashes.
     """
     root = Path(pack_dir)
     hasher = hashlib.sha256()
@@ -255,8 +258,14 @@ def compute_dataset_hash(pack_dir: str | Path) -> str:
         path = root / name
         if not path.is_file():
             raise FileNotFoundError(f"missing pack file {path}")
-        file_digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        hasher.update(f"{name}:{file_digest}\n".encode())
+        file_hasher = hashlib.sha256()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(_HASH_CHUNK_BYTES)
+                if not chunk:
+                    break
+                file_hasher.update(chunk)
+        hasher.update(f"{name}:{file_hasher.hexdigest()}\n".encode())
     return hasher.hexdigest()
 
 

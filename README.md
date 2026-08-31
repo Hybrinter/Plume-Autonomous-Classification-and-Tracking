@@ -124,6 +124,11 @@ pact-tools inference export \
   --out artifacts/segmentor.onnx
 ```
 
+Factory flight graphs are `data/models/active_classifier.onnx` (ShuffleNetV2-x0.5)
+and `data/models/active_segmentor.onnx` (DilateNet-w32). `config/default.toml`
+`[inference]` points at those paths. `pact-tools inference finalize --promote`
+copies a passed artifact there.
+
 Use `python -m tools` as an alias for `pact-tools`.
 
 Run a declarative SIL scenario through the GSE harness (from the repo root):

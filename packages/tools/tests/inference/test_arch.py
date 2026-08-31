@@ -2,6 +2,7 @@
 
 import torch
 from tools.inference.arch.classifier import build_classifier
+from tools.inference.arch.compact import PactNet
 from tools.inference.arch.unet import UNet, build_segmentor
 
 
@@ -17,15 +18,15 @@ def test_unet_preserves_spatial_size() -> None:
 
 
 def test_classifier_emits_one_logit() -> None:
-    """ResNet-50 4-channel stem maps (N, 4, H, W) to (N, 1)."""
+    """Default pactnet maps (N, 4, H, W) to (N, 1)."""
     net = build_classifier().eval()
+    assert isinstance(net, PactNet)
     x = torch.zeros(2, 4, 256, 256)
     with torch.no_grad():
         y = net(x)
     assert y.shape == (2, 1)
-    conv1 = net.conv1
-    assert isinstance(conv1, torch.nn.Conv2d)
-    assert conv1.in_channels == 4
-    fc = net.fc
-    assert isinstance(fc, torch.nn.Linear)
-    assert fc.out_features == 1
+    assert isinstance(net.features, torch.nn.Sequential)
+    assert isinstance(net.head, torch.nn.Linear)
+    assert net.head.out_features == 1
+    assert not hasattr(net, "conv1")
+    assert not hasattr(net, "fc")

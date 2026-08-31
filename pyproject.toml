@@ -25,6 +25,12 @@ dev = [
     "pact-tools",
     "pact-gse",
 ]
+# Training-box extra: the heavy optional deps a model-optimization workstation needs on top
+# of dev (ONNX serialization plus the GeoTIFF readers the Zenodo preprocess step uses). CI
+# syncs `dev` alone and stays free of both. Use: uv sync --extra dev --extra train
+train = [
+    "pact-tools[export,data]",
+]
 
 [tool.pytest.ini_options]
 # import-mode=importlib lets the workspace-member smoke tests share the basename test_import.py

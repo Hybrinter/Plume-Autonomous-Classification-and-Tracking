@@ -24,7 +24,7 @@ and SIL telemetry analysis under `tools.analysis`.
 `tools.analysis`.
 
 Run inference workflows with
-`pact-tools inference <train|eval|report|list|compare|rank|sweep|arches|export|accept|fetch>`.
+`pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`.
 
 Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.
@@ -46,6 +46,9 @@ publishes to the bus or changes flight behavior.
 - Default tools dependencies include torch and torchvision, plus Typer,
   matplotlib, pandas, pyarrow, pact-flight, and pact-sim.
 - Extra `export` installs onnx and onnxruntime.
+- Extra `data` installs rasterio for GeoTIFF reads during dataset preprocess.
+- Workspace extra `train` installs `pact-tools[export,data]` for training boxes.
+  CI syncs `dev` only.
 - A Windows install resolves torch and torchvision from the CUDA 13.0 PyTorch
   index. A Linux or macOS install resolves both from PyPI.
 - The Windows and Linux wheels bundle the CUDA 13.0 runtime. A GPU install needs

@@ -18,15 +18,7 @@ from typing import Annotated
 import typer
 
 # internal
-from tools.inference.accept import (
-    AcceptanceReport,
-    ClassifierAcceptanceReport,
-    accept_artifact,
-    accept_classifier_artifact,
-    load_manifest,
-    onnx_classifier_inference_fn,
-    onnx_inference_fn,
-)
+from tools.inference.accept import accept_kind, load_manifest
 from tools.inference.export import ExportConfig, export, int8_artifact_path, promote
 from tools.inference.fetch import main as fetch_main
 from tools.inference.train import load_train_config, overlay_train_config, train
@@ -40,7 +32,7 @@ class InferenceKind(StrEnum):
 
 
 app = typer.Typer(
-    help="Train, eval, compare, sweep, export, accept, and fetch inference artifacts.",
+    help="Train, eval, compare, sweep, export, accept, finalize, and fetch inference artifacts.",
     no_args_is_help=True,
 )
 
@@ -77,6 +69,19 @@ def train_command(
     augment: Annotated[
         bool, typer.Option("--augment", help="Flip and rotate the train split.")
     ] = False,
+    loss: Annotated[
+        str | None,
+        typer.Option(help="bce, dice, bce_dice, focal, or focal_dice."),
+    ] = None,
+    focal_gamma: Annotated[float | None, typer.Option(help="Focal focusing exponent.")] = None,
+    focal_alpha: Annotated[float | None, typer.Option(help="Focal positive-class weight.")] = None,
+    amp: Annotated[bool, typer.Option("--amp", help="CUDA mixed-precision training.")] = False,
+    patience: Annotated[
+        int | None, typer.Option(help="Early-stop after this many unimproved scored epochs.")
+    ] = None,
+    eval_interval: Annotated[
+        int | None, typer.Option(help="Epochs between scoring passes.")
+    ] = None,
 ) -> None:
     """Train a classifier or segmentor and write a run directory."""
     cfg = overlay_train_config(
@@ -106,6 +111,12 @@ def train_command(
         shuffle=True if shuffle else None,
         pos_weight=pos_weight,
         augment=True if augment else None,
+        loss=loss,
+        focal_gamma=focal_gamma,
+        focal_alpha=focal_alpha,
+        amp=True if amp else None,
+        patience=patience,
+        eval_interval=eval_interval,
     )
     try:
         path = train(cfg)
@@ -177,33 +188,37 @@ def accept_command(
     ] = 500.0,
     height: Annotated[int, typer.Option(help="Input height in pixels.")] = 256,
     width: Annotated[int, typer.Option(help="Input width in pixels.")] = 256,
+    scenes_dir: Annotated[
+        str, typer.Option("--scenes-dir", help="Processed pack supplying golden scenes.")
+    ] = "",
+    scenes_split: Annotated[
+        str, typer.Option("--scenes-split", help="Split read for golden scenes.")
+    ] = "test",
+    scenes_limit: Annotated[
+        int, typer.Option("--scenes-limit", help="Maximum golden scenes; zero takes all.")
+    ] = 0,
 ) -> None:
-    """Run the frozen-artifact acceptance gate."""
+    """Run the frozen-artifact acceptance gate.
+
+    Without ``--scenes-dir`` the quality check has nothing to score, so the gate
+    reports the manifest and contract results and then fails.
+    """
     manifest = load_manifest(manifest_path)
-    expected_in = (1, 4, height, width)
     try:
-        if kind is InferenceKind.SEGMENTOR:
-            report: AcceptanceReport | ClassifierAcceptanceReport = accept_artifact(
-                artifact,
-                manifest,
-                scenes=[],
-                run_inference=onnx_inference_fn(artifact),
-                expected_input=expected_in,
-                expected_output=(1, 1, height, width),
-                min_iou=min_iou,
-                max_latency_ms=max_latency_ms,
-            )
-        else:
-            report = accept_classifier_artifact(
-                artifact,
-                manifest,
-                scenes=[],
-                run_inference=onnx_classifier_inference_fn(artifact),
-                expected_input=expected_in,
-                expected_output=(1, 1),
-                min_accuracy=min_accuracy,
-                max_latency_ms=max_latency_ms,
-            )
+        report = accept_kind(
+            kind.value,
+            artifact,
+            manifest,
+            scenes_dir=scenes_dir,
+            scenes_split=scenes_split,
+            scenes_limit=scenes_limit,
+            expected_input=(1, 4, height, width),
+            height=height,
+            width=width,
+            min_iou=min_iou,
+            min_accuracy=min_accuracy,
+            max_latency_ms=max_latency_ms,
+        )
     except ImportError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -211,6 +226,51 @@ def accept_command(
     if report.accepted and promote_path is not None:
         typer.echo(promote(artifact, promote_path, report))
     if not report.accepted:
+        raise typer.Exit(code=1)
+
+
+@app.command("finalize")
+def finalize_command(
+    run: Annotated[str, typer.Option(help="Training run directory.")],
+    int8: Annotated[
+        bool, typer.Option("--int8/--no-int8", help="Also export and accept INT8.")
+    ] = True,
+    calib_samples: Annotated[int, typer.Option(help="INT8 calibration samples.")] = 32,
+    scenes_limit: Annotated[
+        int, typer.Option("--scenes-limit", help="Maximum golden scenes; zero takes all.")
+    ] = 0,
+    min_iou: Annotated[float, typer.Option(help="Minimum mean mask IoU.")] = 0.5,
+    min_accuracy: Annotated[float, typer.Option(help="Minimum classifier accuracy.")] = 0.9,
+    max_latency_ms: Annotated[
+        float, typer.Option(help="Maximum per-frame inference latency.")
+    ] = 500.0,
+    promote_path: Annotated[
+        str | None, typer.Option("--promote", help="Copy the preferred accepted artifact.")
+    ] = None,
+) -> None:
+    """Score test, export FP32 and INT8, and run the golden-scene gate."""
+    from tools.inference.finalize import finalize
+
+    try:
+        report = finalize(
+            run,
+            int8=int8,
+            calib_samples=calib_samples,
+            scenes_limit=scenes_limit,
+            min_iou=min_iou,
+            min_accuracy=min_accuracy,
+            max_latency_ms=max_latency_ms,
+            promote_path=promote_path,
+        )
+    except (FileNotFoundError, ImportError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"fp32 {report.fp32_detail}")
+    if report.int8_onnx:
+        typer.echo(f"int8 {report.int8_detail}")
+    if report.promoted:
+        typer.echo(report.promoted)
+    if not report.fp32_accepted and not report.int8_accepted:
         raise typer.Exit(code=1)
 
 
@@ -303,16 +363,138 @@ def rank_command(
     typer.echo(format_rank(rank_runs(discover_runs(run_dir), metric)), nl=False)
 
 
+@app.command("pareto")
+def pareto_command(
+    run_dir: Annotated[str, typer.Option(help="Run catalog directory.")] = "artifacts/runs",
+    metric: Annotated[str, typer.Option(help="Metric to maximize.")] = "mean_iou",
+    cost: Annotated[str, typer.Option(help="Cost axis: n_params or flops.")] = "n_params",
+    kind: Annotated[str, typer.Option(help="Restrict to one artifact kind.")] = "",
+    split: Annotated[str, typer.Option(help="Score split: val or test.")] = "val",
+    from_jsonl: Annotated[
+        list[str] | None,
+        typer.Option("--from-jsonl", help="Keep only run_ids recorded in this sweep JSONL."),
+    ] = None,
+    by_arch: Annotated[
+        bool,
+        typer.Option("--by-arch", help="Average extra seeds of the same architecture."),
+    ] = False,
+    baseline: Annotated[
+        float | None,
+        typer.Option(help="If set, print the knee and its neighbours, not the full frontier."),
+    ] = None,
+    spread: Annotated[
+        float,
+        typer.Option(help="Allowed drop below --baseline when picking the knee."),
+    ] = 0.0,
+    auto_spread: Annotated[
+        bool,
+        typer.Option(
+            "--auto-spread",
+            help="Set spread to the seed range of the first-pass knee architecture.",
+        ),
+    ] = False,
+    neighbors: Annotated[
+        int,
+        typer.Option(help="Frontier neighbours on each side of the knee. Used with --baseline."),
+    ] = 1,
+    write_space: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--write-space",
+            help="Replace the arch placeholder in this space TOML.",
+        ),
+    ] = None,
+) -> None:
+    """Print the runs on the size against quality frontier, cheapest first.
+
+    Every point is read from one split so the comparison is like for like.
+    ``--from-jsonl`` keeps one sweep; pass it more than once to join sweeps.
+    ``--by-arch`` averages seeds. ``--baseline`` selects the cheapest holding
+    point and its neighbours. ``--auto-spread`` uses the seed range at the knee.
+    """
+    from tools.inference.pareto import (
+        format_pareto,
+        frontier_points,
+        knee,
+        knee_neighbors,
+        mean_by_arch,
+        orient_score,
+        pareto_front,
+        score_spread,
+        substitute_arch_placeholder,
+    )
+    from tools.inference.runs import discover_runs
+    from tools.inference.sweep import completed_run_ids
+
+    spaces = write_space or []
+    if spaces and baseline is None:
+        typer.echo("--write-space requires --baseline", err=True)
+        raise typer.Exit(code=1)
+    try:
+        jsonl_paths = from_jsonl or []
+        run_ids: frozenset[str] | None = None
+        if jsonl_paths:
+            collected: set[str] = set()
+            for path in jsonl_paths:
+                collected.update(completed_run_ids(path))
+            run_ids = frozenset(collected)
+        points = frontier_points(
+            discover_runs(run_dir),
+            metric,
+            cost_key=cost,
+            kind=kind,
+            split=split,
+            run_ids=run_ids,
+        )
+        raw_points = points
+        if by_arch:
+            points = mean_by_arch(points)
+        front = pareto_front(points)
+        if baseline is not None:
+            oriented = orient_score(metric, baseline)
+            used_spread = spread
+            if auto_spread:
+                first = knee(front, oriented, spread=spread)
+                used_spread = max(spread, score_spread(raw_points, first.arch))
+            selected = knee(front, oriented, spread=used_spread)
+            front = knee_neighbors(front, selected, beside=neighbors)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(format_pareto(front, metric, cost), nl=False)
+    if spaces:
+        arches = tuple(point.arch for point in front)
+        for dest in spaces:
+            space = Path(dest)
+            try:
+                updated = substitute_arch_placeholder(space.read_text(encoding="utf-8"), arches)
+            except (OSError, ValueError) as exc:
+                typer.echo(str(exc), err=True)
+                raise typer.Exit(code=1) from exc
+            space.write_text(updated, encoding="utf-8")
+            typer.echo(str(space))
+
+
 @app.command("sweep")
 def sweep_command(
     space: Annotated[str, typer.Option(help="Sweep space TOML.")],
     out: Annotated[str | None, typer.Option(help="JSONL output path.")] = None,
+    resume: Annotated[
+        bool,
+        typer.Option("--resume", help="Append to the JSONL and skip trials it already records."),
+    ] = False,
+    data_dir: Annotated[
+        str | None, typer.Option(help="Override the pack directory for every trial.")
+    ] = None,
+    run_dir: Annotated[
+        str | None, typer.Option(help="Override the run parent directory for every trial.")
+    ] = None,
 ) -> None:
     """Train a cartesian space, score val, and write sweep.jsonl."""
     from tools.inference.sweep import sweep
 
     try:
-        path = sweep(space, out=out)
+        path = sweep(space, out=out, resume=resume, data_dir=data_dir, run_dir=run_dir)
     except (ValueError, FileExistsError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc

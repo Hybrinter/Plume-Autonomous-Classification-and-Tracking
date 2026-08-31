@@ -13,4 +13,13 @@ data/raw/**
 data/processed/**
 !data/processed/.gitkeep
 data/models/*.onnx
+!data/models/active_classifier.onnx
+!data/models/active_segmentor.onnx
 !data/models/.gitkeep
+
+# Sweep run copies stay local. The written comparison is the git record.
+experiments/results/**
+!experiments/results/README.md
+
+# Machine-local overnight supervisor with host paths.
+experiments/overnight_chain.py

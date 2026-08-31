@@ -161,6 +161,44 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
+def test_export_dilatenet_resizes_logits_to_input_hw(tmp_path: Path) -> None:
+    """A decoder-free dilatenet exports full-resolution logits through bilinear resize."""
+    ckpt = tmp_path / "dilate.pt"
+    train(
+        TrainConfig(
+            kind="segmentor",
+            arch="dilatenet_w32",
+            epochs=1,
+            batch_size=2,
+            synthetic_samples=4,
+            input_height_px=32,
+            input_width_px=32,
+            checkpoint_path=str(ckpt),
+            run_dir=str(tmp_path / "runs"),
+            seed=0,
+            device="cpu",
+        )
+    )
+    onnx_path, _manifest_path, manifest = export(
+        ExportConfig(
+            kind="segmentor",
+            checkpoint_path=str(ckpt),
+            output_path=str(tmp_path / "dilate.onnx"),
+            input_height_px=32,
+            input_width_px=32,
+        )
+    )
+    assert onnx_path.is_file()
+    assert manifest.output_shape == (1, 1, 32, 32)
+    if importlib.util.find_spec("onnxruntime") is not None:
+        from tools.inference.accept import onnx_inference_fn
+
+        tensor = torch.zeros((4, 32, 32), dtype=torch.float32)
+        pred = onnx_inference_fn(str(onnx_path))(tensor)
+        assert pred.shape == (32, 32)
+
+
+@_skip_no_onnx
 def test_export_classifier_then_accept(tmp_path: Path) -> None:
     """1-step synthetic 256 classifier exports (1, 1) logits and passes injected accept."""
     ckpt = tmp_path / "clf.pt"

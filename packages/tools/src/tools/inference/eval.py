@@ -29,10 +29,14 @@ def _load_pack(run_dir: Path, cfg: TrainConfig) -> ProcessedPack:
     if cfg.data_dir:
         candidate = Path(cfg.data_dir)
         if (candidate / "splits.json").is_file():
-            return load_processed_pack(candidate, bit_depth=cfg.bit_depth)
+            return load_processed_pack(
+                candidate, bit_depth=cfg.bit_depth, load_masks=cfg.kind != "classifier"
+            )
     synthetic = run_dir / "synthetic_pack"
     if (synthetic / "splits.json").is_file():
-        return load_processed_pack(synthetic, bit_depth=cfg.bit_depth)
+        return load_processed_pack(
+            synthetic, bit_depth=cfg.bit_depth, load_masks=cfg.kind != "classifier"
+        )
     raise FileNotFoundError(f"no processed pack with splits.json for run {run_dir}")
 
 

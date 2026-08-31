@@ -77,7 +77,7 @@ def test_train_writes_run_directory(tmp_path: Path) -> None:
     assert best.is_file()
     payload = torch.load(last, map_location="cpu", weights_only=True)
     assert payload["kind"] == "segmentor"
-    assert payload["arch"] == "unet"
+    assert payload["arch"] == "dilatenet"
     assert payload["input_height_px"] == 32
     with (root / "history.csv").open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -145,7 +145,7 @@ def test_train_one_step_classifier(tmp_path: Path) -> None:
     )
     payload = torch.load(root / "checkpoints" / "last.pt", map_location="cpu", weights_only=True)
     assert payload["kind"] == "classifier"
-    assert payload["arch"] == "resnet50"
+    assert payload["arch"] == "pactnet"
 
 
 def test_train_processed_pack_splits(tmp_path: Path) -> None:
@@ -219,7 +219,7 @@ def test_train_default_run_id_includes_digest(tmp_path: Path) -> None:
     )
     root = train(cfg)
     digest = config_digest(cfg)
-    assert root.name == f"segmentor-unet-0-{digest}"
+    assert root.name == f"segmentor-dilatenet-0-{digest}"
 
 
 def test_train_refuses_existing_run(tmp_path: Path) -> None:

@@ -91,6 +91,7 @@ def _add_tar_bytes(handle: tarfile.TarFile, arcname: str, payload: bytes) -> Non
 
 def _make_geotiff_bytes(height: int = 8, width: int = 8, value: int = 10000) -> bytes:
     """Return 13-band uint16 GeoTIFF bytes for a small tile."""
+    pytest.importorskip("rasterio")
     from rasterio.io import MemoryFile
 
     data = np.full((13, height, width), value, dtype=np.uint16)

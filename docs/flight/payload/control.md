@@ -13,7 +13,7 @@ estimators, deadband and runaway checks, the gimbal arbiter, and the LQR law int
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ControlState` | dataclass | Bundled arbiter, EMA, Kalman, runaway, deadband, and rate state |
+| `ControlState` | dataclass | Bundled arbiter, EMA, dual-axis Kalman, runaway, deadband, and rate state |
 | `PayloadController` | dataclass | Immutable control core with config and sub-components |
 | `PayloadController.from_config` | static method | Builds arbiter, Kalman, LQR, and plane geometry from config |
 | `PayloadController.initial_state` | method | Returns IDLE arbiter with uninitialized EMA |
@@ -40,7 +40,8 @@ estimators, deadband and runaway checks, the gimbal arbiter, and the LQR law int
    Count strikes above the maximum.
 7. Step the gimbal arbiter with filtered blobs and boresight error.
 8. When the arbiter issues a RATE request and the EMA is initialized, replace rates with
-   LQR output (`-K @ x`), clamped to the max slew rate.
+   LQR output (`u = -K x` per axis), clamped to the max slew rate. The command is the
+   physical inner-loop rate reference.
 9. Suppress RATE requests when the deadband gate blocks them.
 10. Compare commanded rates to measured encoder motion via the runaway monitor.
 11. Thread commanded az/el rates into the next state for the runaway check.

@@ -5,38 +5,39 @@
 
 ## Purpose
 
-This module implements a discrete-time LQR controller for gimbal axis tracking. It
-precomputes gain matrix K from the same constant-velocity plant model as the Kalman
-filter and computes rate commands from the state error vector.
+This module implements a continuous-time LQR rate law for one gimbal axis. The
+design plant is `[e, omega_g]`. `u = -K [e, omega_g]` is the physical inner-loop
+rate reference in deg/s.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `LqrController` | dataclass | Holds K matrix and max slew clamp |
-| `LqrController.from_config` | static method | Solves DARE and builds K from `ControllerConfig` |
-| `compute_control` | function | Returns clamped control vector u = -K @ error |
+| `LqrController` | dataclass | Holds `K` (1x2) and max slew clamp |
+| `LqrController.from_config` | static method | Solves CARE and builds `K` from `ControllerConfig` |
+| `lqr_plant` | function | Returns `(A_c, B_c)` for `[e, omega_g]` |
+| `compute_axis_control` | function | Returns clamped rate for one axis |
+| `compute_control` | function | Returns clamped `[az_rate, el_rate]` |
 
 ## Inputs and outputs
 
 `from_config(cfg)` returns an `LqrController`.
 
-`compute_control(controller, state_error)` takes a `(4,)` error vector and returns `(2,)`
-pan and tilt commands in deg/s, clamped to `max_slew_deg_s`.
+`compute_control(controller, x_az, x_el)` takes two `(4,)` state vectors and returns
+`(2,)` azimuth and elevation commands in deg/s, clamped to `max_slew_deg_s`.
 
 ## Behavior
 
-1. Build state transition A and input B matrices from `kalman_dt_s`.
-2. Form Q and R from `lqr_Q_diag` and `lqr_R_diag`.
-3. Solve the discrete algebraic Riccati equation for P, then compute
-   `K = inv(R + B'PB) B'PA`.
-4. On solver failure, fall back to diagonal proportional gains on pan and tilt position
-   states.
-5. `compute_control` applies `u = -K @ state_error` and clamps to max slew.
+1. Build `A_c` and `B_c` from `tau_cl_s` via `lqr_plant` on `[e, omega_g]`.
+2. Form `Q` from `lqr_Q_diag[0]` and `lqr_Q_diag[3]`, and scalar `R` from the first
+   `lqr_R_diag` entry.
+3. Solve the continuous algebraic Riccati equation and set `K = R^{-1} B' P`.
+4. On solver failure, fall back to a proportional gain on `e`.
+5. `compute_control` applies `u = -K [e, omega_g]` per axis and clamps to max slew.
 
 ## Errors and faults
 
-None at runtime. DARE failure selects the proportional fallback gains.
+None at runtime. CARE failure selects the proportional fallback gain.
 
 ## Messages
 
@@ -44,12 +45,12 @@ None.
 
 ## Configuration
 
-Uses `ControllerConfig`: `kalman_dt_s`, `lqr_Q_diag`, `lqr_R_diag`, `max_slew_deg_s`.
+Uses `ControllerConfig`: `tau_cl_s`, `lqr_Q_diag`, `lqr_R_diag`, `max_slew_deg_s`.
 
 ## Constraints
 
-`PayloadController` negates LQR output when mapping to physical slew rates in RATE
-mode. LQR runs only when the arbiter issues RATE and the EMA is initialized.
+`lqr_Q_diag[0]` weights `e`. `lqr_Q_diag[3]` weights `omega_g`. Target rate is not in
+the LQR plant. The command is the physical rate.
 
 ## Related documents
 

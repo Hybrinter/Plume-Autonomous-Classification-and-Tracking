@@ -21,8 +21,12 @@ min_blob_area_px = 15
 kalman_dt_s = 0.1
 kalman_process_noise = 0.01
 kalman_measurement_noise = 0.1
-# LQR controller
-lqr_Q_diag = [10.0, 10.0, 1.0, 1.0]
+kalman_r_vis = 0.1
+kalman_r_enc = 0.01
+tau_cl_s = 0.05
+estimator_ring_len = 8
+# LQR controller (Q on [e, theta_g, omega_t, omega_g]; theta_g weight is 0)
+lqr_Q_diag = [10.0, 0.0, 1.0, 1.0]
 lqr_R_diag = [1.0, 1.0]
 max_slew_deg_s = 2.0
 runaway_rate_tolerance_deg_per_s = 1.0

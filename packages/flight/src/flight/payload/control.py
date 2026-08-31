@@ -46,13 +46,13 @@ from flight.payload.gimbal import (
     target_displacement_px,
 )
 from flight.payload.tracking import (
+    DualKalmanState,
     EmaFilterState,
     KalmanFilter,
-    KalmanState,
     ema_update,
     match_blobs,
     predict,
-    update,
+    update_vis,
 )
 
 
@@ -72,7 +72,7 @@ class ControlState:
 
     arbiter: ArbiterState
     ema: EmaFilterState
-    kalman: KalmanState
+    kalman: DualKalmanState
     runaway: RunawayState
     deadband_strikes: int
     commanded_az_rate_deg_per_s: float
@@ -86,7 +86,7 @@ class PayloadController:
     Attributes:
         cfg: ControllerConfig (gates, persistence, slew/runaway tuning).
         arbiter: The pure GimbalArbiter FSM.
-        kf: The constant-velocity Kalman filter.
+        kf: The per-axis 4-state Kalman filter.
         lqr: The discrete-LQR control law.
         plane_width_px: Band-plane width in pixels (sensor width / 2); boresight x = w/2.
         plane_height_px: Band-plane height in pixels (sensor height / 2); boresight y = h/2.
@@ -211,12 +211,20 @@ class PayloadController:
         else:
             ema = EmaFilterState(centroid=(0.0, 0.0), initialized=False)
 
-        kalman = predict(self.kf, state.kalman)
+        kalman_az = predict(
+            self.kf, state.kalman.az, state.commanded_az_rate_deg_per_s, cfg.kalman_dt_s
+        )
+        kalman_el = predict(
+            self.kf, state.kalman.el, state.commanded_el_rate_deg_per_s, cfg.kalman_dt_s
+        )
         if ema.initialized:
-            obs = np.array([ema.centroid[0], ema.centroid[1]], dtype=np.float64)
-            updated = update(self.kf, kalman, obs)
-            if isinstance(updated, Ok):
-                kalman = updated.value
+            vis_az = update_vis(self.kf, kalman_az, ema.centroid[0])
+            vis_el = update_vis(self.kf, kalman_el, ema.centroid[1])
+            if isinstance(vis_az, Ok):
+                kalman_az = vis_az.value
+            if isinstance(vis_el, Ok):
+                kalman_el = vis_el.value
+        kalman = DualKalmanState(az=kalman_az, el=kalman_el)
 
         # Deadband + max-displacement strike gate (finally wired; REQ-AIML-GIMB-006/007).
         fault: FaultCode | None = None
@@ -238,14 +246,16 @@ class PayloadController:
         )
 
         if request is not None and request.mode is GimbalCommandMode.RATE and ema.initialized:
-            u = compute_control(self.lqr, np.asarray(kalman.x, dtype=np.float64))
+            u = compute_control(
+                self.lqr,
+                np.asarray(kalman.az.x, dtype=np.float64),
+                np.asarray(kalman.el.x, dtype=np.float64),
+            )
             limit = cfg.max_slew_rate_deg_per_s
-            # The LQR's u is the error-space control push (its B matrix drives the error
-            # velocity), so the physical slew rate is -u = K @ x: slew toward the target.
             request = replace(
                 request,
-                az_deg=float(min(max(-u[0], -limit), limit)),
-                el_deg=float(min(max(-u[1], -limit), limit)),
+                az_deg=float(min(max(u[0], -limit), limit)),
+                el_deg=float(min(max(u[1], -limit), limit)),
             )
         if request is not None and request.mode is GimbalCommandMode.RATE and suppress_rate_command:
             request = None

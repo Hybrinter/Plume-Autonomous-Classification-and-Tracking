@@ -68,7 +68,11 @@ class ControllerConfig:
     kalman_dt_s: float = 0.1
     kalman_process_noise: float = Field(default=1e-2, gt=0.0)
     kalman_measurement_noise: float = Field(default=1e-1, gt=0.0)
-    lqr_Q_diag: tuple[float, ...] = Field(default=(10.0, 10.0, 1.0, 1.0))  # noqa: N815
+    kalman_r_vis: float = Field(default=1e-1, gt=0.0)
+    kalman_r_enc: float = Field(default=1e-2, gt=0.0)
+    tau_cl_s: float = Field(default=0.05, gt=0.0)
+    estimator_ring_len: int = Field(default=8, ge=1)
+    lqr_Q_diag: tuple[float, ...] = Field(default=(10.0, 0.0, 1.0, 1.0))  # noqa: N815
     lqr_R_diag: tuple[float, ...] = Field(default=(1.0, 1.0))  # noqa: N815
     max_slew_deg_s: float = Field(default=2.0, gt=0.0)
     runaway_rate_tolerance_deg_per_s: float = Field(default=1.0, gt=0.0)

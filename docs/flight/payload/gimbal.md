@@ -14,7 +14,7 @@ monitoring, and pre-arbiter safety gates.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`arbiter`](gimbal/arbiter.md) | pure module | IDLE / ACQUIRING / TRACKING / SCAN / SAFE FSM |
-| [`lqr`](gimbal/lqr.md) | pure module | Discrete-time LQR gain and control output |
+| [`lqr`](gimbal/lqr.md) | pure module | Continuous-time LQR rate gain and control output |
 | [`pointing`](gimbal/pointing.md) | pure module | Boresight error and displacement from blob centroids |
 | [`rate_servo`](gimbal/rate_servo.md) | pure module | Inner rate PI with computed-torque decoupling |
 | [`request`](gimbal/request.md) | pure module | Typed gimbal command returned by pure cores |

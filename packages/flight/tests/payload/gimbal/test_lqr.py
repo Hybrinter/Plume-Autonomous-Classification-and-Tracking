@@ -9,7 +9,8 @@ def test_command_clamped_to_max_slew() -> None:
     """A large pointing error produces a command clamped to +/- max_slew_deg_s."""
     cfg = ControllerConfig()
     controller = LqrController.from_config(cfg)
-    command = np.asarray(compute_control(controller, np.array([1000.0, 1000.0, 0.0, 0.0])))
+    x = np.array([1000.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    command = np.asarray(compute_control(controller, x, x))
     assert command.shape == (2,)
     assert abs(float(command[0])) <= cfg.max_slew_deg_s + 1e-9
     assert abs(float(command[1])) <= cfg.max_slew_deg_s + 1e-9
@@ -18,6 +19,16 @@ def test_command_clamped_to_max_slew() -> None:
 def test_zero_error_zero_command() -> None:
     """No pointing error yields an approximately zero slew command."""
     controller = LqrController.from_config(ControllerConfig())
-    command = np.asarray(compute_control(controller, np.zeros(4, dtype=np.float64)))
+    zeros = np.zeros(4, dtype=np.float64)
+    command = np.asarray(compute_control(controller, zeros, zeros))
     assert abs(float(command[0])) < 1e-9
     assert abs(float(command[1])) < 1e-9
+
+
+def test_positive_error_positive_azimuth_rate() -> None:
+    """Positive boresight error commands a positive azimuth rate (slew toward the target)."""
+    controller = LqrController.from_config(ControllerConfig())
+    x_az = np.array([2.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    x_el = np.zeros(4, dtype=np.float64)
+    command = np.asarray(compute_control(controller, x_az, x_el))
+    assert float(command[0]) > 0.0

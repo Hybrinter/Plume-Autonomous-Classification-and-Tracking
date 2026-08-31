@@ -339,8 +339,8 @@ class PayloadApp:
         in_tracking = state.arbiter.gimbal_state is GimbalState.TRACKING and state.ema.initialized
         if in_tracking:
             # Full-resolution ROI centered on the Kalman-estimated boresight-error target.
-            est_az = float(state.kalman.x[0])
-            est_el = float(state.kalman.x[1])
+            est_az = float(state.kalman.az.x[0])
+            est_el = float(state.kalman.el.x[0])
             center_x = int(plane_w / 2 + est_az / self.sensor_cfg.ifov_deg_per_px)
             center_y = int(plane_h / 2 - est_el / self.sensor_cfg.ifov_deg_per_px)
             tensor, crop_origin = crop_to_roi(

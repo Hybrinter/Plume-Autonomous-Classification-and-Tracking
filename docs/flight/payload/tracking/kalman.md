@@ -5,42 +5,45 @@
 
 ## Purpose
 
-This module implements a 2-D constant-velocity Kalman filter for gimbal pointing
-state. The state vector is pan position, tilt position, pan rate, and tilt rate in
-degrees and degrees per second.
+This module implements a per-axis 4-state linear Kalman filter for gimbal pointing.
+The state is boresight error `e`, gimbal angle `theta_g`, target rate `omega_t`, and
+gimbal rate `omega_g` in degrees and degrees per second.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `KalmanState` | dataclass | State estimate x and covariance P |
-| `KalmanFilter` | dataclass | F, H, Q, R matrices |
-| `KalmanFilter.from_config` | static method | Builds matrices from `ControllerConfig` |
-| `KalmanFilter.initial_state` | static method | Zero-velocity initial state at given position |
-| `predict` | function | Propagates state one timestep |
-| `update` | function | Incorporates a (pan, tilt) observation |
+| `AxisKalmanState` | dataclass | One-axis estimate `x` and covariance `p` |
+| `DualKalmanState` | dataclass | Azimuth and elevation `AxisKalmanState` |
+| `KalmanFilter` | dataclass | Continuous plant, H, Q, and measurement R |
+| `KalmanFilter.from_config` | static method | Builds the plant from `ControllerConfig` |
+| `KalmanFilter.initial_axis` | static method | Zero-rate axis state |
+| `KalmanFilter.initial_state` | static method | Dual-axis zero-rate state |
+| `continuous_plant` | function | Returns `(A_c, B_c)` |
+| `discretize` | function | Exact `(Phi, B_d)` for a given `dt` |
+| `predict` | function | Propagates one axis under a held rate command |
+| `update_vis` | function | Vision update on `e` |
+| `update_enc` | function | Encoder update on `theta_g` |
 
 ## Inputs and outputs
 
-`predict(kf, state)` returns `KalmanState`.
+`predict(kf, state, u, dt)` returns `AxisKalmanState`. `u` is the applied rate in deg/s.
 
-`update(kf, state, observation)` takes a `(2,)` observation and returns
-`Ok[KalmanState] | Err[FaultCode]`.
+`update_vis` and `update_enc` return `Ok[AxisKalmanState] | Err[FaultCode]`.
 
 ## Behavior
 
-1. `from_config` builds a constant-velocity F matrix from `kalman_dt_s`, observation
-   matrix H selecting position states, and diagonal Q and R from process and measurement
-   noise scalars.
-2. `predict` computes `x_pred = F @ x` and `P_pred = F @ P @ F' + Q`.
-3. `update` forms innovation covariance S, inverts S for Kalman gain K, and updates x
-   and P.
+1. `from_config` builds `A_c` and `B_c` from `tau_cl_s` with
+   `omega_g_dot = (-omega_g + u) / tau_cl_s`.
+2. `predict` forms `Phi` and `B_d` from the Van Loan exponential and applies
+   `x = Phi x + B_d u`. A `dt` of zero or less returns the input state.
+3. `update_vis` uses `H = [1, 0, 0, 0]`. `update_enc` uses `H = [0, 1, 0, 0]`.
 
 ## Errors and faults
 
 | Result | Trigger |
 | --- | --- |
-| `Err(GIMBAL_RUNAWAY)` | Innovation covariance S is singular |
+| `Err(GIMBAL_RUNAWAY)` | Innovation variance S is singular |
 
 ## Messages
 
@@ -48,15 +51,16 @@ None.
 
 ## Configuration
 
-Uses `ControllerConfig.kalman_dt_s`, `kalman_process_noise`, and
-`kalman_measurement_noise`.
+Uses `ControllerConfig.tau_cl_s`, `kalman_process_noise`, `kalman_r_vis`, and
+`kalman_r_enc`.
 
 ## Constraints
 
-The filter runs every frame with predict; update runs only when the EMA is initialized.
-LQR shares the same timestep and plant structure via `LqrController.from_config`.
+The two axes are independent copies of the same plant. Process noise on `theta_g` is
+kept small. LQR uses the same `A_c` and `B_c`.
 
 ## Related documents
 
 - [`flight.payload.tracking`](../tracking.md)
+- [`flight.payload.tracking.rewind`](rewind.md)
 - [`flight.payload.gimbal.lqr`](../gimbal/lqr.md)

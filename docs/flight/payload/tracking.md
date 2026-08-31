@@ -14,13 +14,15 @@ frames.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`filter`](tracking/filter.md) | pure module | EMA centroid smoothing in boresight-error space |
-| [`kalman`](tracking/kalman.md) | pure module | Constant-velocity Kalman predict and update |
+| [`kalman`](tracking/kalman.md) | pure module | Per-axis 4-state Kalman predict and updates |
+| [`rewind`](tracking/rewind.md) | pure module | Vision-latency snapshot ring |
 | [`tracker`](tracking/tracker.md) | pure module | IoU blob matching and persistence counting |
 
 ## Package interface
 
-Re-exports: `EmaFilterState`, `KalmanFilter`, `KalmanState`, `compute_iou`, `ema_update`,
-`match_blobs`, `predict`, `update`.
+Re-exports: `AxisKalmanState`, `DualKalmanState`, `EmaFilterState`, `EstimatorRing`,
+`EstimatorSnapshot`, `KalmanFilter`, `apply_vision`, `compute_iou`, `ema_update`,
+`empty_ring`, `match_blobs`, `predict`, `push_snapshot`, `update_enc`, `update_vis`.
 
 ## Interactions
 

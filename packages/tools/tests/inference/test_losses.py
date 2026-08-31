@@ -4,6 +4,8 @@ import pytest
 import torch
 from tools.inference.losses import (
     LOSS_NAMES,
+    LOSS_SPECS,
+    LossSpec,
     PlumeLoss,
     build_loss,
     dice_term,
@@ -61,6 +63,13 @@ def test_build_loss_rejects_unknown_name() -> None:
     """An unregistered name raises ValueError."""
     with pytest.raises(ValueError, match="unknown loss"):
         build_loss("nope")
+
+
+def test_loss_specs_cover_registered_names() -> None:
+    """LOSS_SPECS holds one row per registered name."""
+    assert set(LOSS_SPECS) == LOSS_NAMES
+    assert LOSS_SPECS["focal"] == LossSpec(use_focal=True, dice_weight=0.0, pixel_weight=1.0)
+    assert LOSS_SPECS["focal_dice"] == LossSpec(use_focal=True, dice_weight=1.0, pixel_weight=1.0)
 
 
 def test_build_loss_weight_configuration() -> None:

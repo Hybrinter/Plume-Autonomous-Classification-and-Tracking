@@ -13,6 +13,8 @@ modules.
 
 | Item | Type | Description |
 | --- | --- | --- |
+| [`grammar`](arch/grammar.md) | module | Shared architecture-name modifier tokens |
+| [`blocks`](arch/blocks.md) | module | Shared 3x3 dense and separable convolutions |
 | [`unet`](arch/unet.md) | module | Parameterised scratch U-Net segmentor |
 | [`encoder_unet`](arch/encoder_unet.md) | module | ResNet-encoder U-Net segmentor |
 | [`dilated`](arch/dilated.md) | module | Dilated fully-convolutional `dilatenet` segmentor |

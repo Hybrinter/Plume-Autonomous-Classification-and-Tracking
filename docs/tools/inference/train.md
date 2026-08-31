@@ -46,8 +46,10 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 
 ## Behavior
 
-1. Resolve architecture through the registry grammar. Empty `run_id` becomes
-   `{kind}-{arch}-{seed}-{digest8}`. A supplied `run_id` is used unchanged.
+1. Resolve architecture through the registry grammar. Empty `arch` selects
+   `pactnet` for the classifier and `dilatenet` for the segmentor. Empty
+   `run_id` becomes `{kind}-{arch}-{seed}-{digest8}`. A supplied `run_id` is
+   used unchanged.
 2. Raise `FileExistsError` when the run directory already has `summary.json`
    and `overwrite` is false.
 3. Load a processed pack, an unsplit disk adapter, or a synthetic pack.

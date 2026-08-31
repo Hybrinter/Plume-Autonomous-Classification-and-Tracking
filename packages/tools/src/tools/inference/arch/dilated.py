@@ -48,6 +48,9 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
+from tools.inference.arch.blocks import conv_norm_relu
+from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
+
 DILATED_PREFIX = "dilatenet"
 
 DEFAULT_DILATED_WIDTH = 32
@@ -97,43 +100,6 @@ def dilation_rates(blocks: int) -> tuple[int, ...]:
     return tuple(2**index for index in range(blocks))
 
 
-def _conv_layers(
-    in_channels: int,
-    out_channels: int,
-    stride: int,
-    dilation: int,
-    separable: bool,
-) -> list[nn.Module]:
-    """Return the convolution layers of one block, without the trailing norm."""
-    if not separable:
-        return [
-            nn.Conv2d(
-                in_channels,
-                out_channels,
-                kernel_size=3,
-                stride=stride,
-                padding=dilation,
-                dilation=dilation,
-                bias=False,
-            )
-        ]
-    return [
-        nn.Conv2d(
-            in_channels,
-            in_channels,
-            kernel_size=3,
-            stride=stride,
-            padding=dilation,
-            dilation=dilation,
-            groups=in_channels,
-            bias=False,
-        ),
-        nn.BatchNorm2d(in_channels),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
-    ]
-
-
 def _block(
     in_channels: int,
     out_channels: int,
@@ -142,9 +108,14 @@ def _block(
     separable: bool,
 ) -> nn.Module:
     """Return one convolution block as a batch-normalised, rectified sequence."""
-    layers = _conv_layers(in_channels, out_channels, stride, dilation, separable)
-    layers += [nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True)]
-    return nn.Sequential(*layers)
+    return conv_norm_relu(
+        in_channels,
+        out_channels,
+        stride=stride,
+        dilation=dilation,
+        separable=separable,
+        mid_norm=separable,
+    )
 
 
 class DilatedSegmentor(nn.Module):
@@ -216,12 +187,9 @@ class DilatedSegmentor(nn.Module):
         return resized
 
 
-def _positive_int(token: str, prefix: str, name: str) -> int:
-    """Parse a ``<prefix><digits>`` token into a positive int."""
-    digits = token[len(prefix) :]
-    if not digits.isdigit() or int(digits) < 1:
-        raise ValueError(f"malformed {name} token {token!r} in architecture name")
-    return int(digits)
+_DILATED_FLAGS = ModifierFlags(
+    width=True, depth=True, stride=True, full=True, depth_label="block count"
+)
 
 
 def parse_dilated(name: str) -> DilatedSpec:
@@ -242,21 +210,11 @@ def parse_dilated(name: str) -> DilatedSpec:
     parts = name.split("_")
     if parts[0] != DILATED_PREFIX:
         raise ValueError(f"unknown dilated segmentor {name!r}")
-    base_width = DEFAULT_DILATED_WIDTH
-    blocks = DEFAULT_DILATED_BLOCKS
-    output_stride = DEFAULT_OUTPUT_STRIDE
-    separable = True
-    for token in parts[1:]:
-        if token == "full":
-            separable = False
-        elif token.startswith("w"):
-            base_width = _positive_int(token, "w", "width")
-        elif token.startswith("d"):
-            blocks = _positive_int(token, "d", "block count")
-        elif token.startswith("s"):
-            output_stride = _positive_int(token, "s", "output stride")
-        else:
-            raise ValueError(f"unknown dilatenet modifier {token!r}")
+    mods = parse_modifiers(tuple(parts[1:]), _DILATED_FLAGS, "dilatenet modifier")
+    base_width = DEFAULT_DILATED_WIDTH if mods.width is None else mods.width
+    blocks = DEFAULT_DILATED_BLOCKS if mods.depth is None else mods.depth
+    output_stride = DEFAULT_OUTPUT_STRIDE if mods.stride is None else mods.stride
+    separable = True if mods.separable is None else mods.separable
     if output_stride not in VALID_OUTPUT_STRIDES:
         raise ValueError(
             f"output stride must be one of {sorted(VALID_OUTPUT_STRIDES)}, got {output_stride}"

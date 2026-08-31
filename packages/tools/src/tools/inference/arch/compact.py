@@ -43,6 +43,9 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
+from tools.inference.arch.blocks import conv_norm_relu
+from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
+
 COMPACT_PREFIX = "pactnet"
 
 DEFAULT_COMPACT_WIDTH = 16
@@ -93,30 +96,13 @@ def compact_stage_widths(base_width: int, depth: int) -> tuple[int, ...]:
 
 def _conv_block(in_channels: int, out_channels: int, stride: int, separable: bool) -> nn.Module:
     """Return one convolution stage as a batch-normalised, rectified block."""
-    layers: list[nn.Module] = []
-    if separable:
-        layers += [
-            nn.Conv2d(
-                in_channels,
-                in_channels,
-                kernel_size=3,
-                stride=stride,
-                padding=1,
-                groups=in_channels,
-                bias=False,
-            ),
-            nn.BatchNorm2d(in_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
-        ]
-    else:
-        layers.append(
-            nn.Conv2d(
-                in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False
-            )
-        )
-    layers += [nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True)]
-    return nn.Sequential(*layers)
+    return conv_norm_relu(
+        in_channels,
+        out_channels,
+        stride=stride,
+        separable=separable,
+        mid_norm=separable,
+    )
 
 
 class PactNet(nn.Module):
@@ -178,12 +164,7 @@ class PactNet(nn.Module):
         return logits
 
 
-def _positive_int(token: str, prefix: str, name: str) -> int:
-    """Parse a ``<prefix><digits>`` token into a positive int."""
-    digits = token[len(prefix) :]
-    if not digits.isdigit() or int(digits) < 1:
-        raise ValueError(f"malformed {name} token {token!r} in architecture name")
-    return int(digits)
+_COMPACT_FLAGS = ModifierFlags(width=True, depth=True, full=True)
 
 
 def parse_compact(name: str) -> CompactSpec:
@@ -202,19 +183,12 @@ def parse_compact(name: str) -> CompactSpec:
     parts = name.split("_")
     if parts[0] != COMPACT_PREFIX:
         raise ValueError(f"unknown compact classifier {name!r}")
-    base_width = DEFAULT_COMPACT_WIDTH
-    depth = DEFAULT_COMPACT_DEPTH
-    separable = True
-    for token in parts[1:]:
-        if token == "full":
-            separable = False
-        elif token.startswith("w"):
-            base_width = _positive_int(token, "w", "width")
-        elif token.startswith("d"):
-            depth = _positive_int(token, "d", "depth")
-        else:
-            raise ValueError(f"unknown pactnet modifier {token!r}")
-    return CompactSpec(base_width=base_width, depth=depth, separable=separable)
+    mods = parse_modifiers(tuple(parts[1:]), _COMPACT_FLAGS, "pactnet modifier")
+    return CompactSpec(
+        base_width=DEFAULT_COMPACT_WIDTH if mods.width is None else mods.width,
+        depth=DEFAULT_COMPACT_DEPTH if mods.depth is None else mods.depth,
+        separable=True if mods.separable is None else mods.separable,
+    )
 
 
 def build_compact_classifier(spec: CompactSpec, in_channels: int = 4) -> nn.Module:

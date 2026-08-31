@@ -17,6 +17,7 @@ soft F1.
 
 Contains:
   - LossName: registered objective names.
+  - LossSpec: pixel/Dice weights for one registered name.
   - dice_term / focal_term: the two imbalance-aware building blocks.
   - PlumeLoss: weighted BCE, Dice, and focal combination.
   - build_loss: construct a PlumeLoss from a name.
@@ -26,6 +27,7 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 import torch
@@ -34,6 +36,30 @@ from torch import nn
 LossName = Literal["bce", "dice", "bce_dice", "focal", "focal_dice"]
 
 LOSS_NAMES: frozenset[str] = frozenset({"bce", "dice", "bce_dice", "focal", "focal_dice"})
+
+
+@dataclass(frozen=True, slots=True)
+class LossSpec:
+    """Pixel and overlap weights for one registered objective.
+
+    Attributes:
+        use_focal: Use focal rather than BCE for the pixel term.
+        dice_weight: Weight on the Dice term.
+        pixel_weight: Weight on the pixel term.
+    """
+
+    use_focal: bool
+    dice_weight: float
+    pixel_weight: float
+
+
+LOSS_SPECS: dict[str, LossSpec] = {
+    "bce": LossSpec(use_focal=False, dice_weight=0.0, pixel_weight=1.0),
+    "dice": LossSpec(use_focal=False, dice_weight=1.0, pixel_weight=0.0),
+    "bce_dice": LossSpec(use_focal=False, dice_weight=1.0, pixel_weight=1.0),
+    "focal": LossSpec(use_focal=True, dice_weight=0.0, pixel_weight=1.0),
+    "focal_dice": LossSpec(use_focal=True, dice_weight=1.0, pixel_weight=1.0),
+}
 
 DEFAULT_FOCAL_GAMMA = 2.0
 DEFAULT_FOCAL_ALPHA = 0.25
@@ -176,15 +202,13 @@ def build_loss(
     Raises:
         ValueError: If ``name`` is not registered.
     """
-    if name not in LOSS_NAMES:
+    spec = LOSS_SPECS.get(name)
+    if spec is None:
         raise ValueError(f"unknown loss {name!r}")
-    use_focal = name in {"focal", "focal_dice"}
-    dice_weight = 1.0 if name in {"dice", "bce_dice", "focal_dice"} else 0.0
-    pixel_weight = 0.0 if name == "dice" else 1.0
     return PlumeLoss(
-        use_focal=use_focal,
-        dice_weight=dice_weight,
-        pixel_weight=pixel_weight,
+        use_focal=spec.use_focal,
+        dice_weight=spec.dice_weight,
+        pixel_weight=spec.pixel_weight,
         pos_weight=pos_weight,
         focal_gamma=focal_gamma,
         focal_alpha=focal_alpha,

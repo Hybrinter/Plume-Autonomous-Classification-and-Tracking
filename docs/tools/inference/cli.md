@@ -44,7 +44,7 @@ status.
    quality check has no scenes and the gate fails that check.
 8. `finalize` scores the test split of a run, exports FP32 and INT8, and runs
    the golden-scene gate. `--promote` copies the preferred accepted artifact.
-9. `fetch` delegates dataset status, download, unpack, and labeled preprocess
+9. `fetch` delegates dataset status, download, and streamed labeled preprocess
    work to `tools.inference.fetch`.
 
 ## Errors and faults

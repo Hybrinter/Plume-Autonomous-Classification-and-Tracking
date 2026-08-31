@@ -18,17 +18,7 @@ from typing import Annotated
 import typer
 
 # internal
-from tools.inference.accept import (
-    AcceptanceReport,
-    ClassifierAcceptanceReport,
-    accept_artifact,
-    accept_classifier_artifact,
-    load_golden_classifier_scenes,
-    load_golden_scenes,
-    load_manifest,
-    onnx_classifier_inference_fn,
-    onnx_inference_fn,
-)
+from tools.inference.accept import accept_kind, load_manifest
 from tools.inference.export import ExportConfig, export, int8_artifact_path, promote
 from tools.inference.fetch import main as fetch_main
 from tools.inference.train import load_train_config, overlay_train_config, train
@@ -214,36 +204,21 @@ def accept_command(
     reports the manifest and contract results and then fails.
     """
     manifest = load_manifest(manifest_path)
-    expected_in = (1, 4, height, width)
     try:
-        if kind is InferenceKind.SEGMENTOR:
-            report: AcceptanceReport | ClassifierAcceptanceReport = accept_artifact(
-                artifact,
-                manifest,
-                scenes=(
-                    load_golden_scenes(scenes_dir, scenes_split, scenes_limit) if scenes_dir else []
-                ),
-                run_inference=onnx_inference_fn(artifact),
-                expected_input=expected_in,
-                expected_output=(1, 1, height, width),
-                min_iou=min_iou,
-                max_latency_ms=max_latency_ms,
-            )
-        else:
-            report = accept_classifier_artifact(
-                artifact,
-                manifest,
-                scenes=(
-                    load_golden_classifier_scenes(scenes_dir, scenes_split, scenes_limit)
-                    if scenes_dir
-                    else []
-                ),
-                run_inference=onnx_classifier_inference_fn(artifact),
-                expected_input=expected_in,
-                expected_output=(1, 1),
-                min_accuracy=min_accuracy,
-                max_latency_ms=max_latency_ms,
-            )
+        report = accept_kind(
+            kind.value,
+            artifact,
+            manifest,
+            scenes_dir=scenes_dir,
+            scenes_split=scenes_split,
+            scenes_limit=scenes_limit,
+            expected_input=(1, 4, height, width),
+            height=height,
+            width=width,
+            min_iou=min_iou,
+            min_accuracy=min_accuracy,
+            max_latency_ms=max_latency_ms,
+        )
     except ImportError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc

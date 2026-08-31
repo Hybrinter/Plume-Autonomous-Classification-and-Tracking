@@ -12,17 +12,11 @@ import numpy as np
 import pytest
 from tools.inference.data import load_processed_pack
 from tools.inference.fetch import (
-    extract_tarball,
-    extract_zenodo_archives,
     file_md5,
     index_image_archive,
     load_dataset_manifest,
-    load_mask_plane,
     main,
-    pair_sample_stems,
-    preprocess_pack,
     preprocess_planes,
-    preprocess_tree,
     preprocess_zenodo_archives,
     read_annotation_archive,
     select_pact_bands,
@@ -33,22 +27,6 @@ from tools.inference.split import compute_dataset_hash, load_dataset_meta
 
 _COLON_STEM = "10003_2019-01-21T10:56:41.330Z_0"
 _SQUARE_POINTS = [[25.0, 25.0], [75.0, 25.0], [75.0, 75.0], [25.0, 75.0]]
-
-
-def _write_stack(path: Path, value: float) -> None:
-    """Write a 13-band (C, 4, 4) stack with PACT bands set to value."""
-    stack = np.zeros((13, 4, 4), dtype=np.float32)
-    stack[1:4] = value
-    stack[7] = value
-    np.save(path, stack)
-
-
-def _write_mask(path: Path, positive: bool) -> None:
-    """Write a (4, 4) binary mask npy."""
-    mask = np.zeros((4, 4), dtype=np.float32)
-    if positive:
-        mask[1:3, 1:3] = 1.0
-    np.save(path, mask)
 
 
 def _annotation_export(
@@ -201,22 +179,6 @@ def test_to_model_domain_resizes_and_scales() -> None:
     assert float(out[1].mean()) == pytest.approx(0.0)
 
 
-def test_preprocess_tree_writes_images_npy(tmp_path: Path) -> None:
-    """preprocess_tree packs .npy stacks into images.npy."""
-    src = tmp_path / "raw"
-    src.mkdir()
-    stack = np.zeros((13, 4, 4), dtype=np.float32)
-    stack[1:4] = 10000.0
-    stack[7] = 10000.0
-    np.save(src / "a.npy", stack)
-    dest = tmp_path / "processed"
-    count = preprocess_tree(src, dest, height=8, width=8, indices=(1, 2, 3, 7), dn_scale=10000.0)
-    assert count == 1
-    images = np.load(dest / "images.npy")
-    assert images.shape == (1, 4, 8, 8)
-    assert float(images.max()) == pytest.approx(1.0)
-
-
 def test_cli_without_download_prints_citation(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -236,79 +198,6 @@ def test_preprocess_planes_passthrough_four_band() -> None:
     out = preprocess_planes(planes, height=8, width=8, dn_scale=1.0)
     assert out.shape == (4, 8, 8)
     assert float(out.min()) == pytest.approx(1.0)
-
-
-def test_extract_tarball_and_pair_stems(tmp_path: Path) -> None:
-    """extract_tarball unpacks archives that pair_sample_stems can match."""
-    images_src = tmp_path / "img_src"
-    labels_src = tmp_path / "lbl_src"
-    images_src.mkdir()
-    labels_src.mkdir()
-    _write_stack(images_src / "s0.npy", 10000.0)
-    _write_mask(labels_src / "s0.npy", True)
-    images_tar = tmp_path / "images.tar.gz"
-    labels_tar = tmp_path / "labels.tar.gz"
-    with tarfile.open(images_tar, "w:gz") as handle:
-        handle.add(images_src / "s0.npy", arcname="s0.npy")
-    with tarfile.open(labels_tar, "w:gz") as handle:
-        handle.add(labels_src / "s0.npy", arcname="s0.npy")
-    image_root = extract_tarball(images_tar, tmp_path / "extracted_images")
-    label_root = extract_tarball(labels_tar, tmp_path / "extracted_labels")
-    pairs = pair_sample_stems(image_root, label_root)
-    assert len(pairs) == 1
-    assert pairs[0][0].stem == "s0"
-
-
-def test_load_mask_plane_resizes_and_binarizes(tmp_path: Path) -> None:
-    """load_mask_plane nearest-neighbor resizes and thresholds to {0, 1}."""
-    mask = np.zeros((4, 4), dtype=np.float32)
-    mask[0:2, 0:2] = 1.0
-    path = tmp_path / "mask.npy"
-    np.save(path, mask)
-    out = load_mask_plane(path, height=8, width=8)
-    assert out.shape == (1, 8, 8)
-    assert set(np.unique(out).tolist()) <= {0.0, 1.0}
-    assert float(out[0, 0, 0]) == 1.0
-    assert float(out[0, 7, 7]) == 0.0
-
-
-def test_preprocess_pack_writes_labeled_splits(tmp_path: Path) -> None:
-    """preprocess_pack writes images, masks, labels, splits, and dataset.json."""
-    images_dir = tmp_path / "images"
-    labels_dir = tmp_path / "labels"
-    images_dir.mkdir()
-    labels_dir.mkdir()
-    for i in range(4):
-        _write_stack(images_dir / f"s{i}.npy", 10000.0)
-        _write_mask(labels_dir / f"s{i}.npy", positive=(i % 2 == 0))
-    dest = tmp_path / "processed"
-    count = preprocess_pack(
-        images_dir,
-        labels_dir,
-        dest,
-        height=8,
-        width=8,
-        indices=(1, 2, 3, 7),
-        dn_scale=10000.0,
-        source_doi="10.5281/zenodo.4250706",
-    )
-    assert count == 4
-    pack = load_processed_pack(dest)
-    assert pack.images.shape == (4, 4, 8, 8)
-    assert pack.masks.shape == (4, 1, 8, 8)
-    assert pack.labels.shape == (4, 1)
-    meta = load_dataset_meta(dest / "dataset.json")
-    assert meta.n == 4
-    assert meta.source_doi == "10.5281/zenodo.4250706"
-    assert meta.dataset_hash == pack.meta.dataset_hash
-    assert len(pack.splits.train) + len(pack.splits.val) + len(pack.splits.test) == 4
-
-
-def test_extract_zenodo_archives_uses_raw_when_missing(tmp_path: Path) -> None:
-    """Without tarballs, extract_zenodo_archives returns the raw directory."""
-    image_root, label_root = extract_zenodo_archives(tmp_path)
-    assert image_root == tmp_path
-    assert label_root == tmp_path
 
 
 def test_cli_preprocess_from_tarballs(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

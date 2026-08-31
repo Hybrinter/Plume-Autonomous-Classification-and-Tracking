@@ -46,7 +46,7 @@ kind or unparsable name.
 
 ## Behavior
 
-1. Empty `arch` selects `resnet50` for the classifier and `unet` for the
+1. Empty `arch` selects `pactnet` for the classifier and `dilatenet` for the
    segmentor.
 2. **Torchvision classifier family.** A backbone name with an optional `_pt`
    suffix for ImageNet weights. Backbones: `resnet18`, `resnet34`, `resnet50`,
@@ -65,9 +65,9 @@ kind or unparsable name.
    modifiers: `w<N>` stem width (default 32), `d<N>` dilated-block count
    (default 4), `s<N>` output stride of 4 or 8 (default 4), `full` for dense
    convolutions. Examples: `dilatenet`, `dilatenet_w32_d6_s8`.
-7. `build` dispatches to `build_backbone`, `build_compact_classifier`,
-   `build_segmentor`, `build_encoder_segmentor`, or `build_dilated_segmentor`
-   from the parsed spec.
+7. `build` matches on the parsed spec and calls `build_compact_classifier`,
+   `build_backbone_spec`, `build_segmentor`, `build_encoder_segmentor`, or
+   `build_dilated_segmentor`.
 
 ## Errors and faults
 
@@ -79,19 +79,22 @@ None.
 
 ## Configuration
 
-`DEFAULT_ARCH` maps `classifier` to `resnet50` and `segmentor` to `unet`.
+`DEFAULT_ARCH` maps `classifier` to `pactnet` and `segmentor` to `dilatenet`.
 `known()` lists representative points across both classifier families and all
-three segmentor families. Names outside the catalog remain valid when they parse.
+three segmentor families. Catalog entries include `resnet50` and `unet` as
+search points. Names outside the catalog remain valid when they parse.
 
 ## Constraints
 
 Adding a backbone is one torchvision constructor plus a registry row in the
 catalog. Adding a classifier or segmentor family needs a parser branch and a
-builder call.
+builder call. Modifier tokens share
+[`tools.inference.arch.grammar`](grammar.md).
 
 ## Related documents
 
 - [`tools.inference.arch`](../arch.md)
+- [`tools.inference.arch.grammar`](grammar.md)
 - [`tools.inference.arch.classifier`](classifier.md)
 - [`tools.inference.arch.compact`](compact.md)
 - [`tools.inference.arch.unet`](unet.md)

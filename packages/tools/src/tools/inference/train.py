@@ -257,69 +257,40 @@ def overlay_train_config(
     Returns:
         TrainConfig: Frozen overlay.
     """
-    updates: dict[str, object] = {}
-    if kind is not None:
-        updates["kind"] = kind
-    if arch is not None:
-        updates["arch"] = arch
-    if data_dir is not None:
-        updates["data_dir"] = data_dir
-    if checkpoint_path is not None:
-        updates["checkpoint_path"] = checkpoint_path
-    if epochs is not None:
-        updates["epochs"] = epochs
-    if batch_size is not None:
-        updates["batch_size"] = batch_size
-    if input_height_px is not None:
-        updates["input_height_px"] = input_height_px
-    if input_width_px is not None:
-        updates["input_width_px"] = input_width_px
-    if seed is not None:
-        updates["seed"] = seed
-    if run_dir is not None:
-        updates["run_dir"] = run_dir
-    if run_id is not None:
-        updates["run_id"] = run_id
-    if in_channels is not None:
-        updates["in_channels"] = in_channels
-    if learning_rate is not None:
-        updates["learning_rate"] = learning_rate
-    if momentum is not None:
-        updates["momentum"] = momentum
-    if weight_decay is not None:
-        updates["weight_decay"] = weight_decay
-    if synthetic_samples is not None:
-        updates["synthetic_samples"] = synthetic_samples
-    if bit_depth is not None:
-        updates["bit_depth"] = bit_depth
-    if val_metric is not None:
-        updates["val_metric"] = val_metric
-    if device is not None:
-        updates["device"] = device
-    if overwrite is not None:
-        updates["overwrite"] = overwrite
-    if optimizer is not None:
-        updates["optimizer"] = optimizer
-    if scheduler is not None:
-        updates["scheduler"] = scheduler
-    if shuffle is not None:
-        updates["shuffle"] = shuffle
-    if pos_weight is not None:
-        updates["pos_weight"] = pos_weight
-    if augment is not None:
-        updates["augment"] = augment
-    if loss is not None:
-        updates["loss"] = loss
-    if focal_gamma is not None:
-        updates["focal_gamma"] = focal_gamma
-    if focal_alpha is not None:
-        updates["focal_alpha"] = focal_alpha
-    if amp is not None:
-        updates["amp"] = amp
-    if patience is not None:
-        updates["patience"] = patience
-    if eval_interval is not None:
-        updates["eval_interval"] = eval_interval
+    candidates: dict[str, object | None] = {
+        "kind": kind,
+        "arch": arch,
+        "data_dir": data_dir,
+        "checkpoint_path": checkpoint_path,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "input_height_px": input_height_px,
+        "input_width_px": input_width_px,
+        "seed": seed,
+        "run_dir": run_dir,
+        "run_id": run_id,
+        "in_channels": in_channels,
+        "learning_rate": learning_rate,
+        "momentum": momentum,
+        "weight_decay": weight_decay,
+        "synthetic_samples": synthetic_samples,
+        "bit_depth": bit_depth,
+        "val_metric": val_metric,
+        "device": device,
+        "overwrite": overwrite,
+        "optimizer": optimizer,
+        "scheduler": scheduler,
+        "shuffle": shuffle,
+        "pos_weight": pos_weight,
+        "augment": augment,
+        "loss": loss,
+        "focal_gamma": focal_gamma,
+        "focal_alpha": focal_alpha,
+        "amp": amp,
+        "patience": patience,
+        "eval_interval": eval_interval,
+    }
+    updates = {key: value for key, value in candidates.items() if value is not None}
     return apply_train_mapping(cfg, updates) if updates else cfg
 
 
@@ -362,7 +333,13 @@ def _default_val_metric(kind: str, name: str) -> str:
         if name not in _VAL_METRICS:
             raise ValueError(f"unknown val_metric {name!r}")
         return name
-    return "f1" if kind == "classifier" else "mean_iou"
+    match kind:
+        case "classifier":
+            return "f1"
+        case "segmentor":
+            return "mean_iou"
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")
 
 
 def _pack_from_config(cfg: TrainConfig, run_root: Path) -> ProcessedPack:
@@ -392,16 +369,19 @@ def _unsplit_disk_pack(root: Path, cfg: TrainConfig) -> ProcessedPack:
     n = int(batch.images.shape[0])
     height = int(batch.images.shape[2])
     width = int(batch.images.shape[3])
-    if cfg.kind == "segmentor":
-        masks = batch.targets
-        if masks.ndim == 3:
-            masks = masks.unsqueeze(1)
-        labels = (masks.reshape(n, -1).amax(dim=1) > 0.0).to(dtype=torch.float32).reshape(n, 1)
-    else:
-        labels = batch.targets
-        if labels.ndim == 1:
-            labels = labels.reshape(-1, 1)
-        masks = torch.zeros((n, 1, height, width), dtype=torch.float32)
+    match cfg.kind:
+        case "segmentor":
+            masks = batch.targets
+            if masks.ndim == 3:
+                masks = masks.unsqueeze(1)
+            labels = (masks.reshape(n, -1).amax(dim=1) > 0.0).to(dtype=torch.float32).reshape(n, 1)
+        case "classifier":
+            labels = batch.targets
+            if labels.ndim == 1:
+                labels = labels.reshape(-1, 1)
+            masks = torch.zeros((n, 1, height, width), dtype=torch.float32)
+        case _:
+            raise ValueError(f"unknown train kind {cfg.kind!r}")
     splits = SplitIndex(train=tuple(range(n)), val=(), test=())
     meta = DatasetMeta(
         dataset_hash="unsplit",
@@ -454,31 +434,37 @@ def _loader(
 
 def _make_optimizer(model: nn.Module, cfg: TrainConfig) -> torch.optim.Optimizer:
     """Return SGD or AdamW from ``cfg.optimizer``."""
-    if cfg.optimizer == "sgd":
-        return torch.optim.SGD(
-            model.parameters(),
-            lr=cfg.learning_rate,
-            momentum=cfg.momentum,
-            weight_decay=cfg.weight_decay,
-        )
-    if cfg.optimizer == "adamw":
-        return torch.optim.AdamW(
-            model.parameters(),
-            lr=cfg.learning_rate,
-            weight_decay=cfg.weight_decay,
-        )
-    raise ValueError(f"unknown optimizer {cfg.optimizer!r}")
+    match cfg.optimizer:
+        case "sgd":
+            return torch.optim.SGD(
+                model.parameters(),
+                lr=cfg.learning_rate,
+                momentum=cfg.momentum,
+                weight_decay=cfg.weight_decay,
+            )
+        case "adamw":
+            return torch.optim.AdamW(
+                model.parameters(),
+                lr=cfg.learning_rate,
+                weight_decay=cfg.weight_decay,
+            )
+        case _:
+            raise ValueError(f"unknown optimizer {cfg.optimizer!r}")
 
 
 def _make_scheduler(
     optimizer: torch.optim.Optimizer, cfg: TrainConfig
 ) -> torch.optim.lr_scheduler.LRScheduler | None:
     """Return a cosine scheduler, or None when ``scheduler`` is ``none``."""
-    if cfg.scheduler in {"", "none"}:
-        return None
-    if cfg.scheduler == "cosine":
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(int(cfg.epochs), 1))
-    raise ValueError(f"unknown scheduler {cfg.scheduler!r}")
+    match cfg.scheduler:
+        case "" | "none":
+            return None
+        case "cosine":
+            return torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=max(int(cfg.epochs), 1)
+            )
+        case _:
+            raise ValueError(f"unknown scheduler {cfg.scheduler!r}")
 
 
 def _gather(
@@ -503,27 +489,31 @@ def _gather(
 
 def _score(kind: str, logits: torch.Tensor, targets: torch.Tensor) -> dict[str, float]:
     """Return a flat metric dict for one split."""
-    if kind == "classifier":
-        report = classifier_metrics(logits, targets)
-        return {
-            "loss": report.bce,
-            "accuracy": report.accuracy,
-            "precision": report.precision,
-            "recall": report.recall,
-            "f1": report.f1,
-            "roc_auc": report.roc_auc,
-            "pr_auc": report.pr_auc,
-            "brier": report.brier,
-            "bce": report.bce,
-        }
-    report_seg = segmentor_metrics(logits, targets)
-    return {
-        "loss": report_seg.bce,
-        "mean_iou": report_seg.mean_iou,
-        "mean_dice": report_seg.mean_dice,
-        "mean_iou_blob_gate": report_seg.mean_iou_blob_gate,
-        "bce": report_seg.bce,
-    }
+    match kind:
+        case "classifier":
+            report = classifier_metrics(logits, targets)
+            return {
+                "loss": report.bce,
+                "accuracy": report.accuracy,
+                "precision": report.precision,
+                "recall": report.recall,
+                "f1": report.f1,
+                "roc_auc": report.roc_auc,
+                "pr_auc": report.pr_auc,
+                "brier": report.brier,
+                "bce": report.bce,
+            }
+        case "segmentor":
+            report_seg = segmentor_metrics(logits, targets)
+            return {
+                "loss": report_seg.bce,
+                "mean_iou": report_seg.mean_iou,
+                "mean_dice": report_seg.mean_dice,
+                "mean_iou_blob_gate": report_seg.mean_iou_blob_gate,
+                "bce": report_seg.bce,
+            }
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")
 
 
 def _val_score(metrics: dict[str, float], name: str) -> float:

@@ -21,13 +21,8 @@ from pathlib import Path
 from tools.inference.accept import (
     AcceptanceReport,
     ClassifierAcceptanceReport,
-    accept_artifact,
-    accept_classifier_artifact,
-    load_golden_classifier_scenes,
-    load_golden_scenes,
+    accept_kind,
     load_manifest,
-    onnx_classifier_inference_fn,
-    onnx_inference_fn,
 )
 from tools.inference.eval import evaluate
 from tools.inference.export import ExportConfig, export, int8_artifact_path, promote
@@ -89,27 +84,19 @@ def _accept(
 ) -> GateOutcome:
     """Run the matching golden-scene gate and return its report."""
     manifest = load_manifest(str(artifact.with_suffix(".json")))
-    expected_in = (1, 4, height, width)
-    if kind == "segmentor":
-        return accept_artifact(
-            str(artifact),
-            manifest,
-            load_golden_scenes(str(pack_dir), "test", scenes_limit),
-            onnx_inference_fn(str(artifact)),
-            expected_in,
-            (1, 1, height, width),
-            min_iou,
-            max_latency_ms,
-        )
-    return accept_classifier_artifact(
+    return accept_kind(
+        kind,
         str(artifact),
         manifest,
-        load_golden_classifier_scenes(str(pack_dir), "test", scenes_limit),
-        onnx_classifier_inference_fn(str(artifact)),
-        expected_in,
-        (1, 1),
-        min_accuracy,
-        max_latency_ms,
+        scenes_dir=str(pack_dir),
+        scenes_split="test",
+        scenes_limit=scenes_limit,
+        expected_input=(1, 4, height, width),
+        height=height,
+        width=width,
+        min_iou=min_iou,
+        min_accuracy=min_accuracy,
+        max_latency_ms=max_latency_ms,
     )
 
 

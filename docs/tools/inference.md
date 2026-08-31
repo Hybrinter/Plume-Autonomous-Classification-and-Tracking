@@ -17,7 +17,7 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`metrics`](inference/metrics.md) | module | Torch classifier and segmentor design metrics |
 | [`data`](inference/data.md) | module | Synthetic scenes, processed packs, and torch Dataset loaders |
 | [`split`](inference/split.md) | module | Frozen train/val/test recipe and dataset hash |
-| [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch, unpack, labeled preprocess |
+| [`fetch`](inference/fetch.md) | module | Zenodo 4250706 fetch and streamed labeled preprocess |
 | [`losses`](inference/losses.md) | module | Training objectives for classifier and segmentor |
 | [`train`](inference/train.md) | module | Plain-torch train loop and local run directories |
 | [`cost`](inference/cost.md) | module | Parameter and FLOP counts for a logits graph |
@@ -60,8 +60,8 @@ the SIL and does not publish on the bus.
 - Flight must not import `tools`.
 - The smoke-plume corpus stays out of git. Run
 `python scripts/fetch_smoke_plume_dataset.py` for checksum status. Pass
-`--download` only on a training box. Pass `--preprocess` to write a labeled
-processed pack with frozen splits.
+`--download` only on a training box. Pass `--preprocess` to stream the archives
+into classifier and segmentor packs with frozen splits.
 
 ## Related documents
 

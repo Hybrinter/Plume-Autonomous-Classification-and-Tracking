@@ -26,7 +26,7 @@ measure the artifact rather than only its manifest.
 Contains:
   - Manifest / GoldenScene / GoldenClassifierScene / AcceptanceReport.
   - ClassifierAcceptanceReport: classifier-specific quality fields.
-  - load_manifest / accept_artifact / accept_classifier_artifact.
+  - load_manifest / accept_artifact / accept_classifier_artifact / accept_kind.
   - load_golden_scenes / load_golden_classifier_scenes: scenes from a pack.
     Classifier scenes skip ``masks.npy`` and copy one image row at a time.
   - compute_iou: re-export from tools.inference.metrics.
@@ -44,6 +44,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 # third-party
 import numpy as np
@@ -69,6 +70,7 @@ __all__ = [
     "Manifest",
     "accept_artifact",
     "accept_classifier_artifact",
+    "accept_kind",
     "compute_iou",
     "load_golden_classifier_scenes",
     "load_golden_scenes",
@@ -250,6 +252,39 @@ def load_golden_classifier_scenes(
     ]
 
 
+def _hash_and_contract(
+    artifact_path: str,
+    manifest: Manifest,
+    expected_input: Shape,
+    expected_output: Shape,
+) -> tuple[bool, bool]:
+    """Return ``(hash_ok, contract_ok)`` for one artifact and manifest."""
+    hash_ok = isinstance(verify_model_hash(artifact_path, manifest.sha256), Ok)
+    contract_ok = isinstance(
+        verify_io_contract(
+            manifest.input_shape, manifest.output_shape, expected_input, expected_output
+        ),
+        Ok,
+    )
+    return hash_ok, contract_ok
+
+
+def _onnx_session(artifact_path: str) -> tuple[Any, str]:
+    """Return an onnxruntime session and its first input name."""
+    try:
+        import onnxruntime
+    except ImportError as exc:  # pragma: no cover - exercised only where the SDK is absent
+        raise ImportError("onnxruntime is required to run live model acceptance") from exc
+    session = onnxruntime.InferenceSession(artifact_path)
+    return session, session.get_inputs()[0].name
+
+
+def _onnx_input(tensor: torch.Tensor) -> np.ndarray:
+    """Return a batch-1 float32 array for an ONNX session."""
+    array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
+    return array[np.newaxis, ...]
+
+
 def accept_artifact(
     artifact_path: str,
     manifest: Manifest,
@@ -277,12 +312,8 @@ def accept_artifact(
     Returns:
         An AcceptanceReport; accepted is True iff all of hash / contract / IoU / latency pass.
     """
-    hash_ok = isinstance(verify_model_hash(artifact_path, manifest.sha256), Ok)
-    contract_ok = isinstance(
-        verify_io_contract(
-            manifest.input_shape, manifest.output_shape, expected_input, expected_output
-        ),
-        Ok,
+    hash_ok, contract_ok = _hash_and_contract(
+        artifact_path, manifest, expected_input, expected_output
     )
 
     ious: list[float] = []
@@ -329,16 +360,10 @@ def onnx_inference_fn(artifact_path: str) -> InferenceFn:
     Raises:
         ImportError: If onnxruntime is not installed (acceptance must run where the SDK exists).
     """
-    try:
-        import onnxruntime
-    except ImportError as exc:  # pragma: no cover - exercised only where the SDK is absent
-        raise ImportError("onnxruntime is required to run live model acceptance") from exc
-    session = onnxruntime.InferenceSession(artifact_path)
-    input_name = session.get_inputs()[0].name
+    session, input_name = _onnx_session(artifact_path)
 
     def _run(tensor: torch.Tensor) -> torch.Tensor:
-        array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
-        logits = session.run(None, {input_name: array[np.newaxis, ...]})[0]
+        logits = session.run(None, {input_name: _onnx_input(tensor)})[0]
         probs = 1.0 / (1.0 + np.exp(-logits))
         return torch.from_numpy(np.asarray(probs[0, 0], dtype=np.float32))
 
@@ -373,12 +398,8 @@ def accept_classifier_artifact(
         ClassifierAcceptanceReport; accepted is True iff hash, contract, accuracy,
         and latency all pass.
     """
-    hash_ok = isinstance(verify_model_hash(artifact_path, manifest.sha256), Ok)
-    contract_ok = isinstance(
-        verify_io_contract(
-            manifest.input_shape, manifest.output_shape, expected_input, expected_output
-        ),
-        Ok,
+    hash_ok, contract_ok = _hash_and_contract(
+        artifact_path, manifest, expected_input, expected_output
     )
 
     preds: list[bool] = []
@@ -427,16 +448,83 @@ def onnx_classifier_inference_fn(artifact_path: str) -> ClassifierInferenceFn:
     Raises:
         ImportError: If onnxruntime is not installed.
     """
-    try:
-        import onnxruntime
-    except ImportError as exc:  # pragma: no cover - exercised only where the SDK is absent
-        raise ImportError("onnxruntime is required to run live model acceptance") from exc
-    session = onnxruntime.InferenceSession(artifact_path)
-    input_name = session.get_inputs()[0].name
+    session, input_name = _onnx_session(artifact_path)
 
     def _run(tensor: torch.Tensor) -> float:
-        array = np.ascontiguousarray(tensor.detach().cpu().numpy(), dtype=np.float32)
-        logits = session.run(None, {input_name: array[np.newaxis, ...]})[0]
+        logits = session.run(None, {input_name: _onnx_input(tensor)})[0]
         return float(np.asarray(logits, dtype=np.float32).reshape(-1)[0])
 
     return _run
+
+
+def accept_kind(
+    kind: str,
+    artifact_path: str,
+    manifest: Manifest,
+    *,
+    scenes_dir: str,
+    scenes_split: str = "test",
+    scenes_limit: int = 0,
+    expected_input: Shape,
+    height: int,
+    width: int,
+    min_iou: float,
+    min_accuracy: float,
+    max_latency_ms: float,
+) -> AcceptanceReport | ClassifierAcceptanceReport:
+    """Run the classifier or segmentor gate for ``kind``.
+
+    Args:
+        kind: ``classifier`` or ``segmentor``.
+        artifact_path: Path to the frozen ``.onnx`` artifact.
+        manifest: Parsed sidecar manifest.
+        scenes_dir: Processed pack directory. Empty skips golden scenes.
+        scenes_split: Split name when ``scenes_dir`` is set.
+        scenes_limit: Maximum scenes; ``0`` takes the whole split.
+        expected_input: Required input shape.
+        height: Segmentor output height.
+        width: Segmentor output width.
+        min_iou: Segmentor IoU floor.
+        min_accuracy: Classifier accuracy floor.
+        max_latency_ms: Worst-case per-scene latency budget.
+
+    Returns:
+        AcceptanceReport | ClassifierAcceptanceReport: Kind-specific report.
+
+    Raises:
+        ValueError: If ``kind`` is unknown.
+        ImportError: If the live ONNX callable cannot import onnxruntime.
+    """
+    match kind:
+        case "segmentor":
+            scenes = (
+                load_golden_scenes(scenes_dir, scenes_split, scenes_limit) if scenes_dir else []
+            )
+            return accept_artifact(
+                artifact_path,
+                manifest,
+                scenes,
+                onnx_inference_fn(artifact_path),
+                expected_input,
+                (1, 1, height, width),
+                min_iou,
+                max_latency_ms,
+            )
+        case "classifier":
+            clf_scenes = (
+                load_golden_classifier_scenes(scenes_dir, scenes_split, scenes_limit)
+                if scenes_dir
+                else []
+            )
+            return accept_classifier_artifact(
+                artifact_path,
+                manifest,
+                clf_scenes,
+                onnx_classifier_inference_fn(artifact_path),
+                expected_input,
+                (1, 1),
+                min_accuracy,
+                max_latency_ms,
+            )
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")

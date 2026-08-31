@@ -9,12 +9,12 @@ Contains:
   - metrics: torch classifier and segmentor design metrics.
   - data: synthetic scenes, processed packs, and torch Dataset split loaders.
   - split: frozen train/val/test recipe and dataset hash.
-  - fetch: Zenodo 4250706 checksums, unpack, labeled preprocess.
+  - fetch: Zenodo 4250706 checksums and streamed labeled preprocess.
   - train: plain-torch SGD loop and local run directories.
   - eval / plots / report / runs: held-out scoring, figures, and compare tables.
   - sweep: cartesian search space over the local run catalog.
   - export: ONNX export, manifest write, and promote.
-  - arch: U-Net segmentor and ResNet-50 classifier.
+  - arch: pactnet classifier and dilatenet segmentor defaults.
   - __main__: `python -m tools.inference` subcommands.
 
 Satisfies: REQ-AIML-HIGH-004.

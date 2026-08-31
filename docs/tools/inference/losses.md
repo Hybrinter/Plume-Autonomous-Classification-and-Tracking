@@ -15,6 +15,8 @@ sigmoid.
 | --- | --- | --- |
 | `LossName` | type alias | Registered objective names |
 | `LOSS_NAMES` | constant | Frozen set of registered names |
+| `LossSpec` | class | Pixel and Dice weights for one name |
+| `LOSS_SPECS` | constant | `LossName` to `LossSpec` table |
 | `DEFAULT_FOCAL_GAMMA` | constant | Default focal focusing exponent (2.0) |
 | `DEFAULT_FOCAL_ALPHA` | constant | Default focal positive-class weight (0.25) |
 | `dice_term` | function | Soft Dice loss over a batch |
@@ -37,11 +39,13 @@ Raises `ValueError` on an unknown name.
 ## Behavior
 
 1. Registered names: `bce`, `dice`, `bce_dice`, `focal`, `focal_dice`.
-2. `bce` and `focal` use a pixel term only. `dice` uses Dice only.
+2. `LOSS_SPECS` stores `use_focal`, `dice_weight`, and `pixel_weight` for each
+   name. `build_loss` looks up that row.
+3. `bce` and `focal` use a pixel term only. `dice` uses Dice only.
    `bce_dice` and `focal_dice` sum both terms with weight 1.0 each.
-3. `PlumeLoss` selects BCE or focal for the pixel term. A `pos_weight` above
+4. `PlumeLoss` selects BCE or focal for the pixel term. A `pos_weight` above
    zero applies to BCE only. Focal uses `focal_alpha` for class balance.
-4. Objectives accept segmentor masks `(N, 1, H, W)` and classifier labels
+5. Objectives accept segmentor masks `(N, 1, H, W)` and classifier labels
    `(N, 1)`.
 
 ## Errors and faults

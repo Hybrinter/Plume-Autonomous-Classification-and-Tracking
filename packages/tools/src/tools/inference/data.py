@@ -201,19 +201,36 @@ class SplitDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         """
         idx = self._indices[int(index)]
         image = _row_image(self._pack.images, idx)
-        if self._kind == "classifier":
-            target = self._pack.labels[idx]
-            if target.ndim == 0:
-                target = target.reshape(1)
-        else:
-            target = self._pack.masks[idx]
-            if target.ndim == 2:
-                target = target.unsqueeze(0)
+        target = _target_from_pack(self._pack, self._kind, idx)
         if self._augment:
             image, target = apply_train_augment(
                 image, target, self._kind, self._seed, int(index), self._epoch
             )
         return image, target
+
+
+def _target_from_pack(pack: ProcessedPack, kind: str, index: int) -> torch.Tensor:
+    """Return the classifier label or segmentor mask for one pack index."""
+    match kind:
+        case "classifier":
+            target = pack.labels[index]
+            return target.reshape(1) if target.ndim == 0 else target
+        case "segmentor":
+            target = pack.masks[index]
+            return target.unsqueeze(0) if target.ndim == 2 else target
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")
+
+
+def _augment_warps_target(kind: str) -> bool:
+    """Return True when geometric augments must also transform the target."""
+    match kind:
+        case "segmentor":
+            return True
+        case "classifier":
+            return False
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")
 
 
 def apply_train_augment(
@@ -242,14 +259,15 @@ def apply_train_augment(
     rng.manual_seed(int(seed) + int(index) * 1_000_003 + int(epoch) * 7_919)
     out_image = image
     out_target = target
+    warp = _augment_warps_target(kind)
     if float(torch.rand(1, generator=rng).item()) >= 0.5:
         out_image = torch.flip(out_image, dims=(-1,))
-        if kind == "segmentor":
+        if warp:
             out_target = torch.flip(out_target, dims=(-1,))
     turns = int(torch.randint(0, 4, (1,), generator=rng).item())
     if turns:
         out_image = torch.rot90(out_image, turns, dims=(-2, -1))
-        if kind == "segmentor":
+        if warp:
             out_target = torch.rot90(out_target, turns, dims=(-2, -1))
     return out_image, out_target
 
@@ -447,23 +465,25 @@ def load_disk_batch(
     images = _as_tensor(_maybe_normalize(np.load(root / "images.npy"), bit_depth))
     if images.ndim != 4:
         raise ValueError(f"images.npy must have shape (N, C, H, W); got {tuple(images.shape)}")
-    if kind == "classifier":
-        labels = _as_tensor(np.load(root / "labels.npy"))
-        if labels.ndim == 1:
-            labels = labels.reshape(-1, 1)
-        if int(labels.shape[0]) != int(images.shape[0]):
-            raise ValueError("labels.npy N does not match images.npy N")
-        return SampleBatch(images=images, targets=labels)
-    if kind == "segmentor":
-        masks = _as_tensor(np.load(root / "masks.npy"))
-        if masks.ndim == 3:
-            masks = masks.unsqueeze(1)
-        if int(masks.shape[0]) != int(images.shape[0]):
-            raise ValueError("masks.npy N does not match images.npy N")
-        if tuple(masks.shape[-2:]) != tuple(images.shape[-2:]):
-            raise ValueError("masks.npy spatial size does not match images.npy")
-        return SampleBatch(images=images, targets=masks)
-    raise ValueError(f"unknown train kind {kind!r}")
+    match kind:
+        case "classifier":
+            labels = _as_tensor(np.load(root / "labels.npy"))
+            if labels.ndim == 1:
+                labels = labels.reshape(-1, 1)
+            if int(labels.shape[0]) != int(images.shape[0]):
+                raise ValueError("labels.npy N does not match images.npy N")
+            return SampleBatch(images=images, targets=labels)
+        case "segmentor":
+            masks = _as_tensor(np.load(root / "masks.npy"))
+            if masks.ndim == 3:
+                masks = masks.unsqueeze(1)
+            if int(masks.shape[0]) != int(images.shape[0]):
+                raise ValueError("masks.npy N does not match images.npy N")
+            if tuple(masks.shape[-2:]) != tuple(images.shape[-2:]):
+                raise ValueError("masks.npy spatial size does not match images.npy")
+            return SampleBatch(images=images, targets=masks)
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")
 
 
 def load_processed_pack(

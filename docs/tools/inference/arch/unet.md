@@ -64,5 +64,7 @@ third-party U-Net sources. Registry names use the `unet` family in
 ## Related documents
 
 - [`tools.inference.arch`](../arch.md)
+- [`tools.inference.arch.grammar`](grammar.md)
+- [`tools.inference.arch.blocks`](blocks.md)
 - [`tools.inference.arch.registry`](registry.md)
 - [`tools.inference.train`](../train.md)

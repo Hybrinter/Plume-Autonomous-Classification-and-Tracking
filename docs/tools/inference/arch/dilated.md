@@ -82,6 +82,8 @@ Registry names use the dilated segmentor grammar in
 ## Related documents
 
 - [`tools.inference.arch`](../arch.md)
+- [`tools.inference.arch.grammar`](grammar.md)
+- [`tools.inference.arch.blocks`](blocks.md)
 - [`tools.inference.arch.unet`](unet.md)
 - [`tools.inference.arch.encoder_unet`](encoder_unet.md)
 - [`tools.inference.arch.registry`](registry.md)

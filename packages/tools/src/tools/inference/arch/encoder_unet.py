@@ -28,24 +28,33 @@ from typing import cast
 
 import torch
 from torch import nn
-from torchvision.models import (
-    ResNet18_Weights,
-    ResNet34_Weights,
-    ResNet50_Weights,
-    resnet18,
-    resnet34,
-    resnet50,
-)
 
+from tools.inference.arch.classifier import (
+    RESNET_BACKBONES,
+    BackboneName,
+    BackboneSpec,
+    construct_backbone,
+)
 from tools.inference.arch.stem import retarget_first_conv
 from tools.inference.arch.unet import ConvBlock
 
-RESNET_ENCODERS: frozenset[str] = frozenset({"resnet18", "resnet34", "resnet50"})
+RESNET_ENCODERS: frozenset[str] = frozenset(member.value for member in RESNET_BACKBONES)
 
 _BASIC_TAPS: tuple[int, int, int, int, int] = (64, 64, 128, 256, 512)
 _BOTTLENECK_TAPS: tuple[int, int, int, int, int] = (64, 256, 512, 1024, 2048)
 
 _DECODER_STAGES = 5
+
+
+def _resnet_encoder(encoder: str) -> BackboneName:
+    """Return a ResNet ``BackboneName`` or raise for an unknown encoder."""
+    try:
+        name = BackboneName(encoder)
+    except ValueError:
+        raise ValueError(f"unknown segmentor encoder {encoder!r}") from None
+    if name not in RESNET_BACKBONES:
+        raise ValueError(f"unknown segmentor encoder {encoder!r}")
+    return name
 
 
 def encoder_tap_channels(encoder: str) -> tuple[int, int, int, int, int]:
@@ -62,11 +71,13 @@ def encoder_tap_channels(encoder: str) -> tuple[int, int, int, int, int]:
     Raises:
         ValueError: If the encoder is not registered.
     """
-    if encoder in {"resnet18", "resnet34"}:
-        return _BASIC_TAPS
-    if encoder == "resnet50":
-        return _BOTTLENECK_TAPS
-    raise ValueError(f"unknown segmentor encoder {encoder!r}")
+    match _resnet_encoder(encoder):
+        case BackboneName.resnet50:
+            return _BOTTLENECK_TAPS
+        case BackboneName.resnet18 | BackboneName.resnet34:
+            return _BASIC_TAPS
+        case _:
+            raise ValueError(f"unknown segmentor encoder {encoder!r}")
 
 
 def decoder_widths(decoder_width: int) -> tuple[int, ...]:
@@ -95,16 +106,8 @@ def decoder_widths(decoder_width: int) -> tuple[int, ...]:
 
 def _construct_encoder(encoder: str, pretrained: bool) -> nn.Module:
     """Return the stock torchvision ResNet used as the encoder."""
-    model: nn.Module
-    if encoder == "resnet18":
-        model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1 if pretrained else None)
-    elif encoder == "resnet34":
-        model = resnet34(weights=ResNet34_Weights.IMAGENET1K_V1 if pretrained else None)
-    elif encoder == "resnet50":
-        model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2 if pretrained else None)
-    else:
-        raise ValueError(f"unknown segmentor encoder {encoder!r}")
-    return model
+    name = _resnet_encoder(encoder)
+    return construct_backbone(BackboneSpec(backbone=name, pretrained=pretrained))
 
 
 class ResNetUNet(nn.Module):

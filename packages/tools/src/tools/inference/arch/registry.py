@@ -48,7 +48,7 @@ from dataclasses import dataclass
 
 from torch import nn
 
-from tools.inference.arch.classifier import BackboneSpec, build_backbone, parse_backbone
+from tools.inference.arch.classifier import BackboneSpec, build_backbone_spec, parse_backbone
 from tools.inference.arch.compact import (
     COMPACT_PREFIX,
     CompactSpec,
@@ -62,11 +62,12 @@ from tools.inference.arch.dilated import (
     parse_dilated,
 )
 from tools.inference.arch.encoder_unet import RESNET_ENCODERS, build_encoder_segmentor
+from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
 from tools.inference.arch.unet import build_segmentor
 
 DEFAULT_ARCH: dict[str, str] = {
-    "classifier": "resnet50",
-    "segmentor": "unet",
+    "classifier": "pactnet",
+    "segmentor": "dilatenet",
 }
 
 DEFAULT_BASE_WIDTH = 64
@@ -74,6 +75,9 @@ DEFAULT_DEPTH = 4
 DEFAULT_DECODER_WIDTH = 16
 
 _ENCODER_PREFIX = "runet"
+
+_UNET_FLAGS = ModifierFlags(width=True, depth=True, sep=True)
+_RUNET_FLAGS = ModifierFlags(decoder_width=True, sep=True, pt=True)
 
 # Curated points across the size/quality space. Every entry is also a valid
 # grammar name; the catalog exists so `arches` prints something useful and so
@@ -154,29 +158,14 @@ class EncoderUNetSpec:
     separable: bool
 
 
-def _positive_int(token: str, prefix: str, name: str) -> int:
-    """Parse a ``<prefix><digits>`` token into a positive int."""
-    digits = token[len(prefix) :]
-    if not digits.isdigit() or int(digits) < 1:
-        raise ValueError(f"malformed {name} token {token!r} in architecture name")
-    return int(digits)
-
-
 def _parse_scratch_unet(tokens: tuple[str, ...]) -> UNetSpec:
     """Parse the modifier tokens of a ``unet`` name."""
-    base_width = DEFAULT_BASE_WIDTH
-    depth = DEFAULT_DEPTH
-    separable = False
-    for token in tokens:
-        if token == "sep":
-            separable = True
-        elif token.startswith("w"):
-            base_width = _positive_int(token, "w", "width")
-        elif token.startswith("d"):
-            depth = _positive_int(token, "d", "depth")
-        else:
-            raise ValueError(f"unknown unet modifier {token!r}")
-    return UNetSpec(base_width=base_width, depth=depth, separable=separable)
+    mods = parse_modifiers(tokens, _UNET_FLAGS, "unet modifier")
+    return UNetSpec(
+        base_width=DEFAULT_BASE_WIDTH if mods.width is None else mods.width,
+        depth=DEFAULT_DEPTH if mods.depth is None else mods.depth,
+        separable=False if mods.separable is None else mods.separable,
+    )
 
 
 def _parse_encoder_unet(head: str, tokens: tuple[str, ...]) -> EncoderUNetSpec:
@@ -184,23 +173,12 @@ def _parse_encoder_unet(head: str, tokens: tuple[str, ...]) -> EncoderUNetSpec:
     encoder = f"resnet{head[len(_ENCODER_PREFIX) :]}"
     if encoder not in RESNET_ENCODERS:
         raise ValueError(f"unknown segmentor encoder {encoder!r}")
-    pretrained = False
-    decoder_width = DEFAULT_DECODER_WIDTH
-    separable = False
-    for token in tokens:
-        if token == "pt":
-            pretrained = True
-        elif token == "sep":
-            separable = True
-        elif token.startswith("x"):
-            decoder_width = _positive_int(token, "x", "decoder width")
-        else:
-            raise ValueError(f"unknown runet modifier {token!r}")
+    mods = parse_modifiers(tokens, _RUNET_FLAGS, "runet modifier")
     return EncoderUNetSpec(
         encoder=encoder,
-        pretrained=pretrained,
-        decoder_width=decoder_width,
-        separable=separable,
+        pretrained=mods.pretrained,
+        decoder_width=(DEFAULT_DECODER_WIDTH if mods.decoder_width is None else mods.decoder_width),
+        separable=False if mods.separable is None else mods.separable,
     )
 
 
@@ -220,13 +198,15 @@ def parse_segmentor(name: str) -> UNetSpec | EncoderUNetSpec | DilatedSpec:
     parts = name.split("_")
     head = parts[0]
     tokens = tuple(parts[1:])
-    if head == "unet":
-        return _parse_scratch_unet(tokens)
-    if head == DILATED_PREFIX:
-        return parse_dilated(name)
-    if head.startswith(_ENCODER_PREFIX):
-        return _parse_encoder_unet(head, tokens)
-    raise ValueError(f"unknown segmentor architecture {name!r}")
+    match head:
+        case "unet":
+            return _parse_scratch_unet(tokens)
+        case _ if head == DILATED_PREFIX:
+            return parse_dilated(name)
+        case _ if head.startswith(_ENCODER_PREFIX):
+            return _parse_encoder_unet(head, tokens)
+        case _:
+            raise ValueError(f"unknown segmentor architecture {name!r}")
 
 
 def parse_classifier(name: str) -> BackboneSpec | CompactSpec:
@@ -242,9 +222,12 @@ def parse_classifier(name: str) -> BackboneSpec | CompactSpec:
     Raises:
         ValueError: If the family or any modifier token is unknown.
     """
-    if name.split("_")[0] == COMPACT_PREFIX:
-        return parse_compact(name)
-    return parse_backbone(name)
+    head = name.split("_")[0]
+    match head:
+        case _ if head == COMPACT_PREFIX:
+            return parse_compact(name)
+        case _:
+            return parse_backbone(name)
 
 
 def known() -> frozenset[tuple[str, str]]:
@@ -265,7 +248,7 @@ def default_arch(kind: str) -> str:
         kind: ``classifier`` or ``segmentor``.
 
     Returns:
-        str: ``resnet50`` or ``unet``.
+        str: ``pactnet`` or ``dilatenet``.
 
     Raises:
         ValueError: If kind is unknown.
@@ -289,13 +272,15 @@ def resolve_arch(kind: str, arch: str) -> str:
         ValueError: If the kind is unknown or the name does not parse.
     """
     name = arch if arch else default_arch(kind)
-    if kind == "classifier":
-        parse_classifier(name)
-        return name
-    if kind == "segmentor":
-        parse_segmentor(name)
-        return name
-    raise ValueError(f"unknown train kind {kind!r}")
+    match kind:
+        case "classifier":
+            parse_classifier(name)
+            return name
+        case "segmentor":
+            parse_segmentor(name)
+            return name
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")
 
 
 def build(kind: str, arch: str, in_channels: int) -> nn.Module:
@@ -313,27 +298,33 @@ def build(kind: str, arch: str, in_channels: int) -> nn.Module:
         ValueError: If the kind is unknown or the name does not parse.
     """
     name = resolve_arch(kind, arch)
-    if kind == "classifier":
-        classifier_spec = parse_classifier(name)
-        if isinstance(classifier_spec, CompactSpec):
-            return build_compact_classifier(classifier_spec, in_channels=in_channels)
-        return build_backbone(name, in_channels=in_channels)
-    spec = parse_segmentor(name)
-    if isinstance(spec, DilatedSpec):
-        return build_dilated_segmentor(spec, in_channels=in_channels, out_channels=1)
-    if isinstance(spec, UNetSpec):
-        return build_segmentor(
-            in_channels=in_channels,
-            out_channels=1,
-            base_width=spec.base_width,
-            depth=spec.depth,
-            separable=spec.separable,
-        )
-    return build_encoder_segmentor(
-        spec.encoder,
-        in_channels=in_channels,
-        out_channels=1,
-        pretrained=spec.pretrained,
-        decoder_width=spec.decoder_width,
-        separable=spec.separable,
-    )
+    match kind:
+        case "classifier":
+            match parse_classifier(name):
+                case CompactSpec() as spec:
+                    return build_compact_classifier(spec, in_channels=in_channels)
+                case BackboneSpec() as spec:
+                    return build_backbone_spec(spec, in_channels=in_channels)
+        case "segmentor":
+            match parse_segmentor(name):
+                case DilatedSpec() as spec:
+                    return build_dilated_segmentor(spec, in_channels=in_channels, out_channels=1)
+                case UNetSpec() as spec:
+                    return build_segmentor(
+                        in_channels=in_channels,
+                        out_channels=1,
+                        base_width=spec.base_width,
+                        depth=spec.depth,
+                        separable=spec.separable,
+                    )
+                case EncoderUNetSpec() as spec:
+                    return build_encoder_segmentor(
+                        spec.encoder,
+                        in_channels=in_channels,
+                        out_channels=1,
+                        pretrained=spec.pretrained,
+                        decoder_width=spec.decoder_width,
+                        separable=spec.separable,
+                    )
+        case _:
+            raise ValueError(f"unknown train kind {kind!r}")

@@ -6,15 +6,17 @@ The graph does not apply sigmoid; flight thresholds the logit directly.
 
 A trailing ``_pt`` on a backbone name loads ImageNet weights and remaps the stem
 kernel onto the PACT band order (see :mod:`tools.inference.arch.stem`). Without
-the suffix the network starts from a random initialisation, which is what the
-original ResNet-50 baseline did.
+the suffix the network starts from a random initialisation.
 
 Contains:
-  - CLASSIFIER_BACKBONES: registered backbone names, pretrained variants aside.
+  - BackboneName: registered torchvision backbone names.
+  - CLASSIFIER_BACKBONES: string values of BackboneName.
   - BackboneSpec: backbone name split from its pretrained flag.
   - parse_backbone: split a registry name into a BackboneSpec.
-  - build_backbone: construct one retargeted torchvision classifier.
-  - build_classifier: construct the default ResNet-50 classifier.
+  - construct_backbone: stock torchvision network for a spec, still RGB.
+  - build_backbone_spec: retarget a spec to PACT bands and one logit.
+  - build_backbone: construct one retargeted torchvision classifier by name.
+  - build_classifier: construct the default compact pactnet classifier.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
@@ -22,6 +24,7 @@ Satisfies: REQ-AIML-HIGH-004.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from torch import nn
 from torchvision.models import (
@@ -45,16 +48,23 @@ from tools.inference.arch.stem import retarget_final_linear, retarget_first_conv
 
 PRETRAINED_SUFFIX = "_pt"
 
-CLASSIFIER_BACKBONES: frozenset[str] = frozenset(
-    {
-        "resnet18",
-        "resnet34",
-        "resnet50",
-        "mobilenetv3_small",
-        "mobilenetv3_large",
-        "efficientnet_b0",
-        "shufflenetv2_x0_5",
-    }
+
+class BackboneName(StrEnum):
+    """Registered torchvision backbone names."""
+
+    resnet18 = "resnet18"
+    resnet34 = "resnet34"
+    resnet50 = "resnet50"
+    mobilenetv3_small = "mobilenetv3_small"
+    mobilenetv3_large = "mobilenetv3_large"
+    efficientnet_b0 = "efficientnet_b0"
+    shufflenetv2_x0_5 = "shufflenetv2_x0_5"
+
+
+CLASSIFIER_BACKBONES: frozenset[str] = frozenset(member.value for member in BackboneName)
+
+RESNET_BACKBONES: frozenset[BackboneName] = frozenset(
+    {BackboneName.resnet18, BackboneName.resnet34, BackboneName.resnet50}
 )
 
 
@@ -63,11 +73,11 @@ class BackboneSpec:
     """A torchvision backbone choice.
 
     Attributes:
-        backbone: Name in ``CLASSIFIER_BACKBONES``.
+        backbone: Name in ``BackboneName``.
         pretrained: True when ImageNet weights should be loaded.
     """
 
-    backbone: str
+    backbone: BackboneName
     pretrained: bool
 
 
@@ -85,38 +95,60 @@ def parse_backbone(name: str) -> BackboneSpec:
         ValueError: If the backbone is not registered.
     """
     pretrained = name.endswith(PRETRAINED_SUFFIX)
-    backbone = name[: -len(PRETRAINED_SUFFIX)] if pretrained else name
-    if backbone not in CLASSIFIER_BACKBONES:
-        raise ValueError(f"unknown classifier backbone {backbone!r}")
+    raw = name[: -len(PRETRAINED_SUFFIX)] if pretrained else name
+    try:
+        backbone = BackboneName(raw)
+    except ValueError:
+        raise ValueError(f"unknown classifier backbone {raw!r}") from None
     return BackboneSpec(backbone=backbone, pretrained=pretrained)
 
 
-def _construct(spec: BackboneSpec) -> nn.Module:
-    """Return the stock torchvision network for ``spec``, still RGB and 1000-way."""
+def construct_backbone(spec: BackboneSpec) -> nn.Module:
+    """Return the stock torchvision network for ``spec``, still RGB and 1000-way.
+
+    Args:
+        spec: Parsed backbone name and pretrained flag.
+
+    Returns:
+        nn.Module: Unmodified torchvision constructor output.
+    """
     load = spec.pretrained
-    model: nn.Module
-    if spec.backbone == "resnet18":
-        model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1 if load else None)
-    elif spec.backbone == "resnet34":
-        model = resnet34(weights=ResNet34_Weights.IMAGENET1K_V1 if load else None)
-    elif spec.backbone == "resnet50":
-        model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2 if load else None)
-    elif spec.backbone == "mobilenetv3_small":
-        model = mobilenet_v3_small(
-            weights=MobileNet_V3_Small_Weights.IMAGENET1K_V1 if load else None
-        )
-    elif spec.backbone == "mobilenetv3_large":
-        model = mobilenet_v3_large(
-            weights=MobileNet_V3_Large_Weights.IMAGENET1K_V2 if load else None
-        )
-    elif spec.backbone == "efficientnet_b0":
-        model = efficientnet_b0(weights=EfficientNet_B0_Weights.IMAGENET1K_V1 if load else None)
-    elif spec.backbone == "shufflenetv2_x0_5":
-        model = shufflenet_v2_x0_5(
-            weights=ShuffleNet_V2_X0_5_Weights.IMAGENET1K_V1 if load else None
-        )
-    else:
-        raise ValueError(f"unknown classifier backbone {spec.backbone!r}")
+    match spec.backbone:
+        case BackboneName.resnet18:
+            return resnet18(weights=ResNet18_Weights.IMAGENET1K_V1 if load else None)
+        case BackboneName.resnet34:
+            return resnet34(weights=ResNet34_Weights.IMAGENET1K_V1 if load else None)
+        case BackboneName.resnet50:
+            return resnet50(weights=ResNet50_Weights.IMAGENET1K_V2 if load else None)
+        case BackboneName.mobilenetv3_small:
+            return mobilenet_v3_small(
+                weights=MobileNet_V3_Small_Weights.IMAGENET1K_V1 if load else None
+            )
+        case BackboneName.mobilenetv3_large:
+            return mobilenet_v3_large(
+                weights=MobileNet_V3_Large_Weights.IMAGENET1K_V2 if load else None
+            )
+        case BackboneName.efficientnet_b0:
+            return efficientnet_b0(weights=EfficientNet_B0_Weights.IMAGENET1K_V1 if load else None)
+        case BackboneName.shufflenetv2_x0_5:
+            return shufflenet_v2_x0_5(
+                weights=ShuffleNet_V2_X0_5_Weights.IMAGENET1K_V1 if load else None
+            )
+
+
+def build_backbone_spec(spec: BackboneSpec, in_channels: int = 4) -> nn.Module:
+    """Return a retargeted torchvision classifier for a parsed spec.
+
+    Args:
+        spec: Parsed backbone name and pretrained flag.
+        in_channels: Input band count (flight default 4).
+
+    Returns:
+        nn.Module: Network mapping (N, C, H, W) to (N, 1) logits.
+    """
+    model = construct_backbone(spec)
+    retarget_first_conv(model, in_channels, spec.pretrained)
+    retarget_final_linear(model, 1)
     return model
 
 
@@ -133,25 +165,34 @@ def build_backbone(name: str, in_channels: int = 4) -> nn.Module:
     Raises:
         ValueError: If the backbone is not registered.
     """
-    spec = parse_backbone(name)
-    model = _construct(spec)
-    retarget_first_conv(model, in_channels, spec.pretrained)
-    retarget_final_linear(model, 1)
-    return model
+    return build_backbone_spec(parse_backbone(name), in_channels=in_channels)
 
 
 def build_classifier(in_channels: int = 4) -> nn.Module:
-    """Return the default ResNet-50 classifier with random weights.
+    """Return the default compact pactnet classifier.
 
     Args:
         in_channels: Input band count (flight default 4).
 
     Returns:
-        nn.Module: Untrained ResNet-50. Forward maps (N, C, H, W) to (N, 1).
+        nn.Module: Untrained PactNet. Forward maps (N, C, H, W) to (N, 1).
 
     Notes:
-        This is the historical baseline: torchvision geometry, no ImageNet
-        checkpoint. ``build_backbone("resnet50_pt", ...)`` is the pretrained
-        counterpart.
+        The compact family is the empty-arch default. Torchvision backbones
+        remain available through :func:`build_backbone`.
     """
-    return build_backbone("resnet50", in_channels=in_channels)
+    from tools.inference.arch.compact import (
+        DEFAULT_COMPACT_DEPTH,
+        DEFAULT_COMPACT_WIDTH,
+        CompactSpec,
+        build_compact_classifier,
+    )
+
+    return build_compact_classifier(
+        CompactSpec(
+            base_width=DEFAULT_COMPACT_WIDTH,
+            depth=DEFAULT_COMPACT_DEPTH,
+            separable=True,
+        ),
+        in_channels=in_channels,
+    )

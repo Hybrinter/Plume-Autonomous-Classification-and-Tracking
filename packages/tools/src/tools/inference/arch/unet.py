@@ -38,6 +38,8 @@ from typing import cast
 import torch
 from torch import nn
 
+from tools.inference.arch.blocks import conv3x3_layers
+
 ENCODER_CHANNELS: tuple[int, int, int, int] = (64, 128, 256, 512)
 
 
@@ -67,19 +69,7 @@ def _conv3x3(in_channels: int, out_channels: int, separable: bool) -> tuple[nn.M
 
     Bias is omitted throughout because batch-norm follows every convolution.
     """
-    if not separable:
-        return (nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),)
-    return (
-        nn.Conv2d(
-            in_channels,
-            in_channels,
-            kernel_size=3,
-            padding=1,
-            groups=in_channels,
-            bias=False,
-        ),
-        nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
-    )
+    return tuple(conv3x3_layers(in_channels, out_channels, separable=separable, mid_norm=False))
 
 
 class ConvBlock(nn.Module):

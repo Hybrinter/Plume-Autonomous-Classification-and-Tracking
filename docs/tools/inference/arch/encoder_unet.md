@@ -64,6 +64,7 @@ This module imports torch and torchvision. Registry names use the `runet18`,
 ## Related documents
 
 - [`tools.inference.arch`](../arch.md)
+- [`tools.inference.arch.classifier`](classifier.md)
 - [`tools.inference.arch.stem`](stem.md)
 - [`tools.inference.arch.unet`](unet.md)
 - [`tools.inference.arch.registry`](registry.md)

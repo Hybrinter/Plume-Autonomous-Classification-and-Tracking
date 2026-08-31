@@ -1,6 +1,6 @@
 """Tests for boresight-relative pointing geometry."""
 
-from flight.payload.gimbal import boresight_error_deg, target_displacement_px
+from flight.payload.gimbal import area_weighted_com_px, boresight_error_deg, target_displacement_px
 
 
 def test_centered_target_has_zero_error() -> None:
@@ -56,3 +56,30 @@ def test_displacement_is_full_frame_euclidean_pixels() -> None:
     )
     expected = (2.0 * (170.0 - 256.0) ** 2) ** 0.5
     assert abs(d - expected) < 1e-9
+
+
+def test_area_weighted_com_is_area_mean() -> None:
+    """Two blobs combine in proportion to pixel_area; empty input returns None."""
+    from flight.libs.messages import BlobMeta
+
+    assert area_weighted_com_px(()) is None
+    a = BlobMeta(
+        blob_id=1,
+        bbox=(0, 0, 10, 10),
+        centroid_raw=(0.0, 0.0),
+        pixel_area=1,
+        mean_confidence=0.9,
+        persistence_count=1,
+    )
+    b = BlobMeta(
+        blob_id=2,
+        bbox=(20, 20, 30, 30),
+        centroid_raw=(10.0, 20.0),
+        pixel_area=3,
+        mean_confidence=0.9,
+        persistence_count=1,
+    )
+    com = area_weighted_com_px((a, b))
+    assert com is not None
+    assert abs(com[0] - 7.5) < 1e-9
+    assert abs(com[1] - 15.0) < 1e-9

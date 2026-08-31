@@ -15,6 +15,8 @@ from __future__ import annotations
 # stdlib
 import math
 
+from flight.libs.messages import BlobMeta
+
 
 def _full_frame_px(
     centroid_px: tuple[float, float],
@@ -42,6 +44,29 @@ def _full_frame_px(
         crop_origin_px[0] + centroid_px[0] / scale_factor,
         crop_origin_px[1] + centroid_px[1] / scale_factor,
     )
+
+
+def area_weighted_com_px(blobs: tuple[BlobMeta, ...]) -> tuple[float, float] | None:
+    """Return the area-weighted centroid of blobs, or None when the total area is 0.
+
+    Inputs:
+        blobs: Detected blobs. Each `pixel_area` is the weight for `centroid_raw`.
+
+    Outputs:
+        tuple[float, float] | None: (x, y) in the same pixel space as `centroid_raw`,
+        or None when `blobs` is empty or the summed area is not positive.
+    """
+    total_area = 0.0
+    sum_x = 0.0
+    sum_y = 0.0
+    for blob in blobs:
+        area = float(blob.pixel_area)
+        total_area += area
+        sum_x += area * blob.centroid_raw[0]
+        sum_y += area * blob.centroid_raw[1]
+    if total_area <= 0.0:
+        return None
+    return (sum_x / total_area, sum_y / total_area)
 
 
 def boresight_error_deg(

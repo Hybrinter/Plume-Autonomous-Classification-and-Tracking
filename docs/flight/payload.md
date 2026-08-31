@@ -15,7 +15,7 @@ and gimbal control.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`app`](payload/app.md) | app shell | Per-frame loop: acquire, preprocess, detect, control, actuate |
-| [`control`](payload/control.md) | pure module | Composes tracking, safety gates, arbiter, and LQR into one step |
+| [`control`](payload/control.md) | pure module | Ingest, outer LQG, and inner rate PI |
 | [`calibration_io`](payload/calibration_io.md) | module | Loads checksummed mosaic calibration artifacts at startup |
 | [`blobs`](payload/blobs.md) | module | Connected-component blob extraction from a probability mask |
 | [`preprocess`](payload/preprocess.md) | package | Pure functions from raw mosaic to inference tensor |

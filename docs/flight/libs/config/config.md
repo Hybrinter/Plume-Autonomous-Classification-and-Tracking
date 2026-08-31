@@ -13,7 +13,7 @@ object is constructed.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ControllerConfig` | class | Gimbal controller, tracker, LQR, and runaway tuning |
+| `ControllerConfig` | class | Gimbal controller, tracker, LQR, and inner-loop tuning |
 | `InferenceConfig` | class | Model paths, input bands, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
@@ -63,9 +63,10 @@ The module defines configuration. Key field groups:
 
 ### ControllerConfig
 
-Confidence gate, EMA alpha, deadband limits, retarget rate, slew limits, persistence frame
-counts, scan timing, blob IoU threshold, Kalman noise parameters, LQR cost weights, and encoder
-runaway tolerance.
+Confidence gate, EMA alpha, deadband limits (unused on the live path), retarget rate,
+slew limits, persistence frame counts, scan timing and `scan_kp`, blob IoU threshold,
+Kalman noise parameters, LQR cost weights, inner PI (`kp`, `ki`, `tau_max_nm`,
+`ym_lpf_s`), and inner/outer Δt bounds.
 
 ### InferenceConfig
 

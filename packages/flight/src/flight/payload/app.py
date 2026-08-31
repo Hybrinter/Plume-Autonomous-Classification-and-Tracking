@@ -221,7 +221,7 @@ class PayloadApp:
             sensor=sensor,
             gimbal=gimbal,
             detector=detector,
-            controller=PayloadController.from_config(cfg.controller, cfg.sensor),
+            controller=PayloadController.from_config(cfg.controller, cfg.sensor, cfg.gimbal),
             bus=bus,
             clock=clock,
             calib=calib,
@@ -286,8 +286,7 @@ class PayloadApp:
         then the detector, then the pure PayloadController. Publishes InferenceResultMsg
         and each arbiter TelemetryEventMsg; when a request is issued it is mapped onto
         the GimbalActuator HAL (set_rate/goto_angle/stow/home by mode) and a
-        GimbalCommandMsg telemetry record is published. A control fault (deadband strike
-        or encoder runaway) publishes a FaultEventMsg. On a preprocessing or detection
+        GimbalCommandMsg telemetry record is published. On a preprocessing or detection
         fault the state is returned unchanged, a FaultEventMsg is published, and
         outcome.fault is set.
 
@@ -298,7 +297,7 @@ class PayloadApp:
             now (float): Monotonic seconds for the arbiter (interval/rate-limit deltas).
             slew_rate_deg_per_s (float): Gimbal slew rate over the exposure for the
                 MOTION_SMEAR gate; defaults to 0.0 (never-flag).
-            gimbal_pos (GimbalPosition | None): Latest encoder read for the runaway monitor.
+            gimbal_pos (GimbalPosition | None): Latest encoder read for the outer estimator.
             safe_commanded (bool): True to latch SAFE and stow this frame.
             safe_cleared (bool): True to exit SAFE to IDLE this frame.
 

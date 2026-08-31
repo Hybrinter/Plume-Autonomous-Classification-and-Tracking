@@ -26,9 +26,8 @@ Re-exports: `AxisKalmanState`, `DualKalmanState`, `EmaFilterState`, `EstimatorRi
 
 ## Interactions
 
-None. `PayloadController.step` calls these functions directly. Outputs update
-`ControlState` fields consumed by the arbiter, LQR, and TRACKING-mode ROI crop in the
-app.
+None. `PayloadController.ingest_vision` and `step_outer` call these functions.
+Outputs update `ControlState` fields consumed by the arbiter and LQR.
 
 ## Constraints
 

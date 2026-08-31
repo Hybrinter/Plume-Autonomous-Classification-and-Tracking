@@ -25,7 +25,7 @@ None.
 3. Commanded versus driver gimbal rates.
 4. Kalman state (errors and rates) and covariance diagonal plus trace.
 5. EMA boresight error components and magnitude.
-6. Tracking and safety counters (miss count, deadband strikes, runaway strikes, blob count).
+6. Tracking counters (miss count, vision-seen flag, blob count).
 7. State flags (motion inhibited, stow switch, tracking, EMA initialized).
 8. Stacked inference, gimbal command, product, and fault output per step.
 

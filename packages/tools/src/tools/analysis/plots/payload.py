@@ -79,8 +79,7 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
             wide,
             [
                 "payload.miss_count",
-                "payload.deadband_strikes",
-                "payload.runaway_strikes",
+                "payload.seen_vision",
                 "payload.tracked_blobs",
             ],
             name="payload_safety_counters",

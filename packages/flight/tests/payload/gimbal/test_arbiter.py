@@ -133,6 +133,40 @@ def test_tracking_release_hysteresis_holds_then_drops(
     assert state.gimbal_state == GimbalState.IDLE
 
 
+def test_idle_accumulates_passed_dt(
+    arbiter_idle_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """IDLE with no blobs adds the caller dt to idle_duration_s."""
+    arbiter = GimbalArbiter(cfg=default_config.controller)
+    empty = make_inference_result(blobs=())
+    state, _, _ = arbiter.step(
+        arbiter_idle_state, empty, None, 1.0, False, False, dt=0.25, has_new_frame=True
+    )
+    assert state.gimbal_state == GimbalState.IDLE
+    assert abs(state.idle_duration_s - 0.25) < 1e-12
+
+
+def test_tracking_hold_without_new_frame(default_config: PactConfig) -> None:
+    """Outer ticks with no new frame do not increment TRACKING miss_count."""
+    arbiter = GimbalArbiter(cfg=default_config.controller)
+    state = ArbiterState(
+        gimbal_state=GimbalState.TRACKING,
+        tracked_blobs=(make_blob(persistence_count=5),),
+        idle_duration_s=0.0,
+        last_command_time=0.0,
+        current_target_id=1,
+        miss_count=2,
+    )
+    empty = make_inference_result(blobs=())
+    state, request, _ = arbiter.step(
+        state, empty, (1.0, 0.0), 1.0, False, False, dt=0.05, has_new_frame=False
+    )
+    assert state.gimbal_state == GimbalState.TRACKING
+    assert state.miss_count == 2
+    assert request is not None
+    assert request.mode is GimbalCommandMode.RATE
+
+
 def test_tracking_blob_resets_miss_count(default_config: PactConfig) -> None:
     """A blob seen while in TRACKING resets the release-hysteresis miss counter."""
     arbiter = GimbalArbiter(cfg=default_config.controller)

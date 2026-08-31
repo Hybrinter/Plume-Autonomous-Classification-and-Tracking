@@ -63,6 +63,7 @@ class ControllerConfig:
     release_persistence_frames: int = Field(default=5, ge=1)
     scan_entry_idle_seconds: float = 60.0
     scan_slew_rate_deg_per_s: float = Field(default=0.5, gt=0.0)
+    scan_kp: float = Field(default=1.0, ge=0.0)
     blob_iou_match_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
     min_blob_area_px: int = 15
     kalman_dt_s: float = 0.1
@@ -77,12 +78,24 @@ class ControllerConfig:
     max_slew_deg_s: float = Field(default=2.0, gt=0.0)
     runaway_rate_tolerance_deg_per_s: float = Field(default=1.0, gt=0.0)
     runaway_strike_count: int = Field(default=3, ge=1)
+    kp: float = Field(default=20.0, gt=0.0)
+    ki: float = Field(default=50.0, ge=0.0)
+    tau_max_nm: float = Field(default=5.0, gt=0.0)
+    ym_lpf_s: float = Field(default=0.02, gt=0.0)
+    dt_inner_min_s: float = Field(default=0.001, gt=0.0)
+    dt_inner_max_s: float = Field(default=0.020, gt=0.0)
+    dt_outer_min_s: float = Field(default=0.010, gt=0.0)
+    dt_outer_max_s: float = Field(default=0.100, gt=0.0)
 
     @model_validator(mode="after")
     def _deadband_order(self) -> Self:
-        """Reject a max deadband that is not strictly greater than the min."""
+        """Reject inverted deadband or inner/outer Δt bounds."""
         if self.max_deadband_px <= self.min_deadband_px:
             raise ValueError("max_deadband_px must be > min_deadband_px")
+        if self.dt_inner_min_s >= self.dt_inner_max_s:
+            raise ValueError("dt_inner_min_s must be < dt_inner_max_s")
+        if self.dt_outer_min_s >= self.dt_outer_max_s:
+            raise ValueError("dt_outer_min_s must be < dt_outer_max_s")
         return self
 
 

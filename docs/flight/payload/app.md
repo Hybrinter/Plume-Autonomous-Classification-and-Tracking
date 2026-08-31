@@ -61,7 +61,7 @@ rate and gimbal position, and SAFE flags. It returns `(ControlState, TickOutcome
 | --- | --- |
 | Preprocessing faults | Calibration, demosaic, or band-select failure |
 | Detection faults | Detector returns `Err` |
-| Control faults | Deadband strike limit or encoder runaway from the controller |
+| Control faults | None on the live controller path |
 | Gimbal actuation faults | HAL call returns `Err` |
 | `ValueError` at startup | Invalid sensor mosaic or inference geometry in `from_config` |
 | Camera stall | `acquire_frame` returns `Err` |

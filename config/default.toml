@@ -15,6 +15,7 @@ acquire_persistence_frames = 3
 release_persistence_frames = 5
 scan_entry_idle_seconds = 60.0
 scan_slew_rate_deg_per_s = 0.5
+scan_kp = 1.0
 blob_iou_match_threshold = 0.25
 min_blob_area_px = 15
 # Kalman filter
@@ -31,6 +32,15 @@ lqr_R_diag = [1.0, 1.0]
 max_slew_deg_s = 2.0
 runaway_rate_tolerance_deg_per_s = 1.0
 runaway_strike_count = 3
+# Inner rate PI (SI) and cascaded-loop Δt bounds
+kp = 20.0
+ki = 50.0
+tau_max_nm = 5.0
+ym_lpf_s = 0.02
+dt_inner_min_s = 0.001
+dt_inner_max_s = 0.020
+dt_outer_min_s = 0.010
+dt_outer_max_s = 0.100
 
 [inference]
 segmentor_model_path = "data/models/active_segmentor.onnx"

@@ -102,9 +102,9 @@ class GimbalArbiter:
     - SAFE latches: while in SAFE, no further requests are produced and blobs are ignored
       until safe_cleared returns the machine to IDLE.
     - The TRACKING command is a proportional fallback (gain 1.0 / s) on the boresight error;
-      control.py refines it via the LQR once the estimator is initialized. The SCAN raster
-      is an ABSOLUTE pan that reverses at +-_SCAN_LIMIT_DEG (the old delta scan never
-      reversed).
+      control.py overwrites it via LQR once vision has been seen. The SCAN raster is an
+      ABSOLUTE pan that reverses at +-_SCAN_LIMIT_DEG. IDLE idle time and SCAN pan use the
+      caller `dt`. Acquire and release counters advance only when `has_new_frame` is true.
     """
 
     def __init__(self, cfg: ControllerConfig) -> None:
@@ -123,12 +123,14 @@ class GimbalArbiter:
         now: float,
         safe_commanded: bool,
         safe_cleared: bool,
+        dt: float | None = None,
+        has_new_frame: bool = True,
     ) -> tuple[
         ArbiterState,
         GimbalRequest | None,
         list[TelemetryEventMsg],
     ]:
-        """Advance the state machine by one frame and emit at most one GimbalRequest.
+        """Advance the state machine by one outer tick and emit at most one GimbalRequest.
 
         Parameters
         ----------
@@ -145,6 +147,12 @@ class GimbalArbiter:
             True if a SAFE mode change was drained this frame: latch SAFE and stow.
         safe_cleared:
             True if a non-SAFE mode change was drained this frame: exit SAFE to IDLE.
+        dt:
+            Outer-tick duration in seconds. When None, SCAN pan steps use
+            `1 / retarget_rate_limit_hz` (legacy arbiter-test default).
+        has_new_frame:
+            True when this tick consumed a new inference result. Acquire and release
+            counters advance only on new frames.
 
         Returns
         -------
@@ -157,6 +165,7 @@ class GimbalArbiter:
         old_gs = state.gimbal_state
         blobs = result.blobs
         has_blobs = len(blobs) > 0
+        tick_dt = (1.0 / cfg.retarget_rate_limit_hz) if dt is None else dt
         events: list[TelemetryEventMsg] = []
 
         # SAFE entry: a commanded SAFE or any non-zero mode_flags latches SAFE and stows.
@@ -203,38 +212,40 @@ class GimbalArbiter:
         last_cmd_time = state.last_command_time
 
         if old_gs == GimbalState.IDLE:
-            if has_blobs:
+            if has_new_frame and has_blobs:
                 new_gs = (
                     GimbalState.TRACKING if _any_acquired(blobs, cfg) else GimbalState.ACQUIRING
                 )
                 idle_dur = 0.0
             else:
-                idle_dur = state.idle_duration_s + cfg.kalman_dt_s
+                idle_dur = state.idle_duration_s + tick_dt
                 if idle_dur >= cfg.scan_entry_idle_seconds:
                     new_gs = GimbalState.SCAN
                     scan_pan = 0.0
 
         elif old_gs == GimbalState.ACQUIRING:
-            if not has_blobs:
-                new_gs = GimbalState.IDLE
-                idle_dur = 0.0
-                target_id = None
-            elif _any_acquired(blobs, cfg):
-                new_gs = GimbalState.TRACKING
-
-        elif old_gs == GimbalState.TRACKING:
-            if has_blobs:
-                miss_count = 0
-            else:
-                miss_count = state.miss_count + 1
-                if miss_count >= cfg.release_persistence_frames:
+            if has_new_frame:
+                if not has_blobs:
                     new_gs = GimbalState.IDLE
                     idle_dur = 0.0
                     target_id = None
+                elif _any_acquired(blobs, cfg):
+                    new_gs = GimbalState.TRACKING
+
+        elif old_gs == GimbalState.TRACKING:
+            if has_new_frame:
+                if has_blobs:
                     miss_count = 0
+                else:
+                    miss_count = state.miss_count + 1
+                    if miss_count >= cfg.release_persistence_frames:
+                        new_gs = GimbalState.IDLE
+                        idle_dur = 0.0
+                        target_id = None
+                        miss_count = 0
 
         elif old_gs == GimbalState.SCAN:
-            if has_blobs:
+            if has_new_frame and has_blobs:
                 new_gs = (
                     GimbalState.TRACKING if _any_acquired(blobs, cfg) else GimbalState.ACQUIRING
                 )
@@ -245,39 +256,36 @@ class GimbalArbiter:
 
         request: GimbalRequest | None = None
 
-        if new_gs == GimbalState.TRACKING and has_blobs and error_deg is not None:
-            best = _select_best_target(blobs)
-            target_id = best.blob_id
-            if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                limit = cfg.max_slew_rate_deg_per_s
-                az_rate = min(max(error_deg[0] * 1.0, -limit), limit)
-                el_rate = min(max(error_deg[1] * 1.0, -limit), limit)
-                request = GimbalRequest(
-                    mode=GimbalCommandMode.RATE,
-                    az_deg=az_rate,
-                    el_deg=el_rate,
-                    reason="tracking_target",
-                )
-                last_cmd_time = now
+        if new_gs == GimbalState.TRACKING and error_deg is not None:
+            if has_new_frame and has_blobs:
+                best = _select_best_target(blobs)
+                target_id = best.blob_id
+            limit = cfg.max_slew_rate_deg_per_s
+            az_rate = min(max(error_deg[0] * 1.0, -limit), limit)
+            el_rate = min(max(error_deg[1] * 1.0, -limit), limit)
+            request = GimbalRequest(
+                mode=GimbalCommandMode.RATE,
+                az_deg=az_rate,
+                el_deg=el_rate,
+                reason="tracking_target",
+            )
+            last_cmd_time = now
 
         elif new_gs == GimbalState.SCAN:
-            if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                scan_pan = scan_pan + scan_direction * cfg.scan_slew_rate_deg_per_s * (
-                    1.0 / cfg.retarget_rate_limit_hz
-                )
-                if scan_pan > _SCAN_LIMIT_DEG:
-                    scan_pan = _SCAN_LIMIT_DEG
-                    scan_direction = -1.0
-                elif scan_pan < -_SCAN_LIMIT_DEG:
-                    scan_pan = -_SCAN_LIMIT_DEG
-                    scan_direction = 1.0
-                request = GimbalRequest(
-                    mode=GimbalCommandMode.ABSOLUTE,
-                    az_deg=scan_pan,
-                    el_deg=0.0,
-                    reason="nadir_scan",
-                )
-                last_cmd_time = now
+            scan_pan = scan_pan + scan_direction * cfg.scan_slew_rate_deg_per_s * tick_dt
+            if scan_pan > _SCAN_LIMIT_DEG:
+                scan_pan = _SCAN_LIMIT_DEG
+                scan_direction = -1.0
+            elif scan_pan < -_SCAN_LIMIT_DEG:
+                scan_pan = -_SCAN_LIMIT_DEG
+                scan_direction = 1.0
+            request = GimbalRequest(
+                mode=GimbalCommandMode.ABSOLUTE,
+                az_deg=scan_pan,
+                el_deg=0.0,
+                reason="nadir_scan",
+            )
+            last_cmd_time = now
 
         new_state = ArbiterState(
             gimbal_state=new_gs,
@@ -325,14 +333,3 @@ def _select_best_target(blobs: tuple[BlobMeta, ...]) -> BlobMeta:
         blobs,
         key=lambda b: (b.persistence_count, b.mean_confidence),
     )
-
-
-def _rate_ok(
-    last_cmd_time: float,
-    now: float,
-    rate_hz: float,
-) -> bool:
-    """Check if enough time elapsed for a new command."""
-    if rate_hz <= 0.0:
-        return False
-    return (now - last_cmd_time) >= (1.0 / rate_hz)

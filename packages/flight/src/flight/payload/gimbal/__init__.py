@@ -10,7 +10,11 @@ safety -- confidence/area/deadband/rate gates.
 
 from flight.payload.gimbal.arbiter import ArbiterState, GimbalArbiter
 from flight.payload.gimbal.lqr import LqrController, compute_control
-from flight.payload.gimbal.pointing import boresight_error_deg, target_displacement_px
+from flight.payload.gimbal.pointing import (
+    area_weighted_com_px,
+    boresight_error_deg,
+    target_displacement_px,
+)
 from flight.payload.gimbal.rate_servo import (
     INITIAL_RATE_SERVO_STATE,
     RateServoState,
@@ -39,6 +43,7 @@ __all__ = [
     "RunawayState",
     "apply_confidence_gate",
     "apply_min_area_gate",
+    "area_weighted_com_px",
     "boresight_error_deg",
     "check_deadband",
     "check_rate_limit",

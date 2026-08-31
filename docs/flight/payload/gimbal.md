@@ -7,7 +7,7 @@
 
 The gimbal package holds pure gimbal control logic: the pointing FSM, LQR law,
 boresight geometry, inner rate servo, typed command values, encoder runaway
-monitoring, and pre-arbiter safety gates.
+helpers, and pre-arbiter safety gates.
 
 ## Contents
 
@@ -25,7 +25,8 @@ monitoring, and pre-arbiter safety gates.
 
 Re-exports: `ArbiterState`, `GimbalArbiter`, `GimbalRequest`, `INITIAL_RATE_SERVO_STATE`,
 `INITIAL_RUNAWAY_STATE`, `RateServoState`, `RunawayState`, `LqrController`,
-`apply_confidence_gate`, `apply_min_area_gate`, `boresight_error_deg`, `check_deadband`,
+`apply_confidence_gate`, `apply_min_area_gate`, `area_weighted_com_px`,
+`boresight_error_deg`, `check_deadband`,
 `check_rate_limit`, `check_runaway`, `compute_control`, `rate_servo_step`, `reset_servo`,
 `target_displacement_px`.
 
@@ -39,7 +40,7 @@ publishes `GimbalCommandMsg`. No gimbal module accesses the bus or HAL directly.
 
 All modules are pure except that `GimbalArbiter._transition_event` stamps telemetry
 with `utc_now_iso()` for event records returned to the caller. `GimbalRequest` never
-travels on the bus. STOW and ABSOLUTE commands bypass deadband suppression.
+travels on the bus. Deadband and runaway helpers are not on the live control path.
 
 ## Related documents
 

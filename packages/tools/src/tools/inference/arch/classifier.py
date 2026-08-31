@@ -113,27 +113,29 @@ def construct_backbone(spec: BackboneSpec) -> nn.Module:
         nn.Module: Unmodified torchvision constructor output.
     """
     load = spec.pretrained
+    model: nn.Module
     match spec.backbone:
         case BackboneName.resnet18:
-            return resnet18(weights=ResNet18_Weights.IMAGENET1K_V1 if load else None)
+            model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1 if load else None)
         case BackboneName.resnet34:
-            return resnet34(weights=ResNet34_Weights.IMAGENET1K_V1 if load else None)
+            model = resnet34(weights=ResNet34_Weights.IMAGENET1K_V1 if load else None)
         case BackboneName.resnet50:
-            return resnet50(weights=ResNet50_Weights.IMAGENET1K_V2 if load else None)
+            model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2 if load else None)
         case BackboneName.mobilenetv3_small:
-            return mobilenet_v3_small(
+            model = mobilenet_v3_small(
                 weights=MobileNet_V3_Small_Weights.IMAGENET1K_V1 if load else None
             )
         case BackboneName.mobilenetv3_large:
-            return mobilenet_v3_large(
+            model = mobilenet_v3_large(
                 weights=MobileNet_V3_Large_Weights.IMAGENET1K_V2 if load else None
             )
         case BackboneName.efficientnet_b0:
-            return efficientnet_b0(weights=EfficientNet_B0_Weights.IMAGENET1K_V1 if load else None)
+            model = efficientnet_b0(weights=EfficientNet_B0_Weights.IMAGENET1K_V1 if load else None)
         case BackboneName.shufflenetv2_x0_5:
-            return shufflenet_v2_x0_5(
+            model = shufflenet_v2_x0_5(
                 weights=ShuffleNet_V2_X0_5_Weights.IMAGENET1K_V1 if load else None
             )
+    return model
 
 
 def build_backbone_spec(spec: BackboneSpec, in_channels: int = 4) -> nn.Module:

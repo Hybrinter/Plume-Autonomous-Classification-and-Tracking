@@ -301,30 +301,30 @@ def build(kind: str, arch: str, in_channels: int) -> nn.Module:
     match kind:
         case "classifier":
             match parse_classifier(name):
-                case CompactSpec() as spec:
-                    return build_compact_classifier(spec, in_channels=in_channels)
-                case BackboneSpec() as spec:
-                    return build_backbone_spec(spec, in_channels=in_channels)
+                case CompactSpec() as compact:
+                    return build_compact_classifier(compact, in_channels=in_channels)
+                case BackboneSpec() as backbone:
+                    return build_backbone_spec(backbone, in_channels=in_channels)
         case "segmentor":
             match parse_segmentor(name):
-                case DilatedSpec() as spec:
-                    return build_dilated_segmentor(spec, in_channels=in_channels, out_channels=1)
-                case UNetSpec() as spec:
+                case DilatedSpec() as dilated:
+                    return build_dilated_segmentor(dilated, in_channels=in_channels, out_channels=1)
+                case UNetSpec() as unet:
                     return build_segmentor(
                         in_channels=in_channels,
                         out_channels=1,
-                        base_width=spec.base_width,
-                        depth=spec.depth,
-                        separable=spec.separable,
+                        base_width=unet.base_width,
+                        depth=unet.depth,
+                        separable=unet.separable,
                     )
-                case EncoderUNetSpec() as spec:
+                case EncoderUNetSpec() as encoder:
                     return build_encoder_segmentor(
-                        spec.encoder,
+                        encoder.encoder,
                         in_channels=in_channels,
                         out_channels=1,
-                        pretrained=spec.pretrained,
-                        decoder_width=spec.decoder_width,
-                        separable=spec.separable,
+                        pretrained=encoder.pretrained,
+                        decoder_width=encoder.decoder_width,
+                        separable=encoder.separable,
                     )
         case _:
             raise ValueError(f"unknown train kind {kind!r}")

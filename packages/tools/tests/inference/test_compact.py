@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from tools.inference.arch.classifier import BackboneSpec
+from tools.inference.arch.classifier import BackboneName, BackboneSpec
 from tools.inference.arch.compact import (
     DEFAULT_COMPACT_DEPTH,
     DEFAULT_COMPACT_WIDTH,
@@ -159,7 +159,7 @@ def test_parse_classifier_dispatches_by_family() -> None:
     assert isinstance(compact, CompactSpec)
     assert compact.base_width == 32
     assert isinstance(backbone, BackboneSpec)
-    assert backbone == BackboneSpec(backbone="resnet18", pretrained=True)
+    assert backbone == BackboneSpec(backbone=BackboneName.resnet18, pretrained=True)
 
 
 def test_known_pactnet_entries_resolve_and_build() -> None:

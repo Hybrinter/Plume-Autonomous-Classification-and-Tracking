@@ -32,12 +32,10 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     CACHE_DIR,
     GIMBAL_BOX,
     GRID_R_KM,
-    GSD_MAX_BAND_M,
     INDUSTRY_PASS_DT_S,
     LAT_BIN_DEG,
     OPTICS_SPEC,
     OUT_DIR,
-    SLANT_MAX_KM,
     STUDY_DIR,
     T_MIN_USABLE_S,
     TLE,
@@ -407,8 +405,6 @@ def run_industry() -> None:
         rs_grid,
         cache_path,
         span=SampleSpan(dt_s=INDUSTRY_PASS_DT_S),
-        slant_max_km=SLANT_MAX_KM,
-        gsd_max_band_m=GSD_MAX_BAND_M,
         verbose=True,
     )
 

@@ -144,38 +144,20 @@ def in_elevation_window(el_deg: np.ndarray, box: GimbalBox) -> np.ndarray:
     return np.abs(el_deg - box.el_nadir_deg) <= half
 
 
-def in_science_window(
-    samples: PassSamples,
-    box: GimbalBox,
-    optics: Optics,
-    *,
-    slant_max_km: float,
-    gsd_max_band_m: float,
-) -> np.ndarray:
-    """Return a mask of samples inside the science (detectable-plume) window.
+def in_science_window(samples: PassSamples, box: GimbalBox) -> np.ndarray:
+    """Return a mask of samples inside the science elevation window.
 
-    Elevation window, Earth-hit, slant cap, and along-track band GSD cap.
+    The off-nadir stop is ``box.el_limb_deg`` (eta_max from along-track
+    band GSD). Slant range and incidence are not extra caps.
 
     Args:
         samples: Origin look-angle samples.
-        box: Gimbal box.
-        optics: Usable sensor FOV (band IFOV for GSD).
-        slant_max_km: Maximum slant range in kilometres.
-        gsd_max_band_m: Maximum along-track band-cell GSD in metres.
+        box: Gimbal box (elevation window).
 
     Returns:
         Boolean mask. # np.ndarray[bool, (N,)]
     """
-    el_ok = in_elevation_window(samples.el, box) & samples.vis
-    slant_ok = samples.slant <= slant_max_km
-    cos_i = np.cos(np.radians(samples.incidence))
-    gsd = np.where(
-        cos_i > 1e-6,
-        math.radians(optics.ifov_band_deg) * samples.slant * 1000.0 / cos_i,
-        np.inf,
-    )
-    gsd_ok = gsd <= gsd_max_band_m
-    return cast(np.ndarray, el_ok & slant_ok & gsd_ok)
+    return cast(np.ndarray, in_elevation_window(samples.el, box) & samples.vis)
 
 
 def az_interval_overlaps(az_a: np.ndarray, az_b: np.ndarray, half_deg: float) -> np.ndarray:
@@ -300,11 +282,9 @@ class TimeLostFn:
         box: Gimbal box (two-axis azimuth stop and elevation window).
         lats_deg: Grid latitudes in degrees, typically 0 to inclination.
         radii_km: Covering-disk radii in kilometres.
-        cache_path: ``.npz`` cache. Rebuilt if latitudes, radii, or science
-            caps differ.
+        cache_path: ``.npz`` cache. Rebuilt if latitudes, radii, or box
+            stops differ.
         span: Pass sample grid. Default dt is 0.1 s for the industry grid.
-        slant_max_km: Science slant cap. Inf disables the cap.
-        gsd_max_band_m: Science along-track band GSD cap. Inf disables.
         verbose: Print per-latitude progress when rebuilding the cache.
     """
 
@@ -318,8 +298,6 @@ class TimeLostFn:
         cache_path: Path,
         *,
         span: SampleSpan | None = None,
-        slant_max_km: float = math.inf,
-        gsd_max_band_m: float = math.inf,
         verbose: bool = False,
     ) -> None:
         self.orbit = orbit
@@ -327,8 +305,6 @@ class TimeLostFn:
         self.box = box
         self.lats = np.asarray(lats_deg, dtype=float)
         self.rs = np.asarray(radii_km, dtype=float)
-        self.slant_max_km = float(slant_max_km)
-        self.gsd_max_band_m = float(gsd_max_band_m)
         self._span = span if span is not None else SampleSpan(dt_s=0.1)
         nlat, nr = self.lats.size, self.rs.size
         t1: np.ndarray | None = None
@@ -338,13 +314,10 @@ class TimeLostFn:
             same_grid = np.allclose(cached["lats"], self.lats) and np.allclose(
                 cached["rs"], self.rs
             )
-            same_caps = _cap_matches(
-                _npz_float(cached, "slant_max_km"), self.slant_max_km
-            ) and _cap_matches(_npz_float(cached, "gsd_max_band_m"), self.gsd_max_band_m)
             same_box = _cap_matches(
                 _npz_float(cached, "el_limb_deg"), box.el_limb_deg
             ) and _cap_matches(_npz_float(cached, "az_box_deg"), box.az_box_deg)
-            if same_grid and same_caps and same_box:
+            if same_grid and same_box:
                 t1 = cached["t1"]
                 t2 = cached["t2"]
                 if verbose:
@@ -356,13 +329,7 @@ class TimeLostFn:
                 print(f"building time-lost grid {nlat} lats x {nr} radii, dt={self._span.dt_s}s")
             for i, lat in enumerate(self.lats):
                 origin = sample_pass(orbit, box, float(lat), 0.0, 0.0, self._span)
-                science = in_science_window(
-                    origin,
-                    box,
-                    optics,
-                    slant_max_km=self.slant_max_km,
-                    gsd_max_band_m=self.gsd_max_band_m,
-                )
+                science = in_science_window(origin, box)
                 for j, radius in enumerate(self.rs):
                     edge_p = sample_pass(orbit, box, float(lat), 0.0, float(radius), self._span)
                     edge_m = sample_pass(orbit, box, float(lat), 0.0, -float(radius), self._span)
@@ -384,8 +351,6 @@ class TimeLostFn:
                 rs=self.rs,
                 t1=t1,
                 t2=t2,
-                slant_max_km=self.slant_max_km,
-                gsd_max_band_m=self.gsd_max_band_m,
                 el_limb_deg=box.el_limb_deg,
                 az_box_deg=box.az_box_deg,
             )

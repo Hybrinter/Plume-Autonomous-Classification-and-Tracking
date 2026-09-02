@@ -2,7 +2,7 @@
 
 TEMPORARY ANALYSIS. Not flight software. Design study for dropping
 the azimuth gimbal axis. Shared geometry lives in `analysis.lib`;
-this folder holds generated reports, CSV, and local inventory downloads.
+this folder holds generated reports, PNGs, and local inventory downloads.
 
 ```text
 uv run python -m analysis.studies.single_axis_vs_dual_axis_gimbal geometry
@@ -48,10 +48,12 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
   This is the purchased camera. SIL `ifov=0.02` is a stale placeholder.
 - **Science stop.** Elevation window is one-sided
   90->45 deg (eta_max = 45 deg off-nadir).
-  Extra caps: slant <= 650 km, along-track band GSD
-  <= 50 m. Geometric Earth limb is ~69 deg off-nadir
-  and is not a detection limit. Typical cooling-tower plumes are not
-  segmentable at 60 deg off-nadir (~118 m along-track band GSD).
+  That off-nadir max is set from along-track band GSD (~45 m at
+  this look on the design pass; ~20 m at nadir; ~118 m at 60 deg).
+  Slant range and incidence are reported at the stop, not extra
+  caps. Geometric Earth limb is ~69 deg off-nadir and is not a
+  detection limit. Window is one-sided (nadir to limb) for this
+  run; look-past-nadir is a later check on the plots.
 - **Tasking.** Opportunistic detect-in-chip hunt, not catalog cueing.
   Flight SCAN (az raster at el=0) is not the trade baseline.
 - **Two slew caps.** Imaging rewind vs ground is the 1-pixel / 1 ms
@@ -84,7 +86,7 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
 | Imaging rewind (current gate) | **1.72 deg/s** |
 | Scene-relative smear limit | 2.64 deg/s |
 | Hardware slew cap | 10 deg/s |
-| Science stop | 45 deg off-nadir (slant 635 km, incidence 49 deg, band GSD along 45 m) |
+| Science stop | 45 deg off-nadir (band GSD along 45 m) |
 | Nadir lateral half-swath | +/-12.1 km |
 | 2-axis +/-10 deg half-swath | +/-76 km |
 | Earth-rotation az walk of the origin | 0.003 deg |
@@ -120,5 +122,21 @@ Working the mid-latitude belt needs the azimuth axis for Earth-rotation
 walk, not just for swath. After a target leaves the frame the gimbal
 rewinds toward the limb stop and hunts along that path; two-axis then
 rasters azimuth. Lost time is that wait from stack density at signed
-latitude (shortest at 30-40 N). See `outputs/industrial_reacquire_vs_lat.png`.
+latitude (shortest at 30-40 N).
+
+## Figures
+
+PNGs are in git under `outputs/`. CSVs from the same run stay local.
+
+![Along-track elevation window](outputs/along_track_timeline.png)
+
+![Earth rotation vs pass latitude](outputs/latitude_earth_rotation.png)
+
+![Tracking time vs covering radius](outputs/tracking_time_vs_radius.png)
+
+![Off-center cluster tracking time](outputs/origin_offset.png)
+
+![Single-target dwell vs latitude](outputs/industrial_time_vs_lat.png)
+
+![Dwell, reacquire, and cycle vs latitude](outputs/industrial_reacquire_vs_lat.png)
 

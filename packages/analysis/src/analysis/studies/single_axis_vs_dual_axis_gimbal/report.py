@@ -7,6 +7,7 @@ All three are generated artifacts, not STE descriptive docs.
 
 Contains:
   - write_geometry_report / write_industry_report / write_study_readme.
+  - _setup_lines / _figure_embeds.
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DESIGN_LAT_DEG,
     EXPOSURE_S,
     GIMBAL_BOX,
-    GSD_MAX_BAND_M,
     MAX_HW_SLEW_DEG_S,
     MAX_SMEAR_BAND_PX,
     OPTICS_SPEC,
@@ -35,7 +35,6 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     SEG_FLOPS_256_G,
     SEG_LAT_256_MS,
     SENSOR_NAME,
-    SLANT_MAX_KM,
     T_MIN_USABLE_S,
     TLE,
     WIND_MPS,
@@ -106,10 +105,12 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
             "- **Science stop.** Elevation window is one-sided",
             f"  90->{GIMBAL_BOX.el_limb_deg:.0f} deg (eta_max = "
             f"{90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg off-nadir).",
-            f"  Extra caps: slant <= {SLANT_MAX_KM:.0f} km, along-track band GSD",
-            f"  <= {GSD_MAX_BAND_M:.0f} m. Geometric Earth limb is ~69 deg off-nadir",
-            "  and is not a detection limit. Typical cooling-tower plumes are not",
-            "  segmentable at 60 deg off-nadir (~118 m along-track band GSD).",
+            "  That off-nadir max is set from along-track band GSD (~45 m at",
+            "  this look on the design pass; ~20 m at nadir; ~118 m at 60 deg).",
+            "  Slant range and incidence are reported at the stop, not extra",
+            "  caps. Geometric Earth limb is ~69 deg off-nadir and is not a",
+            "  detection limit. Window is one-sided (nadir to limb) for this",
+            "  run; look-past-nadir is a later check on the plots.",
             "- **Tasking.** Opportunistic detect-in-chip hunt, not catalog cueing.",
             "  Flight SCAN (az raster at el=0) is not the trade baseline.",
             "- **Two slew caps.** Imaging rewind vs ground is the 1-pixel / 1 ms",
@@ -191,6 +192,22 @@ def _fmt_enc(t_s: float) -> str:
     return f"{t_s:.1f}"
 
 
+def _figure_embeds(items: tuple[tuple[str, str], ...]) -> list[str]:
+    """Return markdown image embeds for study PNGs under ``outputs/``.
+
+    Args:
+        items: (filename, alt text) pairs.
+
+    Returns:
+        Markdown lines with a blank line after each image.
+    """
+    lines: list[str] = []
+    for name, alt in items:
+        lines.append(f"![{alt}](outputs/{name})")
+        lines.append("")
+    return lines
+
+
 def write_geometry_report(result: GeometryResult, path: Path) -> None:
     """Write RESULTS.md for the design-pass geometry.
 
@@ -227,10 +244,10 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("")
     a(
         f"- Elevation window is **one-sided** 90->{GIMBAL_BOX.el_limb_deg:.0f} deg "
-        f"(eta_max {90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg)."
+        f"(eta_max {90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg from band GSD)."
     )
-    a("  Hard gimbal stops for clearance; tracking time stops at the science")
-    a("  limit (slant / GSD), with no leftover FOV walk-out past the stop.")
+    a("  Hard gimbal stops for clearance; tracking time stops at eta_max,")
+    a("  with no leftover FOV walk-out past the stop.")
     a("- Mount is geocentric nadir. A <=5 deg offset is a later correction, not in")
     a("  this run.")
     a("- If plants are spread farther than the chip (~+/-12 km at nadir), they are")
@@ -500,17 +517,22 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("")
     a("## Figures")
     a("")
-    a("- `outputs/along_track_timeline.png`")
-    a("- `outputs/disk_angular_radius.png`")
-    a("- `outputs/tracking_time_vs_radius.png`")
-    a("- `outputs/lost_time_vs_radius.png`")
-    a("- `outputs/footprint_vs_time.png`")
-    a("- `outputs/origin_offset.png`")
-    a("- `outputs/required_az_vs_radius.png`")
-    a("- `outputs/latitude_earth_rotation.png`")
-    a("- `outputs/tracking_time_vs_radius.csv`, `outputs/origin_offset.csv`,")
-    a("  `outputs/latitude.csv`")
+    a("PNGs are in git under `outputs/`. CSVs from the same run stay local.")
     a("")
+    lines.extend(
+        _figure_embeds(
+            (
+                ("along_track_timeline.png", "Along-track elevation window"),
+                ("disk_angular_radius.png", "Covering-disk angular radius"),
+                ("tracking_time_vs_radius.png", "Tracking time vs covering radius"),
+                ("lost_time_vs_radius.png", "Time lost vs two-axis"),
+                ("footprint_vs_time.png", "Sensor footprint vs time"),
+                ("origin_offset.png", "Off-center cluster tracking time"),
+                ("required_az_vs_radius.png", "Required azimuth vs covering radius"),
+                ("latitude_earth_rotation.png", "Earth rotation vs pass latitude"),
+            )
+        )
+    )
     a("```text")
     a(f"{_RUN_CMD} geometry")
     a("```")
@@ -846,18 +868,21 @@ def write_industry_report(
     p("")
     p("## Figures")
     p("")
-    p("- `outputs/industrial_lat_hist.png`")
-    p("- `outputs/industrial_lat_folded.png`")
-    p("- `outputs/industrial_time_vs_lat.png` -- single-target dwell")
-    p("- `outputs/industrial_reacquire_vs_lat.png` -- dwell, T_reacq, cycle")
-    p("- `outputs/industrial_cluster_radius.png`")
-    p("- `outputs/industrial_r_vs_lat.png`")
-    p("- `outputs/industrial_cluster_map.png`")
-    p("- `outputs/industrial_lat_hist.csv`, `outputs/industrial_clusters.csv`")
-    p("- `outputs/r_vs_lat.csv` -- D(|lat|), R(|lat|), singleton fraction")
-    p("- `outputs/expected_tracking.csv` -- dwell, T_reacq, cycle, duty")
-    p("- `outputs/time_lost_grid.csv` -- the `time_lost(|lat|, R)` table")
+    p("PNGs are in git under `outputs/`. CSVs from the same run stay local.")
     p("")
+    lines.extend(
+        _figure_embeds(
+            (
+                ("industrial_lat_hist.png", "Stack latitude histogram"),
+                ("industrial_lat_folded.png", "Folded latitude dwell and stack mass"),
+                ("industrial_time_vs_lat.png", "Single-target dwell vs latitude"),
+                ("industrial_reacquire_vs_lat.png", "Dwell, reacquire, and cycle vs latitude"),
+                ("industrial_cluster_radius.png", "Cluster covering-radius histogram"),
+                ("industrial_r_vs_lat.png", "Covering radius vs latitude"),
+                ("industrial_cluster_map.png", "World cluster map"),
+            )
+        )
+    )
     p("```text")
     p(f"{_RUN_CMD} industry")
     p("```")
@@ -897,7 +922,7 @@ def write_study_readme(
     a("")
     a("TEMPORARY ANALYSIS. Not flight software. Design study for dropping")
     a("the azimuth gimbal axis. Shared geometry lives in `analysis.lib`;")
-    a("this folder holds generated reports, CSV, and local inventory downloads.")
+    a("this folder holds generated reports, PNGs, and local inventory downloads.")
     a("")
     a("```text")
     a(f"{_RUN_CMD} geometry")
@@ -925,9 +950,7 @@ def write_study_readme(
     a(f"| Hardware slew cap | {MAX_HW_SLEW_DEG_S:.0f} deg/s |")
     a(
         f"| Science stop | {90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg off-nadir "
-        f"(slant {times.slant_start_km:.0f} km, incidence "
-        f"{times.incidence_start_deg:.0f} deg, band GSD along "
-        f"{times.gsd_band_along_start_m:.0f} m) |"
+        f"(band GSD along {times.gsd_band_along_start_m:.0f} m) |"
     )
     a(f"| Nadir lateral half-swath | +/-{r_fit:.1f} km |")
     a(f"| 2-axis +/-{GIMBAL_BOX.az_box_deg:.0f} deg half-swath | +/-{r_box:.0f} km |")
@@ -972,6 +995,22 @@ def write_study_readme(
     a("walk, not just for swath. After a target leaves the frame the gimbal")
     a("rewinds toward the limb stop and hunts along that path; two-axis then")
     a("rasters azimuth. Lost time is that wait from stack density at signed")
-    a("latitude (shortest at 30-40 N). See `outputs/industrial_reacquire_vs_lat.png`.")
+    a("latitude (shortest at 30-40 N).")
     a("")
+    a("## Figures")
+    a("")
+    a("PNGs are in git under `outputs/`. CSVs from the same run stay local.")
+    a("")
+    lines.extend(
+        _figure_embeds(
+            (
+                ("along_track_timeline.png", "Along-track elevation window"),
+                ("latitude_earth_rotation.png", "Earth rotation vs pass latitude"),
+                ("tracking_time_vs_radius.png", "Tracking time vs covering radius"),
+                ("origin_offset.png", "Off-center cluster tracking time"),
+                ("industrial_time_vs_lat.png", "Single-target dwell vs latitude"),
+                ("industrial_reacquire_vs_lat.png", "Dwell, reacquire, and cycle vs latitude"),
+            )
+        )
+    )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

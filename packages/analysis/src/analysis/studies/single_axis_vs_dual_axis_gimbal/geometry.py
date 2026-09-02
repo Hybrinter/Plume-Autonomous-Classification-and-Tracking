@@ -48,13 +48,11 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DISK_RADII_KM,
     GEOMETRY_DT_S,
     GIMBAL_BOX,
-    GSD_MAX_BAND_M,
     MAX_HW_SLEW_DEG_S,
     OPTICS_SPEC,
     ORIGIN_OFFSETS_KM,
     OUT_DIR,
     PASS_LATS_DEG,
-    SLANT_MAX_KM,
     STUDY_DIR,
     TLE,
     omega_img_rewind_deg_s,
@@ -191,9 +189,7 @@ def origin_window(
         Window summary and the origin pass samples.
     """
     data = sample_pass(orbit, box, lat_deg, 0.0, origin_cross_km, _span())
-    el_mask = in_science_window(
-        data, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
-    )
+    el_mask = in_science_window(data, box)
     empty = WindowTimes(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     if not np.any(el_mask):
         return empty, data
@@ -251,9 +247,7 @@ def tracking_time_vs_radius(
     t2 = np.zeros(r_arr.size)
     az_peak = np.zeros(r_arr.size)
     origin = sample_pass(orbit, box, lat_deg, 0.0, 0.0, span)
-    science = in_science_window(
-        origin, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
-    )
+    science = in_science_window(origin, box)
     for i, radius in enumerate(r_arr):
         edge_p = sample_pass(orbit, box, lat_deg, 0.0, float(radius), span)
         edge_m = sample_pass(orbit, box, lat_deg, 0.0, -float(radius), span)
@@ -300,9 +294,7 @@ def latitude_table(
         times, origin = origin_window(orbit, optics, box, lat, 0.0)
         edge_p = sample_pass(orbit, box, lat, 0.0, radius_km, span)
         edge_m = sample_pass(orbit, box, lat, 0.0, -radius_km, span)
-        science = in_science_window(
-            origin, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
-        )
+        science = in_science_window(origin, box)
         one = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, optics.half_az_deg)
         two = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, box.az_box_deg)
         rows.append(
@@ -338,9 +330,7 @@ def offset_times(
     rows: list[OffsetRow] = []
     for y_km in ORIGIN_OFFSETS_KM:
         _times, data = origin_window(orbit, optics, box, lat_deg, y_km)
-        science = in_science_window(
-            data, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
-        )
+        science = in_science_window(data, box)
         one = science & (np.abs(data.az) <= optics.half_az_deg)
         two = science & two_axis_boresightable(data.az, data.el, box)
         rows.append(
@@ -469,8 +459,6 @@ def self_check(orbit: Orbit, optics: Optics, box: GimbalBox, times: WindowTimes)
     assert abs(look0.az_deg) < 0.05, look0.az_deg
     assert times.along_track_s > 40.0
     assert times.along_track_s < 90.0
-    assert times.slant_start_km <= SLANT_MAX_KM + 20.0
-    assert times.gsd_band_along_start_m <= GSD_MAX_BAND_M + 5.0
     assert times.peak_el_rate_deg_s < MAX_HW_SLEW_DEG_S
     assert times.az_max_deg < 0.05
     assert optics.fov_az_deg < optics.fov_az_raw_deg

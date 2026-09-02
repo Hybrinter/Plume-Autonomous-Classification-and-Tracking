@@ -4,11 +4,12 @@ Physical setup: plumes originate at fixed stacks. Unknown wind azimuth
 makes a covering disk of radius L around each stack. Cluster covering
 radius is R = D + L with D from Climate TRACE plant span, not a locked
 design R. Imaging rewind is smear-gated on the 2x2 band plane. Science
-window stops at eta_max = 45 deg (slant / GSD), not the geometric limb.
+window is one-sided eta_max = 45 deg, set from along-track band GSD
+(~45 m at that look). Slant and incidence are not extra caps.
 
 Contains:
   - TLE / OPTICS_SPEC / GIMBAL_BOX and design-pass constants.
-  - Camera, exposure, smear, slew-cap, slant, and GSD constants.
+  - Camera, exposure, smear, and slew-cap constants.
   - omega_rel_max_deg_s / omega_img_rewind_deg_s.
   - analysis_root / STUDY_DIR / DATA_DIR / CACHE_DIR / OUT_DIR.
 """
@@ -39,16 +40,14 @@ PASS_LATS_DEG: tuple[float, ...] = (0.0, 20.0, 30.0, 40.0, 45.0, 50.0, TLE.incli
 GIMBAL_BOX = GimbalBox(
     az_box_deg=10.0,  # ISS keep-out; may open to +/-20 deg later.
     el_nadir_deg=90.0,
-    el_limb_deg=45.0,  # eta_max = 45 deg science stop, not the Earth limb.
+    el_limb_deg=45.0,  # eta_max from along-track band GSD, not the Earth limb.
     window_mode=WindowMode.ONE_SIDED,
 )
 NADIR_OFFSET_DEG = 0.0
 
-# Science visibility: vis-NIR cooling-tower segmentation dies on along-track
-# GSD and BLUE path radiance before the geometric limb (~69 deg off-nadir).
-# 45 deg off-nadir is ~635 km slant / ~49 deg incidence / ~45 m band GSD along.
-SLANT_MAX_KM = 650.0
-GSD_MAX_BAND_M = 50.0
+# Along-track band GSD at 45 deg off-nadir on the design pass is ~45 m
+# (nadir ~20 m; 60 deg off-nadir ~118 m). That GSD is why eta_max is 45 deg.
+# Slant range and incidence are diagnostics at the stop, not science caps.
 T_MIN_USABLE_S = 1.0
 
 # FLIR Blackfly S BFS-U3-50S5, Sony IMX264, 3.45 um, 2448 x 2048, 2/3-inch.

@@ -127,10 +127,10 @@ def omega_img_rewind_deg_s(ifov_band_deg: float, peak_el_rate_deg_s: float) -> f
 
 
 def analysis_root() -> Path:
-    """Return the analysis/ workspace-member root (contains pyproject.toml).
+    """Return the analysis workspace-member root (contains pyproject.toml).
 
     Returns:
-        Path to analysis/.
+        Path to packages/analysis/.
 
     Raises:
         RuntimeError: If this file is not under the analysis member.
@@ -139,7 +139,7 @@ def analysis_root() -> Path:
     for parent in here.parents:
         if (parent / "pyproject.toml").is_file() and (parent / "src" / "analysis").is_dir():
             return parent
-    raise RuntimeError("could not find analysis/ member root")
+    raise RuntimeError("could not find packages/analysis/ member root")
 
 
 STUDY_DIR = analysis_root() / "single_axis_vs_dual_axis_gimbal"

@@ -864,7 +864,7 @@ train = [
 requires-dist = [
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5" },
-    { name = "pact-analysis", marker = "extra == 'dev'", editable = "analysis" },
+    { name = "pact-analysis", marker = "extra == 'dev'", editable = "packages/analysis" },
     { name = "pact-flight", marker = "extra == 'dev'", editable = "packages/flight" },
     { name = "pact-gse", marker = "extra == 'dev'", editable = "packages/gse" },
     { name = "pact-sim", marker = "extra == 'dev'", editable = "packages/sim" },
@@ -880,10 +880,12 @@ provides-extras = ["dev", "train"]
 [[package]]
 name = "pact-analysis"
 version = "0.1.0"
-source = { editable = "analysis" }
+source = { editable = "packages/analysis" }
 dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "pact-flight" },
+    { name = "pact-sim" },
     { name = "scipy" },
 ]
 
@@ -891,6 +893,8 @@ dependencies = [
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.24" },
+    { name = "pact-flight", editable = "packages/flight" },
+    { name = "pact-sim", editable = "packages/sim" },
     { name = "scipy", specifier = ">=1.11" },
 ]
 

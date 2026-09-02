@@ -7,7 +7,7 @@ requires-python = ">=3.14"
 license = { text = "Proprietary" }
 # The repo root is a virtual uv workspace root (see [tool.uv] package = false): it builds no
 # package and carries no runtime dependencies of its own. Runtime deps are declared by the
-# workspace members under packages/ and analysis/.
+# workspace members under packages/.
 dependencies = []
 
 [project.optional-dependencies]
@@ -42,6 +42,7 @@ testpaths = [
     "packages/sim/tests",
     "packages/tools/tests",
     "packages/gse/tests",
+    "packages/analysis/tests",
 ]
 markers = [
     "e2e: end-to-end smoke tests (exclude from fast CI with -m 'not e2e')",
@@ -66,7 +67,7 @@ mypy_path = [
     "packages/sim/src",
     "packages/tools/src",
     "packages/gse/src",
-    "analysis/src",
+    "packages/analysis/src",
 ]
 
 [tool.pydantic-mypy]
@@ -88,7 +89,7 @@ ignore = ["ANN101", "ANN102"]
 package = false
 
 [tool.uv.workspace]
-members = ["packages/flight", "packages/sim", "packages/tools", "packages/gse", "analysis"]
+members = ["packages/flight", "packages/sim", "packages/tools", "packages/gse", "packages/analysis"]
 
 [tool.uv.sources]
 pact-flight = { workspace = true }

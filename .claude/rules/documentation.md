@@ -16,7 +16,8 @@ preferences in ADRs.
 When you add, rename, or delete a source module or package directory under
 `packages/{flight,sim,gse,tools}/src/`, update the matching descriptive page
 in the same change. Empty `__init__.py` files fold into the parent directory
-page and do not get their own markdown file.
+page and do not get their own markdown file. `packages/analysis/` is not
+STE-mirrored.
 
 ## ADR rules
 

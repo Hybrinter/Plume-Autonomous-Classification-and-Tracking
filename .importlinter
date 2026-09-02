@@ -94,14 +94,11 @@ layers =
     analysis.lib
 
 [importlinter:contract:analysis-isolation]
-name = Analysis must not import flight, sim, gse, or tools
+name = Analysis must not import tools
 type = forbidden
 source_modules =
     analysis
 forbidden_modules =
-    flight
-    sim
-    gse
     tools
 
 [importlinter:contract:flight-analysis-isolation]

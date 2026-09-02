@@ -25,8 +25,8 @@ experiments/results/**
 experiments/overnight_chain.py
 
 # Design-study local downloads and generated outputs (markdown stays in git).
-analysis/**/data/raw/
-analysis/**/data/cache/
-analysis/**/outputs/**
-!analysis/**/outputs/.gitkeep
+packages/analysis/**/data/raw/
+packages/analysis/**/data/cache/
+packages/analysis/**/outputs/**
+!packages/analysis/**/outputs/.gitkeep
 

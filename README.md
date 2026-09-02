@@ -34,11 +34,11 @@ packages/
   sim/      # pact-sim    — SIL harness, scene generation, validation harness (depends on flight)
   tools/    # pact-tools  — artifact acceptance / SIL experiment runners / analysis
   gse/      # pact-gse    — ground support: CCSDS station emulator + declarative scenarios + orchestrator
+  analysis/ # pact-analysis — design/performance studies (depends on flight + sim; not STE-mirrored)
 config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
 profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
 scenarios/  # declarative validation scenarios (scene + command timeline + assertions)
 scripts/    # check_vcrm.py, check_docs.py, check_adr.py, check_flight_image.py — CI gates
-analysis/   # pact-analysis — design/performance studies (not flight software; ruff+mypy only)
 docs/       # package-mirrored descriptive docs, ADRs, requirements (VCRM), validation
 ```
 
@@ -61,9 +61,9 @@ uv sync --extra dev
 Run the gates (the whole tree):
 
 ```bash
-uv run ruff check packages scripts analysis
-uv run ruff format --check packages scripts analysis
-uv run mypy packages scripts analysis
+uv run ruff check packages scripts
+uv run ruff format --check packages scripts
+uv run mypy packages scripts
 uv run lint-imports
 uv run python scripts/check_vcrm.py
 uv run python scripts/check_docs.py --strict

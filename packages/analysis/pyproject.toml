@@ -11,7 +11,13 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.11",
     "matplotlib>=3.8",
+    "pact-flight",
+    "pact-sim",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/analysis"]
+
+[tool.uv.sources]
+pact-flight = { workspace = true }
+pact-sim = { workspace = true }

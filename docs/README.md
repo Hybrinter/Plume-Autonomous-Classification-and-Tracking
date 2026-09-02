@@ -11,8 +11,9 @@
 | [`tools.md`](tools.md) | Analysis and acceptance tooling |
 | [`adr.md`](adr.md) | Repository-scope decision index |
 
-Design and performance studies live under [`analysis/`](../analysis/) (`pact-analysis`). They
-are not STE-mirrored. `tools.analysis` is SIL capture; `analysis.*` is design studies.
+Design and performance studies live under [`packages/analysis/`](../packages/analysis/)
+(`pact-analysis`). They are not STE-mirrored. `tools.analysis` is SIL capture;
+`analysis.*` is design studies.
 
 ## Document kinds
 

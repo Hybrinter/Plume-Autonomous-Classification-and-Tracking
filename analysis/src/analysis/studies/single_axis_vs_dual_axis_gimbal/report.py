@@ -500,9 +500,16 @@ def write_industry_report(
     p(f"| GEM operating (cross-check) | {gem_n} |")
     p(f"| GPPD thermal (cross-check) | {gppd_n} |")
     p("")
-    p("GEM and GPPD peak in the same 30-40 N band, with ~93% of plants")
-    p("inside the ISS belt. The Climate TRACE latitude shape is not an")
-    p("OpenStreetMap-Europe artefact.")
+    if gppd_n > 0:
+        p("GEM and GPPD peak in the same 30-40 N band, with ~93% of plants")
+        p("inside the ISS belt. The Climate TRACE latitude shape is not an")
+        p("OpenStreetMap-Europe artefact.")
+    elif gem_n > 0:
+        p("GEM peaks in the same 30-40 N band as Climate TRACE. GPPD was not")
+        p("loaded this run (local CSV absent). The Climate TRACE latitude")
+        p("shape is not an OpenStreetMap-Europe artefact.")
+    else:
+        p("GEM and GPPD were not loaded this run (local files absent).")
     p("")
     p("## World distribution")
     p("")

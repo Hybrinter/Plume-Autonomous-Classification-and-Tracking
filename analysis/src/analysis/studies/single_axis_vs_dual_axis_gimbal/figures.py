@@ -496,7 +496,8 @@ def plot_reacquire_vs_lat(
     """Write single-target dwell, reacquire, and cycle time vs latitude.
 
     Cycle time is dwell plus reacquire: start of tracking one target until
-    the next target is acquired. Lost time is reacquire for each gimbal.
+    the next target is acquired. Lost time is reacquire from stack density
+    at signed latitude, with no reset-to-30-deg wait.
 
     Args:
         edges: Bin edges in degrees.
@@ -513,6 +514,8 @@ def plot_reacquire_vs_lat(
     centres = 0.5 * (edges[:-1] + edges[1:])
     iss_i = TLE.inclination_deg
     iss = np.abs(centres) <= iss_i + 0.05
+    finite1 = iss & np.isfinite(reacq1)
+    finite2 = iss & np.isfinite(reacq2)
     cyc1 = t1 + reacq1
     cyc2 = t2 + reacq2
     fig, axes = plt.subplots(3, 1, figsize=(8.5, 10.2), sharex=True)
@@ -524,30 +527,53 @@ def plot_reacquire_vs_lat(
     axes[0].legend(loc="center right", fontsize=8)
 
     axes[1].plot(
-        centres[iss], reacq2[iss], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis T_reacq"
+        centres[finite2],
+        reacq2[finite2],
+        color=C_TEAL,
+        lw=2,
+        marker="o",
+        ms=3,
+        label="2-axis T_reacq",
     )
     axes[1].plot(
-        centres[iss], reacq1[iss], color=C_RED, lw=2, marker="^", ms=3, label="1-axis T_reacq"
+        centres[finite1],
+        reacq1[finite1],
+        color=C_RED,
+        lw=2,
+        marker="^",
+        ms=3,
+        label="1-axis T_reacq",
     )
+    ax1b = axes[1].twinx()
+    ax1b.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
     axes[1].set_ylabel("mean reacquire (s)")
-    axes[1].set_title("Lost time: slew to window start, then wait for the next cluster")
-    axes[1].legend(loc="upper right", fontsize=8)
+    axes[1].set_yscale("log")
+    ax1b.set_ylabel("stack-bearing sources in bin")
+    axes[1].set_title("Lost time: wait for the next stack at this signed latitude")
+    h1, l1 = axes[1].get_legend_handles_labels()
+    h1b, l1b = ax1b.get_legend_handles_labels()
+    axes[1].legend(h1 + h1b, l1 + l1b, loc="upper right", fontsize=8)
 
+    cyc2_ok = iss & np.isfinite(cyc2)
+    cyc1_ok = iss & np.isfinite(cyc1)
     axes[2].plot(
-        centres[iss], cyc2[iss], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis cycle"
+        centres[cyc2_ok], cyc2[cyc2_ok], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis cycle"
     )
-    axes[2].plot(centres[iss], cyc1[iss], color=C_RED, lw=2, marker="^", ms=3, label="1-axis cycle")
+    axes[2].plot(
+        centres[cyc1_ok], cyc1[cyc1_ok], color=C_RED, lw=2, marker="^", ms=3, label="1-axis cycle"
+    )
     ax2 = axes[2].twinx()
     ax2.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
     axes[2].axvline(iss_i, color=C_RED, ls="--", lw=1)
     axes[2].axvline(-iss_i, color=C_RED, ls="--", lw=1)
     axes[2].set_ylabel("cycle T_dwell + T_reacq (s)")
+    axes[2].set_yscale("log")
     ax2.set_ylabel("stack-bearing sources in bin")
     axes[2].set_xlabel("latitude (deg)")
     axes[2].set_title("Start of tracking to reacquire of the next target")
-    h1, l1 = axes[2].get_legend_handles_labels()
-    h2, l2 = ax2.get_legend_handles_labels()
-    axes[2].legend(h1 + h2, l1 + l2, loc="upper right", fontsize=8)
+    h2, l2 = axes[2].get_legend_handles_labels()
+    h2b, l2b = ax2.get_legend_handles_labels()
+    axes[2].legend(h2 + h2b, l2 + l2b, loc="upper right", fontsize=8)
 
     fig.tight_layout()
     fig.savefig(path)

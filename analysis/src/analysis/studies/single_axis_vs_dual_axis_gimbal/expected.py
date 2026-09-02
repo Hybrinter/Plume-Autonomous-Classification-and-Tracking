@@ -2,9 +2,10 @@
 
 Folds ``TimeLostFn`` over Climate TRACE clusters. Primary weight is stack
 count. Covering radius is per-cluster R = D + L and, for lat curves,
-stack-weighted R(|lat|). After a target leaves the frame both gimbals
-slew to the window start and wait for the next cluster; lost time is
-mean reacquire, and the track-to-reacquire cycle is dwell plus reacquire.
+stack-weighted R(|lat|). After a target leaves the frame a new target
+just outside the FOV can be acquired immediately; lost time is mean
+reacquire from signed-latitude stack density, and the track-to-reacquire
+cycle is dwell plus reacquire.
 
 Contains:
   - iss_dwell_weight / daily_coverage_frac / expected_from_clusters.
@@ -52,7 +53,6 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import (
     cycle_s,
     folded_band_rows,
     hunt_at_lat,
-    reset_to_start_s,
 )
 
 Weight = Literal["area", "stacks", "emissions"]
@@ -214,10 +214,11 @@ def expected_from_clusters(
     """Return expected dwell, reacquire, and cycle times over ISS-belt clusters.
 
     Single-target dwell is T1 / T2 at each cluster's own covering radius.
-    After that target leaves, both gimbals slew to the window start and
-    wait for the next cluster. Lost time is mean reacquire. Cycle time is
-    dwell plus reacquire (start of tracking until the next target is
-    acquired). Off-track origins appear in the swath columns, not dwell.
+    After that target leaves, a new target just outside the frame can be
+    acquired immediately. Lost time is mean reacquire from stack density
+    at that signed latitude. Cycle time is dwell plus reacquire (start of
+    tracking until the next target is acquired). Off-track origins appear
+    in the swath columns, not dwell.
 
     Args:
         clusters: All world clusters (ISS-belt filter applied here).
@@ -225,7 +226,7 @@ def expected_from_clusters(
         optics: Usable sensor FOV.
         orbit: Circular ISS orbit.
         weight: Weight kind.
-        profile: R(|lat|) and cluster-density interpolator.
+        profile: R(|lat|) and signed-latitude stack-density interpolator.
         omega_img_deg_s: Imaging rewind cap in degrees per second.
 
     Returns:
@@ -243,14 +244,11 @@ def expected_from_clusters(
     reacq2 = np.zeros(len(iss))
     cyc1 = np.zeros(len(iss))
     cyc2 = np.zeros(len(iss))
-    t_reset = reset_to_start_s()
     for i, cluster in enumerate(iss):
         a_t, b_t, _lost = fn.eval(cluster.lat, cluster.r_cover_km)
         t1[i] = a_t
         t2[i] = b_t
-        _reset, _e1, _e2, r1, r2 = hunt_at_lat(
-            cluster.lat, profile.dens_km2(cluster.lat), optics, orbit
-        )
+        r1, r2 = hunt_at_lat(cluster.lat, profile.dens_km2(cluster.lat), optics, orbit)
         reacq1[i] = r1
         reacq2[i] = r2
         cyc1[i] = cycle_s(a_t, r1)
@@ -301,7 +299,6 @@ def expected_from_clusters(
         "e_cycle2": e_cyc2,
         "e_duty1": weighted_mean(duty1, w),
         "e_duty2": weighted_mean(duty2, w),
-        "t_reset_s": t_reset,
         "e_t1_dwell": weighted_mean(t1, w * dwell),
         "e_t2_dwell": weighted_mean(t2, w * dwell),
         "e_lost_dwell": weighted_mean(lost_same, w * dwell),
@@ -407,9 +404,7 @@ def run_industry() -> None:
         radius = profile.r_km(mid)
         r_bin[i] = radius
         t1_bin[i], t2_bin[i], _ = fn.eval(mid, radius)
-        _reset, _e1, _e2, reacq1_bin[i], reacq2_bin[i] = hunt_at_lat(
-            mid, profile.dens_km2(mid), optics, orbit
-        )
+        reacq1_bin[i], reacq2_bin[i] = hunt_at_lat(mid, profile.dens_km2(mid), optics, orbit)
         cyc1_bin[i] = cycle_s(t1_bin[i], reacq1_bin[i])
         cyc2_bin[i] = cycle_s(t2_bin[i], reacq2_bin[i])
 
@@ -444,14 +439,16 @@ def run_industry() -> None:
     with (OUT_DIR / "industrial_lat_hist.csv").open("w", encoding="utf-8") as fh:
         fh.write(
             "lat_lo,lat_hi,lat_mid,area_km2,n_stacks,emissions_t,r_km,"
-            "one_axis_s,two_axis_s,reacq1_s,reacq2_s,cycle1_s,cycle2_s\n"
+            "one_axis_s,two_axis_s,stack_dens_per_km2,reacq1_s,reacq2_s,"
+            "cycle1_s,cycle2_s\n"
         )
         for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
             mid = 0.5 * (lo + hi)
+            dens = profile.dens_km2(mid) if abs(mid) <= orbit.inclination_deg else 0.0
             fh.write(
                 f"{lo:.1f},{hi:.1f},{mid:.1f},{h_area[i]:.4f},{h_stacks[i]:.4f},"
                 f"{h_em[i]:.4f},{r_bin[i]:.3f},{t1_bin[i]:.3f},{t2_bin[i]:.3f},"
-                f"{reacq1_bin[i]:.3f},{reacq2_bin[i]:.3f},"
+                f"{dens:.8g},{reacq1_bin[i]:.3f},{reacq2_bin[i]:.3f},"
                 f"{cyc1_bin[i]:.3f},{cyc2_bin[i]:.3f}\n"
             )
     with (OUT_DIR / "r_vs_lat.csv").open("w", encoding="utf-8") as fh:

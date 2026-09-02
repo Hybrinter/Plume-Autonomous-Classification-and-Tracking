@@ -93,14 +93,16 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
             "  **band-plane** gate (current imaging gate). Hardware cap",
             f"  **{MAX_HW_SLEW_DEG_S:.0f} deg/s** is not for science frames. SIL",
             "  `ifov=0.02` is not this optic.",
-            "- **Reacquire.** After a target leaves the frame both gimbals slew",
-            "  to the elevation-window start (hardware cap, not science frames)",
-            "  and wait for the next cluster. One-axis search is the FOV ribbon;",
-            "  two-axis search is the gimbal box. Lost time is mean reacquire.",
-            "  Cycle time is single-target dwell plus reacquire (start of tracking",
-            "  until the next target is acquired). Mean encounter is Poisson /",
-            "  mean-spacing, ocean-averaged in a lat band, conditional on the ISS",
-            "  belt -- not a city-corridor nearest neighbour.",
+            "- **Reacquire.** Leftover-window rewind is gated so a new target",
+            "  just outside the frame can be acquired immediately -- no wait to",
+            "  reset to 30 deg. One-axis search is the FOV ribbon; two-axis",
+            "  search is the gimbal box. Lost time is mean reacquire from",
+            "  **signed-latitude stack density** (peak near 30-40 N, not a",
+            "  folded |lat| mean). Cycle time is single-target dwell plus",
+            "  reacquire (start of tracking until the next target is acquired).",
+            "  Mean encounter is Poisson / mean-spacing in that signed lat",
+            "  band, ocean-averaged in longitude -- not a city-corridor",
+            "  nearest neighbour.",
         ]
     )
     return lines
@@ -111,21 +113,29 @@ def _band_times(
     row: LatBandRow,
     optics: Optics,
     orbit: Orbit,
-) -> tuple[float, float, float, float, float, float, float, float]:
-    """Return dwell, reacquire, cycle, and encounter times for one lat band.
+    profile: RadiusProfile,
+    *,
+    signed_lat_deg: float,
+) -> tuple[float, float, float, float, float, float]:
+    """Return dwell and reacquire times for one lat band.
+
+    Dwell uses the folded-band mean R. Reacquire uses stack density at
+    ``signed_lat_deg``.
 
     Args:
         fn: Tracking-time interpolator.
-        row: Folded |lat| stats, including mean R and cluster density.
+        row: Folded |lat| stats, including mean R.
         optics: Usable sensor FOV.
         orbit: Circular ISS orbit.
+        profile: Signed-latitude stack-density interpolator.
+        signed_lat_deg: Signed latitude for the hunt (deg).
 
     Returns:
-        (t1, t2, t_reacq1, t_reacq2, t_cycle1, t_cycle2, t_enc1, t_enc2).
+        (t1, t2, t_reacq1, t_reacq2, t_cycle1, t_cycle2).
     """
     t1, t2, _lost = fn.eval(row.lat_mid, row.mean_r_km)
-    _t_reset, t_enc1, t_enc2, t_reacq1, t_reacq2 = hunt_at_lat(
-        row.lat_mid, row.dens_per_km2, optics, orbit
+    t_reacq1, t_reacq2 = hunt_at_lat(
+        signed_lat_deg, profile.dens_km2(signed_lat_deg), optics, orbit
     )
     return (
         t1,
@@ -134,8 +144,6 @@ def _band_times(
         t_reacq2,
         cycle_s(t1, t_reacq1),
         cycle_s(t2, t_reacq2),
-        t_enc1,
-        t_enc2,
     )
 
 
@@ -405,8 +413,8 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("   tens of seconds, worse for larger R(|lat|). Use two-axis for those")
     a("   passes, or do not work them. See `INDUSTRIAL.md` for T vs R(|lat|).")
     a("4. If two plants are farther apart than ~24 km, they are two clusters.")
-    a("   Track one. After it leaves the frame, slew to the window start")
-    a("   and wait for the next cluster (see `INDUSTRIAL.md` for T_reacq).")
+    a("   Track one. After it leaves the frame, a new target just outside")
+    a("   the FOV can be acquired immediately (see `INDUSTRIAL.md` for T_reacq).")
     a("5. Worldwide stack inventory (Climate TRACE 2025) is in")
     a("   `INDUSTRIAL.md`.")
     a("")
@@ -559,8 +567,9 @@ def write_industry_report(
     p("Stack-weighted plant span D and covering radius R = D + L. Singleton")
     p("fraction is the share of stacks in n=1 clusters. d_char for n>=2 is")
     p("stack-weighted 2 D / sqrt(n), a characteristic neighbour spacing")
-    p("inside multi-stack plants. Density is ocean-averaged over the whole")
-    p("lat band (ISS belt, both hemispheres), not a city corridor.")
+    p("inside multi-stack plants. Folded |lat| density below is a N+S")
+    p("summary only. Hunt density is signed-latitude stack count over that")
+    p("strip's area -- northern and southern bands are distinct.")
     p("")
     p("| |lat| (deg) | stacks | % of ISS-belt | D (km) | R (km) | singleton % | d_char n>=2 (km) |")
     p("| --- | --- | --- | --- | --- | --- | --- |")
@@ -578,40 +587,61 @@ def write_industry_report(
     p("### Single-target dwell and reacquire at R(|lat|)")
     p("")
     p("T1 / T2 are how long **one** cluster stays in frame, using each")
-    p("band's stack-weighted mean R. After that target leaves, both")
-    p("gimbals slew to the 90 deg window start at the hardware cap, then")
-    p("wait for the next cluster to fly into the search swath at ISS")
-    p("ground-track speed. 1-axis swath is the FOV ribbon; 2-axis is the")
-    p("+/-10 deg box. Lost time is T_reacq = t_reset + t_enc. Cycle time")
-    p("is dwell plus reacquire: start of tracking until the next acquire.")
+    p("band's stack-weighted mean R. After that target leaves, leftover")
+    p("rewind is already gated so a new target just outside the frame can")
+    p("be acquired immediately -- no wait to reset to 30 deg. 1-axis swath")
+    p("is the FOV ribbon; 2-axis is the +/-10 deg box. Lost time is T_reacq")
+    p("from **stack count in that signed-latitude band**. Cycle time is")
+    p("dwell plus reacquire: start of tracking until the next acquire.")
     p("Same-origin leftover T2-T1 is not the lost-time metric.")
+    p("")
+    p("T_reacq columns below are the **northern** band at +|lat|. The")
+    p("southern band at -|lat| has far fewer stacks and a longer wait.")
+    p("The signed-latitude figure is the decision plot.")
     p("")
     p(
         "| |lat| (deg) | R (km) | dwell 1 (s) | dwell 2 (s) | "
-        "T_reacq 1 (s) | T_reacq 2 (s) | cycle 1 (s) | cycle 2 (s) |"
+        "T_reacq 1 N (s) | T_reacq 2 N (s) | cycle 1 N (s) | cycle 2 N (s) |"
     )
     p("| --- | --- | --- | --- | --- | --- | --- | --- |")
     for row in folded:
-        t1, t2, r1, r2, c1, c2, _e1, _e2 = _band_times(fn, row, optics, orbit)
+        t1, t2, r1, r2, c1, c2 = _band_times(
+            fn, row, optics, orbit, profile, signed_lat_deg=row.lat_mid
+        )
         p(
             f"| {row.lat_lo:.0f}-{row.lat_hi:.1f} | {row.mean_r_km:.2f} | "
             f"{t1:.1f} | {t2:.1f} | {_fmt_enc(r1)} | {_fmt_enc(r2)} | "
             f"{_fmt_enc(c1)} | {_fmt_enc(c2)} |"
         )
     p("")
+    mid_ind = 35.0
+    n1, n2 = hunt_at_lat(mid_ind, profile.dens_km2(mid_ind), optics, orbit)
+    s1, s2 = hunt_at_lat(-mid_ind, profile.dens_km2(-mid_ind), optics, orbit)
     p(
-        f"Reset to window start is **{exp['stacks']['t_reset_s']:.1f} s** "
-        f"at the {MAX_HW_SLEW_DEG_S:.0f} deg/s hardware cap. Imaging rewind "
-        f"({omega_img:.2f} deg/s) is the science-frame gate during dwell, "
-        "not the reset slew."
+        f"Industrial-belt check at +/-{mid_ind:.0f} deg: T_reacq is "
+        f"**{_fmt_enc(n1)} s vs {_fmt_enc(n2)} s** at 35 N, and "
+        f"**{_fmt_enc(s1)} s vs {_fmt_enc(s2)} s** at 35 S."
+    )
+    p("Shorter waits follow the stack histogram, which peaks at 30-40 N,")
+    p("not the equator and not a mirror of the southern hemisphere.")
+    p("")
+    p(
+        f"Imaging rewind ({omega_img:.2f} deg/s) is the science-frame gate "
+        "during dwell, not a reset-to-30-deg slew."
+    )
+    p(
+        f"Hardware cap {MAX_HW_SLEW_DEG_S:.0f} deg/s is available if a "
+        "target sits just outside the frame; that slew is not added as a wait."
     )
     p("")
     p("## Expected times (ISS-belt clusters)")
     p("")
     p("For each cluster, single-target dwell uses that cluster's own")
     p("`r_cover_km` and the same one-sided 90->30 deg window as the")
-    p("geometry command. Reacquire uses lat-binned ocean-averaged cluster")
-    p("density. A pass is assumed over the cluster origin for dwell;")
+    p("geometry command. Reacquire uses **signed-latitude stack density**")
+    p("at that cluster's lat, so 30-40 N (industrial belt) reacquires")
+    p("faster than the equator or the southern hemisphere at the same")
+    p("|lat|. A pass is assumed over the cluster origin for dwell;")
     p("off-track origins are a separate loss in the swath column.")
     p("")
     p(
@@ -645,9 +675,10 @@ def write_industry_report(
         f"Duty T_dwell / cycle is **{100.0 * e['e_duty1']:.0f}% vs "
         f"{100.0 * e['e_duty2']:.0f}%**."
     )
-    p("Ocean-averaged lat-band density makes encounter times long; city")
-    p("corridors would reacquire faster. This is not a nearest-neighbour")
-    p("plant-to-plant model.")
+    p("Ocean-averaged longitude in each signed lat band still makes empty")
+    p("ocean stretches slow; city corridors would reacquire faster. This")
+    p("is not a nearest-neighbour plant-to-plant model. Folding |lat|")
+    p("would have made 35 S look like 35 N; it does not.")
     p("")
     p("## Lateral swath (why 2-axis still buys something at 50 deg)")
     p("")
@@ -681,9 +712,11 @@ def write_industry_report(
     p("   number is still the right 'how long can we stare at one plant'")
     p("   metric. Only ~10% of stacks sit at |lat| >= 45 deg.")
     p("2. **Lost time is reacquire, both gimbals:** after the target leaves,")
-    p("   slew to the window start and wait for the next cluster. Stack-")
+    p("   a new target just outside the frame can be acquired immediately.")
+    p("   T_reacq is the mean wait from stack density at that signed")
+    p("   latitude (shortest in the 30-40 N belt). Stack-weighted")
     p(
-        f"   weighted E[T_reacq] is **{e['e_reacq1']:.0f} s (1-axis ribbon) vs "
+        f"   E[T_reacq] is **{e['e_reacq1']:.0f} s (1-axis ribbon) vs "
         f"{e['e_reacq2']:.0f} s (2-axis box)**."
     )
     p("   Cycle start-of-track to next-acquire is")
@@ -821,8 +854,9 @@ def write_study_readme(
     a("Most stacks sit at 20-40 N. A polar-slice one-axis view keeps the")
     a(f"{times.along_track_s:.0f} s window but sees only ~10% of the industry.")
     a("Working the mid-latitude belt needs the azimuth axis for Earth-rotation")
-    a("walk, not just for swath. After a target leaves the frame both gimbals")
-    a("reset to the window start; lost time is mean wait for the next cluster.")
-    a("See `outputs/industrial_reacquire_vs_lat.png`.")
+    a("walk, not just for swath. After a target leaves the frame a new")
+    a("target just outside the FOV can be acquired immediately. Lost time")
+    a("is mean wait from stack density at that signed latitude (shortest")
+    a("at 30-40 N). See `outputs/industrial_reacquire_vs_lat.png`.")
     a("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

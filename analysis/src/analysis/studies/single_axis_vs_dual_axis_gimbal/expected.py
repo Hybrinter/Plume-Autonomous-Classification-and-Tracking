@@ -2,8 +2,9 @@
 
 Folds ``TimeLostFn`` over Climate TRACE clusters. Primary weight is stack
 count. Covering radius is per-cluster R = D + L and, for lat curves,
-stack-weighted R(|lat|). Leftover one-axis time hunts immediately at the
-imaging rewind cap.
+stack-weighted R(|lat|). After a target leaves the frame both gimbals
+slew to the window start and wait for the next cluster; lost time is
+mean reacquire, and the track-to-reacquire cycle is dwell plus reacquire.
 
 Contains:
   - iss_dwell_weight / daily_coverage_frac / expected_from_clusters.
@@ -48,9 +49,10 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import (
 from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import (
     RadiusProfile,
     build_radius_profile,
-    encounter_time_s,
+    cycle_s,
     folded_band_rows,
-    recovered_s,
+    hunt_at_lat,
+    reset_to_start_s,
 )
 
 Weight = Literal["area", "stacks", "emissions"]
@@ -129,6 +131,22 @@ def weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
     return float(np.sum(values * weights) / w_sum)
 
 
+def weighted_mean_finite(values: np.ndarray, weights: np.ndarray) -> float:
+    """Return the weighted mean of finite samples, or inf if none are finite.
+
+    Args:
+        values: Samples, possibly inf/nan. # np.ndarray[float64, (N,)]
+        weights: Non-negative weights. # np.ndarray[float64, (N,)]
+
+    Returns:
+        Weighted mean of finite entries, or inf.
+    """
+    mask = np.isfinite(values)
+    if not np.any(mask):
+        return math.inf
+    return weighted_mean(values[mask], weights[mask])
+
+
 def _weight_of(cluster: Cluster, weight: Weight) -> float:
     """Return the selected weight of one cluster.
 
@@ -193,12 +211,13 @@ def expected_from_clusters(
     profile: RadiusProfile,
     omega_img_deg_s: float,
 ) -> dict[str, float]:
-    """Return expected tracking times over ISS-belt clusters.
+    """Return expected dwell, reacquire, and cycle times over ISS-belt clusters.
 
-    A pass is assumed over each cluster origin. Off-track origins are not in
-    the tracking-time expectation; they appear in the swath columns.
-    Leftover one-axis time (T2 - T1) hunts immediately at ``omega_img_deg_s``
-    along the FOV ribbon. A two-axis leftover hunt would use the gimbal box.
+    Single-target dwell is T1 / T2 at each cluster's own covering radius.
+    After that target leaves, both gimbals slew to the window start and
+    wait for the next cluster. Lost time is mean reacquire. Cycle time is
+    dwell plus reacquire (start of tracking until the next target is
+    acquired). Off-track origins appear in the swath columns, not dwell.
 
     Args:
         clusters: All world clusters (ISS-belt filter applied here).
@@ -220,20 +239,25 @@ def expected_from_clusters(
     w = np.array([_weight_of(c, weight) for c in iss])
     t1 = np.zeros(len(iss))
     t2 = np.zeros(len(iss))
-    t1_eff = np.zeros(len(iss))
+    reacq1 = np.zeros(len(iss))
+    reacq2 = np.zeros(len(iss))
+    cyc1 = np.zeros(len(iss))
+    cyc2 = np.zeros(len(iss))
+    t_reset = reset_to_start_s()
     for i, cluster in enumerate(iss):
         a_t, b_t, _lost = fn.eval(cluster.lat, cluster.r_cover_km)
         t1[i] = a_t
         t2[i] = b_t
-        leftover = b_t - a_t
-        h_km = orbit.local_altitude_km(abs(cluster.lat))
-        swath1 = 2.0 * h_km * math.tan(math.radians(optics.half_az_deg))
-        v_scan = h_km * math.radians(omega_img_deg_s)
-        t_enc = encounter_time_s(profile.dens_km2(cluster.lat), swath1, v_scan)
-        recovered = recovered_s(leftover, t_enc)
-        t1_eff[i] = min(b_t, a_t + recovered)
-    lost = t2 - t1
-    lost_eff = t2 - t1_eff
+        _reset, _e1, _e2, r1, r2 = hunt_at_lat(
+            cluster.lat, profile.dens_km2(cluster.lat), optics, orbit
+        )
+        reacq1[i] = r1
+        reacq2[i] = r2
+        cyc1[i] = cycle_s(a_t, r1)
+        cyc2[i] = cycle_s(b_t, r2)
+    lost_same = t2 - t1
+    duty1 = np.divide(t1, cyc1, out=np.zeros_like(t1), where=np.isfinite(cyc1) & (cyc1 > 0))
+    duty2 = np.divide(t2, cyc2, out=np.zeros_like(t2), where=np.isfinite(cyc2) & (cyc2 > 0))
     re_km = orbit.earth_radius_km(0.0)
     n_rev = TLE.mean_motion_rev_per_day
     h_local = np.array([orbit.local_altitude_km(abs(c.lat)) for c in iss])
@@ -254,7 +278,12 @@ def expected_from_clusters(
     dwell = np.array([iss_dwell_weight(c.lat) for c in iss])
     high = np.abs(lats) >= 45.0
     world_w = sum(_weight_of(c, weight) for c in clusters)
+    e_t1 = weighted_mean(t1, w)
     e_t2 = weighted_mean(t2, w)
+    e_reacq1 = weighted_mean_finite(reacq1, w)
+    e_reacq2 = weighted_mean_finite(reacq2, w)
+    e_cyc1 = weighted_mean_finite(cyc1, w)
+    e_cyc2 = weighted_mean_finite(cyc2, w)
     return {
         "n_clusters": float(len(iss)),
         "weight_sum": float(np.sum(w)),
@@ -262,16 +291,20 @@ def expected_from_clusters(
         "frac_lat_ge_45": float(np.sum(w[high]) / max(1e-12, np.sum(w))),
         "mean_r_km": weighted_mean(rs, w),
         "mean_n": weighted_mean(np.array([float(c.n) for c in iss]), w),
-        "e_t1": weighted_mean(t1, w),
+        "e_t1": e_t1,
         "e_t2": e_t2,
-        "e_lost": weighted_mean(lost, w),
-        "e_lost_pct": 100.0 * weighted_mean(lost, w) / max(1e-12, e_t2),
-        "e_t1_reacq": weighted_mean(t1_eff, w),
-        "e_lost_reacq": weighted_mean(lost_eff, w),
-        "e_lost_reacq_pct": 100.0 * weighted_mean(lost_eff, w) / max(1e-12, e_t2),
+        "e_lost_same": weighted_mean(lost_same, w),
+        "e_lost_same_pct": 100.0 * weighted_mean(lost_same, w) / max(1e-12, e_t2),
+        "e_reacq1": e_reacq1,
+        "e_reacq2": e_reacq2,
+        "e_cycle1": e_cyc1,
+        "e_cycle2": e_cyc2,
+        "e_duty1": weighted_mean(duty1, w),
+        "e_duty2": weighted_mean(duty2, w),
+        "t_reset_s": t_reset,
         "e_t1_dwell": weighted_mean(t1, w * dwell),
         "e_t2_dwell": weighted_mean(t2, w * dwell),
-        "e_lost_dwell": weighted_mean(lost, w * dwell),
+        "e_lost_dwell": weighted_mean(lost_same, w * dwell),
         "e_yield1": weighted_mean(t1 * cov1, w),
         "e_yield2": weighted_mean(t2 * cov2, w),
         "mean_cov1": weighted_mean(cov1, w),
@@ -296,6 +329,7 @@ def run_industry() -> None:
         plot_map,
         plot_r_hist,
         plot_r_vs_lat,
+        plot_reacquire_vs_lat,
     )
     from analysis.studies.single_axis_vs_dual_axis_gimbal.report import (
         write_industry_report,
@@ -362,6 +396,10 @@ def run_industry() -> None:
     t1_bin = np.zeros(edges.size - 1)
     t2_bin = np.zeros(edges.size - 1)
     r_bin = np.zeros(edges.size - 1)
+    reacq1_bin = np.zeros(edges.size - 1)
+    reacq2_bin = np.zeros(edges.size - 1)
+    cyc1_bin = np.zeros(edges.size - 1)
+    cyc2_bin = np.zeros(edges.size - 1)
     for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
         mid = 0.5 * (lo + hi)
         if abs(mid) > orbit.inclination_deg:
@@ -369,6 +407,11 @@ def run_industry() -> None:
         radius = profile.r_km(mid)
         r_bin[i] = radius
         t1_bin[i], t2_bin[i], _ = fn.eval(mid, radius)
+        _reset, _e1, _e2, reacq1_bin[i], reacq2_bin[i] = hunt_at_lat(
+            mid, profile.dens_km2(mid), optics, orbit
+        )
+        cyc1_bin[i] = cycle_s(t1_bin[i], reacq1_bin[i])
+        cyc2_bin[i] = cycle_s(t2_bin[i], reacq2_bin[i])
 
     weights: tuple[Weight, ...] = ("area", "stacks", "emissions")
     exp: dict[str, dict[str, float]] = {}
@@ -376,26 +419,40 @@ def run_industry() -> None:
         exp[key] = expected_from_clusters(clusters, fn, optics, orbit, key, profile, omega_img)
     for weight_name, summary in exp.items():
         print(
-            f"{weight_name:10s}  E[T1]={summary['e_t1']:.1f}s  E[T2]={summary['e_t2']:.1f}s  "
-            f"lost={summary['e_lost']:.1f}s ({summary['e_lost_pct']:.1f}%)  "
-            f"reacq T1={summary['e_t1_reacq']:.1f}s  "
+            f"{weight_name:10s}  dwell T1={summary['e_t1']:.1f}s T2={summary['e_t2']:.1f}s  "
+            f"reacq 1={summary['e_reacq1']:.1f}s 2={summary['e_reacq2']:.1f}s  "
+            f"cycle 1={summary['e_cycle1']:.1f}s 2={summary['e_cycle2']:.1f}s  "
             f"|lat|>=45 {100 * summary['frac_lat_ge_45']:.1f}%"
         )
 
     plot_lat_hist(edges, h_area, h_stacks, h_em, h_gppd, OUT_DIR / "industrial_lat_hist.png")
     plot_expected_vs_lat(edges, t1_bin, t2_bin, h_stacks, OUT_DIR / "industrial_time_vs_lat.png")
+    plot_reacquire_vs_lat(
+        edges,
+        t1_bin,
+        t2_bin,
+        reacq1_bin,
+        reacq2_bin,
+        h_stacks,
+        OUT_DIR / "industrial_reacquire_vs_lat.png",
+    )
     plot_folded(clusters, fn, profile, OUT_DIR / "industrial_lat_folded.png")
     plot_r_hist(clusters, OUT_DIR / "industrial_cluster_radius.png")
     plot_r_vs_lat(profile, OUT_DIR / "industrial_r_vs_lat.png")
     plot_map(clusters, OUT_DIR / "industrial_cluster_map.png")
 
     with (OUT_DIR / "industrial_lat_hist.csv").open("w", encoding="utf-8") as fh:
-        fh.write("lat_lo,lat_hi,lat_mid,area_km2,n_stacks,emissions_t,r_km,one_axis_s,two_axis_s\n")
+        fh.write(
+            "lat_lo,lat_hi,lat_mid,area_km2,n_stacks,emissions_t,r_km,"
+            "one_axis_s,two_axis_s,reacq1_s,reacq2_s,cycle1_s,cycle2_s\n"
+        )
         for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
             mid = 0.5 * (lo + hi)
             fh.write(
                 f"{lo:.1f},{hi:.1f},{mid:.1f},{h_area[i]:.4f},{h_stacks[i]:.4f},"
-                f"{h_em[i]:.4f},{r_bin[i]:.3f},{t1_bin[i]:.3f},{t2_bin[i]:.3f}\n"
+                f"{h_em[i]:.4f},{r_bin[i]:.3f},{t1_bin[i]:.3f},{t2_bin[i]:.3f},"
+                f"{reacq1_bin[i]:.3f},{reacq2_bin[i]:.3f},"
+                f"{cyc1_bin[i]:.3f},{cyc2_bin[i]:.3f}\n"
             )
     with (OUT_DIR / "r_vs_lat.csv").open("w", encoding="utf-8") as fh:
         fh.write(

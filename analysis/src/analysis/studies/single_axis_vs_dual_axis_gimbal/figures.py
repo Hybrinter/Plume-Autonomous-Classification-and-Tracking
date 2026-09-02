@@ -8,7 +8,7 @@ Contains:
   - plot_along_track, plot_disk_angle, plot_time_vs_radius, plot_lost_time.
   - plot_footprint, plot_offset_map, plot_required_az, plot_latitude.
   - plot_lat_hist, plot_folded, plot_expected_vs_lat, plot_r_hist, plot_map.
-  - plot_r_vs_lat.
+  - plot_r_vs_lat, plot_reacquire_vs_lat.
 """
 
 from __future__ import annotations
@@ -433,9 +433,9 @@ def plot_folded(
     ax.plot(centres, t2, color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis, R(|lat|)")
     ax.plot(centres, t1, color=C_RED, lw=2, marker="^", ms=3, label="1-axis, R(|lat|)")
     ax.set_xlabel("|latitude| (deg)")
-    ax.set_ylabel("tracking time (s)")
+    ax.set_ylabel("single-target dwell (s)")
     ax2.set_ylabel("ISS-belt stack fraction (%)")
-    ax.set_title("Folded latitude: stack mass vs tracking time at R(|lat|)")
+    ax.set_title("Folded latitude: stack mass vs single-target dwell at R(|lat|)")
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
     ax.legend(h1 + h2, l1 + l2, loc="center right", fontsize=8)
@@ -473,12 +473,82 @@ def plot_expected_vs_lat(
     ax.axvline(iss_i, color=C_RED, ls="--", lw=1)
     ax.axvline(-iss_i, color=C_RED, ls="--", lw=1)
     ax.set_xlabel("latitude (deg)")
-    ax.set_ylabel("mean tracking time (s)")
+    ax.set_ylabel("single-target dwell (s)")
     ax2.set_ylabel("stack-bearing sources in bin")
-    ax.set_title("Tracking time vs latitude at R(|lat|), with stack mass")
+    ax.set_title("Single-target dwell vs latitude at R(|lat|)")
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
     ax.legend(h1 + h2, l1 + l2, loc="upper right", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def plot_reacquire_vs_lat(
+    edges: np.ndarray,
+    t1: np.ndarray,
+    t2: np.ndarray,
+    reacq1: np.ndarray,
+    reacq2: np.ndarray,
+    w: np.ndarray,
+    path: Path,
+) -> None:
+    """Write single-target dwell, reacquire, and cycle time vs latitude.
+
+    Cycle time is dwell plus reacquire: start of tracking one target until
+    the next target is acquired. Lost time is reacquire for each gimbal.
+
+    Args:
+        edges: Bin edges in degrees.
+        t1: One-axis single-target dwell at bin midpoints.
+        t2: Two-axis single-target dwell at bin midpoints.
+        reacq1: One-axis mean reacquire time.
+        reacq2: Two-axis mean reacquire time.
+        w: Stack counts per bin.
+        path: Output PNG path.
+
+    Returns:
+        None.
+    """
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    iss_i = TLE.inclination_deg
+    iss = np.abs(centres) <= iss_i + 0.05
+    cyc1 = t1 + reacq1
+    cyc2 = t2 + reacq2
+    fig, axes = plt.subplots(3, 1, figsize=(8.5, 10.2), sharex=True)
+
+    axes[0].plot(centres[iss], t2[iss], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis dwell")
+    axes[0].plot(centres[iss], t1[iss], color=C_RED, lw=2, marker="^", ms=3, label="1-axis dwell")
+    axes[0].set_ylabel("single-target dwell (s)")
+    axes[0].set_title("How long one cluster stays in frame")
+    axes[0].legend(loc="center right", fontsize=8)
+
+    axes[1].plot(
+        centres[iss], reacq2[iss], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis T_reacq"
+    )
+    axes[1].plot(
+        centres[iss], reacq1[iss], color=C_RED, lw=2, marker="^", ms=3, label="1-axis T_reacq"
+    )
+    axes[1].set_ylabel("mean reacquire (s)")
+    axes[1].set_title("Lost time: slew to window start, then wait for the next cluster")
+    axes[1].legend(loc="upper right", fontsize=8)
+
+    axes[2].plot(
+        centres[iss], cyc2[iss], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis cycle"
+    )
+    axes[2].plot(centres[iss], cyc1[iss], color=C_RED, lw=2, marker="^", ms=3, label="1-axis cycle")
+    ax2 = axes[2].twinx()
+    ax2.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
+    axes[2].axvline(iss_i, color=C_RED, ls="--", lw=1)
+    axes[2].axvline(-iss_i, color=C_RED, ls="--", lw=1)
+    axes[2].set_ylabel("cycle T_dwell + T_reacq (s)")
+    ax2.set_ylabel("stack-bearing sources in bin")
+    axes[2].set_xlabel("latitude (deg)")
+    axes[2].set_title("Start of tracking to reacquire of the next target")
+    h1, l1 = axes[2].get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    axes[2].legend(h1 + h2, l1 + l2, loc="upper right", fontsize=8)
+
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)

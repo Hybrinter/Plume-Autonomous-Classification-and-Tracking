@@ -41,8 +41,8 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import Cluster
 from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import (
     LatBandRow,
     RadiusProfile,
-    encounter_time_s,
-    recovered_s,
+    cycle_s,
+    hunt_at_lat,
 )
 
 if TYPE_CHECKING:
@@ -93,11 +93,14 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
             "  **band-plane** gate (current imaging gate). Hardware cap",
             f"  **{MAX_HW_SLEW_DEG_S:.0f} deg/s** is not for science frames. SIL",
             "  `ifov=0.02` is not this optic.",
-            "- **Reacquire** starts when leftover window opens (hunt during slew).",
-            "  Do not wait until elevation is back at 30 deg. One-axis hunt is",
-            "  elevation-only (FOV ribbon). Two-axis hunt would use the gimbal box.",
-            "  Mean encounter is Poisson / mean-spacing, ocean-averaged in a lat band,",
-            "  conditional on the ISS belt -- not a city-corridor nearest neighbour.",
+            "- **Reacquire.** After a target leaves the frame both gimbals slew",
+            "  to the elevation-window start (hardware cap, not science frames)",
+            "  and wait for the next cluster. One-axis search is the FOV ribbon;",
+            "  two-axis search is the gimbal box. Lost time is mean reacquire.",
+            "  Cycle time is single-target dwell plus reacquire (start of tracking",
+            "  until the next target is acquired). Mean encounter is Poisson /",
+            "  mean-spacing, ocean-averaged in a lat band, conditional on the ISS",
+            "  belt -- not a city-corridor nearest neighbour.",
         ]
     )
     return lines
@@ -107,31 +110,33 @@ def _band_times(
     fn: TimeLostFn,
     row: LatBandRow,
     optics: Optics,
-    omega_img: float,
     orbit: Orbit,
-) -> tuple[float, float, float, float, float]:
-    """Return T1, T2, T1_eff, ribbon encounter, box encounter for one lat band.
+) -> tuple[float, float, float, float, float, float, float, float]:
+    """Return dwell, reacquire, cycle, and encounter times for one lat band.
 
     Args:
         fn: Tracking-time interpolator.
         row: Folded |lat| stats, including mean R and cluster density.
         optics: Usable sensor FOV.
-        omega_img: Imaging rewind cap in degrees per second.
         orbit: Circular ISS orbit.
 
     Returns:
-        (t1, t2, t1_eff, t_enc_ribbon, t_enc_box) in seconds.
+        (t1, t2, t_reacq1, t_reacq2, t_cycle1, t_cycle2, t_enc1, t_enc2).
     """
     t1, t2, _lost = fn.eval(row.lat_mid, row.mean_r_km)
-    leftover = t2 - t1
-    h_km = orbit.local_altitude_km(row.lat_mid)
-    swath1 = 2.0 * h_km * math.tan(math.radians(optics.half_az_deg))
-    swath2 = 2.0 * h_km * math.tan(math.radians(GIMBAL_BOX.az_box_deg))
-    v_scan = h_km * math.radians(omega_img)
-    t_enc1 = encounter_time_s(row.dens_per_km2, swath1, v_scan)
-    t_enc2 = encounter_time_s(row.dens_per_km2, swath2, v_scan)
-    t1_eff = min(t2, t1 + recovered_s(leftover, t_enc1))
-    return t1, t2, t1_eff, t_enc1, t_enc2
+    _t_reset, t_enc1, t_enc2, t_reacq1, t_reacq2 = hunt_at_lat(
+        row.lat_mid, row.dens_per_km2, optics, orbit
+    )
+    return (
+        t1,
+        t2,
+        t_reacq1,
+        t_reacq2,
+        cycle_s(t1, t_reacq1),
+        cycle_s(t2, t_reacq2),
+        t_enc1,
+        t_enc2,
+    )
 
 
 def _fmt_enc(t_s: float) -> str:
@@ -400,7 +405,8 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("   tens of seconds, worse for larger R(|lat|). Use two-axis for those")
     a("   passes, or do not work them. See `INDUSTRIAL.md` for T vs R(|lat|).")
     a("4. If two plants are farther apart than ~24 km, they are two clusters.")
-    a("   Track one. Leftover one-axis time hunts immediately at omega_img.")
+    a("   Track one. After it leaves the frame, slew to the window start")
+    a("   and wait for the next cluster (see `INDUSTRIAL.md` for T_reacq).")
     a("5. Worldwide stack inventory (Climate TRACE 2025) is in")
     a("   `INDUSTRIAL.md`.")
     a("")
@@ -569,47 +575,50 @@ def write_industry_report(
     p("")
     p("Fine 2 deg bins: `outputs/r_vs_lat.csv`.")
     p("")
-    p("### Tracking time at R(|lat|), with leftover hunt")
+    p("### Single-target dwell and reacquire at R(|lat|)")
     p("")
-    p("T1 / T2 use each band's stack-weighted mean R, not a locked 5 km.")
-    p("Leftover = T2 - T1 is front-loaded at low latitude. Hunt starts")
-    p("immediately at omega_img (no 30 deg reset). Mean encounter uses")
-    p("band cluster density x 1-axis ribbon swath x (h x omega_img).")
-    p("T1_eff = min(T2, T1 + max(0, leftover - t_enc)). Two-axis leftover")
-    p("hunt would use the +/-10 deg box (~6x wider); 2-axis is still on")
-    p("the original origin during leftover, so T1_eff is a 1-axis recovery.")
-    p("")
-    p(
-        "| |lat| (deg) | R (km) | 1-axis (s) | 2-axis (s) | T1_eff (s) | "
-        "lost % | lost % reacq | t_enc ribbon (s) | t_enc box (s) |"
-    )
-    p("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-    for row in folded:
-        t1, t2, t1_eff, t_enc1, t_enc2 = _band_times(fn, row, optics, omega_img, orbit)
-        lost_pct = 0.0 if t2 <= 0 else 100.0 * (t2 - t1) / t2
-        lost_eff = 0.0 if t2 <= 0 else 100.0 * (t2 - t1_eff) / t2
-        p(
-            f"| {row.lat_lo:.0f}-{row.lat_hi:.1f} | {row.mean_r_km:.2f} | "
-            f"{t1:.1f} | {t2:.1f} | {t1_eff:.1f} | {lost_pct:.0f}% | "
-            f"{lost_eff:.0f}% | {_fmt_enc(t_enc1)} | {_fmt_enc(t_enc2)} |"
-        )
-    p("")
-    p(f"Imaging rewind used here: **{omega_img:.2f} deg/s** (current imaging gate).")
-    p("")
-    p("## Expected tracking time (ISS-belt clusters, nadir-centered pass)")
-    p("")
-    p("For each cluster, `time_lost(|lat|, R)` uses that cluster's own")
-    p("`r_cover_km` and the same one-sided 90->30 deg window, Earth rotation,")
-    p("and hard gimbal stop as the geometry command. A pass is assumed over")
-    p("the cluster origin (best-case). Off-track origins are a separate loss,")
-    p("captured in the swath column. Reacquire columns hunt during leftover")
-    p("at omega_img along the 1-axis ribbon.")
+    p("T1 / T2 are how long **one** cluster stays in frame, using each")
+    p("band's stack-weighted mean R. After that target leaves, both")
+    p("gimbals slew to the 90 deg window start at the hardware cap, then")
+    p("wait for the next cluster to fly into the search swath at ISS")
+    p("ground-track speed. 1-axis swath is the FOV ribbon; 2-axis is the")
+    p("+/-10 deg box. Lost time is T_reacq = t_reset + t_enc. Cycle time")
+    p("is dwell plus reacquire: start of tracking until the next acquire.")
+    p("Same-origin leftover T2-T1 is not the lost-time metric.")
     p("")
     p(
-        "| weight | E[T 1-axis] (s) | E[T 2-axis] (s) | E[lost] (s) | lost % | "
-        "E[T1_eff] (s) | lost % reacq | weight at |lat|>=45 |"
+        "| |lat| (deg) | R (km) | dwell 1 (s) | dwell 2 (s) | "
+        "T_reacq 1 (s) | T_reacq 2 (s) | cycle 1 (s) | cycle 2 (s) |"
     )
     p("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for row in folded:
+        t1, t2, r1, r2, c1, c2, _e1, _e2 = _band_times(fn, row, optics, orbit)
+        p(
+            f"| {row.lat_lo:.0f}-{row.lat_hi:.1f} | {row.mean_r_km:.2f} | "
+            f"{t1:.1f} | {t2:.1f} | {_fmt_enc(r1)} | {_fmt_enc(r2)} | "
+            f"{_fmt_enc(c1)} | {_fmt_enc(c2)} |"
+        )
+    p("")
+    p(
+        f"Reset to window start is **{exp['stacks']['t_reset_s']:.1f} s** "
+        f"at the {MAX_HW_SLEW_DEG_S:.0f} deg/s hardware cap. Imaging rewind "
+        f"({omega_img:.2f} deg/s) is the science-frame gate during dwell, "
+        "not the reset slew."
+    )
+    p("")
+    p("## Expected times (ISS-belt clusters)")
+    p("")
+    p("For each cluster, single-target dwell uses that cluster's own")
+    p("`r_cover_km` and the same one-sided 90->30 deg window as the")
+    p("geometry command. Reacquire uses lat-binned ocean-averaged cluster")
+    p("density. A pass is assumed over the cluster origin for dwell;")
+    p("off-track origins are a separate loss in the swath column.")
+    p("")
+    p(
+        "| weight | dwell 1 (s) | dwell 2 (s) | T_reacq 1 (s) | T_reacq 2 (s) | "
+        "cycle 1 (s) | cycle 2 (s) | duty 1 | duty 2 |"
+    )
+    p("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for key, label in (
         ("stacks", "**stack count (primary)**"),
         ("emissions", "2025 CO2"),
@@ -617,21 +626,24 @@ def write_industry_report(
     ):
         e = exp[key]
         p(
-            f"| {label} | {e['e_t1']:.1f} | {e['e_t2']:.1f} | {e['e_lost']:.1f} | "
-            f"{e['e_lost_pct']:.1f}% | {e['e_t1_reacq']:.1f} | "
-            f"{e['e_lost_reacq_pct']:.1f}% | {100.0 * e['frac_lat_ge_45']:.1f}% |"
+            f"| {label} | {e['e_t1']:.1f} | {e['e_t2']:.1f} | "
+            f"{e['e_reacq1']:.1f} | {e['e_reacq2']:.1f} | "
+            f"{e['e_cycle1']:.1f} | {e['e_cycle2']:.1f} | "
+            f"{100.0 * e['e_duty1']:.0f}% | {100.0 * e['e_duty2']:.0f}% |"
         )
     p("")
     e = exp["stacks"]
-    p("ISS dwell (more time near +/-i) does not change the story:")
+    p("ISS dwell (more time near +/-i) does not change single-target dwell:")
     p(
-        f"stacks + dwell -> E[lost] = **{e['e_lost_dwell']:.1f} s** "
-        f"({e['e_t1_dwell']:.1f} vs {e['e_t2_dwell']:.1f})."
+        f"stacks + dwell -> **{e['e_t1_dwell']:.1f} vs {e['e_t2_dwell']:.1f} s** "
+        f"(same-origin leftover {e['e_lost_dwell']:.1f} s)."
     )
     p(
-        f"Leftover hunt at {omega_img:.2f} deg/s raises stack-weighted T1 from "
-        f"{e['e_t1']:.1f} s to **{e['e_t1_reacq']:.1f} s** "
-        f"(lost {e['e_lost_reacq']:.1f} s, {e['e_lost_reacq_pct']:.1f}%)."
+        f"Lost time is reacquire: **{e['e_reacq1']:.0f} s (1-axis) vs "
+        f"{e['e_reacq2']:.0f} s (2-axis)**. Cycle (start of track to next "
+        f"acquire) is **{e['e_cycle1']:.0f} s vs {e['e_cycle2']:.0f} s**. "
+        f"Duty T_dwell / cycle is **{100.0 * e['e_duty1']:.0f}% vs "
+        f"{100.0 * e['e_duty2']:.0f}%**."
     )
     p("Ocean-averaged lat-band density makes encounter times long; city")
     p("corridors would reacquire faster. This is not a nearest-neighbour")
@@ -663,39 +675,46 @@ def write_industry_report(
     p("")
     p("## Decision numbers")
     p("")
-    p("1. **Along-track, given a pass over the origin:** stack-weighted expected")
-    p(f"   loss is **{e['e_lost']:.0f} s of {e['e_t2']:.0f} s** ({e['e_lost_pct']:.0f}%).")
-    p("   Almost all of that is the 20-40 N band (China, US, Med, India,")
-    p("   Japan/Korea), where Earth rotation walks the covering disk out at")
-    p("   the 30 deg stop. Immediate leftover hunt at the imaging rewind cap")
+    p(f"1. **Single-target dwell:** stack-weighted **{e['e_t1']:.0f} s vs {e['e_t2']:.0f} s**.")
+    p("   Almost all of the same-origin gap is the 20-40 N band, where Earth")
+    p("   rotation walks the covering disk out of the 1-axis chip. That")
+    p("   number is still the right 'how long can we stare at one plant'")
+    p("   metric. Only ~10% of stacks sit at |lat| >= 45 deg.")
+    p("2. **Lost time is reacquire, both gimbals:** after the target leaves,")
+    p("   slew to the window start and wait for the next cluster. Stack-")
     p(
-        f"   recovers that to **{e['e_lost_reacq']:.0f} s lost** "
-        f"({e['e_lost_reacq_pct']:.0f}%) in this ocean-averaged model."
+        f"   weighted E[T_reacq] is **{e['e_reacq1']:.0f} s (1-axis ribbon) vs "
+        f"{e['e_reacq2']:.0f} s (2-axis box)**."
     )
-    p("   Only ~10% of stacks sit at |lat| >= 45 deg.")
-    p("2. **Lateral, whether we acquire at all:** 2-axis covers ~6x more")
-    p("   industrial area per day. One axis only works plants that sit under")
-    p("   the 24 km ground-track ribbon. Combined with shorter tracking time,")
+    p("   Cycle start-of-track to next-acquire is")
     p(
-        f"   the yield proxy E[T x coverage] is "
+        f"   **{e['e_cycle1']:.0f} s vs {e['e_cycle2']:.0f} s** "
+        f"(duty {100.0 * e['e_duty1']:.0f}% vs {100.0 * e['e_duty2']:.0f}%)."
+    )
+    p("3. **Lateral, whether we acquire at all:** 2-axis covers ~6x more")
+    p("   industrial area per day. One axis only works plants that sit under")
+    p("   the 24 km ground-track ribbon. Combined with shorter dwell,")
+    p(
+        f"   the yield proxy E[T_dwell x coverage] is "
         f"**{e['e_yield2'] / max(1e-12, e['e_yield1']):.1f}x** higher with two axes."
     )
-    p("3. A polar-slice one-axis payload that is only tasked at |lat| >= 45 deg")
-    p("   keeps the 124 s window, but it is looking at ~10% of the world's")
+    p("4. A polar-slice one-axis payload that is only tasked at |lat| >= 45 deg")
+    p("   keeps the 124 s dwell, but it is looking at ~10% of the world's")
     p("   stack-bearing industry. If the mission must work the 20-40 N")
-    p("   belt, 2-axis is required for the elevation window, not just swath.")
+    p("   belt, 2-axis is required for dwell *and* for faster reacquire.")
     p("")
     p("## Figures")
     p("")
     p("- `outputs/industrial_lat_hist.png`")
     p("- `outputs/industrial_lat_folded.png`")
-    p("- `outputs/industrial_time_vs_lat.png`")
+    p("- `outputs/industrial_time_vs_lat.png` -- single-target dwell")
+    p("- `outputs/industrial_reacquire_vs_lat.png` -- dwell, T_reacq, cycle")
     p("- `outputs/industrial_cluster_radius.png`")
     p("- `outputs/industrial_r_vs_lat.png`")
     p("- `outputs/industrial_cluster_map.png`")
     p("- `outputs/industrial_lat_hist.csv`, `outputs/industrial_clusters.csv`")
     p("- `outputs/r_vs_lat.csv` -- D(|lat|), R(|lat|), singleton fraction")
-    p("- `outputs/expected_tracking.csv` -- includes T1_eff / lost-reacq columns")
+    p("- `outputs/expected_tracking.csv` -- dwell, T_reacq, cycle, duty")
     p("- `outputs/time_lost_grid.csv` -- the `time_lost(|lat|, R)` table")
     p("")
     p("```text")
@@ -778,17 +797,15 @@ def write_study_readme(
     a(f"| ISS-belt stack fraction | {100.0 * e['frac_iss_of_world']:.1f}% |")
     a(f"| Stack-weighted mean R | {e['mean_r_km']:.2f} km (inventory, not design) |")
     a(f"| Stacks at |lat| >= 45 deg | **{100.0 * e['frac_lat_ge_45']:.0f}%** |")
+    a(f"| Single-target dwell, stack-weighted | **{e['e_t1']:.0f} s vs {e['e_t2']:.0f} s** |")
+    a(f"| Mean reacquire (lost time) | **{e['e_reacq1']:.0f} s vs {e['e_reacq2']:.0f} s** |")
     a(
-        f"| E[T 1-axis] vs 2-axis, stack-weighted | "
-        f"**{e['e_t1']:.0f} s vs {e['e_t2']:.0f} s ({e['e_lost_pct']:.0f}% lost)** |"
+        f"| Cycle start-of-track to next acquire | "
+        f"**{e['e_cycle1']:.0f} s vs {e['e_cycle2']:.0f} s** "
+        f"(duty {100.0 * e['e_duty1']:.0f}% vs {100.0 * e['e_duty2']:.0f}%) |"
     )
     a(
-        f"| After leftover hunt at omega_img | "
-        f"**{e['e_t1_reacq']:.0f} s vs {e['e_t2']:.0f} s "
-        f"({e['e_lost_reacq_pct']:.0f}% lost)** |"
-    )
-    a(
-        f"| Daily in-swath yield (T x coverage) | "
+        f"| Daily in-swath yield (dwell x coverage) | "
         f"**~{e['e_yield2'] / max(1e-12, e['e_yield1']):.0f}x** in favour of 2-axis |"
     )
     a("")
@@ -804,7 +821,8 @@ def write_study_readme(
     a("Most stacks sit at 20-40 N. A polar-slice one-axis view keeps the")
     a(f"{times.along_track_s:.0f} s window but sees only ~10% of the industry.")
     a("Working the mid-latitude belt needs the azimuth axis for Earth-rotation")
-    a("walk, not just for swath. Leftover hunt during the slew recovers some")
-    a("one-axis time only if another cluster sits on the FOV ribbon.")
+    a("walk, not just for swath. After a target leaves the frame both gimbals")
+    a("reset to the window start; lost time is mean wait for the next cluster.")
+    a("See `outputs/industrial_reacquire_vs_lat.png`.")
     a("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

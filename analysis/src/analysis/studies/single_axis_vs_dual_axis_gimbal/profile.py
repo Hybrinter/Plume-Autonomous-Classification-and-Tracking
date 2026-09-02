@@ -1,12 +1,15 @@
 """Latitude-binned plant span, covering radius, and hunt encounter rates.
 
 Stack-weighted D(|lat|) comes from Climate TRACE clusters. Covering radius
-is R = D + PLUME_R_KM. Linear density along a swath sets mean time to the
-next cluster during an imaging-gated rewind.
+is R = D + PLUME_R_KM. After a target leaves the frame the gimbal slews to
+the elevation-window start and waits for the next cluster in the search
+swath. Mean reacquire time is reset plus encounter; cycle time is single-
+target dwell plus reacquire.
 
 Contains:
   - LatBandRow / RadiusProfile.
-  - build_radius_profile / folded_band_rows / recovered_s.
+  - build_radius_profile / folded_band_rows.
+  - encounter_time_s / reacquire_s / cycle_s / ground_speed_km_s / hunt_at_lat.
 """
 
 from __future__ import annotations
@@ -17,9 +20,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from analysis.lib.constants import MEAN_EARTH_RADIUS_KM
+from analysis.lib.optics import Optics
+from analysis.lib.orbit import Orbit
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     FOLDED_LAT_BANDS,
+    GIMBAL_BOX,
     LAT_BIN_DEG,
+    MAX_HW_SLEW_DEG_S,
     PLUME_R_KM,
     TLE,
 )
@@ -255,22 +262,20 @@ def folded_band_rows(clusters: list[Cluster]) -> list[LatBandRow]:
     return out
 
 
-def recovered_s(leftover_s: float, t_enc_s: float) -> float:
-    """Return leftover window after mean time-to-next-cluster.
+def ground_speed_km_s(orbit: Orbit, lat_deg: float) -> float:
+    """Return ISS ground-track speed at ``lat_deg``.
 
-    Hunt starts immediately at the imaging rewind cap. Recovered time is
-    leftover minus mean encounter time, floored at 0.
+    Circular inertial speed scaled by Earth radius over ISS radius.
 
     Args:
-        leftover_s: Two-axis minus one-axis time in seconds.
-        t_enc_s: Mean along-track encounter time in seconds.
+        orbit: Circular ISS orbit.
+        lat_deg: Geocentric latitude in degrees.
 
     Returns:
-        Non-negative recovered seconds.
+        Ground-track speed in km/s.
     """
-    if leftover_s <= 0.0 or not math.isfinite(t_enc_s) or t_enc_s <= 0.0:
-        return 0.0
-    return max(0.0, leftover_s - t_enc_s)
+    re_km = orbit.earth_radius_km(lat_deg)
+    return orbit.v_km_s * re_km / orbit.radius_km
 
 
 def encounter_time_s(dens_per_km2: float, swath_km: float, v_scan_km_s: float) -> float:
@@ -288,3 +293,79 @@ def encounter_time_s(dens_per_km2: float, swath_km: float, v_scan_km_s: float) -
     if rate <= 0.0:
         return math.inf
     return 1.0 / rate
+
+
+def reacquire_s(t_reset_s: float, t_enc_s: float) -> float:
+    """Return mean time from loss of one target to acquire of the next.
+
+    After a target leaves the frame the gimbal slews to the elevation-window
+    start, then waits for the next cluster to enter the search swath.
+
+    Args:
+        t_reset_s: Slew time back to the window start, seconds.
+        t_enc_s: Mean along-track encounter time in seconds.
+
+    Returns:
+        t_reset_s + t_enc_s, or inf if either is not finite.
+    """
+    if not math.isfinite(t_reset_s) or not math.isfinite(t_enc_s):
+        return math.inf
+    if t_reset_s < 0.0 or t_enc_s < 0.0:
+        return math.inf
+    return t_reset_s + t_enc_s
+
+
+def cycle_s(t_track_s: float, t_reacq_s: float) -> float:
+    """Return time from start of tracking to reacquire of the next target.
+
+    Args:
+        t_track_s: Single-target in-frame dwell in seconds.
+        t_reacq_s: Mean reacquire time in seconds.
+
+    Returns:
+        t_track_s + t_reacq_s, or inf if reacquire is not finite.
+    """
+    if not math.isfinite(t_reacq_s):
+        return math.inf
+    return t_track_s + t_reacq_s
+
+
+def reset_to_start_s() -> float:
+    """Return hardware slew time from the 30 deg stop back to nadir start.
+
+    Returns:
+        Reset seconds at MAX_HW_SLEW_DEG_S.
+    """
+    span = GIMBAL_BOX.el_nadir_deg - GIMBAL_BOX.el_limb_deg
+    return span / MAX_HW_SLEW_DEG_S
+
+
+def hunt_at_lat(
+    lat_deg: float,
+    dens_per_km2: float,
+    optics: Optics,
+    orbit: Orbit,
+) -> tuple[float, float, float, float, float]:
+    """Return reset and reacquire times at one latitude.
+
+    After loss the gimbal slews to the elevation-window start (hardware
+    cap). Mean wait for the next cluster uses ISS ground-track speed
+    through the 1-axis FOV ribbon or the 2-axis gimbal box.
+
+    Args:
+        lat_deg: Geocentric latitude in degrees.
+        dens_per_km2: Cluster density per square kilometre.
+        optics: Usable sensor FOV.
+        orbit: Circular ISS orbit.
+
+    Returns:
+        (t_reset, t_enc_1axis, t_enc_2axis, t_reacq_1axis, t_reacq_2axis).
+    """
+    t_reset = reset_to_start_s()
+    h_km = orbit.local_altitude_km(abs(lat_deg))
+    swath1 = 2.0 * h_km * math.tan(math.radians(optics.half_az_deg))
+    swath2 = 2.0 * h_km * math.tan(math.radians(GIMBAL_BOX.az_box_deg))
+    v_g = ground_speed_km_s(orbit, lat_deg)
+    t_enc1 = encounter_time_s(dens_per_km2, swath1, v_g)
+    t_enc2 = encounter_time_s(dens_per_km2, swath2, v_g)
+    return t_reset, t_enc1, t_enc2, reacquire_s(t_reset, t_enc1), reacquire_s(t_reset, t_enc2)

@@ -265,8 +265,8 @@ class TimeLostFn:
                     t1[i, j] = mask_time_s(one, origin.t)
                     t2[i, j] = mask_time_s(two, origin.t)
                 if verbose:
-                    t1_r5 = float(np.interp(5.0, self.rs, t1[i]))
-                    print(f"  lat {lat:6.2f}  T1(R=5)={t1_r5:6.1f}s  T2={t2[i, 0]:6.1f}s")
+                    t1_lo = float(t1[i, 0])
+                    print(f"  lat {lat:6.2f}  T1(Rmin)={t1_lo:6.1f}s  T2={t2[i, 0]:6.1f}s")
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             np.savez(cache_path, lats=self.lats, rs=self.rs, t1=t1, t2=t2)
         self._t1 = RegularGridInterpolator(

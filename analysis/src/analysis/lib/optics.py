@@ -49,7 +49,8 @@ class Optics:
         fov_el_raw_deg: Thin-lens elevation FOV before distortion shrink.
         fov_az_deg: Usable azimuth FOV after distortion shrink.
         fov_el_deg: Usable elevation FOV after distortion shrink.
-        ifov_deg: Instantaneous FOV per pixel, degrees.
+        ifov_deg: Instantaneous FOV per mosaic pixel, degrees.
+        ifov_band_deg: IFOV per 2x2 band-plane pixel (property, 2 * ifov_deg).
         sensor_width_mm: Active width (lateral).
         sensor_height_mm: Active height (along-track).
         datasheet_hfov_deg: Published 2/3-inch HFOV (not the camera FOV).
@@ -75,6 +76,15 @@ class Optics:
     def half_el_deg(self) -> float:
         """Return half the usable elevation FOV in degrees."""
         return 0.5 * self.fov_el_deg
+
+    @property
+    def ifov_band_deg(self) -> float:
+        """Return IFOV per 2x2-demosaiced band-plane pixel, degrees.
+
+        The mosaic is a 2x2 CFA, so each band plane is half the linear
+        resolution of the detector. Band-plane IFOV is twice the mosaic IFOV.
+        """
+        return 2.0 * self.ifov_deg
 
 
 def fov_deg(n_px: int, pixel_um: float, fl_mm: float) -> float:

@@ -8,7 +8,7 @@ two tracks.
 
 Contains:
   - Facility / Cluster dataclasses.
-  - load_climate_trace / load_gppd / fetch_gem.
+  - load_climate_trace / load_gppd / fetch_gem / load_clusters_csv.
   - haversine_km / cluster_indices / covering_radius_km / build_clusters.
 """
 
@@ -605,4 +605,37 @@ def build_clusters(facilities: list[Facility]) -> list[Cluster]:
                 subsector=sub,
             )
         )
+    return clusters
+
+
+def load_clusters_csv(path: Path) -> list[Cluster]:
+    """Load clusters previously written to ``industrial_clusters.csv``.
+
+    Args:
+        path: CSV path with the industry-command header.
+
+    Returns:
+        One Cluster per row.
+
+    Raises:
+        FileNotFoundError: If the CSV is missing.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    clusters: list[Cluster] = []
+    with path.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            clusters.append(
+                Cluster(
+                    lat=float(row["lat"]),
+                    lon=float(row["lon"]),
+                    n=int(float(row["n"])),
+                    r_plant_km=float(row["r_plant_km"]),
+                    r_cover_km=float(row["r_cover_km"]),
+                    area_km2=float(row["area_km2"]),
+                    emissions_t=float(row["emissions_t"]),
+                    capacity=float(row["capacity"]),
+                    subsector=row["subsector"],
+                )
+            )
     return clusters

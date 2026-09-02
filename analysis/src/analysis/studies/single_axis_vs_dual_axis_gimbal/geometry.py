@@ -42,18 +42,19 @@ from analysis.lib.tracking import (
     two_axis_boresightable,
 )
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
-    CLUSTER_R_KM,
     DESIGN_LAT_DEG,
     DISK_RADII_KM,
     GEOMETRY_DT_S,
     GIMBAL_BOX,
-    MAX_SLEW_DEG_S,
+    MAX_HW_SLEW_DEG_S,
     OPTICS_SPEC,
     ORIGIN_OFFSETS_KM,
     OUT_DIR,
     PASS_LATS_DEG,
     STUDY_DIR,
     TLE,
+    omega_img_rewind_deg_s,
+    omega_rel_max_deg_s,
 )
 
 
@@ -126,7 +127,21 @@ class OffsetRow:
 
 @dataclass
 class GeometryResult:
-    """All design-pass tables needed by the report and figures."""
+    """All design-pass tables needed by the report and figures.
+
+    Attributes:
+        orbit: Circular ISS orbit (SMA).
+        optics: Usable sensor FOV.
+        box: Gimbal box.
+        times: Design-pass window at SMA.
+        origin_samples: Origin look-angle samples.
+        times_perigee: Design-pass window at perigee radius.
+        table: Tracking time vs covering radius at the design lat.
+        offsets: Cross-track origin offsets at the design lat.
+        lat_r0: Earth-rotation table for a point origin (R = 0).
+        omega_rel_max_deg_s: 1 band-px / 1 ms scene-relative smear limit.
+        omega_img_rewind_deg_s: Imaging rewind cap (rel max minus peak track).
+    """
 
     orbit: Orbit
     optics: Optics
@@ -137,7 +152,8 @@ class GeometryResult:
     table: RadiusTable
     offsets: list[OffsetRow]
     lat_r0: list[LatitudeRow]
-    lat_r5: list[LatitudeRow]
+    omega_rel_max_deg_s: float
+    omega_img_rewind_deg_s: float
 
 
 def _span() -> SampleSpan:
@@ -429,7 +445,7 @@ def self_check(orbit: Orbit, optics: Optics, box: GimbalBox, times: WindowTimes)
     assert abs(look0.az_deg) < 0.05, look0.az_deg
     assert times.along_track_s > 90.0
     assert times.along_track_s < 160.0
-    assert times.peak_el_rate_deg_s < MAX_SLEW_DEG_S
+    assert times.peak_el_rate_deg_s < MAX_HW_SLEW_DEG_S
     assert times.az_max_deg < 0.05
     assert optics.fov_az_deg < optics.fov_az_raw_deg
     assert abs(optics.computed_2_3_hfov_deg - OPTICS_SPEC.datasheet_hfov_2_3_deg) < 0.02
@@ -465,12 +481,11 @@ def _write_geometry_csv(result: GeometryResult, out_dir: Path) -> None:
                 f"{row.origin_cross_km:.1f},{row.one_axis_s:.3f},{row.two_axis_s:.3f},{lost:.3f}\n"
             )
     with (out_dir / "latitude.csv").open("w", encoding="utf-8") as fh:
-        fh.write("lat_deg,h_km,el_window_s,az_max_deg,one_axis_R0_s,one_axis_R5_s,two_axis_s\n")
-        for r0, r5 in zip(result.lat_r0, result.lat_r5, strict=True):
+        fh.write("lat_deg,h_km,el_window_s,az_max_deg,one_axis_R0_s,two_axis_s\n")
+        for r0 in result.lat_r0:
             fh.write(
                 f"{r0.lat_deg:.4f},{r0.alt_km:.3f},{r0.el_window_s:.3f},"
-                f"{r0.az_max_deg:.4f},{r0.one_axis_s:.3f},{r5.one_axis_s:.3f},"
-                f"{r0.two_axis_s:.3f}\n"
+                f"{r0.az_max_deg:.4f},{r0.one_axis_s:.3f},{r0.two_axis_s:.3f}\n"
             )
 
 
@@ -504,7 +519,8 @@ def run_geometry() -> GeometryResult:
     table = tracking_time_vs_radius(orbit, optics, GIMBAL_BOX, DESIGN_LAT_DEG, DISK_RADII_KM)
     offsets = offset_times(orbit, optics, GIMBAL_BOX, DESIGN_LAT_DEG)
     lat0 = latitude_table(orbit, optics, GIMBAL_BOX, PASS_LATS_DEG, 0.0)
-    lat5 = latitude_table(orbit, optics, GIMBAL_BOX, PASS_LATS_DEG, CLUSTER_R_KM)
+    omega_rel = omega_rel_max_deg_s(optics.ifov_band_deg)
+    omega_img = omega_img_rewind_deg_s(optics.ifov_band_deg, times.peak_el_rate_deg_s)
     result = GeometryResult(
         orbit=orbit,
         optics=optics,
@@ -515,7 +531,8 @@ def run_geometry() -> GeometryResult:
         table=table,
         offsets=offsets,
         lat_r0=lat0,
-        lat_r5=lat5,
+        omega_rel_max_deg_s=omega_rel,
+        omega_img_rewind_deg_s=omega_img,
     )
 
     plot_along_track(result, OUT_DIR / "along_track_timeline.png")
@@ -538,6 +555,8 @@ def run_geometry() -> GeometryResult:
     print(f"origin |az| max   {times.az_max_deg:.3f} deg")
     print(f"stare             {times.stare_s:.2f} s")
     print(f"peak el rate      {times.peak_el_rate_deg_s:.3f} deg/s")
+    print(f"imaging rewind    {omega_img:.3f} deg/s (gate {omega_rel:.3f} - track)")
+    print(f"hardware slew cap {MAX_HW_SLEW_DEG_S:.1f} deg/s")
     half_swath = times.local_alt_km * math.tan(math.radians(optics.half_az_deg))
     print(f"nadir half-swath  {half_swath:.2f} km")
     print(f"wrote {OUT_DIR}")

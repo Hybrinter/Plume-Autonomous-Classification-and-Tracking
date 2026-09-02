@@ -1,11 +1,14 @@
 """Locked assumptions for the single-axis vs dual-axis gimbal study.
 
-These values are the 2026-09-01 lock: one-sided 90->30 deg window,
-geocentric nadir, current ISS TLE, most restrictive FOV, design cluster
-R = 5 km. Paths resolve to analysis/single_axis_vs_dual_axis_gimbal/.
+Physical setup: plumes originate at fixed stacks. Unknown wind azimuth
+makes a covering disk of radius L around each stack. Cluster covering
+radius is R = D + L with D from Climate TRACE plant span, not a locked
+design R. Imaging rewind is smear-gated on the 2x2 band plane.
 
 Contains:
   - TLE / OPTICS_SPEC / GIMBAL_BOX and design-pass constants.
+  - Camera, exposure, smear, and slew-cap constants.
+  - omega_rel_max_deg_s / omega_img_rewind_deg_s.
   - analysis_root / STUDY_DIR / DATA_DIR / CACHE_DIR / OUT_DIR.
 """
 
@@ -40,6 +43,11 @@ GIMBAL_BOX = GimbalBox(
 )
 NADIR_OFFSET_DEG = 0.0
 
+# FLIR Blackfly S BFS-U3-50S5, Sony IMX264, 3.45 um, 2448 x 2048, 2/3-inch.
+# Lens: 150 mm athermal, f/4, max distortion 0.66 %. Catalog 2/3-inch HFOV
+# 3.36 deg is a check only. Ignore the lens-catalog 2.74 um example pixel.
+CAMERA_NAME = "BFS-U3-50S5"
+SENSOR_NAME = "Sony IMX264"
 OPTICS_SPEC = OpticsSpec(
     pixel_um=3.45,
     n_lateral_px=2448,
@@ -50,9 +58,11 @@ OPTICS_SPEC = OpticsSpec(
     lens_distortion_pct=0.66,
 )
 
-MAX_SLEW_DEG_S = 2.0
+# Current imaging gate: 1 ms exposure, 1 band-plane pixel of smear.
+EXPOSURE_S = 1.0e-3
+MAX_SMEAR_BAND_PX = 1.0
+MAX_HW_SLEW_DEG_S = 10.0
 
-CLUSTER_R_KM = 5.0
 DISK_RADII_KM: tuple[float, ...] = (0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0)
 WIND_MPS: tuple[float, ...] = (0.0, 10.0, 20.0)
 ORIGIN_OFFSETS_KM: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0, 40.0, 70.0)
@@ -67,6 +77,8 @@ CLS_LAT_256_MS = 3.4
 GEOMETRY_DT_S = 0.05
 INDUSTRY_PASS_DT_S = 0.1
 
+# L = 2 km is a conservative visible-length envelope, not a typical length.
+# Cooling-tower photo climatologies: typical 0.3-0.8 km; winter often >0.9 km.
 PLUME_R_KM = 2.0
 CLUSTER_EPS_KM = 8.0
 MAX_CLUSTER_R_KM = 12.0
@@ -75,6 +87,43 @@ LAT_BIN_DEG = 2.0
 INVENTORY_YEAR = "2025"
 
 GRID_R_KM: tuple[float, ...] = (0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0)
+
+FOLDED_LAT_BANDS: tuple[tuple[float, float], ...] = (
+    (0.0, 10.0),
+    (10.0, 20.0),
+    (20.0, 30.0),
+    (30.0, 40.0),
+    (40.0, 45.0),
+    (45.0, TLE.inclination_deg),
+)
+
+
+def omega_rel_max_deg_s(ifov_band_deg: float) -> float:
+    """Return max scene-relative rate for the current imaging smear gate.
+
+    Args:
+        ifov_band_deg: Band-plane IFOV in degrees per pixel.
+
+    Returns:
+        Degrees per second for 1 band-plane pixel of smear at EXPOSURE_S.
+    """
+    return MAX_SMEAR_BAND_PX * ifov_band_deg / EXPOSURE_S
+
+
+def omega_img_rewind_deg_s(ifov_band_deg: float, peak_el_rate_deg_s: float) -> float:
+    """Return allowed imaging rewind rate against ISS motion.
+
+    Scene rate on rewind is slew plus track, so the gimbal rewind cap is
+    omega_rel_max minus peak elevation rate.
+
+    Args:
+        ifov_band_deg: Band-plane IFOV in degrees per pixel.
+        peak_el_rate_deg_s: Peak |d(el)/dt| while tracking, degrees per second.
+
+    Returns:
+        Non-negative rewind cap in degrees per second.
+    """
+    return max(0.0, omega_rel_max_deg_s(ifov_band_deg) - peak_el_rate_deg_s)
 
 
 def analysis_root() -> Path:

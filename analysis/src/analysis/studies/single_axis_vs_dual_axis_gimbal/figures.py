@@ -1,13 +1,14 @@
 """Figures for the single-axis vs dual-axis gimbal study.
 
 Geometry plots consume a GeometryResult. Industry plots consume cluster
-lists and the TimeLostFn interpolator. matplotlib is forced to Agg so
-the study can run without a display.
+lists, the TimeLostFn interpolator, and a RadiusProfile. matplotlib is
+forced to Agg so the study can run without a display.
 
 Contains:
   - plot_along_track, plot_disk_angle, plot_time_vs_radius, plot_lost_time.
   - plot_footprint, plot_offset_map, plot_required_az, plot_latitude.
   - plot_lat_hist, plot_folded, plot_expected_vs_lat, plot_r_hist, plot_map.
+  - plot_r_vs_lat.
 """
 
 from __future__ import annotations
@@ -25,12 +26,13 @@ import numpy as np
 from analysis.lib.plot_style import C_BLUE, C_INK, C_ORANGE, C_RED, C_SKY, C_TEAL
 from analysis.lib.tracking import TimeLostFn, angular_rate_deg_s
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
-    CLUSTER_R_KM,
     LAT_BIN_DEG,
-    MAX_SLEW_DEG_S,
+    MAX_HW_SLEW_DEG_S,
+    PLUME_R_KM,
     TLE,
 )
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import Cluster
+from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import RadiusProfile
 
 if TYPE_CHECKING:
     from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import GeometryResult
@@ -71,7 +73,16 @@ def plot_along_track(result: GeometryResult, path: Path) -> None:
     rate = np.abs(angular_rate_deg_s(t_s, data.el))
     axes[1].plot(t_s[mask], rate[mask], color=C_ORANGE, lw=2)
     axes[1].axhline(
-        MAX_SLEW_DEG_S, color=C_RED, ls="--", label=f"mission slew cap {MAX_SLEW_DEG_S:.0f} deg/s"
+        result.omega_img_rewind_deg_s,
+        color=C_TEAL,
+        ls="--",
+        label=f"imaging rewind {result.omega_img_rewind_deg_s:.2f} deg/s",
+    )
+    axes[1].axhline(
+        MAX_HW_SLEW_DEG_S,
+        color=C_RED,
+        ls=":",
+        label=f"hardware cap {MAX_HW_SLEW_DEG_S:.0f} deg/s",
     )
     axes[1].set_ylabel("|d(el)/dt| (deg/s)")
     axes[1].legend(loc="upper right", fontsize=8)
@@ -158,7 +169,7 @@ def plot_time_vs_radius(result: GeometryResult, path: Path) -> None:
         ls="--",
         label="R = h tan(FOV_az / 2) at nadir",
     )
-    ax.axvline(CLUSTER_R_KM, color=C_INK, ls=":", label=f"design cluster R = {CLUSTER_R_KM:.0f} km")
+    ax.axvline(PLUME_R_KM, color=C_INK, ls=":", label=f"L = {PLUME_R_KM:.0f} km plume envelope")
     ax.set_xlabel("covering-disk radius R (km)")
     ax.set_ylabel("in-frame tracking time (s)")
     ax.set_title(f"Tracking time vs covering radius at lat {lat_deg:.1f} deg")
@@ -181,7 +192,7 @@ def plot_lost_time(result: GeometryResult, path: Path) -> None:
     table = result.table
     fig, ax = plt.subplots(figsize=(8.5, 4.8))
     ax.plot(table.radius_km, table.lost_s, color=C_RED, lw=2.4, marker="o")
-    ax.axvline(CLUSTER_R_KM, color=C_INK, ls=":", label=f"design R = {CLUSTER_R_KM:.0f} km")
+    ax.axvline(PLUME_R_KM, color=C_INK, ls=":", label=f"L = {PLUME_R_KM:.0f} km plume envelope")
     ax.set_xlabel("covering-disk radius R (km)")
     ax.set_ylabel("tracking time lost vs two-axis (s)")
     ax.set_title("Time given up by dropping the azimuth axis")
@@ -328,14 +339,6 @@ def plot_latitude(result: GeometryResult, path: Path) -> None:
         marker="s",
         label="1-axis, R = 0",
     )
-    axes[1].plot(
-        [row.lat_deg for row in result.lat_r5],
-        [row.one_axis_s for row in result.lat_r5],
-        color=C_RED,
-        lw=2,
-        marker="^",
-        label=f"1-axis, R = {CLUSTER_R_KM:.0f} km cluster",
-    )
     axes[1].set_xlabel("pass latitude (deg)")
     axes[1].set_ylabel("in-frame tracking time (s)")
     axes[1].legend(loc="lower right", fontsize=8)
@@ -392,12 +395,15 @@ def plot_lat_hist(
     plt.close(fig)
 
 
-def plot_folded(clusters: list[Cluster], fn: TimeLostFn, path: Path) -> None:
+def plot_folded(
+    clusters: list[Cluster], fn: TimeLostFn, profile: RadiusProfile, path: Path
+) -> None:
     """Write folded-|lat| stack mass against 1-axis and 2-axis tracking time.
 
     Args:
         clusters: World clusters; ISS-belt filter applied here.
         fn: Tracking-time interpolator.
+        profile: R(|lat|) interpolator.
         path: Output PNG path.
 
     Returns:
@@ -410,8 +416,10 @@ def plot_folded(clusters: list[Cluster], fn: TimeLostFn, path: Path) -> None:
     edges = np.arange(0.0, iss_i + 2.0, 2.0)
     hist, _ = np.histogram(abs_lat, bins=edges, weights=w)
     centres = 0.5 * (edges[:-1] + edges[1:])
-    t1 = np.array([fn.eval(float(x), CLUSTER_R_KM)[0] for x in centres])
-    t2 = np.array([fn.eval(float(x), CLUSTER_R_KM)[1] for x in centres])
+    t1 = np.zeros(centres.size)
+    t2 = np.zeros(centres.size)
+    for i, x in enumerate(centres):
+        t1[i], t2[i], _ = fn.eval(float(x), profile.r_km(float(x)))
     fig, ax = plt.subplots(figsize=(8.5, 4.6))
     ax2 = ax.twinx()
     ax2.bar(
@@ -422,13 +430,12 @@ def plot_folded(clusters: list[Cluster], fn: TimeLostFn, path: Path) -> None:
         alpha=0.3,
         label="stack %",
     )
-    ax.plot(centres, t2, color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis, R=5 km")
-    ax.plot(centres, t1, color=C_RED, lw=2, marker="^", ms=3, label="1-axis, R=5 km")
-    ax.axvline(45.0, color=C_INK, ls=":", label="1-axis lossless (R=5)")
+    ax.plot(centres, t2, color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis, R(|lat|)")
+    ax.plot(centres, t1, color=C_RED, lw=2, marker="^", ms=3, label="1-axis, R(|lat|)")
     ax.set_xlabel("|latitude| (deg)")
     ax.set_ylabel("tracking time (s)")
     ax2.set_ylabel("ISS-belt stack fraction (%)")
-    ax.set_title("Folded latitude: stack mass vs tracking time")
+    ax.set_title("Folded latitude: stack mass vs tracking time at R(|lat|)")
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
     ax.legend(h1 + h2, l1 + l2, loc="center right", fontsize=8)
@@ -448,8 +455,8 @@ def plot_expected_vs_lat(
 
     Args:
         edges: Bin edges in degrees.
-        t1: One-axis time at bin midpoints for R = 5 km.
-        t2: Two-axis time at bin midpoints for R = 5 km.
+        t1: One-axis time at bin midpoints for R(|lat|).
+        t2: Two-axis time at bin midpoints for R(|lat|).
         w: Stack counts per bin.
         path: Output PNG path.
 
@@ -461,14 +468,14 @@ def plot_expected_vs_lat(
     fig, ax = plt.subplots(figsize=(8.5, 4.6))
     ax2 = ax.twinx()
     ax2.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.25, label="ISS-belt stacks")
-    ax.plot(centres, t2, color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis, R=5 km")
-    ax.plot(centres, t1, color=C_RED, lw=2, marker="^", ms=3, label="1-axis, R=5 km")
+    ax.plot(centres, t2, color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis, R(|lat|)")
+    ax.plot(centres, t1, color=C_RED, lw=2, marker="^", ms=3, label="1-axis, R(|lat|)")
     ax.axvline(iss_i, color=C_RED, ls="--", lw=1)
     ax.axvline(-iss_i, color=C_RED, ls="--", lw=1)
     ax.set_xlabel("latitude (deg)")
     ax.set_ylabel("mean tracking time (s)")
     ax2.set_ylabel("stack-bearing sources in bin")
-    ax.set_title("Tracking time vs latitude, with stack mass")
+    ax.set_title("Tracking time vs latitude at R(|lat|), with stack mass")
     h1, l1 = ax.get_legend_handles_labels()
     h2, l2 = ax2.get_legend_handles_labels()
     ax.legend(h1 + h2, l1 + l2, loc="upper right", fontsize=8)
@@ -493,11 +500,52 @@ def plot_r_hist(clusters: list[Cluster], path: Path) -> None:
     fig, ax = plt.subplots(figsize=(8.0, 4.2))
     bin_edges = np.linspace(0.0, 16.0, 33).tolist()
     ax.hist(radius, bins=bin_edges, weights=w, color=C_ORANGE, edgecolor="white")
-    ax.axvline(CLUSTER_R_KM, color=C_INK, ls=":", label="design R = 5 km")
-    ax.set_xlabel("covering radius R = D + 2 km plume (km)")
+    ax.axvline(
+        PLUME_R_KM, color=C_INK, ls=":", label=f"L = {PLUME_R_KM:.0f} km (isolated-stack floor)"
+    )
+    ax.set_xlabel("covering radius R = D + L (km)")
     ax.set_ylabel("stack-bearing sources")
     ax.set_title("ISS-belt cluster size (stack-weighted)")
     ax.legend()
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def plot_r_vs_lat(profile: RadiusProfile, path: Path) -> None:
+    """Write stack-weighted mean D and R vs |latitude|.
+
+    Args:
+        profile: Folded |lat| covering-radius profile.
+        path: Output PNG path.
+
+    Returns:
+        None.
+    """
+    fig, ax = plt.subplots(figsize=(8.0, 4.4))
+    ax.plot(
+        profile.abs_lat,
+        profile.mean_d_km,
+        color=C_ORANGE,
+        lw=2,
+        marker="o",
+        ms=3,
+        label="mean D (plant span)",
+    )
+    ax.plot(
+        profile.abs_lat,
+        profile.mean_r_km,
+        color=C_TEAL,
+        lw=2,
+        marker="s",
+        ms=3,
+        label="mean R = D + L",
+    )
+    ax.axhline(PLUME_R_KM, color=C_INK, ls=":", label=f"L = {PLUME_R_KM:.0f} km")
+    ax.set_xlabel("|latitude| (deg)")
+    ax.set_ylabel("stack-weighted radius (km)")
+    ax.set_title("Covering radius vs latitude (no locked design R)")
+    ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)

@@ -3,10 +3,12 @@
 This folder is a working study, not flight software. It is not on the CI path.
 
 ```text
-uv run python scratch/single-axis-gimbal-analysis/analyze.py
+python3 scratch/single-axis-gimbal-analysis/analyze.py
+python3 scratch/single-axis-gimbal-analysis/industrial_latitude.py
 ```
 
-Generated numbers: [`RESULTS.md`](RESULTS.md) and [`outputs/`](outputs/).
+Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
+[`INDUSTRIAL.md`](INDUSTRIAL.md) and [`outputs/`](outputs/).
 
 ## Locked assumptions (2026-09-01)
 
@@ -36,3 +38,18 @@ At latitudes ≲ 45 deg, Earth rotation plus a 5 km cluster walks the covering
 disk out of the chip at the 30 deg stop. One-axis then keeps only the last
 tens of seconds. The polar-slice one-axis placement is the high-latitude
 case, where that walk is ~0.
+
+## Worldwide stack distribution (Climate TRACE 2025)
+
+| Quantity | Value |
+| --- | --- |
+| Stack-bearing sources | 20,219 |
+| In ISS belt \|lat\| ≤ 51.63° | 92.8% |
+| Stack-weighted mean R | 5.0 km |
+| Stacks at \|lat\| ≥ 45° (1-axis lossless) | **10%** |
+| E[T 1-axis] vs 2-axis, stack-weighted | **50 s vs 121 s (59% lost)** |
+| Daily in-swath yield (T × coverage) | **~14×** in favour of 2-axis |
+
+Most stacks sit at 20–40° N. A polar-slice one-axis view keeps the 124 s
+window but sees only ~10% of the industry. Working the mid-latitude belt
+needs the azimuth axis for Earth-rotation walk, not just for swath.

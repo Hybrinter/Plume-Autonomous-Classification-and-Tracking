@@ -183,6 +183,10 @@ size for this lens.
    or do not work them. From ~45 deg up, a 5 km cluster is lossless.
 4. If two plants are farther apart than ~24 km, they are two clusters.
    Track one.
+5. Worldwide stack inventory (Climate TRACE 2025) is in
+   `INDUSTRIAL.md`. Stack-weighted expected 1-axis loss over the
+   ISS belt is ~59% of the 121 s two-axis window, because ~90% of
+   stacks sit below 45 deg latitude.
 
 ## Figures
 

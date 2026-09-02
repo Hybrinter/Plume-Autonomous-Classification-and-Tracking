@@ -39,11 +39,14 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
   **band-plane** gate (current imaging gate). Hardware cap
   **10 deg/s** is not for science frames. SIL
   `ifov=0.02` is not this optic.
-- **Reacquire** starts when leftover window opens (hunt during slew).
-  Do not wait until elevation is back at 30 deg. One-axis hunt is
-  elevation-only (FOV ribbon). Two-axis hunt would use the gimbal box.
-  Mean encounter is Poisson / mean-spacing, ocean-averaged in a lat band,
-  conditional on the ISS belt -- not a city-corridor nearest neighbour.
+- **Reacquire.** After a target leaves the frame both gimbals slew
+  to the elevation-window start (hardware cap, not science frames)
+  and wait for the next cluster. One-axis search is the FOV ribbon;
+  two-axis search is the gimbal box. Lost time is mean reacquire.
+  Cycle time is single-target dwell plus reacquire (start of tracking
+  until the next target is acquired). Mean encounter is Poisson /
+  mean-spacing, ocean-averaged in a lat band, conditional on the ISS
+  belt -- not a city-corridor nearest neighbour.
 
 ## Headline (design pass, lat 51.63 deg, h = 433 km)
 
@@ -73,9 +76,10 @@ from the inventory, not by a 5 km placeholder.
 | ISS-belt stack fraction | 92.8% |
 | Stack-weighted mean R | 4.98 km (inventory, not design) |
 | Stacks at |lat| >= 45 deg | **10%** |
-| E[T 1-axis] vs 2-axis, stack-weighted | **50 s vs 121 s (59% lost)** |
-| After leftover hunt at omega_img | **63 s vs 121 s (48% lost)** |
-| Daily in-swath yield (T x coverage) | **~14x** in favour of 2-axis |
+| Single-target dwell, stack-weighted | **50 s vs 121 s** |
+| Mean reacquire (lost time) | **211 s vs 38 s** |
+| Cycle start-of-track to next acquire | **261 s vs 160 s** (duty 22% vs 78%) |
+| Daily in-swath yield (dwell x coverage) | **~14x** in favour of 2-axis |
 
 | |lat| (deg) | D (km) | R (km) | singleton % | d_char n>=2 (km) |
 | --- | --- | --- | --- | --- |
@@ -89,6 +93,7 @@ from the inventory, not by a 5 km placeholder.
 Most stacks sit at 20-40 N. A polar-slice one-axis view keeps the
 124 s window but sees only ~10% of the industry.
 Working the mid-latitude belt needs the azimuth axis for Earth-rotation
-walk, not just for swath. Leftover hunt during the slew recovers some
-one-axis time only if another cluster sits on the FOV ribbon.
+walk, not just for swath. After a target leaves the frame both gimbals
+reset to the window start; lost time is mean wait for the next cluster.
+See `outputs/industrial_reacquire_vs_lat.png`.
 

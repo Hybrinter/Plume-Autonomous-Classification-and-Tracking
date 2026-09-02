@@ -1,4 +1,4 @@
-# Industrial-area inventory (temporary analysis)
+# Industrial-area inventory (design study)
 
 Raw downloads stay out of git. Re-fetch:
 
@@ -11,5 +11,6 @@ power.zip, manufacturing.zip, fossil_fuel_operations.zip
 https://wri-dataportal-prod.s3.amazonaws.com/manual/global_power_plant_database_v_1_3.zip
 ```
 
-GEM operating plants are pulled at run time from
+Unpack under `raw/ct_power`, `raw/ct_manufacturing`, `raw/ct_fossil`, and
+`raw/gppd`. GEM operating plants are pulled at run time from
 `https://api.globalenergymonitor.org/assets`.

@@ -16,11 +16,11 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev
       - name: Ruff lint
-        run: uv run ruff check packages scripts
+        run: uv run ruff check packages scripts analysis
       - name: Ruff format check
-        run: uv run ruff format --check packages scripts
+        run: uv run ruff format --check packages scripts analysis
       - name: Type check
-        run: uv run mypy packages scripts
+        run: uv run mypy packages scripts analysis
       - name: Import layering
         run: uv run lint-imports
       - name: VCRM traceability
@@ -30,8 +30,8 @@ jobs:
       - name: ADR integrity
         run: uv run python scripts/check_adr.py --strict
       - name: Tests
-        # The whole tree is now packages/ + scripts/ (legacy src/pact retired); testpaths scope
-        # collection to packages/*/tests/.
+        # testpaths scope collection to packages/*/tests/. Analysis studies are
+        # lint/typechecked but have no pytest tree.
         run: uv run pytest -m "not e2e"
 
   flight-image:

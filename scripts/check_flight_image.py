@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Lean-install CI check for the isolated pact-flight package.
 
-Verifies that pact-flight installs without pulling pact-tools, pact-sim, or pact-gse,
-declares the expected role extras, and does not expose heavy ML frameworks. Stdlib plus
-subprocess calls to ``uv`` so the probe runs in a fresh venv, not the workspace dev env.
+Verifies that pact-flight installs without pulling pact-tools, pact-sim, pact-gse, or
+pact-analysis, declares the expected role extras, and does not expose heavy ML frameworks.
+Stdlib plus subprocess calls to ``uv`` so the probe runs in a fresh venv, not the
+workspace dev env.
 """
 
 from __future__ import annotations
@@ -16,13 +17,15 @@ import tomllib
 import zipfile
 from pathlib import Path
 
-DENIED_DISTRIBUTIONS: frozenset[str] = frozenset({"pact-tools", "pact-sim", "pact-gse"})
+DENIED_DISTRIBUTIONS: frozenset[str] = frozenset(
+    {"pact-tools", "pact-sim", "pact-gse", "pact-analysis"}
+)
 DENIED_MODULES: frozenset[str] = frozenset(
     {"torch", "torchvision", "tensorflow", "jax", "jaxlib", "flax", "keras", "mlx"}
 )
 FLIGHT_EXTRAS: frozenset[str] = frozenset({"inference", "camera", "gimbal"})
 TOOLS_EXTRAS: frozenset[str] = frozenset({"export"})
-FORBIDDEN_WHEEL_PREFIXES: frozenset[str] = frozenset({"tools/", "sim/", "gse/"})
+FORBIDDEN_WHEEL_PREFIXES: frozenset[str] = frozenset({"tools/", "sim/", "gse/", "analysis/"})
 
 
 def load_optional_dependency_keys(pyproject: Path) -> frozenset[str]:

@@ -20,6 +20,11 @@ The flight software is the `uv` workspace under `packages/`:
 - `packages/tools/` (`pact-tools`) -- training/eval/export; heavy deps (torch etc.) live here only.
 - `packages/gse/` (`pact-gse`) -- ground support: station emulator, scenarios, orchestrator.
 
+Design and performance studies live under `analysis/` (`pact-analysis`), a workspace member
+next to `scripts/`. They are not flight software, are not STE-mirrored, and have no pytest.
+`tools.analysis` is SIL capture/plots; `analysis.*` is design studies. Gates include `analysis`
+in ruff and mypy only.
+
 Tests for each member live under `packages/<member>/tests/` and mirror the tree inside
 `src/<package>/`. Example: `packages/flight/src/flight/payload/gimbal/arbiter.py` maps to
 `packages/flight/tests/payload/gimbal/test_arbiter.py`. Tests stay out of `src/` so Hatch
@@ -30,11 +35,11 @@ imports, GSE scenario-file runs) stay at that member's `tests/` root. Do not add
 under `tests/`.
 
 The legacy `src/pact/` tree (the pre-restructure multiprocessing/`ops/main.py` codebase) has been
-**removed**; `packages/` is the entire codebase. PACT is an ISS-attached payload and the codebase
-is Python-only.
+**removed**; `packages/` holds flight/sim/tools/gse and `analysis/` holds design studies. PACT is
+an ISS-attached payload and the codebase is Python-only.
 
-Run gates over the whole tree: `uv run ruff check packages scripts`, `uv run ruff format --check
-packages scripts`, `uv run mypy packages scripts`, `uv run lint-imports`, `uv run python
+Run gates over the whole tree: `uv run ruff check packages scripts analysis`, `uv run ruff format --check
+packages scripts analysis`, `uv run mypy packages scripts analysis`, `uv run lint-imports`, `uv run python
 scripts/check_vcrm.py`, `uv run python scripts/check_docs.py --strict`, `uv run python
 scripts/check_adr.py --strict`, `uv run python scripts/check_flight_image.py`, and
 `uv run pytest -m "not e2e"`. The repo root is a virtual `uv`
@@ -168,8 +173,8 @@ publishing them itself each step.
 ## Strong Typing + mypy_path
 
 mypy runs `--strict`. The root `pyproject.toml` sets
-`mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src"]`
-so cross-package `flight.*`/`sim.*`/`tools.*`/`gse.*` imports resolve to the workspace **source**
+`mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src", "analysis/src"]`
+so cross-package `flight.*`/`sim.*`/`tools.*`/`gse.*`/`analysis.*` imports resolve to the workspace **source**
 trees. **Do not remove it** -- without it those imports fall back to `Any` (the editable installs
 have no `py.typed`), silently disabling strict checking across modules. Polymorphism is expressed
 with statically-typed `Protocol` interfaces (the relaxed form of the "no dynamic dispatch" rule);
@@ -185,5 +190,7 @@ As-is module and directory descriptions:
 - [`docs/sim.md`](docs/sim.md)
 - [`docs/gse.md`](docs/gse.md)
 - [`docs/tools.md`](docs/tools.md)
+
+`analysis/` is not STE-mirrored; studies write their own RESULTS.md.
 
 See also `.claude/rules/documentation.md`.

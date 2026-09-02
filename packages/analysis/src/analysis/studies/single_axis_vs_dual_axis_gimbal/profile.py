@@ -1,11 +1,12 @@
 """Latitude-binned plant span, covering radius, and hunt encounter rates.
 
 Stack-weighted D(|lat|) comes from Climate TRACE clusters. Covering radius
-is R = D + PLUME_R_KM. After a target leaves the frame the leftover-window
-rewind is already gated so a new target just outside the frame can be
-acquired immediately -- there is no wait to reset to 30 deg. Mean reacquire
-is the encounter wait from signed-latitude stack density. Cycle time is
-single-target dwell plus reacquire.
+is R = D + PLUME_R_KM. After a target leaves the frame the gimbal rewinds
+elevation toward the science limb stop, searching the FOV ribbon as the
+look point races ahead. After the stop, one-axis waits on ISS motion;
+two-axis rasters azimuth across the keep-out box. Mean reacquire is that
+two-phase wait at signed-latitude stack density. Cycle time is dwell plus
+reacquire.
 
 Contains:
   - LatBandRow / RadiusProfile.
@@ -21,11 +22,10 @@ from dataclasses import dataclass
 import numpy as np
 
 from analysis.lib.constants import MEAN_EARTH_RADIUS_KM
-from analysis.lib.optics import Optics
+from analysis.lib.hunt import HuntModel, HuntResult
 from analysis.lib.orbit import Orbit
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     FOLDED_LAT_BANDS,
-    GIMBAL_BOX,
     LAT_BIN_DEG,
     PLUME_R_KM,
     TLE,
@@ -336,8 +336,7 @@ def ground_speed_km_s(orbit: Orbit, lat_deg: float) -> float:
     Returns:
         Ground-track speed in km/s.
     """
-    re_km = orbit.earth_radius_km(lat_deg)
-    return orbit.v_km_s * re_km / orbit.radius_km
+    return orbit.ground_speed_km_s(lat_deg)
 
 
 def encounter_time_s(dens_per_km2: float, swath_km: float, v_scan_km_s: float) -> float:
@@ -360,9 +359,8 @@ def encounter_time_s(dens_per_km2: float, swath_km: float, v_scan_km_s: float) -
 def reacquire_s(t_enc_s: float) -> float:
     """Return mean time from loss of one target to acquire of the next.
 
-    Leftover-window rewind is gated so a target just outside the frame can
-    be acquired immediately. There is no wait to reset to 30 deg. Lost time
-    is the mean encounter wait at this signed latitude.
+    Kept as an identity on a finite encounter time so older cycle helpers
+    stay valid. Hunt waits now come from ``hunt_at_lat`` (rewind then limb).
 
     Args:
         t_enc_s: Mean along-track encounter time in seconds.
@@ -393,29 +391,28 @@ def cycle_s(t_track_s: float, t_reacq_s: float) -> float:
 def hunt_at_lat(
     lat_deg: float,
     dens_per_km2: float,
-    optics: Optics,
-    orbit: Orbit,
-) -> tuple[float, float]:
+    model: HuntModel,
+    *,
+    t_dwell_1_s: float,
+    t_dwell_2_s: float,
+    t_window_s: float,
+) -> HuntResult:
     """Return 1-axis and 2-axis mean reacquire times at signed latitude.
 
-    No reset-to-30-deg wait: a new target just outside the frame can be
-    acquired immediately. Mean wait uses ISS ground-track speed through
-    the 1-axis FOV ribbon or the 2-axis gimbal box, times stack density
-    at this signed latitude.
+    After loss the gimbal rewinds elevation toward the science limb stop
+    and can acquire along that path. At the stop, one-axis waits on ISS
+    motion through the FOV ribbon; two-axis rasters the keep-out box at
+    the smear-limited azimuth rate.
 
     Args:
         lat_deg: Geocentric latitude in degrees (signed).
         dens_per_km2: Stack density per square kilometre at this latitude.
-        optics: Usable sensor FOV.
-        orbit: Circular ISS orbit.
+        model: Locked hunt kinematics (optics, orbit, box, smear caps).
+        t_dwell_1_s: One-axis dwell, seconds.
+        t_dwell_2_s: Two-axis dwell, seconds.
+        t_window_s: Science-window length, seconds.
 
     Returns:
-        (t_reacq_1axis, t_reacq_2axis).
+        HuntResult with waits and scan diagnostics.
     """
-    h_km = orbit.local_altitude_km(abs(lat_deg))
-    swath1 = 2.0 * h_km * math.tan(math.radians(optics.half_az_deg))
-    swath2 = 2.0 * h_km * math.tan(math.radians(GIMBAL_BOX.az_box_deg))
-    v_g = ground_speed_km_s(orbit, lat_deg)
-    t_enc1 = encounter_time_s(dens_per_km2, swath1, v_g)
-    t_enc2 = encounter_time_s(dens_per_km2, swath2, v_g)
-    return reacquire_s(t_enc1), reacquire_s(t_enc2)
+    return model.wait(lat_deg, dens_per_km2, t_dwell_1_s, t_dwell_2_s, t_window_s)

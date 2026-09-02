@@ -2,10 +2,12 @@
 
 Folds ``TimeLostFn`` over Climate TRACE clusters. Primary weight is stack
 count. Covering radius is per-cluster R = D + L and, for lat curves,
-stack-weighted R(|lat|). After a target leaves the frame a new target
-just outside the FOV can be acquired immediately; lost time is mean
-reacquire from signed-latitude stack density, and the track-to-reacquire
-cycle is dwell plus reacquire.
+stack-weighted R(|lat|). After a target leaves the frame the gimbal rewinds
+toward the science limb stop, searching along that path, then (two-axis)
+rasters azimuth. Lost time is that two-phase reacquire from signed-latitude
+stack density. Cycle time is dwell plus reacquire. Primary yield is
+stack-weighted inferred-usable plume-seconds per day (dwell gated by
+``T_MIN_USABLE_S``, times daily coverage).
 
 Contains:
   - iss_dwell_weight / daily_coverage_frac / expected_from_clusters.
@@ -21,6 +23,7 @@ from typing import Literal
 
 import numpy as np
 
+from analysis.lib.hunt import HuntModel
 from analysis.lib.optics import Optics, build_optics
 from analysis.lib.orbit import Orbit, build_orbit
 from analysis.lib.plot_style import apply as apply_plot_style
@@ -29,14 +32,18 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     CACHE_DIR,
     GIMBAL_BOX,
     GRID_R_KM,
+    GSD_MAX_BAND_M,
     INDUSTRY_PASS_DT_S,
     LAT_BIN_DEG,
     OPTICS_SPEC,
     OUT_DIR,
+    SLANT_MAX_KM,
     STUDY_DIR,
+    T_MIN_USABLE_S,
     TLE,
     grid_lats_deg,
     omega_img_rewind_deg_s,
+    omega_rel_max_deg_s,
 )
 from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import origin_window
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import (
@@ -209,16 +216,15 @@ def expected_from_clusters(
     orbit: Orbit,
     weight: Weight,
     profile: RadiusProfile,
-    omega_img_deg_s: float,
+    hunt: HuntModel,
 ) -> dict[str, float]:
     """Return expected dwell, reacquire, and cycle times over ISS-belt clusters.
 
     Single-target dwell is T1 / T2 at each cluster's own covering radius.
-    After that target leaves, a new target just outside the frame can be
-    acquired immediately. Lost time is mean reacquire from stack density
-    at that signed latitude. Cycle time is dwell plus reacquire (start of
-    tracking until the next target is acquired). Off-track origins appear
-    in the swath columns, not dwell.
+    After that target leaves, the gimbal rewinds toward the limb stop and
+    searches; two-axis then rasters azimuth. Lost time is mean reacquire
+    from stack density at that signed latitude. Cycle time is dwell plus
+    reacquire. Off-track origins appear in the swath columns, not dwell.
 
     Args:
         clusters: All world clusters (ISS-belt filter applied here).
@@ -227,7 +233,7 @@ def expected_from_clusters(
         orbit: Circular ISS orbit.
         weight: Weight kind.
         profile: R(|lat|) and signed-latitude stack-density interpolator.
-        omega_img_deg_s: Imaging rewind cap in degrees per second.
+        hunt: Rewind-then-scan hunt model.
 
     Returns:
         Summary dict of means and fractions. Empty if no ISS-belt clusters.
@@ -248,11 +254,19 @@ def expected_from_clusters(
         a_t, b_t, _lost = fn.eval(cluster.lat, cluster.r_cover_km)
         t1[i] = a_t
         t2[i] = b_t
-        r1, r2 = hunt_at_lat(cluster.lat, profile.dens_km2(cluster.lat), optics, orbit)
-        reacq1[i] = r1
-        reacq2[i] = r2
-        cyc1[i] = cycle_s(a_t, r1)
-        cyc2[i] = cycle_s(b_t, r2)
+        t_window = fn.eval(cluster.lat, float(fn.rs[0]))[1]
+        hunted = hunt_at_lat(
+            cluster.lat,
+            profile.dens_km2(cluster.lat),
+            hunt,
+            t_dwell_1_s=a_t,
+            t_dwell_2_s=b_t,
+            t_window_s=t_window,
+        )
+        reacq1[i] = hunted.t_reacq_1_s
+        reacq2[i] = hunted.t_reacq_2_s
+        cyc1[i] = cycle_s(a_t, hunted.t_reacq_1_s)
+        cyc2[i] = cycle_s(b_t, hunted.t_reacq_2_s)
     lost_same = t2 - t1
     duty1 = np.divide(t1, cyc1, out=np.zeros_like(t1), where=np.isfinite(cyc1) & (cyc1 > 0))
     duty2 = np.divide(t2, cyc2, out=np.zeros_like(t2), where=np.isfinite(cyc2) & (cyc2 > 0))
@@ -282,6 +296,10 @@ def expected_from_clusters(
     e_reacq2 = weighted_mean_finite(reacq2, w)
     e_cyc1 = weighted_mean_finite(cyc1, w)
     e_cyc2 = weighted_mean_finite(cyc2, w)
+    usable1 = np.where(t1 >= T_MIN_USABLE_S, t1, 0.0)
+    usable2 = np.where(t2 >= T_MIN_USABLE_S, t2, 0.0)
+    visit1 = (t1 >= T_MIN_USABLE_S).astype(float)
+    visit2 = (t2 >= T_MIN_USABLE_S).astype(float)
     return {
         "n_clusters": float(len(iss)),
         "weight_sum": float(np.sum(w)),
@@ -304,9 +322,14 @@ def expected_from_clusters(
         "e_lost_dwell": weighted_mean(lost_same, w * dwell),
         "e_yield1": weighted_mean(t1 * cov1, w),
         "e_yield2": weighted_mean(t2 * cov2, w),
+        "e_usable_yield1": weighted_mean(usable1 * cov1, w),
+        "e_usable_yield2": weighted_mean(usable2 * cov2, w),
+        "e_visit1": weighted_mean(visit1 * cov1, w),
+        "e_visit2": weighted_mean(visit2 * cov2, w),
         "mean_cov1": weighted_mean(cov1, w),
         "mean_cov2": weighted_mean(cov2, w),
-        "omega_img_deg_s": omega_img_deg_s,
+        "omega_img_deg_s": hunt.omega_img_deg_s,
+        "t_min_usable_s": T_MIN_USABLE_S,
     }
 
 
@@ -339,7 +362,15 @@ def run_industry() -> None:
     optics = build_optics(OPTICS_SPEC)
     orbit = build_orbit(TLE, use_perigee=False)
     times, _ = origin_window(orbit, optics, GIMBAL_BOX, TLE.inclination_deg, 0.0)
+    omega_rel = omega_rel_max_deg_s(optics.ifov_band_deg)
     omega_img = omega_img_rewind_deg_s(optics.ifov_band_deg, times.peak_el_rate_deg_s)
+    hunt = HuntModel(
+        optics=optics,
+        orbit=orbit,
+        box=GIMBAL_BOX,
+        omega_img_deg_s=omega_img,
+        omega_rel_deg_s=omega_rel,
+    )
 
     print("loading Climate TRACE ...")
     try:
@@ -376,6 +407,8 @@ def run_industry() -> None:
         rs_grid,
         cache_path,
         span=SampleSpan(dt_s=INDUSTRY_PASS_DT_S),
+        slant_max_km=SLANT_MAX_KM,
+        gsd_max_band_m=GSD_MAX_BAND_M,
         verbose=True,
     )
 
@@ -404,14 +437,23 @@ def run_industry() -> None:
         radius = profile.r_km(mid)
         r_bin[i] = radius
         t1_bin[i], t2_bin[i], _ = fn.eval(mid, radius)
-        reacq1_bin[i], reacq2_bin[i] = hunt_at_lat(mid, profile.dens_km2(mid), optics, orbit)
-        cyc1_bin[i] = cycle_s(t1_bin[i], reacq1_bin[i])
-        cyc2_bin[i] = cycle_s(t2_bin[i], reacq2_bin[i])
+        hunted = hunt_at_lat(
+            mid,
+            profile.dens_km2(mid),
+            hunt,
+            t_dwell_1_s=t1_bin[i],
+            t_dwell_2_s=t2_bin[i],
+            t_window_s=t2_bin[i],
+        )
+        reacq1_bin[i] = hunted.t_reacq_1_s
+        reacq2_bin[i] = hunted.t_reacq_2_s
+        cyc1_bin[i] = cycle_s(t1_bin[i], hunted.t_reacq_1_s)
+        cyc2_bin[i] = cycle_s(t2_bin[i], hunted.t_reacq_2_s)
 
     weights: tuple[Weight, ...] = ("area", "stacks", "emissions")
     exp: dict[str, dict[str, float]] = {}
     for key in weights:
-        exp[key] = expected_from_clusters(clusters, fn, optics, orbit, key, profile, omega_img)
+        exp[key] = expected_from_clusters(clusters, fn, optics, orbit, key, profile, hunt)
     for weight_name, summary in exp.items():
         print(
             f"{weight_name:10s}  dwell T1={summary['e_t1']:.1f}s T2={summary['e_t2']:.1f}s  "
@@ -494,7 +536,7 @@ def run_industry() -> None:
         exp,
         profile,
         folded,
-        omega_img,
+        hunt,
         STUDY_DIR / "INDUSTRIAL.md",
     )
     write_study_readme(

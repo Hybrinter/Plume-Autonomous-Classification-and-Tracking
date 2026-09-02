@@ -58,7 +58,13 @@ def plot_along_track(result: GeometryResult, path: Path) -> None:
     fig, axes = plt.subplots(3, 1, figsize=(8.5, 8.4), sharex=True)
     axes[0].plot(t_s[mask], data.el[mask], color=C_BLUE, lw=2)
     axes[0].axhline(box.el_nadir_deg, color=C_INK, ls=":", lw=1)
-    axes[0].axhline(box.el_limb_deg, color=C_ORANGE, ls="--", lw=1, label="el stop 30 deg")
+    axes[0].axhline(
+        box.el_limb_deg,
+        color=C_ORANGE,
+        ls="--",
+        lw=1,
+        label=f"el stop {box.el_limb_deg:.0f} deg",
+    )
     axes[0].axvspan(
         times.t_start_s, times.t_stop_s, color=C_BLUE, alpha=0.12, label="elevation window"
     )
@@ -67,7 +73,8 @@ def plot_along_track(result: GeometryResult, path: Path) -> None:
     axes[0].legend(loc="lower right", fontsize=8)
     axes[0].set_title(
         f"Along-track track time = {times.along_track_s:.1f} s "
-        f"(lat {lat_deg:.1f} deg, h = {times.local_alt_km:.0f} km, one-sided 90->30)"
+        f"(lat {lat_deg:.1f} deg, h = {times.local_alt_km:.0f} km, "
+        f"one-sided 90->{box.el_limb_deg:.0f})"
     )
 
     rate = np.abs(angular_rate_deg_s(t_s, data.el))

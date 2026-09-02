@@ -1,14 +1,16 @@
-"""Pass sampling, elevation-window masks, and T(lat, R) interpolation.
+"""Pass sampling, science-window masks, and T(lat, R) interpolation.
 
 A pass is sampled in ECI with Earth rotation applied to the ECEF target.
-One-axis tracking keeps the covering-disk edge inside the sensor half-FOV
-in azimuth; two-axis uses the gimbal azimuth box. ``TimeLostFn`` caches a
+One-axis tracking keeps any part of the unknown-wind covering disk inside
+the parked sensor FOV; two-axis points at a disk point inside the azimuth
+keep-out box (the chip then contains that point). ``TimeLostFn`` caches a
 (|lat|, R) grid and interpolates tracking time.
 
 Contains:
   - SampleSpan / PassSamples: time grid and look-angle arrays.
-  - sample_pass / in_elevation_window / mask_time_s / angular_rate_deg_s.
-  - two_axis_boresightable / staring_in_frame.
+  - sample_pass / in_elevation_window / in_science_window / mask_time_s.
+  - angular_rate_deg_s / two_axis_boresightable / staring_in_frame.
+  - az_interval_overlaps / disk_any_part_in_stop.
   - TimeLostFn: interpolator for one-axis and two-axis tracking time.
 """
 
@@ -62,6 +64,7 @@ class PassSamples:
         el: Elevation degrees. # np.ndarray[float64, (N,)]
         eta: Off-nadir degrees. # np.ndarray[float64, (N,)]
         slant: Slant range kilometres. # np.ndarray[float64, (N,)]
+        incidence: Earth emission angle degrees. # np.ndarray[float64, (N,)]
         vis: Earth-hit flag. # np.ndarray[bool, (N,)]
     """
 
@@ -70,6 +73,7 @@ class PassSamples:
     el: np.ndarray
     eta: np.ndarray
     slant: np.ndarray
+    incidence: np.ndarray
     vis: np.ndarray
 
 
@@ -108,6 +112,7 @@ def sample_pass(
     el = np.empty(n_samp)
     eta = np.empty(n_samp)
     slant = np.empty(n_samp)
+    incidence = np.empty(n_samp)
     vis = np.empty(n_samp, dtype=bool)
     for i, t_s in enumerate(ts):
         r_iss, vel = iss_eci(float(t_s), orbit, u0)
@@ -117,8 +122,9 @@ def sample_pass(
         el[i] = look.el_deg
         eta[i] = look.eta_deg
         slant[i] = look.slant_km
+        incidence[i] = look.incidence_deg
         vis[i] = look.visible
-    return PassSamples(t=ts, az=az, el=el, eta=eta, slant=slant, vis=vis)
+    return PassSamples(t=ts, az=az, el=el, eta=eta, slant=slant, incidence=incidence, vis=vis)
 
 
 def in_elevation_window(el_deg: np.ndarray, box: GimbalBox) -> np.ndarray:
@@ -136,6 +142,82 @@ def in_elevation_window(el_deg: np.ndarray, box: GimbalBox) -> np.ndarray:
         return forward
     half = box.el_nadir_deg - box.el_limb_deg
     return np.abs(el_deg - box.el_nadir_deg) <= half
+
+
+def in_science_window(
+    samples: PassSamples,
+    box: GimbalBox,
+    optics: Optics,
+    *,
+    slant_max_km: float,
+    gsd_max_band_m: float,
+) -> np.ndarray:
+    """Return a mask of samples inside the science (detectable-plume) window.
+
+    Elevation window, Earth-hit, slant cap, and along-track band GSD cap.
+
+    Args:
+        samples: Origin look-angle samples.
+        box: Gimbal box.
+        optics: Usable sensor FOV (band IFOV for GSD).
+        slant_max_km: Maximum slant range in kilometres.
+        gsd_max_band_m: Maximum along-track band-cell GSD in metres.
+
+    Returns:
+        Boolean mask. # np.ndarray[bool, (N,)]
+    """
+    el_ok = in_elevation_window(samples.el, box) & samples.vis
+    slant_ok = samples.slant <= slant_max_km
+    cos_i = np.cos(np.radians(samples.incidence))
+    gsd = np.where(
+        cos_i > 1e-6,
+        math.radians(optics.ifov_band_deg) * samples.slant * 1000.0 / cos_i,
+        np.inf,
+    )
+    gsd_ok = gsd <= gsd_max_band_m
+    return cast(np.ndarray, el_ok & slant_ok & gsd_ok)
+
+
+def az_interval_overlaps(az_a: np.ndarray, az_b: np.ndarray, half_deg: float) -> np.ndarray:
+    """Return whether [min(az_a, az_b), max(az_a, az_b)] overlaps [-half, half].
+
+    Args:
+        az_a: First azimuth samples, degrees. # np.ndarray[float64, (N,)]
+        az_b: Second azimuth samples, degrees. # np.ndarray[float64, (N,)]
+        half_deg: Symmetric stop in degrees.
+
+    Returns:
+        Boolean mask. # np.ndarray[bool, (N,)]
+    """
+    lo = np.minimum(az_a, az_b)
+    hi = np.maximum(az_a, az_b)
+    return cast(np.ndarray, (lo <= half_deg) & (hi >= -half_deg))
+
+
+def disk_any_part_in_stop(
+    az_origin: np.ndarray,
+    az_plus: np.ndarray,
+    az_minus: np.ndarray,
+    half_deg: float,
+) -> np.ndarray:
+    """Return whether any part of the covering disk is inside +/- ``half_deg``.
+
+    The disk azimuth span is the interval covering the origin and both
+    cross-track edges. Unknown wind puts the plume CoG somewhere in that
+    span; this is the any-part (existence) test, not whole-disk containment.
+
+    Args:
+        az_origin: Origin azimuth samples, degrees. # np.ndarray[float64, (N,)]
+        az_plus: +R cross-track edge azimuth. # np.ndarray[float64, (N,)]
+        az_minus: -R cross-track edge azimuth. # np.ndarray[float64, (N,)]
+        half_deg: Symmetric stop in degrees (FOV half-az or keep-out box).
+
+    Returns:
+        Boolean mask. # np.ndarray[bool, (N,)]
+    """
+    lo = np.minimum(np.minimum(az_origin, az_plus), az_minus)
+    hi = np.maximum(np.maximum(az_origin, az_plus), az_minus)
+    return cast(np.ndarray, (lo <= half_deg) & (hi >= -half_deg))
 
 
 def mask_time_s(mask: np.ndarray, t_s: np.ndarray) -> float:
@@ -206,8 +288,11 @@ class TimeLostFn:
     """Interpolate one-axis and two-axis tracking time vs |lat| and covering R.
 
     The grid is built by sampling the origin and the +/- R disk edges through
-    the elevation window. Earth rotation is on. Values outside the grid clip
-    to the inclination in latitude and to the radius bounds.
+    the science window. Earth rotation is on. One-axis in-frame means any
+    part of the disk overlaps the parked FOV. Two-axis in-frame means any
+    part of the disk overlaps the azimuth keep-out box (then boresight that
+    point). Values outside the grid clip to the inclination in latitude and
+    to the radius bounds.
 
     Args:
         orbit: Circular ISS orbit.
@@ -215,8 +300,11 @@ class TimeLostFn:
         box: Gimbal box (two-axis azimuth stop and elevation window).
         lats_deg: Grid latitudes in degrees, typically 0 to inclination.
         radii_km: Covering-disk radii in kilometres.
-        cache_path: ``.npz`` cache. Rebuilt if latitudes or radii differ.
+        cache_path: ``.npz`` cache. Rebuilt if latitudes, radii, or science
+            caps differ.
         span: Pass sample grid. Default dt is 0.1 s for the industry grid.
+        slant_max_km: Science slant cap. Inf disables the cap.
+        gsd_max_band_m: Science along-track band GSD cap. Inf disables.
         verbose: Print per-latitude progress when rebuilding the cache.
     """
 
@@ -230,6 +318,8 @@ class TimeLostFn:
         cache_path: Path,
         *,
         span: SampleSpan | None = None,
+        slant_max_km: float = math.inf,
+        gsd_max_band_m: float = math.inf,
         verbose: bool = False,
     ) -> None:
         self.orbit = orbit
@@ -237,13 +327,24 @@ class TimeLostFn:
         self.box = box
         self.lats = np.asarray(lats_deg, dtype=float)
         self.rs = np.asarray(radii_km, dtype=float)
+        self.slant_max_km = float(slant_max_km)
+        self.gsd_max_band_m = float(gsd_max_band_m)
         self._span = span if span is not None else SampleSpan(dt_s=0.1)
         nlat, nr = self.lats.size, self.rs.size
         t1: np.ndarray | None = None
         t2: np.ndarray | None = None
         if cache_path.is_file():
             cached = np.load(cache_path)
-            if np.allclose(cached["lats"], self.lats) and np.allclose(cached["rs"], self.rs):
+            same_grid = np.allclose(cached["lats"], self.lats) and np.allclose(
+                cached["rs"], self.rs
+            )
+            same_caps = _cap_matches(
+                _npz_float(cached, "slant_max_km"), self.slant_max_km
+            ) and _cap_matches(_npz_float(cached, "gsd_max_band_m"), self.gsd_max_band_m)
+            same_box = _cap_matches(
+                _npz_float(cached, "el_limb_deg"), box.el_limb_deg
+            ) and _cap_matches(_npz_float(cached, "az_box_deg"), box.az_box_deg)
+            if same_grid and same_caps and same_box:
                 t1 = cached["t1"]
                 t2 = cached["t2"]
                 if verbose:
@@ -255,20 +356,40 @@ class TimeLostFn:
                 print(f"building time-lost grid {nlat} lats x {nr} radii, dt={self._span.dt_s}s")
             for i, lat in enumerate(self.lats):
                 origin = sample_pass(orbit, box, float(lat), 0.0, 0.0, self._span)
-                el_ok = in_elevation_window(origin.el, box) & origin.vis
+                science = in_science_window(
+                    origin,
+                    box,
+                    optics,
+                    slant_max_km=self.slant_max_km,
+                    gsd_max_band_m=self.gsd_max_band_m,
+                )
                 for j, radius in enumerate(self.rs):
                     edge_p = sample_pass(orbit, box, float(lat), 0.0, float(radius), self._span)
                     edge_m = sample_pass(orbit, box, float(lat), 0.0, -float(radius), self._span)
-                    az_worst = np.maximum(np.abs(edge_p.az), np.abs(edge_m.az))
-                    one = el_ok & (az_worst <= optics.half_az_deg)
-                    two = el_ok & (az_worst <= box.az_box_deg)
+                    one = science & disk_any_part_in_stop(
+                        origin.az, edge_p.az, edge_m.az, optics.half_az_deg
+                    )
+                    two = science & disk_any_part_in_stop(
+                        origin.az, edge_p.az, edge_m.az, box.az_box_deg
+                    )
                     t1[i, j] = mask_time_s(one, origin.t)
                     t2[i, j] = mask_time_s(two, origin.t)
                 if verbose:
                     t1_lo = float(t1[i, 0])
                     print(f"  lat {lat:6.2f}  T1(Rmin)={t1_lo:6.1f}s  T2={t2[i, 0]:6.1f}s")
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            np.savez(cache_path, lats=self.lats, rs=self.rs, t1=t1, t2=t2)
+            np.savez(
+                cache_path,
+                lats=self.lats,
+                rs=self.rs,
+                t1=t1,
+                t2=t2,
+                slant_max_km=self.slant_max_km,
+                gsd_max_band_m=self.gsd_max_band_m,
+                el_limb_deg=box.el_limb_deg,
+                az_box_deg=box.az_box_deg,
+            )
+        assert t1 is not None and t2 is not None
         self._t1 = RegularGridInterpolator(
             (self.lats, self.rs), t1, bounds_error=False, fill_value=None
         )
@@ -301,3 +422,35 @@ class TimeLostFn:
         if not math.isfinite(t2):
             t2 = 0.0
         return t1, t2, t2 - t1
+
+
+def _npz_float(cached: np.lib.npyio.NpzFile, key: str) -> float | None:
+    """Return a scalar from an npz, or None if the key is missing.
+
+    Args:
+        cached: Loaded npz archive.
+        key: Array name.
+
+    Returns:
+        Scalar value, or None.
+    """
+    if key not in cached.files:
+        return None
+    return float(cached[key])
+
+
+def _cap_matches(stored: float | None, current: float) -> bool:
+    """Return True when ``stored`` equals ``current``, including inf.
+
+    Args:
+        stored: Value from cache, or None if missing.
+        current: Expected scalar.
+
+    Returns:
+        True when both are inf or they match within 1e-6.
+    """
+    if stored is None:
+        return False
+    if math.isinf(stored) and math.isinf(current):
+        return True
+    return abs(stored - current) < 1e-6

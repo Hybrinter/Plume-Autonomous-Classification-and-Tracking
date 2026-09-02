@@ -15,8 +15,8 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from analysis.lib.optics import Optics, build_optics
-from analysis.lib.orbit import Orbit, build_orbit
+from analysis.lib.hunt import HuntModel
+from analysis.lib.optics import Optics
 from analysis.lib.tracking import TimeLostFn
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     BAND_ALONG_PX,
@@ -27,6 +27,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DESIGN_LAT_DEG,
     EXPOSURE_S,
     GIMBAL_BOX,
+    GSD_MAX_BAND_M,
     MAX_HW_SLEW_DEG_S,
     MAX_SMEAR_BAND_PX,
     OPTICS_SPEC,
@@ -34,6 +35,8 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     SEG_FLOPS_256_G,
     SEG_LAT_256_MS,
     SENSOR_NAME,
+    SLANT_MAX_KM,
+    T_MIN_USABLE_S,
     TLE,
     WIND_MPS,
 )
@@ -70,8 +73,8 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
     lines.extend(
         [
             "- **Fixed origin.** Elevation tracks the stack, or the cluster centroid of",
-            "  stacks. Wind can swing the visible plume around that point during the",
-            "  ~120 s window. Tracking plume CoG would add lateral walk this study",
+            "  stacks. Wind can swing the visible plume around that point during",
+            "  the science window. Tracking plume CoG would add lateral walk this study",
             "  does not model.",
             "- **Covering disk.** Unknown wind azimuth makes a disk of radius **L**",
             "  around each stack. Cluster covering radius is `R = D + L`, with D the",
@@ -79,8 +82,18 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
             f"- **L = {PLUME_R_KM:.0f} km** is a **conservative visible-length envelope**",
             "  (cooling-tower photo climatologies: typical 0.3-0.8 km, winter often",
             "  >0.9 km, ~90-95th percentile ~1.5-3 km). Not a Mommert-chip measurement.",
-            "  Not typical length.",
-            "- **P(visible)** = fraction of that disk in the FOV (unknown-wind geometry).",
+            "  Not typical length. Wind azimuth is unknown, so L is a radius: the",
+            "  plume CoG sits somewhere in that disk.",
+            "- **Any part of the disk.** Unknown wind puts the plume CoG somewhere",
+            "  in the covering disk. Acquire means: there exists a point of that",
+            "  disk the gimbal can put on the chip. One-axis: the parked FOV",
+            "  (+/-1.60 deg) overlaps the disk azimuth span. Two-axis: the ISS",
+            "  keep-out box (+/-10 deg) overlaps the disk, then the gimbal",
+            "  boresights that in-box point onto the chip. A disk that sticks out",
+            "  of the box still counts if any point is inside. This is not",
+            "  whole-disk-in-box and not whole-disk-in-chip.",
+            "- **P(visible)** = fraction of that disk in the FOV after pointing",
+            "  (unknown-wind geometry). Not computed as a yield weight here.",
             "  Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR only.",
             "  Do not multiply the two.",
             "- **No locked design R.** Operational R is per cluster (`r_cover_km`) and,",
@@ -89,20 +102,32 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
             "  2/3-inch, global shutter; 150 mm athermal, 0.66% distortion. Catalog",
             "  2/3-inch HFOV 3.36 deg is a check. 2x2 mosaic => band plane",
             f"  {BAND_LATERAL_PX}x{BAND_ALONG_PX}, IFOV x2. Ignore lens-catalog 2.74 um.",
+            "  This is the purchased camera. SIL `ifov=0.02` is a stale placeholder.",
+            "- **Science stop.** Elevation window is one-sided",
+            f"  90->{GIMBAL_BOX.el_limb_deg:.0f} deg (eta_max = "
+            f"{90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg off-nadir).",
+            f"  Extra caps: slant <= {SLANT_MAX_KM:.0f} km, along-track band GSD",
+            f"  <= {GSD_MAX_BAND_M:.0f} m. Geometric Earth limb is ~69 deg off-nadir",
+            "  and is not a detection limit. Typical cooling-tower plumes are not",
+            "  segmentable at 60 deg off-nadir (~118 m along-track band GSD).",
+            "- **Tasking.** Opportunistic detect-in-chip hunt, not catalog cueing.",
+            "  Flight SCAN (az raster at el=0) is not the trade baseline.",
             "- **Two slew caps.** Imaging rewind vs ground is the 1-pixel / 1 ms",
             "  **band-plane** gate (current imaging gate). Hardware cap",
-            f"  **{MAX_HW_SLEW_DEG_S:.0f} deg/s** is not for science frames. SIL",
-            "  `ifov=0.02` is not this optic.",
-            "- **Reacquire.** Leftover-window rewind is gated so a new target",
-            "  just outside the frame can be acquired immediately -- no wait to",
-            "  reset to 30 deg. One-axis search is the FOV ribbon; two-axis",
-            "  search is the gimbal box. Lost time is mean reacquire from",
-            "  **signed-latitude stack density** (peak near 30-40 N, not a",
-            "  folded |lat| mean). Cycle time is single-target dwell plus",
-            "  reacquire (start of tracking until the next target is acquired).",
-            "  Mean encounter is Poisson / mean-spacing in that signed lat",
-            "  band, ocean-averaged in longitude -- not a city-corridor",
-            "  nearest neighbour.",
+            f"  **{MAX_HW_SLEW_DEG_S:.0f} deg/s** is not for science frames.",
+            "- **Reacquire.** On loss the gimbal immediately slews elevation toward",
+            f"  {GIMBAL_BOX.el_limb_deg:.0f} deg (science limb) at the imaging rewind",
+            "  cap. Look-point ground speed is ISS motion plus ds/d(eta)*omega, so",
+            "  the FOV ribbon covers new ground faster than orbital motion and can",
+            "  acquire during the slew. After the stop, one-axis waits on ISS",
+            "  motion through the FOV ribbon; two-axis then rasters azimuth across",
+            "  the keep-out box (hypot of az slew and along-track scene rate <=",
+            "  imaging gate). Mean wait uses signed-lat stack density (peak near",
+            "  30-40 N). Cycle is dwell plus reacquire. Ocean-averaged Poisson",
+            "  spacing, not a city-corridor nearest neighbour.",
+            f"- **Usable visit floor.** Contiguous TRACKING >= {T_MIN_USABLE_S:.1f} s",
+            "  (~10 full-res cls+seg frames). The ~3 s stare number is no-gimbal",
+            "  FOV transit, not an inference floor.",
         ]
     )
     return lines
@@ -111,9 +136,8 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
 def _band_times(
     fn: TimeLostFn,
     row: LatBandRow,
-    optics: Optics,
-    orbit: Orbit,
     profile: RadiusProfile,
+    hunt: HuntModel,
     *,
     signed_lat_deg: float,
 ) -> tuple[float, float, float, float, float, float]:
@@ -125,25 +149,29 @@ def _band_times(
     Args:
         fn: Tracking-time interpolator.
         row: Folded |lat| stats, including mean R.
-        optics: Usable sensor FOV.
-        orbit: Circular ISS orbit.
         profile: Signed-latitude stack-density interpolator.
+        hunt: Rewind-then-scan hunt model.
         signed_lat_deg: Signed latitude for the hunt (deg).
 
     Returns:
         (t1, t2, t_reacq1, t_reacq2, t_cycle1, t_cycle2).
     """
     t1, t2, _lost = fn.eval(row.lat_mid, row.mean_r_km)
-    t_reacq1, t_reacq2 = hunt_at_lat(
-        signed_lat_deg, profile.dens_km2(signed_lat_deg), optics, orbit
+    hunted = hunt_at_lat(
+        signed_lat_deg,
+        profile.dens_km2(signed_lat_deg),
+        hunt,
+        t_dwell_1_s=t1,
+        t_dwell_2_s=t2,
+        t_window_s=t2,
     )
     return (
         t1,
         t2,
-        t_reacq1,
-        t_reacq2,
-        cycle_s(t1, t_reacq1),
-        cycle_s(t2, t_reacq2),
+        hunted.t_reacq_1_s,
+        hunted.t_reacq_2_s,
+        cycle_s(t1, hunted.t_reacq_1_s),
+        cycle_s(t2, hunted.t_reacq_2_s),
     )
 
 
@@ -197,8 +225,12 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("")
     a("Also locked for this run:")
     a("")
-    a("- Elevation window is **one-sided** 90->30 deg. Hard gimbal stops for")
-    a("  clearance; tracking time stops at the limit, with no leftover FOV walk-out.")
+    a(
+        f"- Elevation window is **one-sided** 90->{GIMBAL_BOX.el_limb_deg:.0f} deg "
+        f"(eta_max {90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg)."
+    )
+    a("  Hard gimbal stops for clearance; tracking time stops at the science")
+    a("  limit (slant / GSD), with no leftover FOV walk-out past the stop.")
     a("- Mount is geocentric nadir. A <=5 deg offset is a later correction, not in")
     a("  this run.")
     a("- If plants are spread farther than the chip (~+/-12 km at nadir), they are")
@@ -280,6 +312,28 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a(f"| Imaging rewind omega_img | **{omega_img:.3f} deg/s** |")
     a(f"| Hardware slew cap | {MAX_HW_SLEW_DEG_S:.1f} deg/s |")
     a("")
+    a("## Hunt cycle (design pass, full-window loss)")
+    a("")
+    a("On track loss the gimbal slews elevation toward the science limb at")
+    a(f"**{omega_img:.3f} deg/s**. Look-point ground speed is ISS ground speed")
+    a("plus ds/d(eta) times that rewind rate, so the FOV ribbon covers new")
+    a("ground faster than orbital motion. After the limb stop, one-axis waits")
+    a("on ISS motion; two-axis rasters +/-az_box at the leftover smear budget")
+    a("(hypot of az slew and along-track scene rate <= omega_rel).")
+    a("")
+    a("| Quantity | Value |")
+    a("| --- | --- |")
+    a(
+        f"| Rewind after full-window dwell | **{result.hunt.t_rewind_1_s:.1f} s** "
+        f"({90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg / {omega_img:.3f} deg/s) |"
+    )
+    a(f"| Azimuth raster rate at the limb | **{result.hunt.omega_az_scan_deg_s:.3f} deg/s** |")
+    a(f"| Two-axis raster along-track fill | {100.0 * result.hunt.scan_fill:.0f}% |")
+    a(
+        f"| Limb FOV / box swath | {result.hunt.swath_fov_km:.1f} / "
+        f"{result.hunt.swath_box_km:.1f} km |"
+    )
+    a("")
     a("## Along-track time (elevation axis, design pass)")
     a("")
     a(f"Design pass: latitude **{DESIGN_LAT_DEG:.2f} deg**, heading due east,")
@@ -287,7 +341,7 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("")
     a("| Quantity | Value |")
     a("| --- | --- |")
-    a("| Elevation window | 90 -> 30 deg, one-sided, stop at limit |")
+    a(f"| Elevation window | 90 -> {GIMBAL_BOX.el_limb_deg:.0f} deg, one-sided, science stop |")
     a(f"| Time in elevation window | **{times.along_track_s:.1f} s** |")
     a(f"| Staring at nadir (no gimbal) | {times.stare_s:.2f} s |")
     a(f"| Peak elevation rate | {times.peak_el_rate_deg_s:.3f} deg/s |")
@@ -297,12 +351,17 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
         f"| Slant range at start / stop | "
         f"{times.slant_start_km:.1f} / {times.slant_stop_km:.1f} km |"
     )
+    a(
+        f"| Incidence / band GSD along at start | "
+        f"{times.incidence_start_deg:.1f} deg / "
+        f"{times.gsd_band_along_start_m:.0f} m |"
+    )
     a("")
     a("## Earth rotation vs pass latitude")
     a("")
     a("At low latitude the ISS heading has a large north component, so Earth")
     a("rotation (always east) has a **cross-track** piece. That walks even a")
-    a("nadir-centered origin in azimuth, peaking at the 30 deg stop where range")
+    a("nadir-centered origin in azimuth, peaking at the far look where range")
     a("is long. At max latitude the heading is due east and the walk vanishes.")
     a("That is why a polar-slice one-axis placement is the right one-axis case.")
     a("")
@@ -325,10 +384,25 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("")
     a("## Covering-disk sensitivity (design pass)")
     a("")
-    a("Elevation tracks the fixed stack / cluster centroid. A plume is acquired")
-    a("if any part of the unknown-wind disk is in the frame. The radii below")
-    a("are a **sensitivity sweep at the design latitude**, not a locked")
-    a(f"operational R. Isolated stacks sit at R = L = {PLUME_R_KM:.0f} km.")
+    a("Elevation tracks the fixed stack / cluster centroid. Acquire is an")
+    a("existence test on unknown wind, not a filled-disk occupancy:")
+    a("")
+    a("1. **Can we point?** One-axis: the parked chip FOV overlaps the disk")
+    a("   azimuth span. Two-axis: the +/-10 deg ISS keep-out box overlaps")
+    a("   the disk. A disk that sticks out of the box still counts if any")
+    a("   point is inside.")
+    a("2. **Is that point on the chip?** One-axis is already parked, so FOV")
+    a("   overlap is the whole test. Two-axis then boresights the in-box")
+    a("   point (az = 0 on the chip). We do not require the rest of the")
+    a("   disk to fit in the box or on the chip.")
+    a("")
+    a("Whole-disk-in-box was the previous 2-axis test and is wrong for this")
+    a("gimbal: a large disk at the far look can span more than +/-10 deg")
+    a("even when the origin is on boresight, so that test dropped dwell as")
+    a("R grew. The chip-after-boresight test keeps full-window 2-axis dwell")
+    a("whenever any point of the disk is inside the box.")
+    a("The radii below are a **sensitivity sweep at the design latitude**,")
+    a(f"not a locked operational R. Isolated stacks sit at R = L = {PLUME_R_KM:.0f} km.")
     a("")
     a("| R (km) | peak az (deg) | 1-axis (s) | 2-axis (s) | lost (s) | lost % |")
     a("| --- | --- | --- | --- | --- | --- |")
@@ -342,9 +416,11 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
             f"{lost:.1f} | {frac:.1f}% |"
         )
     a("")
-    a(f"At the design pass, a disk with **R <= {r_fit:.1f} km** stays in the chip")
-    a("for the whole elevation window. That includes every operational cluster")
-    a(f"in this inventory (R = D + {PLUME_R_KM:.0f} km, D capped by the chip split).")
+    a("At the design pass the origin stays in the chip (Earth-rotation az")
+    a("~0). Any-part overlap then keeps the disk in the 1-axis FOV for the")
+    a("whole science window at every R in this sweep: the origin is a point")
+    a("of the disk. Whole-disk-in-chip would still fail for R larger than")
+    a(f"the nadir half-swath ({r_fit:.1f} km).")
     a("")
     a("Wind during the window (extra walk of a visible plume around the fixed")
     a("origin; already inside the L envelope if L is conservative):")
@@ -400,21 +476,25 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("")
     a(f"1. Along-track, one elevation axis gives **{times.along_track_s:.0f} s**")
     a(f"   at the design (max-lat) pass, vs **{times.stare_s:.1f} s** staring.")
-    a(f"   Stop at 30 deg. Peak track rate {times.peak_el_rate_deg_s:.2f} deg/s")
+    a(
+        f"   Stop at {GIMBAL_BOX.el_limb_deg:.0f} deg elevation "
+        f"({90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg off-nadir, "
+        f"slant {times.slant_start_km:.0f} km). Peak track rate "
+        f"{times.peak_el_rate_deg_s:.2f} deg/s"
+    )
     a(f"   is under the {MAX_HW_SLEW_DEG_S:.0f} deg/s hardware cap. Imaging")
     a(f"   rewind against the pass is capped at **{omega_img:.2f} deg/s**.")
     a("2. At that pass, Earth-rotation az walk of the origin is")
-    a(f"   **{times.az_max_deg:.3f} deg**. Any disk with R <= {r_fit:.1f} km")
-    a(f"   stays in the +/-{optics.half_az_deg:.2f} deg chip for the whole")
-    a("   window -- **0 s lost** vs two-axis. There is no locked design R;")
-    a("   the inventory R(|lat|) is always below that chip radius.")
+    a(f"   **{times.az_max_deg:.3f} deg**. Any-part overlap with the")
+    a(f"   +/-{optics.half_az_deg:.2f} deg chip keeps the origin in frame")
+    a("   for the whole window -- **0 s lost** vs two-axis at this pass.")
     a("3. At equatorial and mid-latitude passes, Earth rotation walks the")
-    a("   origin out at the 30 deg stop. One-axis then keeps only the last")
+    a("   origin out at the far look. One-axis then keeps only the last")
     a("   tens of seconds, worse for larger R(|lat|). Use two-axis for those")
     a("   passes, or do not work them. See `INDUSTRIAL.md` for T vs R(|lat|).")
     a("4. If two plants are farther apart than ~24 km, they are two clusters.")
-    a("   Track one. After it leaves the frame, a new target just outside")
-    a("   the FOV can be acquired immediately (see `INDUSTRIAL.md` for T_reacq).")
+    a("   Track one. After it leaves the frame, rewind toward the limb stop")
+    a("   and hunt along that path (see `INDUSTRIAL.md` for T_reacq).")
     a("5. Worldwide stack inventory (Climate TRACE 2025) is in")
     a("   `INDUSTRIAL.md`.")
     a("")
@@ -447,7 +527,7 @@ def write_industry_report(
     exp: dict[str, dict[str, float]],
     profile: RadiusProfile,
     folded: list[LatBandRow],
-    omega_img: float,
+    hunt: HuntModel,
     path: Path,
 ) -> None:
     """Write INDUSTRIAL.md for the worldwide stack inventory.
@@ -461,14 +541,13 @@ def write_industry_report(
         exp: Expected-time summaries keyed by weight kind.
         profile: Stack-weighted R(|lat|) interpolator.
         folded: Coarse |lat| band rows (D, R, singleton fraction).
-        omega_img: Imaging rewind cap in degrees per second.
+        hunt: Rewind-then-scan hunt model.
         path: Output markdown path.
 
     Returns:
         None.
     """
-    optics = build_optics(OPTICS_SPEC)
-    orbit = build_orbit(TLE, use_perigee=False)
+    omega_img = hunt.omega_img_deg_s
     iss_i = TLE.inclination_deg
     world = clusters
     iss = [c for c in world if abs(c.lat) <= iss_i]
@@ -586,13 +665,13 @@ def write_industry_report(
     p("")
     p("### Single-target dwell and reacquire at R(|lat|)")
     p("")
-    p("T1 / T2 are how long **one** cluster stays in frame, using each")
-    p("band's stack-weighted mean R. After that target leaves, leftover")
-    p("rewind is already gated so a new target just outside the frame can")
-    p("be acquired immediately -- no wait to reset to 30 deg. 1-axis swath")
-    p("is the FOV ribbon; 2-axis is the +/-10 deg box. Lost time is T_reacq")
-    p("from **stack count in that signed-latitude band**. Cycle time is")
-    p("dwell plus reacquire: start of tracking until the next acquire.")
+    p("T1 / T2 are how long **one** cluster stays in the science window,")
+    p("using each band's stack-weighted mean R. After that target leaves,")
+    p("the gimbal rewinds toward the limb stop and can acquire along the")
+    p("path; two-axis then rasters azimuth. 1-axis limb search is the FOV")
+    p("ribbon; 2-axis is the keep-out box at the smear-limited scan rate.")
+    p("Lost time is T_reacq from **stack count in that signed-latitude band**.")
+    p("Cycle time is dwell plus reacquire.")
     p("Same-origin leftover T2-T1 is not the lost-time metric.")
     p("")
     p("T_reacq columns below are the **northern** band at +|lat|. The")
@@ -605,9 +684,7 @@ def write_industry_report(
     )
     p("| --- | --- | --- | --- | --- | --- | --- | --- |")
     for row in folded:
-        t1, t2, r1, r2, c1, c2 = _band_times(
-            fn, row, optics, orbit, profile, signed_lat_deg=row.lat_mid
-        )
+        t1, t2, r1, r2, c1, c2 = _band_times(fn, row, profile, hunt, signed_lat_deg=row.lat_mid)
         p(
             f"| {row.lat_lo:.0f}-{row.lat_hi:.1f} | {row.mean_r_km:.2f} | "
             f"{t1:.1f} | {t2:.1f} | {_fmt_enc(r1)} | {_fmt_enc(r2)} | "
@@ -615,29 +692,44 @@ def write_industry_report(
         )
     p("")
     mid_ind = 35.0
-    n1, n2 = hunt_at_lat(mid_ind, profile.dens_km2(mid_ind), optics, orbit)
-    s1, s2 = hunt_at_lat(-mid_ind, profile.dens_km2(-mid_ind), optics, orbit)
+    t1n, t2n, _ = fn.eval(mid_ind, profile.r_km(mid_ind))
+    n_h = hunt_at_lat(
+        mid_ind,
+        profile.dens_km2(mid_ind),
+        hunt,
+        t_dwell_1_s=t1n,
+        t_dwell_2_s=t2n,
+        t_window_s=t2n,
+    )
+    t1s, t2s, _ = fn.eval(-mid_ind, profile.r_km(-mid_ind))
+    s_h = hunt_at_lat(
+        -mid_ind,
+        profile.dens_km2(-mid_ind),
+        hunt,
+        t_dwell_1_s=t1s,
+        t_dwell_2_s=t2s,
+        t_window_s=t2s,
+    )
     p(
         f"Industrial-belt check at +/-{mid_ind:.0f} deg: T_reacq is "
-        f"**{_fmt_enc(n1)} s vs {_fmt_enc(n2)} s** at 35 N, and "
-        f"**{_fmt_enc(s1)} s vs {_fmt_enc(s2)} s** at 35 S."
+        f"**{_fmt_enc(n_h.t_reacq_1_s)} s vs {_fmt_enc(n_h.t_reacq_2_s)} s** at 35 N, and "
+        f"**{_fmt_enc(s_h.t_reacq_1_s)} s vs {_fmt_enc(s_h.t_reacq_2_s)} s** at 35 S."
     )
     p("Shorter waits follow the stack histogram, which peaks at 30-40 N,")
     p("not the equator and not a mirror of the southern hemisphere.")
     p("")
     p(
         f"Imaging rewind ({omega_img:.2f} deg/s) is the science-frame gate "
-        "during dwell, not a reset-to-30-deg slew."
-    )
-    p(
-        f"Hardware cap {MAX_HW_SLEW_DEG_S:.0f} deg/s is available if a "
-        "target sits just outside the frame; that slew is not added as a wait."
+        "while tracking. After loss, that same cap slews elevation toward "
+        f"the {GIMBAL_BOX.el_limb_deg:.0f} deg stop; two-axis then rasters "
+        f"azimuth at up to {n_h.omega_az_scan_deg_s:.2f} deg/s "
+        f"(limb fill {100.0 * n_h.scan_fill:.0f}%)."
     )
     p("")
     p("## Expected times (ISS-belt clusters)")
     p("")
     p("For each cluster, single-target dwell uses that cluster's own")
-    p("`r_cover_km` and the same one-sided 90->30 deg window as the")
+    p("`r_cover_km` and the same one-sided science window as the")
     p("geometry command. Reacquire uses **signed-latitude stack density**")
     p("at that cluster's lat, so 30-40 N (industrial belt) reacquires")
     p("faster than the equator or the southern hemisphere at the same")
@@ -695,14 +787,24 @@ def write_industry_report(
         f"{e['mean_cov2'] / max(1e-12, e['mean_cov1']):.2f}x |"
     )
     p(
-        f"| yield proxy E[T x coverage] (s x frac) | {e['e_yield1']:.2f} | "
+        f"| primary FoM E[T_usable x coverage] (T>={T_MIN_USABLE_S:.0f}s) | "
+        f"{e['e_usable_yield1']:.2f} | {e['e_usable_yield2']:.2f} | "
+        f"{e['e_usable_yield2'] / max(1e-12, e['e_usable_yield1']):.2f}x |"
+    )
+    p(
+        f"| geometry check E[T x coverage] (s x frac) | {e['e_yield1']:.2f} | "
         f"{e['e_yield2']:.2f} | {e['e_yield2'] / max(1e-12, e['e_yield1']):.2f}x |"
     )
+    p(
+        f"| distinct usable visits (frac/day) | {e['e_visit1']:.4f} | "
+        f"{e['e_visit2']:.4f} | {e['e_visit2'] / max(1e-12, e['e_visit1']):.2f}x |"
+    )
     p("")
-    p("So even where Earth-rotation azimuth walk is ~0, dropping the azimuth")
-    p("axis throws away a factor of ~6 in how much industrial area a given")
-    p("day can put in the frame. That is the lateral-motion cost of one axis,")
-    p("independent of the along-track 124 s window.")
+    p("The ~6x coverage ratio is the extra search area of the +/-10 deg ISS")
+    p("keep-out box versus the 3.2 deg chip. Two-axis still has to scan that")
+    p("box after the limb stop; scan time is in T_reacq, not in coverage.")
+    p("The along-track science window is no longer 124 s (that was 60 deg")
+    p("off-nadir). Combined FoM is dwell x coverage with the 1 s usable floor.")
     p("")
     p("## Decision numbers")
     p("")
@@ -712,9 +814,10 @@ def write_industry_report(
     p("   number is still the right 'how long can we stare at one plant'")
     p("   metric. Only ~10% of stacks sit at |lat| >= 45 deg.")
     p("2. **Lost time is reacquire, both gimbals:** after the target leaves,")
-    p("   a new target just outside the frame can be acquired immediately.")
-    p("   T_reacq is the mean wait from stack density at that signed")
-    p("   latitude (shortest in the 30-40 N belt). Stack-weighted")
+    p("   rewind toward the limb stop (searching the FOV ribbon), then wait")
+    p("   on ISS motion (1-axis) or raster the keep-out box (2-axis).")
+    p("   T_reacq is that two-phase wait at signed-latitude stack density")
+    p("   (shortest in the 30-40 N belt). Stack-weighted")
     p(
         f"   E[T_reacq] is **{e['e_reacq1']:.0f} s (1-axis ribbon) vs "
         f"{e['e_reacq2']:.0f} s (2-axis box)**."
@@ -724,17 +827,22 @@ def write_industry_report(
         f"   **{e['e_cycle1']:.0f} s vs {e['e_cycle2']:.0f} s** "
         f"(duty {100.0 * e['e_duty1']:.0f}% vs {100.0 * e['e_duty2']:.0f}%)."
     )
-    p("3. **Lateral, whether we acquire at all:** 2-axis covers ~6x more")
-    p("   industrial area per day. One axis only works plants that sit under")
-    p("   the 24 km ground-track ribbon. Combined with shorter dwell,")
+    p("3. **Primary FoM: inferred-usable plume-seconds/day.** Stack-weighted")
     p(
-        f"   the yield proxy E[T_dwell x coverage] is "
-        f"**{e['e_yield2'] / max(1e-12, e['e_yield1']):.1f}x** higher with two axes."
+        f"   E[T_usable x coverage] with T_usable = dwell if dwell >= "
+        f"{T_MIN_USABLE_S:.0f} s else 0. Ratio "
+        f"**{e['e_usable_yield2'] / max(1e-12, e['e_usable_yield1']):.1f}x** "
+        "in favour of two-axis. The raw E[T x coverage] geometry check is"
+    )
+    p(
+        f"   **{e['e_yield2'] / max(1e-12, e['e_yield1']):.1f}x**. The ~6x "
+        "in coverage is the keep-out box versus the chip, by design."
     )
     p("4. A polar-slice one-axis payload that is only tasked at |lat| >= 45 deg")
-    p("   keeps the 124 s dwell, but it is looking at ~10% of the world's")
-    p("   stack-bearing industry. If the mission must work the 20-40 N")
-    p("   belt, 2-axis is required for dwell *and* for faster reacquire.")
+    p("   keeps nearly the full science-window dwell, but it is looking at")
+    p("   ~10% of the world's stack-bearing industry. If the mission must")
+    p("   work the 20-40 N belt, 2-axis is required for Earth-rotation hold")
+    p("   and for the wider search box.")
     p("")
     p("## Figures")
     p("")
@@ -815,6 +923,12 @@ def write_study_readme(
     a(f"| Imaging rewind (current gate) | **{omega_img:.2f} deg/s** |")
     a(f"| Scene-relative smear limit | {omega_rel:.2f} deg/s |")
     a(f"| Hardware slew cap | {MAX_HW_SLEW_DEG_S:.0f} deg/s |")
+    a(
+        f"| Science stop | {90.0 - GIMBAL_BOX.el_limb_deg:.0f} deg off-nadir "
+        f"(slant {times.slant_start_km:.0f} km, incidence "
+        f"{times.incidence_start_deg:.0f} deg, band GSD along "
+        f"{times.gsd_band_along_start_m:.0f} m) |"
+    )
     a(f"| Nadir lateral half-swath | +/-{r_fit:.1f} km |")
     a(f"| 2-axis +/-{GIMBAL_BOX.az_box_deg:.0f} deg half-swath | +/-{r_box:.0f} km |")
     a(f"| Earth-rotation az walk of the origin | {times.az_max_deg:.3f} deg |")
@@ -838,8 +952,9 @@ def write_study_readme(
         f"(duty {100.0 * e['e_duty1']:.0f}% vs {100.0 * e['e_duty2']:.0f}%) |"
     )
     a(
-        f"| Daily in-swath yield (dwell x coverage) | "
-        f"**~{e['e_yield2'] / max(1e-12, e['e_yield1']):.0f}x** in favour of 2-axis |"
+        f"| Daily usable yield (T>={T_MIN_USABLE_S:.0f}s x coverage) | "
+        f"**~{e['e_usable_yield2'] / max(1e-12, e['e_usable_yield1']):.0f}x** "
+        "in favour of 2-axis |"
     )
     a("")
     a("| |lat| (deg) | D (km) | R (km) | singleton % | d_char n>=2 (km) |")
@@ -854,9 +969,9 @@ def write_study_readme(
     a("Most stacks sit at 20-40 N. A polar-slice one-axis view keeps the")
     a(f"{times.along_track_s:.0f} s window but sees only ~10% of the industry.")
     a("Working the mid-latitude belt needs the azimuth axis for Earth-rotation")
-    a("walk, not just for swath. After a target leaves the frame a new")
-    a("target just outside the FOV can be acquired immediately. Lost time")
-    a("is mean wait from stack density at that signed latitude (shortest")
-    a("at 30-40 N). See `outputs/industrial_reacquire_vs_lat.png`.")
+    a("walk, not just for swath. After a target leaves the frame the gimbal")
+    a("rewinds toward the limb stop and hunts along that path; two-axis then")
+    a("rasters azimuth. Lost time is that wait from stack density at signed")
+    a("latitude (shortest at 30-40 N). See `outputs/industrial_reacquire_vs_lat.png`.")
     a("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

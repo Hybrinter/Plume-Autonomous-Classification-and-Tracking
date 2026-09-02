@@ -7,7 +7,7 @@ as a cross-check against the computed 8.8 mm value; it is not the camera FOV.
 Contains:
   - OpticsSpec: pixel / array / lens inputs.
   - Optics: computed raw and usable FOV.
-  - fov_deg / ifov_deg_per_px: thin-lens helpers.
+  - fov_deg / ifov_deg_per_px / band_gsd_along_m: thin-lens helpers.
   - build_optics: OpticsSpec -> Optics.
 """
 
@@ -100,6 +100,26 @@ def fov_deg(n_px: int, pixel_um: float, fl_mm: float) -> float:
     """
     half_mm = (n_px * pixel_um / 1000.0) / 2.0
     return 2.0 * math.degrees(math.atan(half_mm / fl_mm))
+
+
+def band_gsd_along_m(ifov_band_deg: float, slant_km: float, incidence_deg: float) -> float:
+    """Return along-track band-cell GSD in metres.
+
+    Ground-projected GSD is ``ifov * slant / cos(incidence)``. At the limb
+    incidence approaches 90 deg and GSD diverges.
+
+    Args:
+        ifov_band_deg: Band-plane IFOV in degrees per pixel.
+        slant_km: Slant range in kilometres.
+        incidence_deg: Earth emission angle in degrees.
+
+    Returns:
+        Along-track GSD in metres. Inf when incidence is 90 deg.
+    """
+    cos_i = math.cos(math.radians(incidence_deg))
+    if cos_i <= 1e-6:
+        return math.inf
+    return math.radians(ifov_band_deg) * slant_km * 1000.0 / cos_i
 
 
 def ifov_deg_per_px(pixel_um: float, fl_mm: float) -> float:

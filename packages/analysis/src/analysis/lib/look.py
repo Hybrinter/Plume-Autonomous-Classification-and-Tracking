@@ -7,8 +7,8 @@ the right-handed frame.
 
 Contains:
   - WindowMode / GimbalBox: operational elevation window and azimuth stop.
-  - Look: azimuth, elevation, off-nadir, slant, Earth-hit flag.
-  - rotate_z / body_axes / look_at / ray_hits_earth / earth_hit.
+  - Look: azimuth, elevation, off-nadir, slant, incidence, Earth-hit flag.
+  - rotate_z / body_axes / look_at / incidence_deg / ray_hits_earth / earth_hit.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class GimbalBox:
     Attributes:
         az_box_deg: Azimuth stop from boresight, degrees (two-axis box).
         el_nadir_deg: Elevation at geocentric nadir (90 for a nadir mount).
-        el_limb_deg: Elevation at the limb stop (30 for the polar-slice view).
+        el_limb_deg: Elevation at the science limb stop (90 minus eta_max).
         window_mode: One-sided (nadir to limb) or symmetric about nadir.
     """
 
@@ -56,6 +56,7 @@ class Look:
         el_deg: Elevation in degrees (90 at nadir).
         eta_deg: Off-nadir angle in degrees.
         slant_km: Slant range in kilometres.
+        incidence_deg: Earth emission angle at the target, degrees.
         visible: True when the line of sight intersects the Earth sphere.
     """
 
@@ -63,6 +64,7 @@ class Look:
     el_deg: float
     eta_deg: float
     slant_km: float
+    incidence_deg: float
     visible: bool
 
 
@@ -118,7 +120,7 @@ def look_at(
     look = target_eci - r_iss
     slant = float(np.linalg.norm(look))
     if slant < 1e-9:
-        return Look(0.0, el_nadir_deg, 0.0, 0.0, False)
+        return Look(0.0, el_nadir_deg, 0.0, 0.0, 0.0, False)
     unit = look / slant
     lx = float(np.dot(look, x_axis))
     ly = float(np.dot(look, y_axis))
@@ -127,8 +129,37 @@ def look_at(
     along_off = math.degrees(math.atan2(lx, lz))
     el_deg = el_nadir_deg - along_off
     az_deg = math.degrees(math.atan2(ly, math.hypot(lx, lz)))
-    vis = ray_hits_earth(r_iss, unit, float(np.linalg.norm(target_eci)))
-    return Look(az_deg=az_deg, el_deg=el_deg, eta_deg=eta, slant_km=slant, visible=vis)
+    r_sensor = float(np.linalg.norm(r_iss))
+    r_target = float(np.linalg.norm(target_eci))
+    vis = ray_hits_earth(r_iss, unit, r_target)
+    return Look(
+        az_deg=az_deg,
+        el_deg=el_deg,
+        eta_deg=eta,
+        slant_km=slant,
+        incidence_deg=incidence_deg(eta, r_sensor, r_target),
+        visible=vis,
+    )
+
+
+def incidence_deg(eta_deg: float, r_sensor_km: float, r_target_km: float) -> float:
+    """Return Earth incidence (emission) angle from off-nadir look angle.
+
+    Uses the spherical law of sines: sin(i) / r_sensor = sin(eta) / r_target.
+
+    Args:
+        eta_deg: Off-nadir angle in degrees.
+        r_sensor_km: Sensor geocentric radius in kilometres.
+        r_target_km: Target geocentric radius in kilometres.
+
+    Returns:
+        Incidence angle in degrees, 0 at nadir, 90 at the geometric limb.
+    """
+    if r_target_km <= 1e-9:
+        return 0.0
+    sine_i = (r_sensor_km / r_target_km) * math.sin(math.radians(eta_deg))
+    sine_i = min(1.0, max(0.0, sine_i))
+    return math.degrees(math.asin(sine_i))
 
 
 def ray_hits_earth(sensor: np.ndarray, unit: np.ndarray, earth_r_km: float) -> bool:

@@ -3,11 +3,12 @@
 Physical setup: plumes originate at fixed stacks. Unknown wind azimuth
 makes a covering disk of radius L around each stack. Cluster covering
 radius is R = D + L with D from Climate TRACE plant span, not a locked
-design R. Imaging rewind is smear-gated on the 2x2 band plane.
+design R. Imaging rewind is smear-gated on the 2x2 band plane. Science
+window stops at eta_max = 45 deg (slant / GSD), not the geometric limb.
 
 Contains:
   - TLE / OPTICS_SPEC / GIMBAL_BOX and design-pass constants.
-  - Camera, exposure, smear, and slew-cap constants.
+  - Camera, exposure, smear, slew-cap, slant, and GSD constants.
   - omega_rel_max_deg_s / omega_img_rewind_deg_s.
   - analysis_root / STUDY_DIR / DATA_DIR / CACHE_DIR / OUT_DIR.
 """
@@ -36,12 +37,19 @@ DESIGN_LAT_DEG = TLE.inclination_deg
 PASS_LATS_DEG: tuple[float, ...] = (0.0, 20.0, 30.0, 40.0, 45.0, 50.0, TLE.inclination_deg)
 
 GIMBAL_BOX = GimbalBox(
-    az_box_deg=10.0,
+    az_box_deg=10.0,  # ISS keep-out; may open to +/-20 deg later.
     el_nadir_deg=90.0,
-    el_limb_deg=30.0,
+    el_limb_deg=45.0,  # eta_max = 45 deg science stop, not the Earth limb.
     window_mode=WindowMode.ONE_SIDED,
 )
 NADIR_OFFSET_DEG = 0.0
+
+# Science visibility: vis-NIR cooling-tower segmentation dies on along-track
+# GSD and BLUE path radiance before the geometric limb (~69 deg off-nadir).
+# 45 deg off-nadir is ~635 km slant / ~49 deg incidence / ~45 m band GSD along.
+SLANT_MAX_KM = 650.0
+GSD_MAX_BAND_M = 50.0
+T_MIN_USABLE_S = 1.0
 
 # FLIR Blackfly S BFS-U3-50S5, Sony IMX264, 3.45 um, 2448 x 2048, 2/3-inch.
 # Lens: 150 mm athermal, f/4, max distortion 0.66 %. Catalog 2/3-inch HFOV

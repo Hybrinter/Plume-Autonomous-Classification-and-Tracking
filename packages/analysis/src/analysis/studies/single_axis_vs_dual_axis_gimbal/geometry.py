@@ -20,8 +20,9 @@ from typing import cast
 import numpy as np
 
 from analysis.lib.constants import OMEGA_EARTH_RAD_S
+from analysis.lib.hunt import HuntModel, HuntResult
 from analysis.lib.look import GimbalBox, body_axes, earth_hit, look_at, rotate_z
-from analysis.lib.optics import Optics, build_optics
+from analysis.lib.optics import Optics, band_gsd_along_m, build_optics
 from analysis.lib.orbit import (
     Orbit,
     argument_of_latitude,
@@ -35,7 +36,8 @@ from analysis.lib.plot_style import apply as apply_plot_style
 from analysis.lib.tracking import (
     PassSamples,
     SampleSpan,
-    in_elevation_window,
+    disk_any_part_in_stop,
+    in_science_window,
     mask_time_s,
     sample_pass,
     staring_in_frame,
@@ -46,11 +48,13 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DISK_RADII_KM,
     GEOMETRY_DT_S,
     GIMBAL_BOX,
+    GSD_MAX_BAND_M,
     MAX_HW_SLEW_DEG_S,
     OPTICS_SPEC,
     ORIGIN_OFFSETS_KM,
     OUT_DIR,
     PASS_LATS_DEG,
+    SLANT_MAX_KM,
     STUDY_DIR,
     TLE,
     omega_img_rewind_deg_s,
@@ -72,6 +76,8 @@ class WindowTimes:
         slant_stop_km: Slant range at window stop.
         az_max_deg: Peak |az| of the origin in the window.
         local_alt_km: ISS altitude at the pass latitude.
+        incidence_start_deg: Earth incidence at window start.
+        gsd_band_along_start_m: Along-track band GSD at window start, metres.
     """
 
     along_track_s: float
@@ -83,6 +89,8 @@ class WindowTimes:
     slant_stop_km: float
     az_max_deg: float
     local_alt_km: float
+    incidence_start_deg: float
+    gsd_band_along_start_m: float
 
 
 @dataclass
@@ -141,6 +149,7 @@ class GeometryResult:
         lat_r0: Earth-rotation table for a point origin (R = 0).
         omega_rel_max_deg_s: 1 band-px / 1 ms scene-relative smear limit.
         omega_img_rewind_deg_s: Imaging rewind cap (rel max minus peak track).
+        hunt: Rewind/scan diagnostics after a full-window loss at design lat.
     """
 
     orbit: Orbit
@@ -154,6 +163,7 @@ class GeometryResult:
     lat_r0: list[LatitudeRow]
     omega_rel_max_deg_s: float
     omega_img_rewind_deg_s: float
+    hunt: HuntResult
 
 
 def _span() -> SampleSpan:
@@ -181,8 +191,10 @@ def origin_window(
         Window summary and the origin pass samples.
     """
     data = sample_pass(orbit, box, lat_deg, 0.0, origin_cross_km, _span())
-    el_mask = in_elevation_window(data.el, box) & data.vis
-    empty = WindowTimes(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    el_mask = in_science_window(
+        data, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
+    )
+    empty = WindowTimes(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     if not np.any(el_mask):
         return empty, data
     t_s = data.t
@@ -192,6 +204,8 @@ def origin_window(
     stare = mask_time_s(staring_in_frame(data.az, data.el, optics, box), t_s)
     rate = np.abs(np.gradient(data.el, t_s))
     peak_rate = float(np.max(rate[el_mask])) if np.any(el_mask) else 0.0
+    inc0 = float(data.incidence[idx[0]])
+    slant0 = float(data.slant[idx[0]])
     return (
         WindowTimes(
             along_track_s=t_stop - t_start,
@@ -199,10 +213,12 @@ def origin_window(
             peak_el_rate_deg_s=peak_rate,
             t_start_s=t_start,
             t_stop_s=t_stop,
-            slant_start_km=float(data.slant[idx[0]]),
+            slant_start_km=slant0,
             slant_stop_km=float(data.slant[idx[-1]]),
             az_max_deg=float(np.max(np.abs(data.az[el_mask]))),
             local_alt_km=orbit.local_altitude_km(lat_deg),
+            incidence_start_deg=inc0,
+            gsd_band_along_start_m=band_gsd_along_m(optics.ifov_band_deg, slant0, inc0),
         ),
         data,
     )
@@ -235,16 +251,21 @@ def tracking_time_vs_radius(
     t2 = np.zeros(r_arr.size)
     az_peak = np.zeros(r_arr.size)
     origin = sample_pass(orbit, box, lat_deg, 0.0, 0.0, span)
-    el_ok = in_elevation_window(origin.el, box) & origin.vis
+    science = in_science_window(
+        origin, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
+    )
     for i, radius in enumerate(r_arr):
         edge_p = sample_pass(orbit, box, lat_deg, 0.0, float(radius), span)
         edge_m = sample_pass(orbit, box, lat_deg, 0.0, -float(radius), span)
-        az_worst = np.maximum(np.abs(edge_p.az), np.abs(edge_m.az))
-        one = el_ok & (az_worst <= optics.half_az_deg)
-        two = el_ok & (az_worst <= box.az_box_deg)
+        one = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, optics.half_az_deg)
+        two = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, box.az_box_deg)
         t1[i] = mask_time_s(one, origin.t)
         t2[i] = mask_time_s(two, origin.t)
-        az_peak[i] = float(np.max(az_worst[el_ok])) if np.any(el_ok) else 0.0
+        az_peak[i] = (
+            float(np.max(np.maximum(np.abs(edge_p.az), np.abs(edge_m.az))[science]))
+            if np.any(science)
+            else 0.0
+        )
     return RadiusTable(
         radius_km=r_arr,
         one_axis_s=t1,
@@ -279,10 +300,11 @@ def latitude_table(
         times, origin = origin_window(orbit, optics, box, lat, 0.0)
         edge_p = sample_pass(orbit, box, lat, 0.0, radius_km, span)
         edge_m = sample_pass(orbit, box, lat, 0.0, -radius_km, span)
-        el_ok = in_elevation_window(origin.el, box) & origin.vis
-        az_worst = np.maximum(np.abs(edge_p.az), np.abs(edge_m.az))
-        one = el_ok & (az_worst <= optics.half_az_deg)
-        two = el_ok & (az_worst <= box.az_box_deg)
+        science = in_science_window(
+            origin, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
+        )
+        one = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, optics.half_az_deg)
+        two = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, box.az_box_deg)
         rows.append(
             LatitudeRow(
                 lat_deg=lat,
@@ -316,9 +338,11 @@ def offset_times(
     rows: list[OffsetRow] = []
     for y_km in ORIGIN_OFFSETS_KM:
         _times, data = origin_window(orbit, optics, box, lat_deg, y_km)
-        el_ok = in_elevation_window(data.el, box) & data.vis
-        one = el_ok & (np.abs(data.az) <= optics.half_az_deg)
-        two = two_axis_boresightable(data.az, data.el, box)
+        science = in_science_window(
+            data, box, optics, slant_max_km=SLANT_MAX_KM, gsd_max_band_m=GSD_MAX_BAND_M
+        )
+        one = science & (np.abs(data.az) <= optics.half_az_deg)
+        two = science & two_axis_boresightable(data.az, data.el, box)
         rows.append(
             OffsetRow(
                 origin_cross_km=float(y_km),
@@ -443,8 +467,10 @@ def self_check(orbit: Orbit, optics: Optics, box: GimbalBox, times: WindowTimes)
     look0 = look_at(r_iss, vel, tgt, box.el_nadir_deg)
     assert abs(look0.el_deg - 90.0) < 0.05, look0.el_deg
     assert abs(look0.az_deg) < 0.05, look0.az_deg
-    assert times.along_track_s > 90.0
-    assert times.along_track_s < 160.0
+    assert times.along_track_s > 40.0
+    assert times.along_track_s < 90.0
+    assert times.slant_start_km <= SLANT_MAX_KM + 20.0
+    assert times.gsd_band_along_start_m <= GSD_MAX_BAND_M + 5.0
     assert times.peak_el_rate_deg_s < MAX_HW_SLEW_DEG_S
     assert times.az_max_deg < 0.05
     assert optics.fov_az_deg < optics.fov_az_raw_deg
@@ -521,6 +547,19 @@ def run_geometry() -> GeometryResult:
     lat0 = latitude_table(orbit, optics, GIMBAL_BOX, PASS_LATS_DEG, 0.0)
     omega_rel = omega_rel_max_deg_s(optics.ifov_band_deg)
     omega_img = omega_img_rewind_deg_s(optics.ifov_band_deg, times.peak_el_rate_deg_s)
+    hunt = HuntModel(
+        optics=optics,
+        orbit=orbit,
+        box=GIMBAL_BOX,
+        omega_img_deg_s=omega_img,
+        omega_rel_deg_s=omega_rel,
+    ).wait(
+        DESIGN_LAT_DEG,
+        1.0e-6,
+        t_dwell_1_s=times.along_track_s,
+        t_dwell_2_s=times.along_track_s,
+        t_window_s=times.along_track_s,
+    )
     result = GeometryResult(
         orbit=orbit,
         optics=optics,
@@ -533,6 +572,7 @@ def run_geometry() -> GeometryResult:
         lat_r0=lat0,
         omega_rel_max_deg_s=omega_rel,
         omega_img_rewind_deg_s=omega_img,
+        hunt=hunt,
     )
 
     plot_along_track(result, OUT_DIR / "along_track_timeline.png")

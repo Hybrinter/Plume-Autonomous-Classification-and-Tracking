@@ -86,6 +86,20 @@ class Orbit:
         """
         return self.radius_km - wgs84_geocentric_radius_km(math.radians(lat_deg))
 
+    def ground_speed_km_s(self, lat_deg: float) -> float:
+        """Return ISS ground-track speed at ``lat_deg``.
+
+        Circular inertial speed scaled by Earth radius over ISS radius.
+
+        Args:
+            lat_deg: Geocentric latitude in degrees.
+
+        Returns:
+            Ground-track speed in kilometres per second.
+        """
+        re_km = self.earth_radius_km(lat_deg)
+        return self.v_km_s * re_km / self.radius_km
+
     def earth_radius_km(self, lat_deg: float) -> float:
         """Return WGS-84 geocentric Earth radius at ``lat_deg``.
 

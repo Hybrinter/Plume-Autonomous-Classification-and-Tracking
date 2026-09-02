@@ -16,8 +16,8 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
 ## Physical setup
 
 - **Fixed origin.** Elevation tracks the stack, or the cluster centroid of
-  stacks. Wind can swing the visible plume around that point during the
-  ~120 s window. Tracking plume CoG would add lateral walk this study
+  stacks. Wind can swing the visible plume around that point during
+  the science window. Tracking plume CoG would add lateral walk this study
   does not model.
 - **Covering disk.** Unknown wind azimuth makes a disk of radius **L**
   around each stack. Cluster covering radius is `R = D + L`, with D the
@@ -25,8 +25,14 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
 - **L = 2 km** is a **conservative visible-length envelope**
   (cooling-tower photo climatologies: typical 0.3-0.8 km, winter often
   >0.9 km, ~90-95th percentile ~1.5-3 km). Not a Mommert-chip measurement.
-  Not typical length.
-- **P(visible)** = fraction of that disk in the FOV (unknown-wind geometry).
+  Not typical length. Wind azimuth is unknown, so L is a radius: the
+  plume CoG sits somewhere in that disk.
+- **Any part of the disk.** One-axis: the parked FOV overlaps the disk
+  azimuth span (some wind azimuth would put CoG in the chip). Two-axis:
+  the keep-out box overlaps the disk, then the gimbal boresights that
+  point so it sits on the chip. This is not whole-disk-in-FOV.
+- **P(visible)** = fraction of that disk in the FOV after pointing
+  (unknown-wind geometry). Not computed as a yield weight here.
   Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR only.
   Do not multiply the two.
 - **No locked design R.** Operational R is per cluster (`r_cover_km`) and,
@@ -35,20 +41,29 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
   2/3-inch, global shutter; 150 mm athermal, 0.66% distortion. Catalog
   2/3-inch HFOV 3.36 deg is a check. 2x2 mosaic => band plane
   1224x1024, IFOV x2. Ignore lens-catalog 2.74 um.
+  This is the purchased camera. SIL `ifov=0.02` is a stale placeholder.
+- **Science stop.** Elevation window is one-sided 90->45
+  deg (eta_max = 45 deg off-nadir).
+  Extra caps: slant <= 650 km, along-track band GSD
+  <= 50 m. Geometric Earth limb is ~69 deg off-nadir
+  and is not a detection limit. Typical cooling-tower plumes are not
+  segmentable at 60 deg off-nadir (~118 m along-track band GSD).
+- **Tasking.** Opportunistic detect-in-chip hunt, not catalog cueing.
+  Flight SCAN (az raster at el=0) is not the trade baseline.
 - **Two slew caps.** Imaging rewind vs ground is the 1-pixel / 1 ms
   **band-plane** gate (current imaging gate). Hardware cap
-  **10 deg/s** is not for science frames. SIL
-  `ifov=0.02` is not this optic.
-- **Reacquire.** Leftover-window rewind is gated so a new target
-  just outside the frame can be acquired immediately -- no wait to
-  reset to 30 deg. One-axis search is the FOV ribbon; two-axis
-  search is the gimbal box. Lost time is mean reacquire from
-  **signed-latitude stack density** (peak near 30-40 N, not a
-  folded |lat| mean). Cycle time is single-target dwell plus
-  reacquire (start of tracking until the next target is acquired).
-  Mean encounter is Poisson / mean-spacing in that signed lat
-  band, ocean-averaged in longitude -- not a city-corridor
-  nearest neighbour.
+  **10 deg/s** is not for science frames.
+- **Reacquire.** On loss the gimbal immediately slews elevation toward
+  45 deg. During rewind the look point races
+  ahead of the ISS and the FOV ribbon can acquire. After the stop,
+  one-axis waits on orbital motion; two-axis rasters azimuth across
+  the keep-out box at the smear-limited rate (hypot of az slew and
+  along-track scene rate <= imaging gate). Mean wait uses signed-lat
+  stack density (peak near 30-40 N). Cycle is dwell plus reacquire.
+  Ocean-averaged Poisson spacing, not a city-corridor nearest neighbour.
+- **Usable visit floor.** Contiguous TRACKING >= 1.0 s
+  (~10 full-res cls+seg frames). The ~3 s stare number is no-gimbal
+  FOV transit, not an inference floor.
 
 ## Headline (design pass, lat 51.63 deg, h = 433 km)
 
@@ -57,15 +72,16 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
 | Camera / lens | BFS-U3-50S5 + 150 mm, Sony IMX264 |
 | Usable FOV | 3.20 deg x 2.68 deg |
 | Band plane | 1224 x 1024 (IFOV x2) |
-| Along-track track time | **124 s** |
+| Along-track track time | **65 s** |
 | Staring, no gimbal | 3.0 s |
 | Peak elevation rate | 0.91 deg/s |
 | Imaging rewind (current gate) | **1.72 deg/s** |
 | Scene-relative smear limit | 2.64 deg/s |
 | Hardware slew cap | 10 deg/s |
+| Science stop | 45 deg off-nadir (slant 635 km, incidence 49 deg, band GSD along 45 m) |
 | Nadir lateral half-swath | +/-12.1 km |
 | 2-axis +/-10 deg half-swath | +/-76 km |
-| Earth-rotation az walk of the origin | 0.007 deg |
+| Earth-rotation az walk of the origin | 0.003 deg |
 
 At the design pass the origin stays in the chip. There is no locked
 design R. Mid-latitude loss is set by Earth rotation plus R(|lat|)
@@ -73,15 +89,19 @@ from the inventory, not by a 5 km placeholder.
 
 ## Worldwide stack distribution (Climate TRACE 2025)
 
+Rerun `industry` to refresh dwell / reacquire / yield after the 45 deg
+science stop and rewind-then-scan hunt. The D/R table below is inventory
+and does not depend on the window. Dwell/reacquire/yield rows below are
+**stale** (computed on the previous 90->30 / instant-reacquire model).
+
 | Quantity | Value |
 | --- | --- |
 | ISS-belt stack fraction | 92.8% |
 | Stack-weighted mean R | 4.98 km (inventory, not design) |
 | Stacks at |lat| >= 45 deg | **10%** |
-| Single-target dwell, stack-weighted | **50 s vs 121 s** |
-| Mean reacquire (lost time) | **120 s vs 19 s** |
-| Cycle start-of-track to next acquire | **170 s vs 140 s** (duty 42% vs 90%) |
-| Daily in-swath yield (dwell x coverage) | **~14x** in favour of 2-axis |
+| Single-target dwell, stack-weighted | **stale -- rerun industry** |
+| Mean reacquire (lost time) | **stale -- rerun industry** |
+| Cycle / duty / usable yield | **stale -- rerun industry** |
 
 | |lat| (deg) | D (km) | R (km) | singleton % | d_char n>=2 (km) |
 | --- | --- | --- | --- | --- |
@@ -93,10 +113,9 @@ from the inventory, not by a 5 km placeholder.
 | 45-51.6 | 2.31 | 4.31 | 46% | 4.27 |
 
 Most stacks sit at 20-40 N. A polar-slice one-axis view keeps the
-124 s window but sees only ~10% of the industry.
+65 s science window but sees only ~10% of the industry.
 Working the mid-latitude belt needs the azimuth axis for Earth-rotation
-walk, not just for swath. After a target leaves the frame a new
-target just outside the FOV can be acquired immediately. Lost time
-is mean wait from stack density at that signed latitude (shortest
-at 30-40 N). See `outputs/industrial_reacquire_vs_lat.png`.
-
+walk, not just for swath. After a target leaves the frame the gimbal
+rewinds toward the limb stop and hunts along that path; two-axis then
+rasters azimuth. See `outputs/industrial_reacquire_vs_lat.png` after
+an `industry` rerun.

@@ -24,8 +24,9 @@ experiments/results/**
 # Machine-local overnight supervisor with host paths.
 experiments/overnight_chain.py
 
-# Design-study local downloads and rendered figures (markdown + CSV stay in git).
+# Design-study local downloads and generated outputs (markdown stays in git).
 analysis/**/data/raw/
 analysis/**/data/cache/
-analysis/**/outputs/*.png
+analysis/**/outputs/**
+!analysis/**/outputs/.gitkeep
 

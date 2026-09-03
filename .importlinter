@@ -4,6 +4,7 @@ root_packages =
     sim
     tools
     gse
+    analysis
 
 [importlinter:contract:flight-isolation]
 name = Flight must not import sim or tools
@@ -84,3 +85,51 @@ source_modules =
     sim
 forbidden_modules =
     gse
+
+[importlinter:contract:analysis-layers]
+name = Analysis studies depend on lib
+type = layers
+layers =
+    analysis.studies
+    analysis.lib
+
+[importlinter:contract:analysis-isolation]
+name = Analysis must not import tools
+type = forbidden
+source_modules =
+    analysis
+forbidden_modules =
+    tools
+
+[importlinter:contract:flight-analysis-isolation]
+name = Flight must not import analysis
+type = forbidden
+source_modules =
+    flight
+forbidden_modules =
+    analysis
+
+[importlinter:contract:sim-analysis-isolation]
+name = Sim must not import analysis
+type = forbidden
+source_modules =
+    sim
+forbidden_modules =
+    analysis
+
+[importlinter:contract:gse-analysis-isolation]
+name = GSE must not import analysis
+type = forbidden
+source_modules =
+    gse
+forbidden_modules =
+    analysis
+
+[importlinter:contract:tools-analysis-isolation]
+name = Tools must not import analysis
+type = forbidden
+source_modules =
+    tools
+forbidden_modules =
+    analysis
+

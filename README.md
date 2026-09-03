@@ -34,6 +34,7 @@ packages/
   sim/      # pact-sim    — SIL harness, scene generation, validation harness (depends on flight)
   tools/    # pact-tools  — artifact acceptance / SIL experiment runners / analysis
   gse/      # pact-gse    — ground support: CCSDS station emulator + declarative scenarios + orchestrator
+  analysis/ # pact-analysis — design/performance studies (depends on flight + sim; not STE-mirrored)
 config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
 profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
 scenarios/  # declarative validation scenarios (scene + command timeline + assertions)

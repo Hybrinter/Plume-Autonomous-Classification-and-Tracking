@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "Proprietary" }
 # The repo root is a virtual uv workspace root (see [tool.uv] package = false): it builds no
-# package and carries no runtime dependencies of its own. All flight/sim/tools/gse runtime deps
-# are declared by the workspace members under packages/.
+# package and carries no runtime dependencies of its own. Runtime deps are declared by the
+# workspace members under packages/.
 dependencies = []
 
 [project.optional-dependencies]
@@ -19,11 +19,12 @@ dev = [
     "ruff>=0.1",
     "import-linter>=2.0",
     # Workspace members installed editable so `uv sync --extra dev` (the root-only sync used by
-    # CI) makes flight/sim/tools/gse importable for the smoke tests, mypy, and import-linter.
+    # CI) makes flight/sim/tools/gse/analysis importable for the smoke tests, mypy, and import-linter.
     "pact-flight",
     "pact-sim",
     "pact-tools",
     "pact-gse",
+    "pact-analysis",
 ]
 # Training-box extra: the heavy optional deps a model-optimization workstation needs on top
 # of dev (ONNX serialization plus the GeoTIFF readers the Zenodo preprocess step uses). CI
@@ -41,6 +42,7 @@ testpaths = [
     "packages/sim/tests",
     "packages/tools/tests",
     "packages/gse/tests",
+    "packages/analysis/tests",
 ]
 markers = [
     "e2e: end-to-end smoke tests (exclude from fast CI with -m 'not e2e')",
@@ -60,7 +62,13 @@ explicit_package_bases = true
 # SOURCE trees rather than the editable-installed (py.typed-less) packages. Without this, mypy
 # falls back to Any for every cross-package symbol, silently disabling strict checking across
 # modules. With these src dirs on the path, strict type-checking holds across the whole workspace.
-mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src"]
+mypy_path = [
+    "packages/flight/src",
+    "packages/sim/src",
+    "packages/tools/src",
+    "packages/gse/src",
+    "packages/analysis/src",
+]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
@@ -81,10 +89,11 @@ ignore = ["ANN101", "ANN102"]
 package = false
 
 [tool.uv.workspace]
-members = ["packages/flight", "packages/sim", "packages/tools", "packages/gse"]
+members = ["packages/flight", "packages/sim", "packages/tools", "packages/gse", "packages/analysis"]
 
 [tool.uv.sources]
 pact-flight = { workspace = true }
 pact-sim = { workspace = true }
 pact-tools = { workspace = true }
 pact-gse = { workspace = true }
+pact-analysis = { workspace = true }

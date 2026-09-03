@@ -19,15 +19,17 @@ The flight software is the `uv` workspace under `packages/`:
 - `packages/sim/` (`pact-sim`) -- SIL harness, scene generation, digital twin (depends on flight).
 - `packages/tools/` (`pact-tools`) -- training/eval/export; heavy deps (torch etc.) live here only.
 - `packages/gse/` (`pact-gse`) -- ground support: station emulator, scenarios, orchestrator.
+- `packages/analysis/` (`pact-analysis`) -- design and performance studies (depends on flight and
+  sim; not STE-mirrored). `tools.analysis` is SIL capture/plots; `analysis.*` is design studies.
 
 Tests for each member live under `packages/<member>/tests/` and mirror the tree inside
 `src/<package>/`. Example: `packages/flight/src/flight/payload/gimbal/arbiter.py` maps to
 `packages/flight/tests/payload/gimbal/test_arbiter.py`. Tests stay out of `src/` so Hatch
 does not pack them into the flight wheel. Do not add a `tests/<package>/` folder named after
-the installable package (`flight`, `sim`, `tools`, `gse`); that name collides with the source
-tree under mypy. Tests that are not twins of a source module (script checks, package smoke
-imports, GSE scenario-file runs) stay at that member's `tests/` root. Do not add `__init__.py`
-under `tests/`.
+the installable package (`flight`, `sim`, `tools`, `gse`, `analysis`); that name collides with
+the source tree under mypy. Tests that are not twins of a source module (script checks, package
+smoke imports, GSE scenario-file runs) stay at that member's `tests/` root. Do not add
+`__init__.py` under `tests/`.
 
 The legacy `src/pact/` tree (the pre-restructure multiprocessing/`ops/main.py` codebase) has been
 **removed**; `packages/` is the entire codebase. PACT is an ISS-attached payload and the codebase
@@ -168,8 +170,8 @@ publishing them itself each step.
 ## Strong Typing + mypy_path
 
 mypy runs `--strict`. The root `pyproject.toml` sets
-`mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src"]`
-so cross-package `flight.*`/`sim.*`/`tools.*`/`gse.*` imports resolve to the workspace **source**
+`mypy_path = ["packages/flight/src", "packages/sim/src", "packages/tools/src", "packages/gse/src", "packages/analysis/src"]`
+so cross-package `flight.*`/`sim.*`/`tools.*`/`gse.*`/`analysis.*` imports resolve to the workspace **source**
 trees. **Do not remove it** -- without it those imports fall back to `Any` (the editable installs
 have no `py.typed`), silently disabling strict checking across modules. Polymorphism is expressed
 with statically-typed `Protocol` interfaces (the relaxed form of the "no dynamic dispatch" rule);
@@ -185,5 +187,7 @@ As-is module and directory descriptions:
 - [`docs/sim.md`](docs/sim.md)
 - [`docs/gse.md`](docs/gse.md)
 - [`docs/tools.md`](docs/tools.md)
+
+`packages/analysis/` is not STE-mirrored; studies write their own RESULTS.md.
 
 See also `.claude/rules/documentation.md`.

@@ -28,6 +28,8 @@ you normally do not need to install anything yourself.
 - The `tools.analysis` CLI (`uv run python -m tools.analysis list` / `run <suite|scenario> --out
   DIR`) captures deterministic SIL runs and writes Parquet/CSV + matplotlib report bundles; useful
   for observability but not required for scenario pass/fail.
+- Design studies live under `packages/analysis/` (`uv run python -m analysis.studies.<study> ...`).
+  They depend on flight and sim. Do not confuse them with `tools.analysis`.
 - `flight.core.main` is the production entry point for real payload hardware (PySpin, pyserial,
   onnxruntime, camera/gimbal, HMAC key file). It is not runnable in this environment and is not
   needed for dev/CI; use the SIL/GSE paths instead.

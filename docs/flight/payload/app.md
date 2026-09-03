@@ -43,8 +43,7 @@ rate and gimbal position, and SAFE flags. It returns `(ControlState, TickOutcome
    lock messages, acquires a frame, reads gimbal position, and computes slew rate from
    consecutive encoder reads.
 4. `process_frame` runs preprocessing in order: calibrate, demosaic, normalize, select
-   bands, quality flags, then mode-dependent ROI (decimated full plane in search,
-   Kalman-centered crop in TRACKING).
+   bands, quality flags. The full selected band plane is passed to the detector.
 5. The detector runs on the processed tensor. On success the app publishes
    `InferenceResultMsg`, stores a mask thumbnail, and calls `PayloadController.step`.
 6. Telemetry events publish to the bus. Control faults publish `FaultEventMsg`.
@@ -61,7 +60,7 @@ rate and gimbal position, and SAFE flags. It returns `(ControlState, TickOutcome
 | --- | --- |
 | Preprocessing faults | Calibration, demosaic, or band-select failure |
 | Detection faults | Detector returns `Err` |
-| Control faults | Deadband strike limit or encoder runaway from the controller |
+| Control faults | Encoder runaway from the controller |
 | Gimbal actuation faults | HAL call returns `Err` |
 | `ValueError` at startup | Invalid sensor mosaic or inference geometry in `from_config` |
 | Camera stall | `acquire_frame` returns `Err` |
@@ -81,14 +80,16 @@ rate and gimbal position, and SAFE flags. It returns `(ControlState, TickOutcome
 | `InferenceConfig` | Input bands and tensor size |
 | `PreprocessingConfig` | Quality-flag thresholds |
 | `FaultConfig` | Heartbeat interval |
-| `ControllerConfig` | Passed to `PayloadController.from_config` |
+| `ControllerConfig` | Gates, persistence, Kalman, LQR, runaway |
+| `GimbalConfig` | Science limb and hardware slew for the controller |
 
 ## Constraints
 
 Preprocessing runs as function calls inside `process_frame`; it never publishes
-`ProcessedFrameMsg`. The app uses `Clock.monotonic_s()` for arbiter timing and
-`Clock.wall_clock_iso()` for message timestamps. Mask products store through
-`StorageWriter` and advertise via compact `ProductRefMsg` records.
+`ProcessedFrameMsg`. The full selected band plane is passed to inference. The app uses
+`Clock.monotonic_s()` for arbiter timing and `Clock.wall_clock_iso()` for message
+timestamps. Mask products store through `StorageWriter` and advertise via compact
+`ProductRefMsg` records.
 
 ## Related documents
 

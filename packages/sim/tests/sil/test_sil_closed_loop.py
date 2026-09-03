@@ -44,11 +44,11 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
 
     SilHarness(system).run_steps(8, dt=1.0)
 
-    # Payload tracked the plume and commanded the gimbal off the origin.
+    # Payload tracked the plume and commanded elevation off the origin.
     assert not cmd_sub.empty()
     position = system.gimbal.read_position()
     assert isinstance(position, Ok)
-    assert (position.value.az_deg, position.value.el_deg) != (0.0, 0.0)
+    assert position.value.el_deg != 0.0
 
     # Inference ran once per frame.
     inference_count = 0
@@ -62,41 +62,54 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
     assert mode_sub.empty()
 
 
-def test_sil_thermal_fault_drives_safe_mode() -> None:
-    """A thermal over-limit self-reports a fault that the FDIR app routes to SAFE."""
+def test_sil_thermal_hot_sample_is_telemetry_only() -> None:
+    """A hot thermal sample publishes telemetry and does not drive SAFE."""
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
         build_frames(6),
         plume_detector(),
         inbound_packets=[],
-        thermal_readings=[25.0, 25.0, 95.0, 95.0, 95.0, 95.0],  # spikes over the 80C limit
+        thermal_readings=[25.0, 25.0, 95.0, 95.0, 95.0, 95.0],
         power_readings=[30.0],
     )
     fault_sub = system.bus.subscribe(FaultEventMsg)
     mode_sub = system.bus.subscribe(ModeChangeMsg)
+    telem_sub = system.bus.subscribe(TelemetryEventMsg)
 
     SilHarness(system).run_steps(6, dt=1.0)
 
-    # Thermal self-reported the over-limit fault and FDIR commanded SAFE.
-    assert not fault_sub.empty()
-    assert not mode_sub.empty()
-    assert mode_sub.get_nowait().new_mode is SystemMode.SAFE
+    thermal_samples = [
+        m
+        for m in _drain(telem_sub)
+        if m.subsystem == "thermal" and m.event_name == "thermal_sample"
+    ]
+    assert any(m.payload["temperature_c"] == 95.0 for m in thermal_samples)
+    assert not any(f.fault_code is FaultCode.THERMAL_OVER_LIMIT for f in _drain(fault_sub))
+    assert mode_sub.empty()
 
 
-def test_thermal_safe_stows_the_gimbal() -> None:
-    """THERMAL_OVER_LIMIT -> FDIR SAFE -> arbiter STOW -> SimGimbal reaches the stow pose."""
+def test_safe_stows_the_gimbal() -> None:
+    """A commanded SAFE mode change stows the gimbal to the stow pose."""
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
         build_frames(15),
         plume_detector(),
         inbound_packets=[],
-        thermal_readings=[25.0, 95.0],  # spikes over the 80C limit and holds
+        thermal_readings=[25.0],
         power_readings=[30.0],
     )
+    system.bus.publish(
+        ModeChangeMsg(
+            msg_type=MessageType.MODE_CHANGE,
+            timestamp_utc="2026-06-10T00:00:00.000Z",
+            new_mode=SystemMode.SAFE,
+            requested_by="test_safe_stow",
+        )
+    )
 
-    # Enough steps for FDIR to route SAFE and the slew-limited dynamics to settle.
+    # Enough steps for the slew-limited dynamics to settle at stow.
     SilHarness(system).run_steps(15, dt=1.0)
 
     switch = system.gimbal.read_stow_switch()
@@ -112,17 +125,25 @@ def test_safe_recovery_returns_to_operations() -> None:
         build_frames(8),
         plume_detector(),
         inbound_packets=[],
-        thermal_readings=[25.0, 95.0, 25.0],  # one over-limit spike, then nominal
+        thermal_readings=[25.0],
         power_readings=[30.0],
     )
     harness = SilHarness(system)
-    harness.run_steps(4, dt=1.0)
+    system.bus.publish(
+        ModeChangeMsg(
+            msg_type=MessageType.MODE_CHANGE,
+            timestamp_utc="2026-06-10T00:00:00.000Z",
+            new_mode=SystemMode.SAFE,
+            requested_by="test_safe_entry",
+        )
+    )
+    harness.run_steps(2, dt=1.0)
     assert harness.payload_gimbal_state() is GimbalState.SAFE
 
     system.bus.publish(
         ModeChangeMsg(
             msg_type=MessageType.MODE_CHANGE,
-            timestamp_utc="2026-06-10T00:00:00.000Z",
+            timestamp_utc="2026-06-10T00:00:01.000Z",
             new_mode=SystemMode.IDLE,
             requested_by="test_ground_recovery",
         )
@@ -136,8 +157,8 @@ def test_safe_recovery_returns_to_operations() -> None:
 def test_tracking_commands_point_toward_the_plume() -> None:
     """RATE commands during TRACKING have the sign of the boresight error and move that way.
 
-    The plume sits at band-plane (340, 340): +x of boresight -> +az error, +y (down) ->
-    -el error, so the gimbal must end up at positive azimuth and negative elevation.
+    The plume sits at band-plane (612, 900): on-boresight in x (az pinned), +y (down) ->
+    -el error, so the gimbal must end at negative elevation.
     """
     system = build_sil_system(
         PactConfig(),
@@ -153,7 +174,7 @@ def test_tracking_commands_point_toward_the_plume() -> None:
 
     pos = system.gimbal.read_position()
     assert isinstance(pos, Ok)
-    assert pos.value.az_deg > 0.5  # plume to the right of boresight
+    assert abs(pos.value.az_deg) < 0.1  # azimuth is pinned at 0
     assert pos.value.el_deg < -0.5  # plume below boresight (image +y)
 
 

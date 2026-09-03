@@ -18,8 +18,6 @@ def _processed_frame(height: int = 20, width: int = 20) -> ProcessedFrameMsg:
         frame_id=7,
         tensor=tensor,
         quality_flags=frozenset(),
-        crop_origin_px=(0, 0),
-        scale_factor=1.0,
     )
 
 

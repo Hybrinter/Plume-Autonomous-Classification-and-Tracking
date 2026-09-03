@@ -15,7 +15,7 @@ descriptive pages.
 | composition root | Code that builds the bus, clock, drivers, and apps |
 | deadband | Minimum command magnitude that the control law may emit |
 | downlink | Prioritized path of telemetry and products to the station |
-| gimbal | Two-axis pointing actuator |
+| gimbal | Single-axis pointing actuator (HAL remains two-axis) |
 | heartbeat | Periodic liveness message from a monitored subsystem |
 | housekeeping | Thermal and electrical scalar telemetry |
 | mosaic frame | Raw 2x2 filter mosaic image from the sensor |
@@ -42,5 +42,5 @@ descriptive pages.
 
 ## Mode names
 
-Use the enum member text as written: `IDLE`, `ACQUIRING`, `TRACKING`, `SCAN`,
-`SAFE`, `RATE`, `ABSOLUTE`, `STOW`, `HOME`.
+Use the enum member text as written: `IDLE`, `ACQUIRING`, `TRACKING`, `REWIND`,
+`SCAN`, `SAFE`, `RATE`, `ABSOLUTE`, `STOW`, `HOME`.

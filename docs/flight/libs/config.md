@@ -26,6 +26,7 @@ read TOML directly.
 | `ControllerConfig`, `EnvironmentConfig`, `FaultConfig` | class |
 | `GimbalConfig`, `InferenceConfig`, `LinkConfig` | class |
 | `PactConfig`, `PreprocessingConfig`, `SensorConfig`, `StorageConfig` | class |
+| `ThermalConfig` | class |
 
 ## Interactions
 

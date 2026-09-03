@@ -126,10 +126,10 @@ def select_drivers(
         from flight.hal.drivers_real import RealScalarSensor, RealSensor
 
         real_sensor = RealSensor(clock=clock)
-        exposure_result = real_sensor.set_exposure_us(config.sensor.default_exposure_us)
+        exposure_result = real_sensor.set_exposure_us(config.sensor.initial_exposure_us)
         if not isinstance(exposure_result, Ok):
             raise SystemExit(f"camera exposure setup failed: {exposure_result.error}")
-        gain_result = real_sensor.set_gain_db(config.sensor.default_gain_db)
+        gain_result = real_sensor.set_gain_db(config.sensor.initial_gain_db)
         if not isinstance(gain_result, Ok):
             raise SystemExit(f"camera gain setup failed: {gain_result.error}")
         sensor = real_sensor
@@ -163,7 +163,7 @@ def select_drivers(
             confidence_gate=config.controller.confidence_gate,
             min_blob_area_px=config.controller.min_blob_area_px,
             logit_threshold=inf.classifier_logit_threshold,
-            latency_budget_ms=inf.latency_budget_ms,
+            latency_budget_ms=config.fault.inference_timeout_ms,
             expected_input_shape=(1, bands, height, width),
             expected_segmentor_output_shape=(1, 1, height, width),
             expected_classifier_output_shape=(1, 1),

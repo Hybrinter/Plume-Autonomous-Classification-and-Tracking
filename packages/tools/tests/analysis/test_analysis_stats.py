@@ -25,8 +25,8 @@ def test_numeric_stats_are_sane() -> None:
 
 
 def test_categorical_stats_capture_transitions_and_mode() -> None:
-    """A thermal-SAFE run shows the gimbal FSM transitioning and a non-empty modal state."""
-    run = run_scenario(scenario("thermal_over_limit_safe"))
+    """A power-SAFE run shows the gimbal FSM transitioning and a non-empty modal state."""
+    run = run_scenario(scenario("power_over_limit_safe"))
     stats = summarize(run.capture).set_index("signal")
     fsm = stats.loc["payload.gimbal_state"]
     assert fsm["kind"] == "CATEGORICAL"

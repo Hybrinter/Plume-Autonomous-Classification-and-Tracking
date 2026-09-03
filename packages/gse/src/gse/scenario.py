@@ -42,8 +42,8 @@ class SceneSpec:
         seed: Deterministic render seed.
         thermal_readings: Per-step thermal-sensor readings (deg C) the SimScalarSensor serves;
             a SimScalarSensor holds its last value once exhausted, so a singleton drives a
-            constant temperature for the whole run. Defaults to (20.0,) (nominal). A reading
-            above config.fault.thermal_limit_c drives THERMAL_OVER_LIMIT -> SAFE.
+            constant temperature for the whole run. Defaults to (20.0,) (nominal). A hot
+            reading publishes thermal_sample telemetry and does not emit THERMAL_OVER_LIMIT.
         power_readings: Per-step power-sensor readings (W), same hold-last semantics. Defaults
             to (10.0,) (nominal).
     """

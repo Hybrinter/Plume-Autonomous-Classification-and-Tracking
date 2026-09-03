@@ -102,8 +102,6 @@ class ProcessedFrameMsg:
     frame_id: int  # uint32 monotonic frame counter
     tensor: object  # np.ndarray[float32, (4, H, W)]
     quality_flags: frozenset[FrameUsabilityTag]
-    crop_origin_px: tuple[int, int]  # (x, y) top-left offset of crop in full frame
-    scale_factor: float  # resize scale applied during preprocessing
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
@@ -122,8 +120,6 @@ class InferenceResultMsg:
     model_version: str  # model checkpoint identifier string
     inference_ms: float  # wall-clock inference duration in ms
     mode_flags: int  # uint8 bitmask; semantics defined in config
-    crop_origin_px: tuple[int, int]  # (x, y) preprocess crop origin the blobs live in
-    scale_factor: float  # preprocess decimation scale the blobs live in (tensor_px = plane_px * s)
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 

@@ -128,8 +128,6 @@ class Detector:
                 model_version=self._model_version,
                 inference_ms=inference_ms,
                 mode_flags=0,
-                crop_origin_px=frame.crop_origin_px,
-                scale_factor=frame.scale_factor,
             )
         )
 

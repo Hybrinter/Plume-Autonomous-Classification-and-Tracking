@@ -27,8 +27,6 @@ def _frame(tensor: np.ndarray) -> ProcessedFrameMsg:
         frame_id=3,
         tensor=tensor,
         quality_flags=frozenset(),
-        crop_origin_px=(0, 0),
-        scale_factor=1.0,
     )
 
 

@@ -1,4 +1,4 @@
-"""Unit tests for flight.payload.gimbal.safety -- confidence gate, area gate, deadband, rate.
+"""Unit tests for flight.payload.gimbal.safety -- confidence gate, area gate, rate.
 
 REQ-AIML-DATA-008, REQ-AIML-DATA-009, REQ-AIML-GIMB-005, REQ-AIML-GIMB-006, REQ-AIML-GIMB-007
 """
@@ -8,13 +8,11 @@ import pytest
 
 # pact types
 from flight.libs.messages import BlobMeta
-from flight.libs.types import Err, FaultCode, Ok
 
 # module under test
 from flight.payload.gimbal import (
     apply_confidence_gate,
     apply_min_area_gate,
-    check_deadband,
     check_rate_limit,
 )
 
@@ -113,78 +111,6 @@ def test_min_area_gate_boundary(area: int, min_px: int, expected_count: int) -> 
     assert len(result) == expected_count, (
         f"area={area}, min_px={min_px}: expected {expected_count} blobs, got {len(result)}"
     )
-
-
-# ---------------------------------------------------------------------------
-# check_deadband tests
-# ---------------------------------------------------------------------------
-
-
-def test_deadband_below_min_returns_false() -> None:
-    """Displacement below min_px returns Ok(False) -- no command needed, not a fault."""
-    result = check_deadband(displacement_px=5.0, min_px=20, max_px=250)
-    assert isinstance(result, Ok), f"Expected Ok, got {result}"
-    assert result.value is False, (
-        f"Expected Ok(False) for displacement below min, got Ok({result.value})"
-    )
-
-
-def test_deadband_within_range_returns_true() -> None:
-    """Displacement within [min_px, max_px] returns Ok(True) -- command should be issued."""
-    result = check_deadband(displacement_px=100.0, min_px=20, max_px=250)
-    assert isinstance(result, Ok), f"Expected Ok, got {result}"
-    assert result.value is True, (
-        f"Expected Ok(True) for displacement in deadband range, got Ok({result.value})"
-    )
-
-
-def test_deadband_above_max_returns_error() -> None:
-    """Displacement above max_px returns Err(GIMBAL_RUNAWAY) -- this is a fault condition."""
-    result = check_deadband(displacement_px=300.0, min_px=20, max_px=250)
-    assert isinstance(result, Err), (
-        f"Expected Err, got Ok({result.value if hasattr(result, 'value') else result})"
-    )
-    assert result.error == FaultCode.GIMBAL_RUNAWAY, (
-        f"Expected GIMBAL_RUNAWAY fault, got {result.error}"
-    )
-
-
-@pytest.mark.parametrize(
-    "displacement,expected_ok,expected_value_or_fault",
-    [
-        (0.0, True, False),  # below min (20)
-        (19.9, True, False),  # just below min
-        (20.0, True, True),  # at min exactly
-        (125.0, True, True),  # midpoint
-        (249.9, True, True),  # just below max
-        (250.0, True, True),  # at max exactly -- still Ok(True) or Err? impl-defined
-        (250.1, False, FaultCode.GIMBAL_RUNAWAY),  # just above max
-        (500.0, False, FaultCode.GIMBAL_RUNAWAY),  # well above max
-    ],
-)
-def test_deadband_parametrized(
-    displacement: float,
-    expected_ok: bool,
-    expected_value_or_fault: object,
-) -> None:
-    """Full parametrized boundary sweep for check_deadband."""
-    result = check_deadband(displacement_px=displacement, min_px=20, max_px=250)
-    if expected_ok:
-        assert isinstance(result, Ok), (
-            f"displacement={displacement}: expected Ok, got Err({getattr(result, 'error', result)})"
-        )
-        assert result.value == expected_value_or_fault, (
-            f"displacement={displacement}: expected Ok({expected_value_or_fault}), "
-            f"got Ok({result.value})"
-        )
-    else:
-        assert isinstance(result, Err), (
-            f"displacement={displacement}: expected Err, got Ok({getattr(result, 'value', result)})"
-        )
-        assert result.error == expected_value_or_fault, (
-            f"displacement={displacement}: expected Err({expected_value_or_fault}), "
-            f"got Err({result.error})"
-        )
 
 
 # ---------------------------------------------------------------------------

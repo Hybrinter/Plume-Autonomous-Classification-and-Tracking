@@ -17,7 +17,7 @@ The flight software is a **Python-only `uv` workspace** under `packages/`, built
 | Capability | Description |
 |-----------|-------------|
 | **Plume detection** | A binary ONNX classifier gates a U-Net-class ONNX segmentor. The classifier skips segmentation on empty frames. The segmentor produces a plume probability mask; blobs are extracted for tracking. Raw 2×2 mosaic frames are demosaiced into BLUE/GREEN/RED/NIR bands (≈ Sentinel-2 B2/B3/B4/B8) in pure preprocessing. |
-| **Closed-loop pointing** | Boresight-relative error → EMA / Kalman tracking → LQR rate commands drive the gimbal; a pure FSM arbiter resolves IDLE / ACQUIRING / TRACKING / SCAN / SAFE behind safety gates. |
+| **Closed-loop pointing** | Boresight-relative error → EMA / Kalman tracking → LQR rate commands drive the gimbal; a pure FSM arbiter resolves IDLE / ACQUIRING / TRACKING / REWIND / SAFE behind safety gates. |
 | **ISS command path** | Authenticated CCSDS command ingress (CRC + per-source sequence dedup + HMAC-SHA256 + command-dictionary validation); every command yields an ACCEPTED or REJECTED ack. |
 | **FDIR / SAFE** | Heartbeat watchdog + fault-to-mode policy; SAFE-triggering faults latch the system into a single SAFE mode (stow + quiesce), exited only by ground command. |
 | **Validation** | A configuration matrix of driver / compute profiles with a requirement → venue VCRM. A deterministic in-process SIL and a `sil-link-real` x86 partial run in CI, driven by declarative scenarios through the GSE harness. |

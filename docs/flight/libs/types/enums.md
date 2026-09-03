@@ -45,7 +45,7 @@ across subsystems.
 | `IDLE` | No gimbal activity |
 | `ACQUIRING` | Seeking a target |
 | `TRACKING` | Tracking a confirmed blob |
-| `SCAN` | Nadir scan pattern |
+| `REWIND` | Slew elevation to the science limb after TRACKING loss |
 | `SAFE` | Gimbal inhibited |
 
 ### GimbalCommandMode

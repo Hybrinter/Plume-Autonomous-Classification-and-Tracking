@@ -53,7 +53,8 @@ a config override at run time.
 
 - All dataclasses are frozen and hashable.
 - `SimScalarSensor` holds the last reading once a script exhausts.
-- A thermal reading above `config.fault.thermal_limit_c` drives THERMAL_OVER_LIMIT -> SAFE.
+- A hot thermal reading publishes `thermal_sample` telemetry and does not emit
+  `THERMAL_OVER_LIMIT`.
 
 ## Related documents
 

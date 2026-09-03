@@ -39,13 +39,14 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
 
 1. Read `config.environment` axis values.
 2. **Sensor axis:** `sim` selects `SimSensor` and `SimScalarSensor` pairs for thermal and
-   power. `real` selects `RealSensor`, applies default exposure and gain, and selects
+   power. `real` selects `RealSensor`, applies initial exposure and gain, and selects
    `RealScalarSensor` for both scalars.
 3. **Gimbal axis:** `sim` selects `SimGimbal`. `real` selects `RealGimbal`.
 4. **Compute axis:** `sim` uses the passed `ScriptedDetector`. `real` constructs
    `OnnxDetector` from `inference.segmentor_model_path` and
-   `inference.classifier_model_path`, with the logit threshold, latency budget,
-   and I/O contract `(1, C, H, W)` from `input_bands` and `input_*_px`.
+   `inference.classifier_model_path`, with the logit threshold,
+   `fault.inference_timeout_ms` as the detect-time fault threshold, and I/O contract
+   `(1, C, H, W)` from `input_bands` and `input_*_px`.
 5. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
 6. **Launch lock:** always `SimLaunchLock`. Flight with `sim_inputs=None` starts ENGAGED.
    SIL uses `sim_inputs.launch_lock_engaged` (default RELEASED).
@@ -66,8 +67,8 @@ None.
 ## Configuration
 
 Reads `PactConfig.environment` axes (`sensor`, `gimbal`, `compute`, `link`) and per-driver
-sub-configs (`sensor`, `gimbal`, `inference`, `link`). The clock axis is handled by the
-caller before this function runs.
+sub-configs (`sensor`, `gimbal`, `inference`, `fault`, `link`). The clock axis is handled by
+the caller before this function runs.
 
 ## Constraints
 

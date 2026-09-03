@@ -1,10 +1,10 @@
 """Payload gimbal control: the pointing FSM, control law, and safety gates (pure).
 
-arbiter -- the IDLE/ACQUIRING/TRACKING/SCAN/SAFE FSM and command generation;
+arbiter -- the IDLE/ACQUIRING/TRACKING/REWIND/SAFE FSM and command generation;
 lqr -- discrete-LQR control law; pointing -- boresight-relative angular error math;
 request -- typed command value from the pure core;
 runaway -- encoder-divergence runaway monitor;
-safety -- confidence/area/deadband/rate gates.
+safety -- confidence/area/rate gates.
 """
 
 from flight.payload.gimbal.arbiter import ArbiterState, GimbalArbiter
@@ -15,7 +15,6 @@ from flight.payload.gimbal.runaway import INITIAL_RUNAWAY_STATE, RunawayState, c
 from flight.payload.gimbal.safety import (
     apply_confidence_gate,
     apply_min_area_gate,
-    check_deadband,
     check_rate_limit,
 )
 
@@ -29,7 +28,6 @@ __all__ = [
     "apply_confidence_gate",
     "apply_min_area_gate",
     "boresight_error_deg",
-    "check_deadband",
     "check_rate_limit",
     "check_runaway",
     "compute_control",

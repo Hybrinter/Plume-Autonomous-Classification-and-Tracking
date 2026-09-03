@@ -10,7 +10,7 @@ thermal_readings = [95.0]
 power_readings = [10.0]
 
 [[assertions]]
-id = "safe_on_thermal.safe"
+id = "safe_on_thermal.stays_idle"
 kind = "mode_is"
-value = "SAFE"
+value = "IDLE"
 tag = "frame-portable"

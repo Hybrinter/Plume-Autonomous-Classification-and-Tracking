@@ -27,9 +27,8 @@ are deliberately absent rather than falsely marked verified.
 | REQ-COMM-HIGH-004 | Command ACK/NACK for every ingested command | SIL | sil | test_iss_iface_app; scenario:ingress_nack | verified |
 | REQ-COMM-HIGH-002 | CCSDS framing + CRC integrity | SIL | sil | test_ccsds_codec; scenario:ingress_auth_accept | verified |
 | REQ-COMM-HIGH-001 | Downlink gated by AOS visibility | SIL | sil-link-real | test_sil_closed_loop; scenario:ingress_auth_accept | verified |
-| REQ-SAFE-HIGH-002 | Thermal over-limit -> SAFE + stow | SIL | sil | test_sil_closed_loop; scenario:safe_on_thermal | verified |
 | REQ-AIML-GIMB-001 | Autonomous closed-loop pointing toward plume | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
-| REQ-GIMB-HIGH-001 | ROI retention within pointing deadband | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
+| REQ-GIMB-HIGH-001 | Closed-loop pointing keeps the plume in the full band-plane field of view | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
 | REQ-GIMB-HIGH-003 | Runaway gimbal detection forces stow | SIL | sil | test_runaway | verified |
 | REQ-COMM-CMD-001 | Command routing + ARM/EXECUTE two-step + inhibit re-check | SIL | sil | test_routing; test_sil_command_router; scenario:command_route_exec | verified |
 | REQ-SAFE-EXIT-001 | Single latched SAFE; ground EXIT_SAFE gated on fault clear | SIL | sil | test_sil_command_router | verified |
@@ -49,3 +48,4 @@ are deliberately absent rather than falsely marked verified.
 | Gap | Statement | Status |
 | --- | --- | --- |
 | GAP-GROUND-SEGMENT | Real ground segment is never tested; the GSE station emulator stands in for it. The `lock` axis (LaunchLock) is likewise a permanent VCRM gap -- there is no device and no config field, only this record. | gap |
+| REQ-SAFE-HIGH-002 | Per-component thermal sensors compare datasheet limits and drive SAFE. Deferred until those sensors exist; housekeeping is telemetry-only. | gap |

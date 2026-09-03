@@ -46,8 +46,8 @@ def test_goto_angle_writes_position_commands(monkeypatch: pytest.MonkeyPatch) ->
     gimbal._port.responses = [b"*\n", b"*\n"]
     result = gimbal.goto_angle(10.0, -5.0)
     assert isinstance(result, Ok)
-    assert gimbal._port.writes[0] == b"PP776\n"  # 10.0 deg * 77.6 counts/deg
-    assert gimbal._port.writes[1] == b"TP-388\n"
+    assert gimbal._port.writes[0] == b"PP0\n"  # azimuth is pinned at 0
+    assert gimbal._port.writes[1] == b"TP-388\n"  # -5.0 deg * 77.6 counts/deg
 
 
 def test_goto_angle_clamps_to_travel_limits(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,8 +57,9 @@ def test_goto_angle_clamps_to_travel_limits(monkeypatch: pytest.MonkeyPatch) -> 
 
     gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
     gimbal._port.responses = [b"*\n", b"*\n"]
-    assert isinstance(gimbal.goto_angle(500.0, 0.0), Ok)
-    assert gimbal._port.writes[0] == b"PP6984\n"  # clamped to az_max 90 deg
+    assert isinstance(gimbal.goto_angle(0.0, 500.0), Ok)
+    assert gimbal._port.writes[0] == b"PP0\n"  # azimuth is pinned at 0
+    assert gimbal._port.writes[1] == b"TP6984\n"  # clamped to el_hw_max 90 deg
 
 
 def test_error_response_is_gimbal_fault(monkeypatch: pytest.MonkeyPatch) -> None:

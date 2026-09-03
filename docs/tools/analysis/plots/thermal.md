@@ -5,8 +5,8 @@
 
 ## Purpose
 
-The thermal plot builder renders temperature versus the effective limit, limit override, sample
-activity, and over-limit fault counts.
+The thermal plot builder renders temperature versus the recorded camera max, limit override,
+sample activity, and over-limit fault counts.
 
 ## Public interface
 
@@ -20,7 +20,7 @@ None.
 
 ## Behavior
 
-1. Temperature versus effective limit overlay (`thermal.temperature_c` vs `thermal.limit_c`).
+1. Temperature versus recorded camera max overlay (`thermal.temperature_c` vs `thermal.limit_c`).
 2. Commanded limit override line panel.
 3. Stacked thermal samples and over-limit faults per step.
 4. Cumulative thermal fault count.

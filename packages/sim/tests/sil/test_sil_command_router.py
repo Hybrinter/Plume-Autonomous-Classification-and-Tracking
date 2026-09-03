@@ -39,16 +39,16 @@ def test_command_routed_executed_and_acked() -> None:
 
 
 def test_safe_entered_then_exited_via_arm_execute() -> None:
-    """Thermal over-limit latches SAFE; a ground EXIT_SAFE (ARM->EXECUTE) recovers once cleared."""
+    """Power over-limit latches SAFE; a ground EXIT_SAFE (ARM->EXECUTE) recovers once cleared."""
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
         build_frames(20),
         plume_detector(),
         inbound_packets=[],
-        # spike over 80C (latch SAFE) then hold nominal 20C so EXIT_SAFE's fault-clear gate opens
-        thermal_readings=[20.0, 20.0, 95.0, 95.0, 20.0],
-        power_readings=[10.0],
+        thermal_readings=[20.0],
+        # spike over 55 W (latch SAFE) then hold 10 W so EXIT_SAFE's fault-clear gate opens
+        power_readings=[10.0, 10.0, 80.0, 80.0, 10.0],
     )
     harness = SilHarness(system)
     modes = system.bus.subscribe(ModeChangeMsg)
@@ -63,11 +63,11 @@ def test_safe_entered_then_exited_via_arm_execute() -> None:
             system.clock.advance(1.0)
             harness.step(now)
 
-    advance(4)  # by step 3-4 thermal is over-limit -> SAFE latched
+    advance(4)  # by step 3-4 power is over-limit -> SAFE latched
     assert harness.payload_gimbal_state() is GimbalState.SAFE
     assert SystemMode.SAFE in [m.new_mode for m in _drain(modes)]
 
-    advance(3)  # thermal now reads 20C (cooled) -> the triggering fault clears
+    advance(3)  # power now reads 10 W (cleared) -> the triggering fault clears
 
     system.station.enqueue(
         build_tc_packet("EXIT_SAFE", {"phase": "ARM"}, "ground", 1, _KEY, apid=1)

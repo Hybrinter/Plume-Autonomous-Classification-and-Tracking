@@ -1,4 +1,4 @@
-"""Tests for the thermal housekeeping app (telemetry + threshold fault + command ack)."""
+"""Tests for the thermal housekeeping app (telemetry + command ack)."""
 
 from flight.hal.drivers_sim import SimScalarSensor
 from flight.libs.bus import MessageBus
@@ -10,7 +10,7 @@ from flight.libs.messages import (
     TelemetryEventMsg,
 )
 from flight.libs.time import ManualClock
-from flight.libs.types import AckStatus, FaultCode, MessageType
+from flight.libs.types import AckStatus, MessageType
 from flight.thermal.app import ThermalApp
 
 
@@ -38,7 +38,7 @@ def _app(readings: list[float]) -> tuple[ThermalApp, MessageBus]:
 
 
 def test_nominal_reading_publishes_telemetry_no_fault() -> None:
-    """A temperature below the limit publishes telemetry and no fault."""
+    """A temperature sample publishes telemetry and no fault."""
     app, bus = _app([25.0])
     telem = bus.subscribe(TelemetryEventMsg)
     fault = bus.subscribe(FaultEventMsg)
@@ -50,19 +50,19 @@ def test_nominal_reading_publishes_telemetry_no_fault() -> None:
     assert fault.empty()
 
 
-def test_over_limit_reading_publishes_thermal_fault() -> None:
-    """A temperature above thermal_limit_c (80.0) publishes THERMAL_OVER_LIMIT."""
+def test_hot_reading_publishes_telemetry_without_fault() -> None:
+    """Datasheet limits are records only; a hot sample does not raise THERMAL_OVER_LIMIT."""
     app, bus = _app([95.0])
+    telem = bus.subscribe(TelemetryEventMsg)
     fault = bus.subscribe(FaultEventMsg)
     app.sample()
-    assert not fault.empty()
-    event = fault.get_nowait()
-    assert event.fault_code is FaultCode.THERMAL_OVER_LIMIT
-    assert event.subsystem == "thermal"
+    assert not telem.empty()
+    assert telem.get_nowait().payload["temperature_c"] == 95.0
+    assert fault.empty()
 
 
 def test_set_thermal_limit_executes_and_acks() -> None:
-    """A routed SET_THERMAL_LIMIT applies the new limit and produces an ACCEPTED exec ack."""
+    """A routed SET_THERMAL_LIMIT stores the override and produces an ACCEPTED exec ack."""
     app, bus = _app([25.0])
     acks = bus.subscribe(CommandAckMsg)
     bus.publish(_routed("SET_THERMAL_LIMIT", "thermal", {"limit_c": 20.0}))
@@ -70,11 +70,10 @@ def test_set_thermal_limit_executes_and_acks() -> None:
     ack = acks.get_nowait()
     assert ack.status is AckStatus.ACCEPTED
     assert ack.command_id == "SET_THERMAL_LIMIT"
-    # The applied limit (20C) now drives an over-limit fault at 25C.
+    assert app.state.limit_c_override == 20.0
     fault = bus.subscribe(FaultEventMsg)
     app.sample()
-    assert not fault.empty()
-    assert fault.get_nowait().fault_code is FaultCode.THERMAL_OVER_LIMIT
+    assert fault.empty()
 
 
 def test_unsupported_command_for_thermal_is_rejected() -> None:

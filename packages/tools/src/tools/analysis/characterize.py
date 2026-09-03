@@ -32,7 +32,7 @@ from tools.analysis.runner import (
 SUITES: dict[str, tuple[str, ...]] = {
     "smoke": ("nominal_tracking",),
     "faults": (
-        "thermal_over_limit_safe",
+        "thermal_hot_sample",
         "power_over_limit_safe",
         "gimbal_runaway",
         "watchdog_process_died",

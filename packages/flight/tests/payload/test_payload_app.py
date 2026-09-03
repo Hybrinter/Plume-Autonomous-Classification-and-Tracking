@@ -48,8 +48,8 @@ class _MemStorage:
 
 
 def _mosaic_frame(frame_id: int) -> MosaicFrame:
-    """Build a zeroed (1024, 1024) uint16 mosaic frame matching the default sensor geometry."""
-    mosaic = np.zeros((1024, 1024), dtype=np.uint16)  # np.ndarray[uint16, (H, W)]
+    """Build a zeroed (2048, 2448) uint16 mosaic frame matching the default sensor geometry."""
+    mosaic = np.zeros((2048, 2448), dtype=np.uint16)  # np.ndarray[uint16, (H, W)]
     return MosaicFrame(
         timestamp_utc="2026-06-01T00:00:00.000Z",
         frame_id=frame_id,
@@ -60,16 +60,13 @@ def _mosaic_frame(frame_id: int) -> MosaicFrame:
 
 
 def _plume_detector() -> ScriptedDetector:
-    """Scripted detector whose mask yields one strong, stable off-boresight blob each frame.
+    """Scripted detector whose mask yields one strong, stable below-boresight blob each frame.
 
-    The blob centroid (~169.5, ~169.5 in tensor space) back-projects in decimated search
-    mode (scale 0.5) to full-plane (~339, ~339): ~117 px off the 512-plane boresight (256,
-    256), clearing the minimum deadband so TRACKING issues RATE commands. In TRACKING ROI
-    mode (scale 1.0, crop clamped at the plane edge) the displacement stays below the
-    maximum deadband, so commands keep flowing.
+    The blob centroid (~611.5, ~899.5) sits ~388 px below the 1024x1224-plane boresight
+    (612, 512). TRACKING issues a negative elevation RATE. Drivers pin azimuth at 0.
     """
-    mask = np.zeros((256, 256), dtype=np.float32)  # np.ndarray[float32, (H, W)]
-    mask[145:195, 145:195] = 1.0  # centroid ~ (169.5, 169.5) in tensor space
+    mask = np.zeros((1024, 1224), dtype=np.float32)  # np.ndarray[float32, (H, W)]
+    mask[875:925, 587:637] = 1.0  # centroid ~ (611.5, 899.5) in tensor / band-plane space
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 
@@ -85,8 +82,8 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     return app, bus, gimbal, clock
 
 
-def test_process_frame_demosaics_to_half_resolution() -> None:
-    """A 1024x1024 mosaic demosaics to 512 band planes, decimated to (4, 256, 256) in search."""
+def test_process_frame_passes_full_band_plane() -> None:
+    """A 2048x2448 mosaic demosaics to (4, 1024, 1224) and is passed to detect() uncropped."""
     captured: list[tuple[int, ...]] = []
 
     class _CapturingDetector:
@@ -104,45 +101,11 @@ def test_process_frame_demosaics_to_half_resolution() -> None:
     _state, outcome = app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0)
 
     assert outcome.fault is None
-    assert captured == [(4, 256, 256)]  # 4 bands, 512 planes decimated 2x in search mode
-
-
-def test_search_mode_decimates_full_plane() -> None:
-    """Outside TRACKING the model sees the decimated full plane (scale 0.5, no crop)."""
-    app, bus, _gimbal, _clock = _build_app(_plume_detector())
-    inf_sub = bus.subscribe(InferenceResultMsg)
-
-    app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0)
-
-    msg = inf_sub.get_nowait()
-    assert msg.scale_factor == 0.5
-    assert msg.crop_origin_px == (0, 0)
-
-
-def test_tracking_mode_crops_full_resolution_roi() -> None:
-    """In TRACKING with an initialized estimator, a 256x256 scale-1.0 ROI is cropped."""
-    app, bus, _gimbal, clock = _build_app(_plume_detector())
-
-    state = app.controller.initial_state()
-    now = 0.0
-    for frame_id in range(1, 9):
-        now += 1.0
-        clock.advance(1.0)
-        state, _outcome = app.process_frame(_mosaic_frame(frame_id), state, now)
-    assert state.arbiter.gimbal_state is GimbalState.TRACKING
-
-    inf_sub = bus.subscribe(InferenceResultMsg)
-    now += 1.0
-    clock.advance(1.0)
-    state, _outcome = app.process_frame(_mosaic_frame(9), state, now)
-
-    msg = inf_sub.get_nowait()
-    assert msg.scale_factor == 1.0
-    assert msg.crop_origin_px != (0, 0)
+    assert captured == [(4, 1024, 1224)]
 
 
 def test_persistent_plume_drives_gimbal_through_app() -> None:
-    """A stable plume across frames drives the app to TRACKING and moves the gimbal."""
+    """A stable plume across frames drives the app to TRACKING and moves elevation."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     cmd_sub = bus.subscribe(GimbalCommandMsg)
     inf_sub = bus.subscribe(InferenceResultMsg)
@@ -162,7 +125,8 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
 
     position = gimbal.read_position()
     assert isinstance(position, Ok)
-    assert (position.value.az_deg, position.value.el_deg) != (0.0, 0.0)  # gimbal moved
+    assert position.value.el_deg < -0.1  # plume below boresight -> negative elevation
+    assert abs(position.value.az_deg) < 0.1  # azimuth is pinned at 0
 
     inference_count = 0
     while not inf_sub.empty():
@@ -174,7 +138,7 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
 def test_no_detection_publishes_inference_but_no_command() -> None:
     """With an empty mask, frames are inferred and published but no command is issued."""
     empty_detector = ScriptedDetector(
-        np.zeros((256, 256), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
+        np.zeros((1024, 1224), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
     )
     app, bus, _gimbal, _clock = _build_app(empty_detector)
     cmd_sub = bus.subscribe(GimbalCommandMsg)

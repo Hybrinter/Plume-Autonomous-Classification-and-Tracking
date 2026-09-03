@@ -63,7 +63,7 @@ class SimGimbal:
         """
         self._clock = clock
         self._cfg = cfg if cfg is not None else GimbalConfig()
-        self._az = az_deg
+        self._az = 0.0
         self._el = el_deg
         self._mode: GimbalCommandMode | None = None
         self._target_az = az_deg
@@ -75,10 +75,10 @@ class SimGimbal:
         self._rng = np.random.default_rng(self._cfg.sim_seed)
 
     def _clamp_travel(self) -> None:
-        """Clamp the integrated pose into the configured travel limits."""
+        """Pin azimuth at 0 and clamp elevation into the hardware travel limits."""
         cfg = self._cfg
-        self._az = min(max(self._az, cfg.az_min_deg), cfg.az_max_deg)
-        self._el = min(max(self._el, cfg.el_min_deg), cfg.el_max_deg)
+        self._az = 0.0
+        self._el = min(max(self._el, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
 
     def _integrate(self) -> None:
         """Advance the pose by the clock time elapsed since the last call.
@@ -97,13 +97,12 @@ class SimGimbal:
         cfg = self._cfg
         max_step = cfg.max_hw_slew_rate_deg_per_s * dt
         if self._mode is GimbalCommandMode.RATE:
-            self._az += min(max(self._rate_az * dt, -max_step), max_step)
+            self._az = 0.0
             self._el += min(max(self._rate_el * dt, -max_step), max_step)
         elif self._mode is not None:
             alpha = 1.0 - math.exp(-dt / cfg.sim_time_constant_s)
-            az_step = (self._target_az - self._az) * alpha
             el_step = (self._target_el - self._el) * alpha
-            self._az += min(max(az_step, -max_step), max_step)
+            self._az = 0.0
             self._el += min(max(el_step, -max_step), max_step)
         self._clamp_travel()
 
@@ -119,8 +118,8 @@ class SimGimbal:
         """
         self._integrate()
         cfg = self._cfg
-        self._target_az = min(max(az_deg, cfg.az_min_deg), cfg.az_max_deg)
-        self._target_el = min(max(el_deg, cfg.el_min_deg), cfg.el_max_deg)
+        self._target_az = 0.0
+        self._target_el = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
         self._mode = GimbalCommandMode.ABSOLUTE
         self._stow_commanded = False
         return Ok(None)
@@ -139,7 +138,7 @@ class SimGimbal:
         """
         self._integrate()
         limit = self._cfg.max_hw_slew_rate_deg_per_s
-        self._rate_az = min(max(az_rate_deg_per_s, -limit), limit)
+        self._rate_az = 0.0
         self._rate_el = min(max(el_rate_deg_per_s, -limit), limit)
         self._mode = GimbalCommandMode.RATE
         self._stow_commanded = False
@@ -152,7 +151,7 @@ class SimGimbal:
             Ok(None) always.
         """
         self._integrate()
-        self._target_az, self._target_el = self._cfg.home_az_deg, self._cfg.home_el_deg
+        self._target_az, self._target_el = 0.0, self._cfg.home_el_deg
         self._mode = GimbalCommandMode.HOME
         self._stow_commanded = False
         return Ok(None)
@@ -164,7 +163,7 @@ class SimGimbal:
             Ok(None) always.
         """
         self._integrate()
-        self._target_az, self._target_el = self._cfg.stow_az_deg, self._cfg.stow_el_deg
+        self._target_az, self._target_el = 0.0, self._cfg.stow_el_deg
         self._mode = GimbalCommandMode.STOW
         self._stow_commanded = True
         return Ok(None)
@@ -193,7 +192,7 @@ class SimGimbal:
         """
         self._integrate()
         at_pose = (
-            abs(self._az - self._cfg.stow_az_deg) < _STOW_TOLERANCE_DEG
+            abs(self._az) < _STOW_TOLERANCE_DEG
             and abs(self._el - self._cfg.stow_el_deg) < _STOW_TOLERANCE_DEG
         )
         return Ok(self._stow_commanded and at_pose)

@@ -27,6 +27,10 @@ def test_loads_default_config() -> None:
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     assert isinstance(result.value, PactConfig)
+    assert result.value.inference.input_height_px == 1024
+    assert result.value.inference.input_width_px == 1224
+    assert result.value.thermal.camera_max_c == 50.0
+    assert result.value.fault.inference_timeout_ms == 500.0
 
 
 def test_flight_override_merges() -> None:
@@ -47,11 +51,13 @@ def test_sensor_section_loads() -> None:
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     sensor = result.value.sensor
-    assert sensor.width_px == 1024
-    assert sensor.height_px == 1024
+    assert sensor.width_px == 2448
+    assert sensor.height_px == 2048
     assert sensor.bit_depth == 12
     assert sensor.mosaic_layout == ("BLUE", "GREEN", "RED", "NIR")
-    assert sensor.ifov_deg_per_px == 0.02
+    assert sensor.ifov_band_deg_per_px == 0.002636
+    assert sensor.initial_exposure_us == 13.0
+    assert sensor.initial_gain_db == 0.0
     assert sensor.calibration_dir == ""
 
 
@@ -60,12 +66,13 @@ def test_gimbal_section_loads() -> None:
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     g = result.value.gimbal
-    assert g.az_min_deg == -90.0
-    assert g.az_max_deg == 90.0
-    assert g.el_min_deg == -45.0
-    assert g.el_max_deg == 45.0
+    assert g.el_hw_min_deg == -45.0
+    assert g.el_hw_max_deg == 90.0
+    assert g.el_science_min_deg == 0.0
+    assert g.el_science_max_deg == 45.0
     assert g.max_hw_slew_rate_deg_per_s == 10.0
     assert g.stow_el_deg == -45.0
+    assert g.home_el_deg == 45.0
     assert g.serial_port == ""
 
 
@@ -149,11 +156,11 @@ def test_unknown_field_rejected(tmp_path: Path) -> None:
     assert "wdith_px" in result.error
 
 
-def test_negative_thermal_limit_rejected(tmp_path: Path) -> None:
-    """A non-positive thermal limit is out of range."""
-    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[fault]\nthermal_limit_c = -5.0\n"))
+def test_inverted_thermal_record_rejected(tmp_path: Path) -> None:
+    """A thermal component max below its min is out of range."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[thermal]\ncamera_max_c = -5.0\n"))
     assert isinstance(result, Err)
-    assert "thermal_limit_c" in result.error
+    assert "camera_min_c" in result.error
 
 
 def test_ema_alpha_out_of_unit_range_rejected(tmp_path: Path) -> None:
@@ -164,12 +171,13 @@ def test_ema_alpha_out_of_unit_range_rejected(tmp_path: Path) -> None:
 
 
 def test_gimbal_inverted_travel_limits_rejected(tmp_path: Path) -> None:
-    """az_min_deg must be strictly less than az_max_deg (cross-field)."""
+    """el_hw_min_deg must be strictly less than el_hw_max_deg (cross-field)."""
     result = load_config(
-        _DEFAULT_TOML, _override(tmp_path, "[gimbal]\naz_min_deg = 90.0\naz_max_deg = -90.0\n")
+        _DEFAULT_TOML,
+        _override(tmp_path, "[gimbal]\nel_hw_min_deg = 90.0\nel_hw_max_deg = -45.0\n"),
     )
     assert isinstance(result, Err)
-    assert "az_" in result.error
+    assert "el_hw" in result.error
 
 
 def test_stow_pose_outside_travel_rejected(tmp_path: Path) -> None:

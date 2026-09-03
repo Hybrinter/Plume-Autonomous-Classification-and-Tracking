@@ -25,3 +25,4 @@ These repository-scope decisions apply to flight. They stay under `docs/adr/`.
 | ID | File | Decision | Status |
 | --- | --- | --- | --- |
 | ADR-FLIGHT-0001 | [0001-classifier-segmentor-backends.md](adr/0001-classifier-segmentor-backends.md) | ClassifierBackend, SegmentorBackend, and blob DetectorBackend | Accepted |
+| ADR-FLIGHT-0002 | [0002-single-axis-full-frame.md](adr/0002-single-axis-full-frame.md) | Single-axis envelopes and full-frame inference | Accepted |

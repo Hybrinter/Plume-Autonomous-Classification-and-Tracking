@@ -488,32 +488,11 @@ def _payload_signals() -> list[Signal]:
             lambda ctx: float(len(ctx.payload_state.arbiter.tracked_blobs)),
         ),
         _num(
-            "payload.scan_pan_deg",
-            "payload",
-            "SCAN raster pan",
-            "deg",
-            lambda ctx: float(ctx.payload_state.arbiter.scan_pan_deg),
-        ),
-        _num(
-            "payload.scan_direction",
-            "payload",
-            "SCAN raster direction",
-            "sign",
-            lambda ctx: float(ctx.payload_state.arbiter.scan_direction),
-        ),
-        _num(
             "payload.miss_count",
             "payload",
             "TRACKING miss hysteresis",
             "count",
             lambda ctx: float(ctx.payload_state.arbiter.miss_count),
-        ),
-        _num(
-            "payload.deadband_strikes",
-            "payload",
-            "Deadband strikes",
-            "count",
-            lambda ctx: float(ctx.payload_state.deadband_strikes),
         ),
         _num(
             "payload.commanded_az_rate_deg_s",
@@ -904,7 +883,7 @@ def _iss_iface_signals() -> list[Signal]:
 
 
 def _thermal_signals() -> list[Signal]:
-    """Thermal: temperature, effective + override limit, over-limit flag, sample/fault counts."""
+    """Thermal: temperature, recorded camera max + override, sample/fault counts."""
     return [
         _num(
             "thermal.temperature_c",
@@ -916,12 +895,12 @@ def _thermal_signals() -> list[Signal]:
         _num(
             "thermal.limit_c",
             "thermal",
-            "Effective thermal limit",
+            "Recorded camera max (override if set)",
             "degC",
             lambda ctx: float(
                 ctx.system.apps.thermal.state.limit_c_override
                 if ctx.system.apps.thermal.state.limit_c_override is not None
-                else ctx.system.apps.thermal.cfg.thermal_limit_c
+                else ctx.system.apps.thermal.thermal_cfg.camera_max_c
             ),
         ),
         _num(

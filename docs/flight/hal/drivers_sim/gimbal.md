@@ -5,8 +5,9 @@
 
 ## Purpose
 
-`SimGimbal` models a two-axis gimbal with first-order dynamics, travel and slew limits, and
-seeded encoder noise. It satisfies `GimbalActuator` structurally for SIL and tests.
+`SimGimbal` models a single-axis gimbal (azimuth pinned at 0) with first-order dynamics,
+hardware elevation and slew limits, and seeded encoder noise. It satisfies `GimbalActuator`
+structurally for SIL and tests.
 
 ## Public interface
 
@@ -35,11 +36,11 @@ elevation in degrees.
 2. In rate mode, the driver integrates clamped commanded rates with a per-step slew cap.
 3. In absolute, home, and stow modes, the driver moves toward the target with a first-order
    exponential step, also capped by the slew envelope.
-4. After integration, the driver clamps pose to configured travel limits.
+4. After integration, the driver pins azimuth at 0 and clamps elevation to hardware travel.
 5. `read_position()` adds Gaussian encoder noise from a seeded RNG and returns a
    timestamped pose.
-6. `read_stow_switch()` returns `True` only after `stow()` was called and both axes are
-   within 0.5 deg of the stow pose.
+6. `read_stow_switch()` returns `True` only after `stow()` was called and elevation is
+   within 0.5 deg of the stow pose (azimuth remains 0).
 7. Sim hardware commands never fail. All command methods return `Ok(None)`.
 
 ## Errors and faults
@@ -52,7 +53,7 @@ None.
 
 ## Configuration
 
-Reads `GimbalConfig`: travel limits, stow and home poses, max hardware slew,
+Reads `GimbalConfig`: hardware elevation limits, stow and home elevation, max hardware slew,
 `sim_time_constant_s`, `sim_encoder_noise_deg`, and `sim_seed`.
 
 ## Constraints

@@ -26,7 +26,7 @@ requires `config.gimbal.serial_port` nonempty), the real ONNX detector, the sock
 2. Load config: `load_config("config/default.toml", "profiles/hil.toml")`.
 3. Construct drivers with `select_drivers(config, RealClock())` (no `sim_inputs` needed -- every
    axis selects a real branch). The real sensor branch also applies
-   `set_exposure_us(config.sensor.default_exposure_us)` and `set_gain_db(config.sensor.default_gain_db)`,
+   `set_exposure_us(config.sensor.initial_exposure_us)` and `set_gain_db(config.sensor.initial_gain_db)`,
    exiting on `Err`.
 4. Start the real `Scheduler`; drive scenarios from the ground station, including realtime-only
    assertions.

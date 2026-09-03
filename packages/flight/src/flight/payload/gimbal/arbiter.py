@@ -7,10 +7,10 @@ no references to queues, hardware, or I/O. All state transitions are returned as
 TelemetryEventMsg values to be dispatched by the caller (the payload app shell).
 
 The arbiter emits a typed GimbalRequest (not a bus message): RATE during TRACKING,
-ABSOLUTE for the SCAN raster, STOW on SAFE entry. SAFE is latched in the arbiter and
-commanded/cleared by ModeChangeMsg flags (safe_commanded/safe_cleared) drained by the
-shell; pointing error is supplied as boresight-relative degrees by the caller, killing
-the old absolute-centroid PIXEL_TO_DEG conversion.
+ABSOLUTE to the science limb during REWIND, STOW on SAFE entry. SAFE is latched in
+the arbiter and commanded/cleared by ModeChangeMsg flags (safe_commanded/safe_cleared)
+drained by the shell; pointing error is supplied as boresight-relative degrees by the
+caller.
 
 Satisfies: REQ-AIML-GIMB-001 through 008, REQ-GIMB-HIGH-001 through 004
 """
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from flight.libs.config import ControllerConfig
+from flight.libs.config import ControllerConfig, GimbalConfig
 from flight.libs.messages import (
     BlobMeta,
     InferenceResultMsg,
@@ -29,7 +29,7 @@ from flight.libs.messages import (
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
 
-_SCAN_LIMIT_DEG: float = 30.0  # azimuth raster half-span before the scan reverses direction
+_LIMB_ARRIVAL_DEG: float = 0.5  # treat elevation within this of science max as arrived
 
 
 @dataclass(frozen=True)
@@ -51,13 +51,9 @@ class ArbiterState:
         Unix timestamp of the most recent command issued. Used by the rate limiter.
     current_target_id:
         blob_id of the blob currently being tracked, or None if not in TRACKING.
-    scan_pan_deg:
-        Current azimuth pan position during SCAN mode (absolute degrees).
-    scan_direction:
-        Sign (+1.0 / -1.0) of the SCAN raster sweep; flips at the +-_SCAN_LIMIT_DEG edge.
     miss_count:
         TRACKING release-hysteresis counter: consecutive frames with no blob while in
-        TRACKING. TRACKING releases to IDLE only once miss_count reaches
+        TRACKING. TRACKING releases only once miss_count reaches
         release_persistence_frames; any blob resets it to 0.
     """
 
@@ -66,8 +62,6 @@ class ArbiterState:
     idle_duration_s: float
     last_command_time: float  # Unix timestamp; 0.0 if no command has been issued yet
     current_target_id: int | None
-    scan_pan_deg: float = 0.0  # current pan position during SCAN mode
-    scan_direction: float = 1.0  # SCAN raster sweep sign; flips at the travel edges
     miss_count: int = 0  # TRACKING release-hysteresis counter
 
 
@@ -80,40 +74,42 @@ class GimbalArbiter:
         IDLE        No blob in view, or confidence gate has not been met.
         ACQUIRING   Blob detected and above threshold, but persistence < acquire frames.
         TRACKING    Blob held for >= acquire_persistence_frames consecutive frames.
-        SCAN        IDLE for > scan_entry_idle_seconds; execute an absolute raster slew.
+        REWIND      Track lost before the science limb; slew elevation to el_science_max.
         SAFE        Fault/ground-induced; latched. Only exit is a cleared-mode signal.
 
     Transitions (all logged as TelemetryEventMsg)
         IDLE       -> ACQUIRING  : blob detected, persistence < acquire threshold
         ACQUIRING  -> TRACKING   : persistence >= acquire_persistence_frames
-        TRACKING   -> IDLE       : no blobs for release_persistence_frames frames
-        IDLE       -> SCAN       : idle_duration_s > scan_entry_idle_seconds
-        SCAN       -> ACQUIRING  : blob detected above threshold
+        TRACKING   -> REWIND     : no blobs for release_persistence_frames and el below limb
+        TRACKING   stays TRACKING: no blobs for release_persistence_frames and el at limb
+        REWIND     -> TRACKING   : arrived at science limb with no blob, or blob acquired
+        REWIND     -> ACQUIRING  : blob detected above threshold before limb arrival
         any        -> SAFE       : safe_commanded or InferenceResultMsg.mode_flags != 0
         SAFE       -> IDLE       : safe_cleared (ground recovery)
 
     Design Notes
     ------------
     - step() is a **pure function**: no I/O, no queue access, no random, no time.time().
-      The caller supplies `now` (monotonic seconds) and the boresight-relative error so
-      the function is fully deterministic and trivially testable without mocking.
+      The caller supplies `now` (monotonic seconds), the boresight-relative error, and
+      the current elevation so the function is fully deterministic.
     - GimbalArbiter itself is stateless -- it stores no mutable instance state. ArbiterState
       is threaded externally through the app loop.
     - SAFE latches: while in SAFE, no further requests are produced and blobs are ignored
       until safe_cleared returns the machine to IDLE.
-    - The TRACKING command is a proportional fallback (gain 1.0 / s) on the boresight error;
-      control.py refines it via the LQR once the estimator is initialized. The SCAN raster
-      is an ABSOLUTE pan that reverses at +-_SCAN_LIMIT_DEG (the old delta scan never
-      reversed).
+    - The TRACKING command is a proportional fallback (gain 1.0 / s) on the boresight error,
+      clamped to the hardware slew cap; control.py refines it via the LQR once the estimator
+      is initialized. REWIND issues ABSOLUTE elevation to the science limb.
     """
 
-    def __init__(self, cfg: ControllerConfig) -> None:
-        """Hold the immutable controller config for thresholds, rates, and limits.
+    def __init__(self, cfg: ControllerConfig, gimbal: GimbalConfig) -> None:
+        """Hold the immutable controller and gimbal config for thresholds and envelopes.
 
         Args:
-            cfg: The ControllerConfig supplying gates, persistence, and slew limits.
+            cfg: The ControllerConfig supplying gates and persistence.
+            gimbal: The GimbalConfig supplying science-limb elevation and hardware slew.
         """
         self._cfg = cfg
+        self._gimbal = gimbal
 
     def step(
         self,
@@ -123,6 +119,7 @@ class GimbalArbiter:
         now: float,
         safe_commanded: bool,
         safe_cleared: bool,
+        el_deg: float | None = None,
     ) -> tuple[
         ArbiterState,
         GimbalRequest | None,
@@ -145,6 +142,8 @@ class GimbalArbiter:
             True if a SAFE mode change was drained this frame: latch SAFE and stow.
         safe_cleared:
             True if a non-SAFE mode change was drained this frame: exit SAFE to IDLE.
+        el_deg:
+            Current elevation in signed off-nadir degrees, or None when unavailable.
 
         Returns
         -------
@@ -154,10 +153,12 @@ class GimbalArbiter:
             telemetry_events : Zero or more TelemetryEventMsg for state transitions.
         """
         cfg = self._cfg
+        gimbal = self._gimbal
         old_gs = state.gimbal_state
         blobs = result.blobs
         has_blobs = len(blobs) > 0
         events: list[TelemetryEventMsg] = []
+        at_limb = el_deg is not None and el_deg >= gimbal.el_science_max_deg - _LIMB_ARRIVAL_DEG
 
         # SAFE entry: a commanded SAFE or any non-zero mode_flags latches SAFE and stows.
         if (safe_commanded or result.mode_flags != 0) and old_gs != GimbalState.SAFE:
@@ -186,8 +187,6 @@ class GimbalArbiter:
                     idle_duration_s=0.0,
                     last_command_time=state.last_command_time,
                     current_target_id=None,
-                    scan_pan_deg=state.scan_pan_deg,
-                    scan_direction=state.scan_direction,
                     miss_count=0,
                 )
                 events.append(self._transition_event(GimbalState.SAFE, GimbalState.IDLE))
@@ -197,8 +196,6 @@ class GimbalArbiter:
         new_gs = old_gs
         idle_dur = state.idle_duration_s
         target_id = state.current_target_id
-        scan_pan = state.scan_pan_deg
-        scan_direction = state.scan_direction
         miss_count = state.miss_count
         last_cmd_time = state.last_command_time
 
@@ -210,9 +207,6 @@ class GimbalArbiter:
                 idle_dur = 0.0
             else:
                 idle_dur = state.idle_duration_s + cfg.kalman_dt_s
-                if idle_dur >= cfg.scan_entry_idle_seconds:
-                    new_gs = GimbalState.SCAN
-                    scan_pan = 0.0
 
         elif old_gs == GimbalState.ACQUIRING:
             if not has_blobs:
@@ -228,17 +222,25 @@ class GimbalArbiter:
             else:
                 miss_count = state.miss_count + 1
                 if miss_count >= cfg.release_persistence_frames:
-                    new_gs = GimbalState.IDLE
-                    idle_dur = 0.0
-                    target_id = None
-                    miss_count = 0
+                    if at_limb:
+                        miss_count = 0
+                        target_id = None
+                    else:
+                        new_gs = GimbalState.REWIND
+                        idle_dur = 0.0
+                        target_id = None
+                        miss_count = 0
 
-        elif old_gs == GimbalState.SCAN:
+        elif old_gs == GimbalState.REWIND:
             if has_blobs:
                 new_gs = (
                     GimbalState.TRACKING if _any_acquired(blobs, cfg) else GimbalState.ACQUIRING
                 )
                 idle_dur = 0.0
+            elif at_limb:
+                new_gs = GimbalState.TRACKING
+                idle_dur = 0.0
+                target_id = None
 
         if new_gs != old_gs:
             events.append(self._transition_event(old_gs, new_gs))
@@ -249,7 +251,7 @@ class GimbalArbiter:
             best = _select_best_target(blobs)
             target_id = best.blob_id
             if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                limit = cfg.max_slew_rate_deg_per_s
+                limit = gimbal.max_hw_slew_rate_deg_per_s
                 az_rate = min(max(error_deg[0] * 1.0, -limit), limit)
                 el_rate = min(max(error_deg[1] * 1.0, -limit), limit)
                 request = GimbalRequest(
@@ -260,22 +262,13 @@ class GimbalArbiter:
                 )
                 last_cmd_time = now
 
-        elif new_gs == GimbalState.SCAN:
+        elif new_gs == GimbalState.REWIND:
             if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                scan_pan = scan_pan + scan_direction * cfg.scan_slew_rate_deg_per_s * (
-                    1.0 / cfg.retarget_rate_limit_hz
-                )
-                if scan_pan > _SCAN_LIMIT_DEG:
-                    scan_pan = _SCAN_LIMIT_DEG
-                    scan_direction = -1.0
-                elif scan_pan < -_SCAN_LIMIT_DEG:
-                    scan_pan = -_SCAN_LIMIT_DEG
-                    scan_direction = 1.0
                 request = GimbalRequest(
                     mode=GimbalCommandMode.ABSOLUTE,
-                    az_deg=scan_pan,
-                    el_deg=0.0,
-                    reason="nadir_scan",
+                    az_deg=0.0,
+                    el_deg=gimbal.el_science_max_deg,
+                    reason="rewind_to_limb",
                 )
                 last_cmd_time = now
 
@@ -285,8 +278,6 @@ class GimbalArbiter:
             idle_duration_s=idle_dur,
             last_command_time=last_cmd_time,
             current_target_id=target_id,
-            scan_pan_deg=scan_pan,
-            scan_direction=scan_direction,
             miss_count=miss_count,
         )
         return new_state, request, events

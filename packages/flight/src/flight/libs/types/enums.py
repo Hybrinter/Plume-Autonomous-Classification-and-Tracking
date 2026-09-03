@@ -53,7 +53,7 @@ class GimbalState(enum.Enum):
     IDLE = "IDLE"
     ACQUIRING = "ACQUIRING"
     TRACKING = "TRACKING"
-    SCAN = "SCAN"
+    REWIND = "REWIND"
     SAFE = "SAFE"
 
 
@@ -61,7 +61,7 @@ class GimbalCommandMode(enum.Enum):
     """How a gimbal command's axis values are interpreted.
 
     RATE: az/el are rates in deg/s (TRACKING). ABSOLUTE: az/el are target angles in
-    degrees (SCAN, acquisition repositioning). STOW/HOME: axis values are ignored;
+    degrees (REWIND to the science limb). STOW/HOME: axis values are ignored;
     the driver resolves the configured stow/home pose.
 
     String values mirror member names (log readability convention).

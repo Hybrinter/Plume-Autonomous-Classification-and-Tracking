@@ -19,7 +19,7 @@ filter and computes rate commands from the state error vector.
 
 ## Inputs and outputs
 
-`from_config(cfg)` returns an `LqrController`.
+`from_config(cfg, max_slew_deg_s)` returns an `LqrController`.
 
 `compute_control(controller, state_error)` takes a `(4,)` error vector and returns `(2,)`
 pan and tilt commands in deg/s, clamped to `max_slew_deg_s`.
@@ -44,7 +44,8 @@ None.
 
 ## Configuration
 
-Uses `ControllerConfig`: `kalman_dt_s`, `lqr_Q_diag`, `lqr_R_diag`, `max_slew_deg_s`.
+Uses `ControllerConfig`: `kalman_dt_s`, `lqr_Q_diag`, `lqr_R_diag`. Hardware slew clamp
+is `max_slew_deg_s` from `GimbalConfig.max_hw_slew_rate_deg_per_s`.
 
 ## Constraints
 

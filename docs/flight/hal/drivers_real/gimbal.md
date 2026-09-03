@@ -5,9 +5,9 @@
 
 ## Purpose
 
-`RealGimbal` drives a two-axis serial PTU over an ASCII line protocol. It satisfies
-`GimbalActuator` structurally. The driver clamps travel and slew before sending encoder
-counts.
+`RealGimbal` drives a serial PTU over an ASCII line protocol. It satisfies
+`GimbalActuator` structurally. The driver pins azimuth at 0 and clamps elevation and
+slew before sending encoder counts.
 
 ## Public interface
 
@@ -59,8 +59,8 @@ None.
 
 ## Configuration
 
-Reads `GimbalConfig`: travel limits, stow and home poses, max hardware slew, serial port,
-baud rate, and `counts_per_deg`.
+Reads `GimbalConfig`: hardware elevation limits, stow and home elevation, max hardware slew,
+serial port, baud rate, and `counts_per_deg`.
 
 ## Constraints
 

@@ -19,6 +19,7 @@ from flight.libs.config.config import (
     PreprocessingConfig,
     SensorConfig,
     StorageConfig,
+    ThermalConfig,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "PreprocessingConfig",
     "SensorConfig",
     "StorageConfig",
+    "ThermalConfig",
 ]

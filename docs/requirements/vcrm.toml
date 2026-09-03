@@ -55,12 +55,12 @@ status = "verified"
 
 [[requirement]]
 id = "REQ-SAFE-HIGH-002"
-statement = "Thermal over-limit drives the system to SAFE mode and stows the gimbal."
-method = "SIL"
-venue = "sil"
-modules = ["REQ-SAFE-HIGH-002"]
-evidence = ["packages/sim/tests/sil/test_sil_closed_loop.py", "scenario:safe_on_thermal"]
-status = "verified"
+statement = "Per-component thermal sensors compare datasheet limits and drive SAFE. Deferred until those sensors exist; housekeeping is telemetry-only."
+method = "none"
+venue = "none"
+modules = []
+evidence = []
+status = "gap"
 
 [[requirement]]
 id = "REQ-AIML-GIMB-001"
@@ -73,7 +73,7 @@ status = "verified"
 
 [[requirement]]
 id = "REQ-GIMB-HIGH-001"
-statement = "Region-of-interest retention keeps the plume within the pointing deadband."
+statement = "Closed-loop pointing keeps the plume in the full band-plane field of view."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-GIMB-HIGH-001"]

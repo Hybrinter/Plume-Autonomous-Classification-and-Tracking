@@ -25,12 +25,13 @@ class LqrController:
     max_slew_deg_s: float
 
     @staticmethod
-    def from_config(cfg: ControllerConfig) -> LqrController:
+    def from_config(cfg: ControllerConfig, max_slew_deg_s: float) -> LqrController:
         """Build LQR gain from ControllerConfig using DARE solver.
 
         System model: same constant-velocity model as KalmanFilter.
         A = F (4x4 state transition),
         B = [[0,0],[0,0],[dt,0],[0,dt]] (4x2 control input).
+        max_slew_deg_s is the hardware slew cap from GimbalConfig.
         """
         dt = cfg.kalman_dt_s
         A = np.array(  # noqa: N806
@@ -61,7 +62,7 @@ class LqrController:
             K = np.zeros((2, 4), dtype=np.float64)  # noqa: N806
             K[0, 0] = 1.0  # pan proportional
             K[1, 1] = 1.0  # tilt proportional
-        return LqrController(K=K, max_slew_deg_s=cfg.max_slew_deg_s)
+        return LqrController(K=K, max_slew_deg_s=max_slew_deg_s)
 
 
 def compute_control(

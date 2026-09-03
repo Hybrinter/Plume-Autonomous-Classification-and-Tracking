@@ -25,8 +25,7 @@ Re-exports: `EmaFilterState`, `KalmanFilter`, `KalmanState`, `compute_iou`, `ema
 ## Interactions
 
 None. `PayloadController.step` calls these functions directly. Outputs update
-`ControlState` fields consumed by the arbiter, LQR, and TRACKING-mode ROI crop in the
-app.
+`ControlState` fields consumed by the arbiter and LQR in the app.
 
 ## Constraints
 

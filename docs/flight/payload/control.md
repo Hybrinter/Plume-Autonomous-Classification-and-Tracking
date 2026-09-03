@@ -6,14 +6,14 @@
 ## Purpose
 
 `PayloadController` is the pure payload control core. It composes blob gates, tracking
-estimators, deadband and runaway checks, the gimbal arbiter, and the LQR law into one
-`step` call. All state lives in `ControlState` and is replaced each frame.
+estimators, encoder runaway, the gimbal arbiter, and the LQR law into one `step` call.
+All state lives in `ControlState` and is replaced each frame.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ControlState` | dataclass | Bundled arbiter, EMA, Kalman, runaway, deadband, and rate state |
+| `ControlState` | dataclass | Bundled arbiter, EMA, Kalman, runaway, and commanded-rate state |
 | `PayloadController` | dataclass | Immutable control core with config and sub-components |
 | `PayloadController.from_config` | static method | Builds arbiter, Kalman, LQR, and plane geometry from config |
 | `PayloadController.initial_state` | method | Returns IDLE arbiter with uninitialized EMA |
@@ -21,7 +21,7 @@ estimators, deadband and runaway checks, the gimbal arbiter, and the LQR law int
 
 ## Inputs and outputs
 
-`from_config` takes `ControllerConfig` and `SensorConfig`. It returns a
+`from_config` takes `ControllerConfig`, `SensorConfig`, and `GimbalConfig`. It returns a
 `PayloadController`.
 
 `step` takes `ControlState`, `InferenceResultMsg`, monotonic `now`, optional
@@ -32,26 +32,20 @@ estimators, deadband and runaway checks, the gimbal arbiter, and the LQR law int
 
 1. Apply confidence and minimum-area gates to inference blobs.
 2. Match blobs to the previous frame by IoU and assign persistence counts.
-3. When a match exists, compute boresight error in degrees and full-plane pixel
-   displacement from the blob centroid.
+3. When a match exists, compute boresight error in degrees from the blob centroid.
 4. Update the EMA with boresight error, or reset it when no match exists.
 5. Predict the Kalman state, then update with the EMA observation when initialized.
-6. Run the deadband check on displacement. Suppress RATE commands below the minimum.
-   Count strikes above the maximum.
-7. Step the gimbal arbiter with filtered blobs and boresight error.
-8. When the arbiter issues a RATE request and the EMA is initialized, replace rates with
-   LQR output (`-K @ x`), clamped to the max slew rate.
-9. Suppress RATE requests when the deadband gate blocks them.
-10. Compare commanded rates to measured encoder motion via the runaway monitor.
-11. Thread commanded az/el rates into the next state for the runaway check.
+6. Step the gimbal arbiter with filtered blobs, boresight error, and current elevation.
+7. When the arbiter issues a RATE request and the EMA is initialized, replace rates with
+   LQR output (`-K @ x`), clamped to the hardware slew cap.
+8. Compare commanded rates to measured encoder motion via the runaway monitor.
+9. Thread commanded az/el rates into the next state for the runaway check.
 
 ## Errors and faults
 
 | Fault | Trigger |
 | --- | --- |
-| `GIMBAL_RUNAWAY` | Deadband strikes reach `max_deadband_strike_count`, or encoder divergence reaches `runaway_strike_count` |
-
-STOW and ABSOLUTE requests from the arbiter are never suppressed by the deadband gate.
+| `GIMBAL_RUNAWAY` | Encoder divergence reaches `runaway_strike_count` |
 
 ## Messages
 
@@ -60,9 +54,9 @@ shell publishes them.
 
 ## Configuration
 
-Reads `ControllerConfig` (gates, persistence, Kalman, LQR, deadband, runaway, slew
-limits) and band-plane geometry from `SensorConfig` (`width_px // 2`,
-`height_px // 2`, `ifov_deg_per_px`).
+Reads `ControllerConfig` (gates, persistence, Kalman, LQR, runaway) and band-plane
+geometry from `SensorConfig` (`width_px // 2`, `height_px // 2`,
+`ifov_band_deg_per_px`). Hardware slew clamp comes from `GimbalConfig`.
 
 ## Constraints
 

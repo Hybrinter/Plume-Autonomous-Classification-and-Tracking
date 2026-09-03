@@ -299,21 +299,20 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="nominal_tracking",
             title="Nominal plume tracking",
             description=(
-                "Detect the scripted plume, transition IDLE -> ACQUIRING -> TRACKING, and slew the "
-                "gimbal toward the target (azimuth positive, elevation negative). No faults; the "
-                "system stays nominal the whole run."
+                "Detect the scripted plume, transition IDLE -> ACQUIRING -> TRACKING, and slew "
+                "elevation toward the target (negative elevation, azimuth pinned at 0). No faults; "
+                "the system stays nominal the whole run."
             ),
             category="nominal",
             steps=14,
             num_frames=14,
         ),
         ScenarioSpec(
-            name="thermal_over_limit_safe",
-            title="Thermal over-limit -> SAFE -> stow",
+            name="thermal_hot_sample",
+            title="Thermal hot sample is telemetry only",
             description=(
-                "A thermal spike above the 80 C limit self-reports THERMAL_OVER_LIMIT; "
-                "FDIR latches SAFE, the arbiter commands STOW, and the gimbal reaches the "
-                "stow pose (stow switch engaged)."
+                "A thermal spike to 95 C publishes thermal_sample telemetry. Housekeeping "
+                "does not emit THERMAL_OVER_LIMIT. The system stays nominal."
             ),
             category="thermal",
             steps=16,
@@ -371,7 +370,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="exit_safe_recovery",
             title="EXIT_SAFE recovery via ARM/EXECUTE",
             description=(
-                "A thermal spike latches SAFE, then the spike clears; a ground EXIT_SAFE is "
+                "A power spike latches SAFE, then the spike clears; a ground EXIT_SAFE is "
                 "ARMed (step 8) and EXECUTEd (step 9) through the command router and fault "
                 "app, un-latching SAFE so the arbiter returns to operations and re-acquires "
                 "the plume."
@@ -379,7 +378,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             category="recovery",
             steps=14,
             num_frames=14,
-            thermal_readings=(25.0, 25.0, 95.0, 95.0, 25.0),
+            power_readings=(30.0, 30.0, 80.0, 80.0, 25.0),
             injections=(
                 Injection(8, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=1)),
                 Injection(9, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=2)),

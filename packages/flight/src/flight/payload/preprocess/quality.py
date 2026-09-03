@@ -48,7 +48,7 @@ def compute_quality_flags(
     bands: object,  # np.ndarray[float32, (C, H, W)], order [BLUE, GREEN, RED, NIR]
     exposure_us: float,
     slew_rate_deg_per_s: float,
-    ifov_deg_per_px: float,
+    ifov_band_deg_per_px: float,
     utc_timestamp: str,
     cfg: PreprocessingConfig,
 ) -> frozenset[FrameUsabilityTag]:
@@ -64,8 +64,8 @@ def compute_quality_flags(
         slew_rate_deg_per_s (float): Commanded/observed gimbal slew rate in degrees per
             second over the exposure (0.0 when unknown -- the smear gate degrades to
             never-flag).
-        ifov_deg_per_px (float): Instantaneous field of view per band-plane pixel,
-            degrees per pixel (SensorConfig.ifov_deg_per_px).
+        ifov_band_deg_per_px (float): Instantaneous field of view per band-plane pixel,
+            degrees per pixel (SensorConfig.ifov_band_deg_per_px).
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
 
@@ -94,7 +94,7 @@ def compute_quality_flags(
             break
 
     # --- MOTION_SMEAR: predicted smear length in band-plane pixels ---
-    smear_px = slew_rate_deg_per_s * (exposure_us * 1e-6) / ifov_deg_per_px
+    smear_px = slew_rate_deg_per_s * (exposure_us * 1e-6) / ifov_band_deg_per_px
     if smear_px > cfg.max_motion_smear_px:
         flags.add(FrameUsabilityTag.MOTION_SMEAR)
 

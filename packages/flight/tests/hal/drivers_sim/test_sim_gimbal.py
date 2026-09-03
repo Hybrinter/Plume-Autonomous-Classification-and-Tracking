@@ -14,45 +14,50 @@ def _gimbal(clock: ManualClock, **cfg_overrides: float) -> SimGimbal:
     return SimGimbal(clock=clock, cfg=cfg)
 
 
-def test_goto_angle_approaches_target_with_lag() -> None:
-    """An absolute command moves the gimbal toward the target, not instantly onto it."""
+def test_goto_angle_approaches_elevation_target_with_lag() -> None:
+    """An absolute command moves elevation toward the target; azimuth stays pinned at 0."""
     clock = ManualClock()
     gimbal = _gimbal(clock)
-    assert isinstance(gimbal.goto_angle(10.0, 0.0), Ok)
+    assert isinstance(gimbal.goto_angle(10.0, 20.0), Ok)
     clock.advance(0.1)
     mid = gimbal.read_position()
     assert isinstance(mid, Ok)
-    assert 0.0 < mid.value.az_deg < 10.0
+    assert abs(mid.value.az_deg) < 1e-9
+    assert 0.0 < mid.value.el_deg < 20.0
     clock.advance(30.0)
     settled = gimbal.read_position()
     assert isinstance(settled, Ok)
-    assert abs(settled.value.az_deg - 10.0) < 0.1
+    assert abs(settled.value.az_deg) < 1e-9
+    assert abs(settled.value.el_deg - 20.0) < 0.1
 
 
 def test_slew_rate_is_limited() -> None:
-    """Motion toward a far target never exceeds the hardware slew envelope."""
+    """Motion toward a far elevation target never exceeds the hardware slew envelope."""
     clock = ManualClock()
     gimbal = _gimbal(clock, max_hw_slew_rate_deg_per_s=10.0, sim_time_constant_s=0.001)
-    gimbal.goto_angle(90.0, 0.0)
+    gimbal.goto_angle(0.0, 90.0)
     clock.advance(1.0)
     pos = gimbal.read_position()
     assert isinstance(pos, Ok)
-    assert pos.value.az_deg <= 10.0 + 1e-6
+    assert pos.value.el_deg <= 10.0 + 1e-6
+    assert abs(pos.value.az_deg) < 1e-9
 
 
 def test_set_rate_integrates_and_clamps_travel() -> None:
-    """Rate commands integrate position and stop at the travel limit."""
+    """Elevation rate commands integrate position and stop at the hardware travel limit."""
     clock = ManualClock()
-    gimbal = _gimbal(clock, az_max_deg=5.0)
-    assert isinstance(gimbal.set_rate(2.0, 0.0), Ok)
+    gimbal = _gimbal(clock)
+    assert isinstance(gimbal.set_rate(5.0, 2.0), Ok)
     clock.advance(1.0)
     pos = gimbal.read_position()
     assert isinstance(pos, Ok)
-    assert abs(pos.value.az_deg - 2.0) < 1e-6
-    clock.advance(10.0)
+    assert abs(pos.value.az_deg) < 1e-6
+    assert abs(pos.value.el_deg - 2.0) < 1e-6
+    clock.advance(100.0)
     clamped = gimbal.read_position()
     assert isinstance(clamped, Ok)
-    assert clamped.value.az_deg == 5.0
+    assert clamped.value.el_deg == 90.0
+    assert abs(clamped.value.az_deg) < 1e-6
 
 
 def test_stow_reaches_pose_and_sets_switch() -> None:

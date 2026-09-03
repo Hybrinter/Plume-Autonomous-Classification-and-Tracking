@@ -13,18 +13,18 @@ safety gates.
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`arbiter`](gimbal/arbiter.md) | pure module | IDLE / ACQUIRING / TRACKING / SCAN / SAFE FSM |
+| [`arbiter`](gimbal/arbiter.md) | pure module | IDLE / ACQUIRING / TRACKING / REWIND / SAFE FSM |
 | [`lqr`](gimbal/lqr.md) | pure module | Discrete-time LQR gain and control output |
 | [`pointing`](gimbal/pointing.md) | pure module | Boresight error and displacement from blob centroids |
 | [`request`](gimbal/request.md) | pure module | Typed gimbal command returned by pure cores |
 | [`runaway`](gimbal/runaway.md) | pure module | Encoder rate divergence monitor |
-| [`safety`](gimbal/safety.md) | pure module | Confidence, area, deadband, and rate-limit gates |
+| [`safety`](gimbal/safety.md) | pure module | Confidence, area, and rate-limit gates |
 
 ## Package interface
 
 Re-exports: `ArbiterState`, `GimbalArbiter`, `GimbalRequest`, `INITIAL_RUNAWAY_STATE`,
 `RunawayState`, `LqrController`, `apply_confidence_gate`, `apply_min_area_gate`,
-`boresight_error_deg`, `check_deadband`, `check_rate_limit`, `check_runaway`,
+`boresight_error_deg`, `check_rate_limit`, `check_runaway`,
 `compute_control`, `target_displacement_px`.
 
 ## Interactions
@@ -37,7 +37,7 @@ publishes `GimbalCommandMsg`. No gimbal module accesses the bus or HAL directly.
 
 All modules are pure except that `GimbalArbiter._transition_event` stamps telemetry
 with `utc_now_iso()` for event records returned to the caller. `GimbalRequest` never
-travels on the bus. STOW and ABSOLUTE commands bypass deadband suppression.
+travels on the bus.
 
 ## Related documents
 

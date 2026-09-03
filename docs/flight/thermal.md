@@ -6,8 +6,8 @@
 ## Purpose
 
 The thermal package runs housekeeping for the thermal node. Each cycle it samples temperature,
-publishes telemetry, emits an over-limit fault when the reading exceeds the threshold, handles
-routed commands, and sends heartbeats.
+publishes telemetry, handles routed commands, and sends heartbeats. Datasheet limits live on
+`ThermalConfig` as records. The app does not emit `THERMAL_OVER_LIMIT`.
 
 ## Contents
 
@@ -22,14 +22,15 @@ Re-exports `ThermalApp`.
 ## Interactions
 
 Uses the `ScalarSensor` HAL protocol for temperature in degrees Celsius. Subscribes to
-`RoutedCommandMsg`. Publishes `TelemetryEventMsg`, `FaultEventMsg`, `CommandAckMsg`, and
-`HeartbeatMsg`. The fault app monitors this subsystem via heartbeats.
+`RoutedCommandMsg`. Publishes `TelemetryEventMsg`, `CommandAckMsg`, and `HeartbeatMsg`.
+The fault app monitors this subsystem via heartbeats.
 
 ## Constraints
 
-- Threshold limits come from `FaultConfig.thermal_limit_c` unless overridden by `SET_THERMAL_LIMIT`.
+- Per-component min/max values live on `ThermalConfig`. `sample()` does not compare them.
+- `SET_THERMAL_LIMIT` stores an override for later sensors and does not enable a compare.
 - A sensor read error skips the cycle with no telemetry and no fault.
-- `THERMAL_OVER_LIMIT` is in the SAFE-triggering fault set.
+- `THERMAL_OVER_LIMIT` remains in the SAFE-triggering fault set for later sensors.
 - The app does not cross-import other peer subsystem packages.
 
 ## Related documents

@@ -63,8 +63,6 @@ def test_factory_pair_matches_flight_contract() -> None:
         frame_id=0,
         tensor=np.zeros((4, 256, 256), dtype=np.float32),
         quality_flags=frozenset(),
-        crop_origin_px=(0, 0),
-        scale_factor=1.0,
     )
     result = detector.detect(frame)
     assert isinstance(result, Ok)

@@ -100,18 +100,19 @@ class RealGimbal:
         return round(deg * self._cfg.counts_per_deg)
 
     def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
-        """Command absolute pan/tilt positions, clamped to the travel envelope.
+        """Command absolute pan/tilt positions. Azimuth is pinned at 0; elevation is
+        clamped to the hardware travel envelope.
 
         Inputs:
-            az_deg (float): Target azimuth in degrees (clamped to az_min/az_max).
-            el_deg (float): Target elevation in degrees (clamped to el_min/el_max).
+            az_deg (float): Target azimuth in degrees (ignored; drivers pin azimuth at 0).
+            el_deg (float): Target elevation in degrees (clamped to el_hw_min/el_hw_max).
 
         Outputs:
             Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
         """
         cfg = self._cfg
-        az = min(max(az_deg, cfg.az_min_deg), cfg.az_max_deg)
-        el = min(max(el_deg, cfg.el_min_deg), cfg.el_max_deg)
+        az = 0.0
+        el = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
         with self._lock:
             for verb, value in (("PP", az), ("TP", el)):
                 result = self._transact(f"{verb}{self._counts(value)}")
@@ -132,7 +133,7 @@ class RealGimbal:
             Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
         """
         limit = self._cfg.max_hw_slew_rate_deg_per_s
-        az = min(max(az_rate_deg_per_s, -limit), limit)
+        az = 0.0
         el = min(max(el_rate_deg_per_s, -limit), limit)
         with self._lock:
             for verb, value in (("PS", az), ("TS", el)):
@@ -147,7 +148,7 @@ class RealGimbal:
         Outputs:
             Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
         """
-        return self.goto_angle(self._cfg.home_az_deg, self._cfg.home_el_deg)
+        return self.goto_angle(0.0, self._cfg.home_el_deg)
 
     def stow(self) -> Result[None, FaultCode]:
         """Drive to the configured stow pose.
@@ -155,7 +156,7 @@ class RealGimbal:
         Outputs:
             Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
         """
-        return self.goto_angle(self._cfg.stow_az_deg, self._cfg.stow_el_deg)
+        return self.goto_angle(0.0, self._cfg.stow_el_deg)
 
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
         """Query pan/tilt positions and convert counts to timestamped degrees.
@@ -193,7 +194,4 @@ class RealGimbal:
         pos = self.read_position()
         if isinstance(pos, Err):
             return Err(pos.error)
-        return Ok(
-            abs(pos.value.az_deg - self._cfg.stow_az_deg) < 0.5
-            and abs(pos.value.el_deg - self._cfg.stow_el_deg) < 0.5
-        )
+        return Ok(abs(pos.value.el_deg - self._cfg.stow_el_deg) < 0.5)

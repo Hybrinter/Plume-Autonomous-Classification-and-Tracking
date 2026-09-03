@@ -23,6 +23,7 @@ from flight.libs.config import (
     PreprocessingConfig,
     SensorConfig,
     StorageConfig,
+    ThermalConfig,
 )
 
 
@@ -46,6 +47,7 @@ _SECTION_TO_DATACLASS = {
     "storage": StorageConfig,
     "preprocessing": PreprocessingConfig,
     "fault": FaultConfig,
+    "thermal": ThermalConfig,
     "sensor": SensorConfig,
     "gimbal": GimbalConfig,
     "link": LinkConfig,

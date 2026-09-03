@@ -794,8 +794,10 @@ def write_industry_report(
         f"{e['e_visit2']:.4f} | {e['e_visit2'] / max(1e-12, e['e_visit1']):.2f}x |"
     )
     p("")
-    p("The ~6x coverage ratio is the extra search area of the +/-10 deg ISS")
-    p("keep-out box versus the 3.2 deg chip. Two-axis still has to scan that")
+    cov_ratio = e["mean_cov2"] / max(1e-12, e["mean_cov1"])
+    p(f"The {cov_ratio:.1f}x coverage ratio is the extra search area of the +/-10 deg ISS")
+    p("keep-out box versus the 3.2 deg chip, plus plant span D on both.")
+    p("Two-axis still has to scan that")
     p("box after the limb stop; scan time is in T_reacq, not in coverage.")
     p("The along-track science window is no longer 124 s (that was 60 deg")
     p("off-nadir). Combined FoM is dwell x coverage with the 1 s usable floor.")
@@ -847,8 +849,9 @@ def write_industry_report(
         "in favour of two-axis. The raw E[T x coverage] geometry check is"
     )
     p(
-        f"   **{e['e_yield2'] / max(1e-12, e['e_yield1']):.1f}x**. The ~6x "
-        "in coverage is the keep-out box versus the chip, by design."
+        f"   **{e['e_yield2'] / max(1e-12, e['e_yield1']):.1f}x**. The "
+        f"{e['mean_cov2'] / max(1e-12, e['mean_cov1']):.1f}x "
+        "in coverage is the keep-out box versus the chip, plus D."
     )
     p("4. A polar-slice one-axis payload that is only tasked at |lat| >= 45 deg")
     p("   keeps nearly the full science-window dwell, but it is looking at")
@@ -965,7 +968,7 @@ def write_study_readme(
     )
     a(
         f"| Daily usable yield (T>={T_MIN_USABLE_S:.0f}s x coverage) | "
-        f"**~{e['e_usable_yield2'] / max(1e-12, e['e_usable_yield1']):.0f}x** "
+        f"**~{e['e_usable_yield2'] / max(1e-12, e['e_usable_yield1']):.1f}x** "
         "in favour of 2-axis |"
     )
     a("")

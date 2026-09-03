@@ -108,7 +108,7 @@ from the inventory, not by a 5 km placeholder.
 | Single-target dwell, stack-weighted | **59 s vs 64 s** |
 | Mean reacquire (lost time) | **61 s vs 27 s** |
 | Cycle start-of-track to next acquire | **120 s vs 91 s** (duty 71% vs 78%) |
-| Daily usable yield (T>=1s x coverage) | **~7x** in favour of 2-axis |
+| Daily usable yield (T>=1s x coverage) | **~5.7x** in favour of 2-axis |
 
 | |lat| (deg) | D (km) | R (km) | singleton % | d_char n>=2 (km) |
 | --- | --- | --- | --- | --- |

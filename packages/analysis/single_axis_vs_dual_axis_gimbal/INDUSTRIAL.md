@@ -205,13 +205,14 @@ so daily longitude coverage is proportional to swath.
 
 | | 1-axis | 2-axis | ratio |
 | --- | --- | --- | --- |
-| mean daily coverage of a random ISS-belt cluster | 2.26% | 14.22% | 6.31x |
-| primary FoM E[T_usable x coverage] (T>=1s) | 1.34 | 9.14 | 6.82x |
-| geometry check E[T x coverage] (s x frac) | 1.34 | 9.14 | 6.82x |
-| distinct usable visits (frac/day) | 0.0226 | 0.1422 | 6.31x |
+| mean daily coverage of a random ISS-belt cluster | 2.82% | 14.79% | 5.24x |
+| primary FoM E[T_usable x coverage] (T>=1s) | 1.68 | 9.50 | 5.66x |
+| geometry check E[T x coverage] (s x frac) | 1.68 | 9.50 | 5.66x |
+| distinct usable visits (frac/day) | 0.0282 | 0.1479 | 5.24x |
 
-The ~6x coverage ratio is the extra search area of the +/-10 deg ISS
-keep-out box versus the 3.2 deg chip. Two-axis still has to scan that
+The 5.2x coverage ratio is the extra search area of the +/-10 deg ISS
+keep-out box versus the 3.2 deg chip, plus plant span D on both.
+Two-axis still has to scan that
 box after the limb stop; scan time is in T_reacq, not in coverage.
 The along-track science window is no longer 124 s (that was 60 deg
 off-nadir). Combined FoM is dwell x coverage with the 1 s usable floor.
@@ -253,8 +254,8 @@ L = 2 km does not drive the clocks.
    Cycle start-of-track to next-acquire is
    **120 s vs 91 s** (duty 71% vs 78%).
 3. **Primary FoM: inferred-usable plume-seconds/day.** Stack-weighted
-   E[T_usable x coverage] with T_usable = dwell if dwell >= 1 s else 0. Ratio **6.8x** in favour of two-axis. The raw E[T x coverage] geometry check is
-   **6.8x**. The ~6x in coverage is the keep-out box versus the chip, by design.
+   E[T_usable x coverage] with T_usable = dwell if dwell >= 1 s else 0. Ratio **5.7x** in favour of two-axis. The raw E[T x coverage] geometry check is
+   **5.7x**. The 5.2x in coverage is the keep-out box versus the chip, plus D.
 4. A polar-slice one-axis payload that is only tasked at |lat| >= 45 deg
    keeps nearly the full science-window dwell, but it is looking at
    ~10% of the world's stack-bearing industry. If the mission must

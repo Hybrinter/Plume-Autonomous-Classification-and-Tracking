@@ -445,8 +445,11 @@ class TimeLostFn:
         t2: np.ndarray | None = None
         if cache_path.is_file():
             cached = np.load(cache_path)
-            same_grid = np.allclose(cached["lats"], self.lats) and np.allclose(
-                cached["rs"], self.rs
+            same_grid = (
+                cached["lats"].shape == self.lats.shape
+                and cached["rs"].shape == self.rs.shape
+                and np.allclose(cached["lats"], self.lats)
+                and np.allclose(cached["rs"], self.rs)
             )
             same_box = _cap_matches(
                 _npz_float(cached, "el_limb_deg"), box.el_limb_deg

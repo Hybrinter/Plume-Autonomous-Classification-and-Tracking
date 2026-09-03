@@ -24,21 +24,20 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
   haversine plant span. That is a possibility set, not a smoke-filled blob.
 - **L = 2 km** is a **conservative visible-length envelope**
   (cooling-tower photo climatologies: typical 0.3-0.8 km, winter often
-  >0.9 km, ~90-95th percentile ~1.5-3 km). Not a Mommert-chip measurement.
-  Not typical length. Wind azimuth is unknown, so L is a radius: the
-  plume CoG sits somewhere in that disk.
-- **Any part of the disk.** Unknown wind puts the plume CoG somewhere
-  in the covering disk. Acquire means: there exists a point of that
-  disk the gimbal can put on the chip. One-axis: the parked FOV
-  (+/-1.60 deg) overlaps the disk azimuth span. Two-axis: the ISS
-  keep-out box (+/-10 deg) overlaps the disk, then the gimbal
-  boresights that in-box point onto the chip. A disk that sticks out
-  of the box still counts if any point is inside. This is not
-  whole-disk-in-box and not whole-disk-in-chip.
-- **P(visible)** = fraction of that disk in the FOV after pointing
-  (unknown-wind geometry). Not computed as a yield weight here.
-  Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR only.
-  Do not multiply the two.
+  >0.9 km). A lognormal fit (P50 = 0.50 km, P95 = 2.5 km) to those
+  bins, Polak 1984 (short <0.3, medium 0.3-0.9, long >0.9 km), and the
+  Indian Point NDCT few-percent tail at 1.6-4 km gives P50/P80/P90/P95/P99
+  = 0.50 / 1.1 / 1.8 / 2.5 / 4.9 km. Climate TRACE has plant span D,
+  not L. Locked design L sits between P90 and P95. Wind azimuth is
+  unknown, so L is a radius: the plume CoG sits somewhere in that disk.
+- **Half the disk on chip.** In-frame means at least 50% of covering-disk
+  area is on the chip after pointing. One-axis parks at az = 0 (elevation
+  tracks the origin). Two-axis boresights the origin when it is inside
+  the +/-10 deg keep-out box; if the origin is outside the box that
+  sample is out. This replaces the any-part existence test.
+- **P(visible)** is that on-chip area fraction. A sample counts if it is
+  >= 0.5. Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR
+  only. Do not multiply the two.
 - **No locked design R.** Operational R is per cluster (`r_cover_km`) and,
   for lat tables, stack-weighted mean `R(|lat|) = D(|lat|) + L`.
 - **Camera/lens.** BFS-U3-50S5, Sony IMX264, 3.45 um, 2448x2048,
@@ -102,10 +101,10 @@ from the inventory, not by a 5 km placeholder.
 | ISS-belt stack fraction | 92.8% |
 | Stack-weighted mean R | 4.98 km (inventory, not design) |
 | Stacks at |lat| >= 45 deg | **10%** |
-| Single-target dwell, stack-weighted | **63 s vs 64 s** |
+| Single-target dwell, stack-weighted | **59 s vs 64 s** |
 | Mean reacquire (lost time) | **61 s vs 27 s** |
-| Cycle start-of-track to next acquire | **124 s vs 91 s** (duty 72% vs 78%) |
-| Daily usable yield (T>=1s x coverage) | **~6x** in favour of 2-axis |
+| Cycle start-of-track to next acquire | **120 s vs 91 s** (duty 71% vs 78%) |
+| Daily usable yield (T>=1s x coverage) | **~7x** in favour of 2-axis |
 
 | |lat| (deg) | D (km) | R (km) | singleton % | d_char n>=2 (km) |
 | --- | --- | --- | --- | --- |
@@ -139,4 +138,6 @@ PNGs are in git under `outputs/`. CSVs from the same run stay local.
 ![Single-target dwell vs latitude](outputs/industrial_time_vs_lat.png)
 
 ![Dwell, reacquire, and cycle vs latitude](outputs/industrial_reacquire_vs_lat.png)
+
+![1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles](outputs/industrial_reacquire_vs_lat_plume_length.png)
 

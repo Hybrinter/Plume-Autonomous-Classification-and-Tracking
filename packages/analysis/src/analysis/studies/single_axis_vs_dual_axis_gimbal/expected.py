@@ -9,6 +9,10 @@ stack density. Cycle time is dwell plus reacquire. Primary yield is
 stack-weighted inferred-usable plume-seconds per day (dwell gated by
 ``T_MIN_USABLE_S``, times daily coverage).
 
+Daily coverage half-swath is the chip or keep-out box plus plant span D
+so a near-edge plume can still be acquired when the centroid sits just
+outside the FOV.
+
 Contains:
   - iss_dwell_weight / daily_coverage_frac / expected_from_clusters.
   - run_industry: ingest, cluster, interpolate, report.
@@ -21,7 +25,7 @@ from typing import Literal
 
 import numpy as np
 
-from analysis.lib.hunt import HuntModel
+from analysis.lib.hunt import HuntModel, HuntResult
 from analysis.lib.optics import Optics, build_optics
 from analysis.lib.orbit import Orbit, build_orbit
 from analysis.lib.plot_style import apply as apply_plot_style
@@ -30,11 +34,12 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     CACHE_DIR,
     GIMBAL_BOX,
     GRID_R_KM,
+    HUNT_TIMELINE_LATS_DEG,
     INDUSTRY_PASS_DT_S,
     LAT_BIN_DEG,
     OPTICS_SPEC,
     OUT_DIR,
-    PLUME_L_PERCENTILES,
+    POLAR_TASK_LAT_DEG,
     STUDY_DIR,
     T_MIN_USABLE_S,
     TLE,
@@ -232,8 +237,9 @@ def expected_from_clusters(
     re_km = orbit.earth_radius_km(0.0)
     n_rev = TLE.mean_motion_rev_per_day
     h_local = np.array([orbit.local_altitude_km(abs(c.lat)) for c in iss])
-    half1 = h_local * math.tan(math.radians(optics.half_az_deg))
-    half2 = h_local * math.tan(math.radians(GIMBAL_BOX.az_box_deg))
+    d_km = np.array([c.r_plant_km for c in iss])
+    half1 = h_local * math.tan(math.radians(optics.half_az_deg)) + d_km
+    half2 = h_local * math.tan(math.radians(GIMBAL_BOX.az_box_deg)) + d_km
     cov1 = np.array(
         [
             daily_coverage_frac(abs(c.lat), float(h1), n_rev, re_km)
@@ -302,14 +308,12 @@ def run_industry() -> None:
         FileNotFoundError: If Climate TRACE CSVs, cache, and cluster CSV are missing.
     """
     from analysis.studies.single_axis_vs_dual_axis_gimbal.figures import (
-        plot_expected_vs_lat,
-        plot_folded,
+        plot_hunt_timeline,
         plot_lat_hist,
         plot_map,
-        plot_r_hist,
         plot_r_vs_lat,
         plot_reacquire_vs_lat,
-        plot_reacquire_vs_lat_plume_length,
+        plot_yield_vs_lat,
     )
     from analysis.studies.single_axis_vs_dual_axis_gimbal.report import (
         write_industry_report,
@@ -387,6 +391,10 @@ def run_industry() -> None:
     reacq2_bin = np.zeros(edges.size - 1)
     cyc1_bin = np.zeros(edges.size - 1)
     cyc2_bin = np.zeros(edges.size - 1)
+    yld1_bin = np.zeros(edges.size - 1)
+    yld2_bin = np.zeros(edges.size - 1)
+    re_km = orbit.earth_radius_km(0.0)
+    n_rev = TLE.mean_motion_rev_per_day
     for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
         mid = 0.5 * (lo + hi)
         if abs(mid) > orbit.inclination_deg:
@@ -406,30 +414,16 @@ def run_industry() -> None:
         reacq2_bin[i] = hunted.t_reacq_2_s
         cyc1_bin[i] = cycle_s(t1_bin[i], hunted.t_reacq_1_s)
         cyc2_bin[i] = cycle_s(t2_bin[i], hunted.t_reacq_2_s)
-
-    t1_by_label: dict[str, np.ndarray] = {}
-    reacq1_by_label: dict[str, np.ndarray] = {}
-    n_bins = edges.size - 1
-    for pct_name, l_km in PLUME_L_PERCENTILES:
-        t1_l = np.zeros(n_bins)
-        reacq1_l = np.zeros(n_bins)
-        curve = f"{pct_name} L={l_km:g} km"
-        for i, mid in enumerate(0.5 * (edges[:-1] + edges[1:])):
-            if abs(mid) > orbit.inclination_deg:
-                continue
-            radius = profile.r_km(mid, plume_r_km=l_km)
-            t1_l[i], _t2_l, _lost = fn.eval(mid, radius)
-            hunted_l = hunt_at_lat(
-                mid,
-                profile.dens_km2(mid),
-                hunt,
-                t_dwell_1_s=t1_l[i],
-                t_dwell_2_s=t2_bin[i],
-                t_window_s=t2_bin[i],
-            )
-            reacq1_l[i] = hunted_l.t_reacq_1_s
-        t1_by_label[curve] = t1_l
-        reacq1_by_label[curve] = reacq1_l
+        h_local = orbit.local_altitude_km(abs(mid))
+        d_mid = profile.d_km(mid)
+        half1 = h_local * math.tan(math.radians(optics.half_az_deg)) + d_mid
+        half2 = h_local * math.tan(math.radians(GIMBAL_BOX.az_box_deg)) + d_mid
+        cov1 = daily_coverage_frac(abs(mid), half1, n_rev, re_km)
+        cov2 = daily_coverage_frac(abs(mid), half2, n_rev, re_km)
+        usable1 = t1_bin[i] if t1_bin[i] >= T_MIN_USABLE_S else 0.0
+        usable2 = t2_bin[i] if t2_bin[i] >= T_MIN_USABLE_S else 0.0
+        yld1_bin[i] = usable1 * cov1
+        yld2_bin[i] = usable2 * cov2
 
     weights: tuple[Weight, ...] = ("area", "stacks", "emissions")
     exp: dict[str, dict[str, float]] = {}
@@ -443,8 +437,25 @@ def run_industry() -> None:
             f"|lat|>=45 {100 * summary['frac_lat_ge_45']:.1f}%"
         )
 
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    iss_bins = np.abs(centres) <= orbit.inclination_deg + 0.05
+    polar_bins = iss_bins & (np.abs(centres) >= POLAR_TASK_LAT_DEG)
+    polar_1 = weighted_mean(yld1_bin[polar_bins], h_stacks[polar_bins])
+    belt_2 = weighted_mean(yld2_bin[iss_bins], h_stacks[iss_bins])
+    hunt_rows: list[tuple[float, float, float, HuntResult]] = []
+    for lat_h in HUNT_TIMELINE_LATS_DEG:
+        t1_h, t2_h, _ = fn.eval(lat_h, profile.r_km(lat_h))
+        hunted_h = hunt_at_lat(
+            lat_h,
+            profile.dens_km2(lat_h),
+            hunt,
+            t_dwell_1_s=t1_h,
+            t_dwell_2_s=t2_h,
+            t_window_s=t2_h,
+        )
+        hunt_rows.append((lat_h, t1_h, t2_h, hunted_h))
+
     plot_lat_hist(edges, h_area, h_stacks, h_em, h_gppd, OUT_DIR / "industrial_lat_hist.png")
-    plot_expected_vs_lat(edges, t1_bin, t2_bin, h_stacks, OUT_DIR / "industrial_time_vs_lat.png")
     plot_reacquire_vs_lat(
         edges,
         t1_bin,
@@ -454,17 +465,16 @@ def run_industry() -> None:
         h_stacks,
         OUT_DIR / "industrial_reacquire_vs_lat.png",
     )
-    plot_reacquire_vs_lat_plume_length(
+    plot_yield_vs_lat(
         edges,
-        t2_bin,
-        reacq2_bin,
-        t1_by_label,
-        reacq1_by_label,
+        yld1_bin,
+        yld2_bin,
         h_stacks,
-        OUT_DIR / "industrial_reacquire_vs_lat_plume_length.png",
+        polar_1,
+        belt_2,
+        OUT_DIR / "industrial_yield_vs_lat.png",
     )
-    plot_folded(clusters, fn, profile, OUT_DIR / "industrial_lat_folded.png")
-    plot_r_hist(clusters, OUT_DIR / "industrial_cluster_radius.png")
+    plot_hunt_timeline(hunt_rows, OUT_DIR / "industrial_hunt_timeline.png")
     plot_r_vs_lat(profile, OUT_DIR / "industrial_r_vs_lat.png")
     plot_map(clusters, OUT_DIR / "industrial_cluster_map.png")
 
@@ -472,7 +482,7 @@ def run_industry() -> None:
         fh.write(
             "lat_lo,lat_hi,lat_mid,area_km2,n_stacks,emissions_t,r_km,"
             "one_axis_s,two_axis_s,stack_dens_per_km2,reacq1_s,reacq2_s,"
-            "cycle1_s,cycle2_s\n"
+            "cycle1_s,cycle2_s,yield1,yield2\n"
         )
         for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
             mid = 0.5 * (lo + hi)
@@ -481,22 +491,9 @@ def run_industry() -> None:
                 f"{lo:.1f},{hi:.1f},{mid:.1f},{h_area[i]:.4f},{h_stacks[i]:.4f},"
                 f"{h_em[i]:.4f},{r_bin[i]:.3f},{t1_bin[i]:.3f},{t2_bin[i]:.3f},"
                 f"{dens:.8g},{reacq1_bin[i]:.3f},{reacq2_bin[i]:.3f},"
-                f"{cyc1_bin[i]:.3f},{cyc2_bin[i]:.3f}\n"
+                f"{cyc1_bin[i]:.3f},{cyc2_bin[i]:.3f},"
+                f"{yld1_bin[i]:.6g},{yld2_bin[i]:.6g}\n"
             )
-    with (OUT_DIR / "industrial_reacquire_vs_lat_plume_length.csv").open(
-        "w", encoding="utf-8"
-    ) as fh:
-        header = "lat_lo,lat_hi,lat_mid,two_axis_dwell_s,two_axis_reacq_s"
-        for curve in t1_by_label:
-            slug = curve.replace(" ", "_").replace("=", "")
-            header += f",{slug}_dwell_s,{slug}_reacq_s"
-        fh.write(header + "\n")
-        for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
-            mid = 0.5 * (lo + hi)
-            line = f"{lo:.1f},{hi:.1f},{mid:.1f},{t2_bin[i]:.3f},{reacq2_bin[i]:.3f}"
-            for curve in t1_by_label:
-                line += f",{t1_by_label[curve][i]:.3f},{reacq1_by_label[curve][i]:.3f}"
-            fh.write(line + "\n")
     with (OUT_DIR / "r_vs_lat.csv").open("w", encoding="utf-8") as fh:
         fh.write(
             "lat_lo,lat_hi,lat_mid,n_clusters,n_stacks,mean_d_km,mean_r_km,"

@@ -1,14 +1,15 @@
 """Design-pass tracking-time tables wrapping analysis.lib.
 
-Computes the one-sided elevation window, covering-disk azimuth, and
-one-axis vs two-axis in-frame time vs radius, latitude, and origin
-offset. In-frame means at least half the covering disk is on the chip
-after pointing. ``run_geometry`` writes CSV, figures, and RESULTS.md.
+Computes the one-sided elevation window, Earth-rotation az walk, and
+one-axis vs two-axis off-track plume-seconds. On-track dwell still uses
+the cluster covering disk. Off-track information uses each plume's L-disk:
+loss is when the innermost plume fails the half-disk-on-chip test.
+``run_geometry`` writes CSV, figures, and RESULTS.md.
 
 Contains:
-  - WindowTimes / RadiusTable / LatitudeRow / OffsetRow / GeometryResult.
-  - origin_window / tracking_time_vs_radius / latitude_table / offset_times.
-  - disk_max_az / footprint_half_width_km / self_check / run_geometry.
+  - WindowTimes / LatitudeRow / OffsetRow / GeometryResult.
+  - origin_window / latitude_table / cluster_stack_offsets_km / offset_times.
+  - self_check / run_geometry.
 """
 
 from __future__ import annotations
@@ -16,23 +17,13 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 
-from analysis.lib.constants import OMEGA_EARTH_RAD_S
 from analysis.lib.hunt import HuntModel, HuntResult
-from analysis.lib.look import GimbalBox, body_axes, earth_hit, look_at, rotate_z
+from analysis.lib.look import GimbalBox, look_at
 from analysis.lib.optics import Optics, band_gsd_along_m, build_optics
-from analysis.lib.orbit import (
-    Orbit,
-    argument_of_latitude,
-    build_orbit,
-    heading_from_north_deg,
-    iss_eci,
-    offset_ecef,
-    origin_ecef,
-)
+from analysis.lib.orbit import Orbit, argument_of_latitude, build_orbit, iss_eci, origin_ecef
 from analysis.lib.plot_style import apply as apply_plot_style
 from analysis.lib.tracking import (
     PassSamples,
@@ -42,18 +33,19 @@ from analysis.lib.tracking import (
     mask_time_s,
     sample_pass,
     staring_in_frame,
-    two_axis_boresightable,
 )
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DESIGN_LAT_DEG,
-    DISK_RADII_KM,
     GEOMETRY_DT_S,
     GIMBAL_BOX,
     MAX_HW_SLEW_DEG_S,
+    OFFSET_PLANT_D_KM,
+    OFFSET_STACK_N,
     OPTICS_SPEC,
     ORIGIN_OFFSETS_KM,
     OUT_DIR,
     PASS_LATS_DEG,
+    PLUME_R_KM,
     STUDY_DIR,
     TLE,
     omega_img_rewind_deg_s,
@@ -92,25 +84,6 @@ class WindowTimes:
     gsd_band_along_start_m: float
 
 
-@dataclass
-class RadiusTable:
-    """Tracking time vs covering radius at one latitude.
-
-    Attributes:
-        radius_km: Covering radii. # np.ndarray[float64, (R,)]
-        one_axis_s: One-axis in-frame time. # np.ndarray[float64, (R,)]
-        two_axis_s: Two-axis in-frame time. # np.ndarray[float64, (R,)]
-        lost_s: two_axis_s - one_axis_s. # np.ndarray[float64, (R,)]
-        az_peak_deg: Peak |az| of the disk edge in the window.
-    """
-
-    radius_km: np.ndarray
-    one_axis_s: np.ndarray
-    two_axis_s: np.ndarray
-    lost_s: np.ndarray
-    az_peak_deg: np.ndarray
-
-
 @dataclass(frozen=True)
 class LatitudeRow:
     """One latitude in the Earth-rotation table."""
@@ -125,11 +98,27 @@ class LatitudeRow:
 
 @dataclass(frozen=True)
 class OffsetRow:
-    """One cross-track origin offset at the design pass."""
+    """One cross-track cluster-centroid offset at the design pass.
+
+    Plume-seconds sum in-frame time over the representative stacks. A
+    plume counts when at least half its L-disk is on the chip. The
+    in-frame count is how many plumes have any in-frame time; the
+    one-sided window ends at nadir, so a closest-approach snapshot
+    is not a valid in-window sample.
+
+    Attributes:
+        origin_cross_km: Cluster-centroid cross-track offset, kilometres.
+        one_axis_plume_s: One-axis plume-seconds (parked az = 0).
+        two_axis_plume_s: Two-axis plume-seconds (boresight each plume in box).
+        one_axis_n_in: One-axis plumes with any in-frame time.
+        two_axis_n_in: Two-axis plumes with any in-frame time.
+    """
 
     origin_cross_km: float
-    one_axis_s: float
-    two_axis_s: float
+    one_axis_plume_s: float
+    two_axis_plume_s: float
+    one_axis_n_in: int
+    two_axis_n_in: int
 
 
 @dataclass
@@ -143,8 +132,7 @@ class GeometryResult:
         times: Design-pass window at SMA.
         origin_samples: Origin look-angle samples.
         times_perigee: Design-pass window at perigee radius.
-        table: Tracking time vs covering radius at the design lat.
-        offsets: Cross-track origin offsets at the design lat.
+        offsets: Cross-track cluster offsets at the design lat.
         lat_r0: Earth-rotation table for a point origin (R = 0).
         omega_rel_max_deg_s: 1 band-px / 1 ms scene-relative smear limit.
         omega_img_rewind_deg_s: Imaging rewind cap (rel max minus peak track).
@@ -157,7 +145,6 @@ class GeometryResult:
     times: WindowTimes
     origin_samples: PassSamples
     times_perigee: WindowTimes
-    table: RadiusTable
     offsets: list[OffsetRow]
     lat_r0: list[LatitudeRow]
     omega_rel_max_deg_s: float
@@ -221,65 +208,6 @@ def origin_window(
     )
 
 
-def tracking_time_vs_radius(
-    orbit: Orbit,
-    optics: Optics,
-    box: GimbalBox,
-    lat_deg: float,
-    radii: tuple[float, ...],
-) -> RadiusTable:
-    """Return in-frame time vs covering radius at one latitude.
-
-    In-frame means at least half the covering-disk area is on the chip.
-    Peak disk-edge azimuth still uses the +/- R cross-track edges.
-
-    Args:
-        orbit: Circular ISS orbit.
-        optics: Usable sensor FOV.
-        box: Gimbal box.
-        lat_deg: Pass latitude in degrees.
-        radii: Covering radii in kilometres.
-
-    Returns:
-        One-axis and two-axis times and peak disk-edge azimuth.
-    """
-    span = _span()
-    r_arr = np.array(radii, dtype=float)
-    t1 = np.zeros(r_arr.size)
-    t2 = np.zeros(r_arr.size)
-    az_peak = np.zeros(r_arr.size)
-    origin = sample_pass(orbit, box, lat_deg, 0.0, 0.0, span)
-    science = in_science_window(origin, box)
-    for i, radius in enumerate(r_arr):
-        one = science & disk_half_in_chip(
-            origin.az, origin.slant, float(radius), optics, boresight_origin=False
-        )
-        two = science & disk_half_in_chip(
-            origin.az,
-            origin.slant,
-            float(radius),
-            optics,
-            boresight_origin=True,
-            az_box_deg=box.az_box_deg,
-        )
-        t1[i] = mask_time_s(one, origin.t)
-        t2[i] = mask_time_s(two, origin.t)
-        edge_p = sample_pass(orbit, box, lat_deg, 0.0, float(radius), span)
-        edge_m = sample_pass(orbit, box, lat_deg, 0.0, -float(radius), span)
-        az_peak[i] = (
-            float(np.max(np.maximum(np.abs(edge_p.az), np.abs(edge_m.az))[science]))
-            if np.any(science)
-            else 0.0
-        )
-    return RadiusTable(
-        radius_km=r_arr,
-        one_axis_s=t1,
-        two_axis_s=t2,
-        lost_s=t2 - t1,
-        az_peak_deg=az_peak,
-    )
-
-
 def latitude_table(
     orbit: Orbit,
     optics: Optics,
@@ -327,13 +255,41 @@ def latitude_table(
     return rows
 
 
+def cluster_stack_offsets_km(n: int, d_km: float) -> tuple[float, ...]:
+    """Return cross-track stack offsets for a plant of covering radius ``d_km``.
+
+    Stacks lie on a cross-track line from -D to +D. n = 1 is a singleton
+    at the centroid. Along-track spread does not change the parked-az story.
+
+    Args:
+        n: Stack count. Must be >= 1.
+        d_km: Plant-span covering radius in kilometres.
+
+    Returns:
+        Cross-track offsets in kilometres, length n.
+
+    Raises:
+        ValueError: If ``n`` is less than 1.
+    """
+    if n < 1:
+        raise ValueError("n must be >= 1")
+    if n == 1:
+        return (0.0,)
+    return tuple(float(x) for x in np.linspace(-d_km, d_km, n))
+
+
 def offset_times(
     orbit: Orbit,
     optics: Optics,
     box: GimbalBox,
     lat_deg: float,
 ) -> list[OffsetRow]:
-    """Return tracking time vs cross-track origin offset at one latitude.
+    """Return per-plume information vs cluster-centroid cross-track offset.
+
+    Each stack has its own L-disk. One-axis parks at az = 0. Two-axis
+    boresights that plume when it is inside the keep-out box. Information
+    is the sum of in-frame times (plume-seconds). A cluster is fully lost
+    when even the innermost plume fails the half-disk test.
 
     Args:
         orbit: Circular ISS orbit.
@@ -344,113 +300,46 @@ def offset_times(
     Returns:
         One row per offset in ORIGIN_OFFSETS_KM.
     """
+    dys = cluster_stack_offsets_km(OFFSET_STACK_N, OFFSET_PLANT_D_KM)
+    span = _span()
     rows: list[OffsetRow] = []
     for y_km in ORIGIN_OFFSETS_KM:
-        _times, data = origin_window(orbit, optics, box, lat_deg, y_km)
-        science = in_science_window(data, box)
-        one = science & (np.abs(data.az) <= optics.half_az_deg)
-        two = science & two_axis_boresightable(data.az, data.el, box)
+        plume_s_1 = 0.0
+        plume_s_2 = 0.0
+        n_in_1 = 0
+        n_in_2 = 0
+        for dy in dys:
+            data = sample_pass(orbit, box, lat_deg, 0.0, float(y_km + dy), span)
+            science = in_science_window(data, box)
+            one = science & disk_half_in_chip(
+                data.az, data.slant, PLUME_R_KM, optics, boresight_origin=False
+            )
+            two = science & disk_half_in_chip(
+                data.az,
+                data.slant,
+                PLUME_R_KM,
+                optics,
+                boresight_origin=True,
+                az_box_deg=box.az_box_deg,
+            )
+            t1 = mask_time_s(one, data.t)
+            t2 = mask_time_s(two, data.t)
+            plume_s_1 += t1
+            plume_s_2 += t2
+            if t1 > 0.0:
+                n_in_1 += 1
+            if t2 > 0.0:
+                n_in_2 += 1
         rows.append(
             OffsetRow(
                 origin_cross_km=float(y_km),
-                one_axis_s=mask_time_s(one, data.t),
-                two_axis_s=mask_time_s(two, data.t),
+                one_axis_plume_s=plume_s_1,
+                two_axis_plume_s=plume_s_2,
+                one_axis_n_in=n_in_1,
+                two_axis_n_in=n_in_2,
             )
         )
     return rows
-
-
-def disk_points(radius_km: float, n_pts: int = 72) -> np.ndarray:
-    """Return (along, cross) samples on a circle of radius ``radius_km``.
-
-    Args:
-        radius_km: Circle radius in kilometres.
-        n_pts: Number of samples around the circle.
-
-    Returns:
-        (N, 2) along/cross kilometres. # np.ndarray[float64, (N, 2)]
-    """
-    phis = np.linspace(0.0, 2.0 * math.pi, n_pts, endpoint=False)
-    return np.stack([radius_km * np.cos(phis), radius_km * np.sin(phis)], axis=1)
-
-
-def disk_max_az(
-    orbit: Orbit,
-    box: GimbalBox,
-    t_s: float,
-    lat_deg: float,
-    radius_km: float,
-) -> float:
-    """Return worst-case |az| of the covering disk at one epoch.
-
-    Args:
-        orbit: Circular ISS orbit.
-        box: Gimbal box.
-        t_s: Seconds from closest approach.
-        lat_deg: Pass latitude in degrees.
-        radius_km: Covering radius in kilometres.
-
-    Returns:
-        Max |az| in degrees over the disk boundary and origin.
-    """
-    u0 = argument_of_latitude(lat_deg, orbit.inclination_rad)
-    heading = heading_from_north_deg(lat_deg, orbit.inclination_rad)
-    origin = origin_ecef(orbit, lat_deg)
-    r_iss, vel = iss_eci(t_s, orbit, u0)
-    rot = rotate_z(OMEGA_EARTH_RAD_S * t_s)
-    worst = 0.0
-    for along, cross in disk_points(radius_km):
-        tgt = rot @ offset_ecef(origin, lat_deg, float(along), float(cross), heading)
-        worst = max(worst, abs(look_at(r_iss, vel, tgt, box.el_nadir_deg).az_deg))
-    tgt0 = rot @ origin
-    worst = max(worst, abs(look_at(r_iss, vel, tgt0, box.el_nadir_deg).az_deg))
-    return worst
-
-
-def footprint_half_width_km(
-    orbit: Orbit,
-    optics: Optics,
-    box: GimbalBox,
-    t_s: float,
-    lat_deg: float,
-) -> tuple[float, float]:
-    """Return along-track and cross-track ground half-widths of the sensor FOV.
-
-    Args:
-        orbit: Circular ISS orbit.
-        optics: Usable sensor FOV.
-        box: Gimbal box.
-        t_s: Seconds from closest approach.
-        lat_deg: Pass latitude in degrees.
-
-    Returns:
-        (along_km, cross_km), or (nan, nan) if a ray misses the Earth sphere.
-    """
-    u0 = argument_of_latitude(lat_deg, orbit.inclination_rad)
-    r_iss, vel = iss_eci(t_s, orbit, u0)
-    origin = rotate_z(OMEGA_EARTH_RAD_S * t_s) @ origin_ecef(orbit, lat_deg)
-    earth_r = float(np.linalg.norm(origin))
-    x_axis, y_axis, _z_axis = body_axes(r_iss, vel)
-    look0 = origin - r_iss
-    u0v = look0 / np.linalg.norm(look0)
-    half_el = math.radians(optics.half_el_deg)
-    half_az = math.radians(optics.half_az_deg)
-
-    def _rot(vec: np.ndarray, axis: np.ndarray, ang: float) -> np.ndarray:
-        k_axis = axis / np.linalg.norm(axis)
-        return cast(
-            np.ndarray,
-            vec * math.cos(ang)
-            + np.cross(k_axis, vec) * math.sin(ang)
-            + k_axis * np.dot(k_axis, vec) * (1.0 - math.cos(ang)),
-        )
-
-    p0 = earth_hit(r_iss, u0v, earth_r)
-    p_el = earth_hit(r_iss, _rot(u0v, y_axis, half_el), earth_r)
-    p_az = earth_hit(r_iss, _rot(u0v, x_axis, half_az), earth_r)
-    if p0 is None or p_el is None or p_az is None:
-        return float("nan"), float("nan")
-    return float(np.linalg.norm(p_el - p0)), float(np.linalg.norm(p_az - p0))
 
 
 def self_check(orbit: Orbit, optics: Optics, box: GimbalBox, times: WindowTimes) -> None:
@@ -495,21 +384,13 @@ def _write_geometry_csv(result: GeometryResult, out_dir: Path) -> None:
     Returns:
         None.
     """
-    table = result.table
-    with (out_dir / "tracking_time_vs_radius.csv").open("w", encoding="utf-8") as fh:
-        fh.write("radius_km,az_peak_deg,one_axis_s,two_axis_s,lost_s\n")
-        for i, radius in enumerate(table.radius_km):
-            fh.write(
-                f"{radius:.3f},{table.az_peak_deg[i]:.4f},"
-                f"{table.one_axis_s[i]:.3f},{table.two_axis_s[i]:.3f},"
-                f"{table.lost_s[i]:.3f}\n"
-            )
     with (out_dir / "origin_offset.csv").open("w", encoding="utf-8") as fh:
-        fh.write("origin_cross_km,one_axis_s,two_axis_s,lost_s\n")
+        fh.write("origin_cross_km,one_axis_plume_s,two_axis_plume_s,one_axis_n_in,two_axis_n_in\n")
         for row in result.offsets:
-            lost = row.two_axis_s - row.one_axis_s
             fh.write(
-                f"{row.origin_cross_km:.1f},{row.one_axis_s:.3f},{row.two_axis_s:.3f},{lost:.3f}\n"
+                f"{row.origin_cross_km:.1f},{row.one_axis_plume_s:.3f},"
+                f"{row.two_axis_plume_s:.3f},{row.one_axis_n_in},"
+                f"{row.two_axis_n_in}\n"
             )
     with (out_dir / "latitude.csv").open("w", encoding="utf-8") as fh:
         fh.write("lat_deg,h_km,el_window_s,az_max_deg,one_axis_R0_s,two_axis_s\n")
@@ -528,13 +409,8 @@ def run_geometry() -> GeometryResult:
     """
     from analysis.studies.single_axis_vs_dual_axis_gimbal.figures import (
         plot_along_track,
-        plot_disk_angle,
-        plot_footprint,
-        plot_latitude,
-        plot_lost_time,
+        plot_az_walk,
         plot_offset_map,
-        plot_required_az,
-        plot_time_vs_radius,
     )
     from analysis.studies.single_axis_vs_dual_axis_gimbal.report import write_geometry_report
 
@@ -547,7 +423,6 @@ def run_geometry() -> GeometryResult:
     times_p, _ = origin_window(orbit_p, optics, GIMBAL_BOX, DESIGN_LAT_DEG, 0.0)
     self_check(orbit, optics, GIMBAL_BOX, times)
 
-    table = tracking_time_vs_radius(orbit, optics, GIMBAL_BOX, DESIGN_LAT_DEG, DISK_RADII_KM)
     offsets = offset_times(orbit, optics, GIMBAL_BOX, DESIGN_LAT_DEG)
     lat0 = latitude_table(orbit, optics, GIMBAL_BOX, PASS_LATS_DEG, 0.0)
     omega_rel = omega_rel_max_deg_s(optics.ifov_band_deg)
@@ -572,7 +447,6 @@ def run_geometry() -> GeometryResult:
         times=times,
         origin_samples=data,
         times_perigee=times_p,
-        table=table,
         offsets=offsets,
         lat_r0=lat0,
         omega_rel_max_deg_s=omega_rel,
@@ -581,13 +455,8 @@ def run_geometry() -> GeometryResult:
     )
 
     plot_along_track(result, OUT_DIR / "along_track_timeline.png")
-    plot_disk_angle(result, OUT_DIR / "disk_angular_radius.png")
-    plot_time_vs_radius(result, OUT_DIR / "tracking_time_vs_radius.png")
-    plot_lost_time(result, OUT_DIR / "lost_time_vs_radius.png")
-    plot_footprint(result, OUT_DIR / "footprint_vs_time.png")
+    plot_az_walk(result, OUT_DIR / "az_walk_vs_time.png")
     plot_offset_map(result, OUT_DIR / "origin_offset.png")
-    plot_required_az(result, OUT_DIR / "required_az_vs_radius.png")
-    plot_latitude(result, OUT_DIR / "latitude_earth_rotation.png")
     _write_geometry_csv(result, OUT_DIR)
     write_geometry_report(result, STUDY_DIR / "RESULTS.md")
 

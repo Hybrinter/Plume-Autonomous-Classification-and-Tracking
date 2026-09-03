@@ -5,10 +5,9 @@ lists, the TimeLostFn interpolator, and a RadiusProfile. matplotlib is
 forced to Agg so the study can run without a display.
 
 Contains:
-  - plot_along_track, plot_disk_angle, plot_time_vs_radius, plot_lost_time.
-  - plot_footprint, plot_offset_map, plot_required_az, plot_latitude.
-  - plot_lat_hist, plot_folded, plot_expected_vs_lat, plot_r_hist, plot_map.
-  - plot_r_vs_lat, plot_reacquire_vs_lat, plot_reacquire_vs_lat_plume_length.
+  - plot_along_track, plot_az_walk, plot_offset_map.
+  - plot_lat_hist, plot_reacquire_vs_lat, plot_yield_vs_lat.
+  - plot_hunt_timeline, plot_r_vs_lat, plot_map.
 """
 
 from __future__ import annotations
@@ -23,12 +22,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from analysis.lib.plot_style import C_BLUE, C_INK, C_ORANGE, C_RED, C_SKY, C_TEAL
-from analysis.lib.tracking import TimeLostFn, angular_rate_deg_s
+from analysis.lib.hunt import HuntResult
+from analysis.lib.plot_style import C_BLUE, C_INK, C_ORANGE, C_RED, C_TEAL
+from analysis.lib.tracking import angular_rate_deg_s, in_science_window
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
+    AZ_WALK_LATS_DEG,
     LAT_BIN_DEG,
     MAX_HW_SLEW_DEG_S,
+    OFFSET_PLANT_D_KM,
+    OFFSET_STACK_N,
     PLUME_R_KM,
+    POLAR_TASK_LAT_DEG,
     TLE,
 )
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import Cluster
@@ -38,8 +42,18 @@ if TYPE_CHECKING:
     from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import GeometryResult
 
 
+def _iss_xlim() -> tuple[float, float]:
+    """Return x-limits padded around the ISS inclination belt.
+
+    Returns:
+        (lo, hi) in degrees.
+    """
+    pad = 1.0
+    return (-TLE.inclination_deg - pad, TLE.inclination_deg + pad)
+
+
 def plot_along_track(result: GeometryResult, path: Path) -> None:
-    """Write elevation, rate, and origin |az| vs time for the design pass.
+    """Write elevation and rate vs time for the design pass.
 
     Args:
         result: Design-pass tables and origin samples.
@@ -50,12 +64,11 @@ def plot_along_track(result: GeometryResult, path: Path) -> None:
     """
     times = result.times
     data = result.origin_samples
-    optics = result.optics
     box = result.box
     lat_deg = TLE.inclination_deg
     t_s = data.t
     mask = (t_s >= times.t_start_s - 15) & (t_s <= times.t_stop_s + 15)
-    fig, axes = plt.subplots(3, 1, figsize=(8.5, 8.4), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(8.5, 6.2), sharex=True)
     axes[0].plot(t_s[mask], data.el[mask], color=C_BLUE, lw=2)
     axes[0].axhline(box.el_nadir_deg, color=C_INK, ls=":", lw=1)
     axes[0].axhline(
@@ -92,41 +105,42 @@ def plot_along_track(result: GeometryResult, path: Path) -> None:
         label=f"hardware cap {MAX_HW_SLEW_DEG_S:.0f} deg/s",
     )
     axes[1].set_ylabel("|d(el)/dt| (deg/s)")
+    axes[1].set_xlabel("time from closest approach (s)")
     axes[1].legend(loc="upper right", fontsize=8)
-
-    axes[2].plot(
-        t_s[mask], np.abs(data.az[mask]), color=C_TEAL, lw=2, label="|az| of cluster origin"
-    )
-    axes[2].axhline(optics.half_az_deg, color=C_INK, ls="--", label="sensor half-FOV")
-    axes[2].set_ylabel("|az| (deg)")
-    axes[2].set_xlabel("time from closest approach (s)")
-    axes[2].legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
 
 
-def plot_disk_angle(result: GeometryResult, path: Path) -> None:
-    """Write worst-case covering-disk |az| vs time at the design pass.
+def plot_az_walk(result: GeometryResult, path: Path) -> None:
+    """Write origin |az| vs time at equator, mid-lat, and the design pass.
+
+    Earth rotation walks a nadir origin in azimuth at low latitude. At
+    max latitude the heading is due east and the walk vanishes.
 
     Args:
-        result: Design-pass tables.
+        result: Design-pass orbit, optics, and box.
         path: Output PNG path.
 
     Returns:
         None.
     """
-    from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import disk_max_az
+    from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import origin_window
 
-    times = result.times
-    t_s = np.arange(times.t_start_s, times.t_stop_s + 1.0, 1.0)
-    lat_deg = TLE.inclination_deg
+    colors = (C_ORANGE, C_TEAL, C_BLUE)
     fig, ax = plt.subplots(figsize=(8.5, 5.2))
-    radii = (1.0, 2.0, 5.0, 8.0, 10.0, 15.0)
-    colors = [C_SKY, C_BLUE, C_TEAL, C_ORANGE, C_RED, "#882255"]
-    for radius, color in zip(radii, colors, strict=True):
-        az = [disk_max_az(result.orbit, result.box, float(ti), lat_deg, radius) for ti in t_s]
-        ax.plot(t_s, az, color=color, lw=2, label=f"R = {radius:.0f} km")
+    for lat_deg, color in zip(AZ_WALK_LATS_DEG, colors, strict=True):
+        times, data = origin_window(result.orbit, result.optics, result.box, lat_deg, 0.0)
+        mask = (data.t >= times.t_start_s - 5.0) & (data.t <= times.t_stop_s + 5.0)
+        if not np.any(mask):
+            mask = in_science_window(data, result.box)
+        ax.plot(
+            data.t[mask],
+            np.abs(data.az[mask]),
+            color=color,
+            lw=2,
+            label=f"lat {lat_deg:.1f} deg",
+        )
     ax.axhline(
         result.optics.half_az_deg,
         color=C_INK,
@@ -135,220 +149,81 @@ def plot_disk_angle(result: GeometryResult, path: Path) -> None:
         label=f"sensor half-FOV {result.optics.half_az_deg:.2f} deg",
     )
     ax.set_xlabel("time from closest approach (s)")
-    ax.set_ylabel("worst-case |az| of covering disk (deg)")
-    ax.set_title(f"Covering-disk azimuth at lat {lat_deg:.1f} deg (Earth rotation on)")
-    ax.legend(loc="upper right", fontsize=8, ncol=2)
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
-def plot_time_vs_radius(result: GeometryResult, path: Path) -> None:
-    """Write in-frame tracking time vs covering radius at the design pass.
-
-    Args:
-        result: Design-pass tables.
-        path: Output PNG path.
-
-    Returns:
-        None.
-    """
-    table = result.table
-    optics = result.optics
-    h_km = result.times.local_alt_km
-    lat_deg = TLE.inclination_deg
-    radius = table.radius_km
-    fig, ax = plt.subplots(figsize=(8.5, 5.2))
-    ax.plot(
-        radius,
-        table.two_axis_s,
-        color=C_BLUE,
-        lw=2.4,
-        marker="o",
-        label="two-axis (box +/-10 deg az)",
-    )
-    ax.plot(
-        radius, table.one_axis_s, color=C_ORANGE, lw=2.4, marker="s", label="one-axis (az parked)"
-    )
-    ax.axvline(
-        h_km * math.tan(math.radians(optics.half_az_deg)),
-        color=C_TEAL,
-        ls="--",
-        label="R = h tan(FOV_az / 2) at nadir",
-    )
-    ax.axvline(PLUME_R_KM, color=C_INK, ls=":", label=f"L = {PLUME_R_KM:.0f} km plume envelope")
-    ax.set_xlabel("covering-disk radius R (km)")
-    ax.set_ylabel("in-frame tracking time (s)")
-    ax.set_title(f"Tracking time vs covering radius at lat {lat_deg:.1f} deg")
-    ax.legend(loc="best", fontsize=8)
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
-def plot_lost_time(result: GeometryResult, path: Path) -> None:
-    """Write time lost vs two-axis as a function of covering radius.
-
-    Args:
-        result: Design-pass tables.
-        path: Output PNG path.
-
-    Returns:
-        None.
-    """
-    table = result.table
-    fig, ax = plt.subplots(figsize=(8.5, 4.8))
-    ax.plot(table.radius_km, table.lost_s, color=C_RED, lw=2.4, marker="o")
-    ax.axvline(PLUME_R_KM, color=C_INK, ls=":", label=f"L = {PLUME_R_KM:.0f} km plume envelope")
-    ax.set_xlabel("covering-disk radius R (km)")
-    ax.set_ylabel("tracking time lost vs two-axis (s)")
-    ax.set_title("Time given up by dropping the azimuth axis")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
-def plot_footprint(result: GeometryResult, path: Path) -> None:
-    """Write sensor ground half-width vs time at the design pass.
-
-    Args:
-        result: Design-pass tables.
-        path: Output PNG path.
-
-    Returns:
-        None.
-    """
-    from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import footprint_half_width_km
-
-    times = result.times
-    lat_deg = TLE.inclination_deg
-    t_s = np.linspace(times.t_start_s, times.t_stop_s, 80)
-    along: list[float] = []
-    cross: list[float] = []
-    for ti in t_s:
-        a_km, c_km = footprint_half_width_km(
-            result.orbit, result.optics, result.box, float(ti), lat_deg
-        )
-        along.append(a_km)
-        cross.append(c_km)
-    fig, ax = plt.subplots(figsize=(8.5, 5.0))
-    ax.plot(t_s, along, color=C_BLUE, lw=2, label="along-track half-footprint")
-    ax.plot(t_s, cross, color=C_ORANGE, lw=2, label="cross-track half-footprint")
-    ax.set_xlabel("time from closest approach (s)")
-    ax.set_ylabel("ground half-width of sensor FOV (km)")
-    ax.set_title(f"Sensor footprint at lat {lat_deg:.1f} deg")
-    ax.legend()
+    ax.set_ylabel("|az| of nadir origin (deg)")
+    ax.set_title("Earth rotation walks the origin in azimuth except at max latitude")
+    ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
 
 
 def plot_offset_map(result: GeometryResult, path: Path) -> None:
-    """Write tracking time vs cross-track origin offset at the design pass.
+    """Write plume-seconds and in-frame plume count vs cluster offset.
+
+    A plume counts when half its L-disk is on the chip. One-axis parks at
+    az = 0. Two-axis boresights each plume inside the keep-out box.
 
     Args:
-        result: Design-pass tables.
+        result: Design-pass offset rows.
         path: Output PNG path.
 
     Returns:
         None.
     """
-    fig, ax = plt.subplots(figsize=(8.5, 5.2))
     ys = [row.origin_cross_km for row in result.offsets]
-    ax.plot(
-        ys,
-        [row.two_axis_s for row in result.offsets],
-        color=C_BLUE,
-        lw=2.4,
-        marker="o",
-        label="two-axis",
-    )
-    ax.plot(
-        ys,
-        [row.one_axis_s for row in result.offsets],
-        color=C_ORANGE,
-        lw=2.4,
-        marker="s",
-        label="one-axis",
-    )
-    ax.set_xlabel("cluster origin cross-track offset (km)")
-    ax.set_ylabel("in-frame tracking time (s)")
-    ax.set_title("If the cluster is not on the slice centerline")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
-def plot_required_az(result: GeometryResult, path: Path) -> None:
-    """Write peak disk-edge |az| vs covering radius.
-
-    Args:
-        result: Design-pass tables.
-        path: Output PNG path.
-
-    Returns:
-        None.
-    """
-    table = result.table
-    fig, ax = plt.subplots(figsize=(8.5, 4.8))
-    ax.plot(table.radius_km, table.az_peak_deg, color=C_BLUE, lw=2.4, marker="o")
-    ax.axhline(result.optics.half_az_deg, color=C_ORANGE, ls="--", label="1-axis: sensor half-FOV")
-    ax.axhline(result.box.az_box_deg, color=C_INK, ls=":", label="2-axis operational az box")
-    ax.set_xlabel("covering-disk radius R (km)")
-    ax.set_ylabel("peak |az| during the elevation window (deg)")
-    ax.set_title("Azimuth a 2-axis gimbal would use to keep the disk edge on boresight")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
-def plot_latitude(result: GeometryResult, path: Path) -> None:
-    """Write origin |az| and tracking time vs pass latitude.
-
-    Args:
-        result: Design-pass tables.
-        path: Output PNG path.
-
-    Returns:
-        None.
-    """
+    h_km = result.times.local_alt_km
+    chip_km = h_km * math.tan(math.radians(result.optics.half_az_deg))
+    box_km = h_km * math.tan(math.radians(result.box.az_box_deg))
     fig, axes = plt.subplots(2, 1, figsize=(8.5, 7.4), sharex=True)
-    lat0 = [row.lat_deg for row in result.lat_r0]
     axes[0].plot(
-        lat0,
-        [row.az_max_deg for row in result.lat_r0],
+        ys,
+        [row.two_axis_plume_s for row in result.offsets],
         color=C_TEAL,
         lw=2.4,
         marker="o",
-        label="R = 0 (origin)",
+        ms=3,
+        label="2-axis",
     )
-    axes[0].axhline(result.optics.half_az_deg, color=C_INK, ls="--", label="sensor half-FOV")
-    axes[0].set_ylabel("peak |az| of origin (deg)")
-    axes[0].set_title("Earth rotation walks a nadir-centered origin in azimuth")
-    axes[0].legend(loc="upper right", fontsize=8)
-
-    axes[1].plot(
-        lat0,
-        [row.el_window_s for row in result.lat_r0],
-        color=C_BLUE,
-        lw=2,
-        marker="o",
-        label="elevation window (2-axis)",
-    )
-    axes[1].plot(
-        lat0,
-        [row.one_axis_s for row in result.lat_r0],
-        color=C_ORANGE,
-        lw=2,
+    axes[0].plot(
+        ys,
+        [row.one_axis_plume_s for row in result.offsets],
+        color=C_RED,
+        lw=2.4,
         marker="s",
-        label="1-axis, R = 0",
+        ms=3,
+        label="1-axis",
     )
-    axes[1].set_xlabel("pass latitude (deg)")
-    axes[1].set_ylabel("in-frame tracking time (s)")
-    axes[1].legend(loc="lower right", fontsize=8)
+    for ax in axes:
+        ax.axvline(chip_km, color=C_INK, ls="--", lw=1, label=f"chip half-swath {chip_km:.0f} km")
+        ax.axvline(box_km, color=C_INK, ls=":", lw=1, label=f"box half-swath {box_km:.0f} km")
+    axes[0].set_ylabel("plume-seconds")
+    axes[0].set_title(
+        f"Off-track information, n={OFFSET_STACK_N} stacks, "
+        f"D={OFFSET_PLANT_D_KM:.1f} km, L={PLUME_R_KM:.0f} km"
+    )
+    axes[0].legend(loc="center right", fontsize=8)
+
+    axes[1].step(
+        ys,
+        [row.two_axis_n_in for row in result.offsets],
+        color=C_TEAL,
+        lw=2.4,
+        where="mid",
+        label="2-axis plumes in frame",
+    )
+    axes[1].step(
+        ys,
+        [row.one_axis_n_in for row in result.offsets],
+        color=C_RED,
+        lw=2.4,
+        where="mid",
+        label="1-axis plumes in frame",
+    )
+    axes[1].set_xlabel("cluster centroid cross-track offset (km)")
+    axes[1].set_ylabel("plumes with in-frame time")
+    axes[1].set_ylim(-0.2, OFFSET_STACK_N + 0.4)
+    axes[1].legend(loc="center right", fontsize=8)
+    axes[1].set_xlim(0.0, 80.0)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
@@ -402,95 +277,6 @@ def plot_lat_hist(
     plt.close(fig)
 
 
-def plot_folded(
-    clusters: list[Cluster], fn: TimeLostFn, profile: RadiusProfile, path: Path
-) -> None:
-    """Write folded-|lat| stack mass against 1-axis and 2-axis tracking time.
-
-    Args:
-        clusters: World clusters; ISS-belt filter applied here.
-        fn: Tracking-time interpolator.
-        profile: R(|lat|) interpolator.
-        path: Output PNG path.
-
-    Returns:
-        None.
-    """
-    iss_i = TLE.inclination_deg
-    iss = [c for c in clusters if abs(c.lat) <= iss_i]
-    abs_lat = np.array([abs(c.lat) for c in iss])
-    w = np.array([float(c.n) for c in iss])
-    edges = np.arange(0.0, iss_i + 2.0, 2.0)
-    hist, _ = np.histogram(abs_lat, bins=edges, weights=w)
-    centres = 0.5 * (edges[:-1] + edges[1:])
-    t1 = np.zeros(centres.size)
-    t2 = np.zeros(centres.size)
-    for i, x in enumerate(centres):
-        t1[i], t2[i], _ = fn.eval(float(x), profile.r_km(float(x)))
-    fig, ax = plt.subplots(figsize=(8.5, 4.6))
-    ax2 = ax.twinx()
-    ax2.bar(
-        centres,
-        100.0 * hist / max(1.0, float(np.sum(hist))),
-        width=1.8,
-        color=C_BLUE,
-        alpha=0.3,
-        label="stack %",
-    )
-    ax.plot(centres, t2, color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis, R(|lat|)")
-    ax.plot(centres, t1, color=C_RED, lw=2, marker="^", ms=3, label="1-axis, R(|lat|)")
-    ax.set_xlabel("|latitude| (deg)")
-    ax.set_ylabel("single-target dwell (s)")
-    ax2.set_ylabel("ISS-belt stack fraction (%)")
-    ax.set_title("Folded latitude: stack mass vs single-target dwell at R(|lat|)")
-    h1, l1 = ax.get_legend_handles_labels()
-    h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, loc="center right", fontsize=8)
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
-def plot_expected_vs_lat(
-    edges: np.ndarray,
-    t1: np.ndarray,
-    t2: np.ndarray,
-    w: np.ndarray,
-    path: Path,
-) -> None:
-    """Write tracking time vs latitude with stack-mass bars.
-
-    Args:
-        edges: Bin edges in degrees.
-        t1: One-axis time at bin midpoints for R(|lat|).
-        t2: Two-axis time at bin midpoints for R(|lat|).
-        w: Stack counts per bin.
-        path: Output PNG path.
-
-    Returns:
-        None.
-    """
-    centres = 0.5 * (edges[:-1] + edges[1:])
-    iss_i = TLE.inclination_deg
-    fig, ax = plt.subplots(figsize=(8.5, 4.6))
-    ax2 = ax.twinx()
-    ax2.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.25, label="ISS-belt stacks")
-    ax.plot(centres, t2, color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis, R(|lat|)")
-    ax.plot(centres, t1, color=C_RED, lw=2, marker="^", ms=3, label="1-axis, R(|lat|)")
-    ax.axvline(iss_i, color=C_RED, ls="--", lw=1)
-    ax.axvline(-iss_i, color=C_RED, ls="--", lw=1)
-    ax.set_xlabel("latitude (deg)")
-    ax.set_ylabel("single-target dwell (s)")
-    ax2.set_ylabel("stack-bearing sources in bin")
-    ax.set_title("Single-target dwell vs latitude at R(|lat|)")
-    h1, l1 = ax.get_legend_handles_labels()
-    h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, loc="upper right", fontsize=8)
-    fig.tight_layout()
-    fig.savefig(path)
-    plt.close(fig)
-
-
 def plot_reacquire_vs_lat(
     edges: np.ndarray,
     t1: np.ndarray,
@@ -502,9 +288,8 @@ def plot_reacquire_vs_lat(
 ) -> None:
     """Write single-target dwell, reacquire, and cycle time vs latitude.
 
-    Cycle time is dwell plus reacquire: start of tracking one target until
-    the next target is acquired. Lost time is reacquire from stack density
-    at signed latitude, with no reset-to-30-deg wait.
+    Cycle time is dwell plus reacquire. The x-axis is the ISS belt. Stack
+    counts sit on the dwell panel only.
 
     Args:
         edges: Bin edges in degrees.
@@ -526,12 +311,25 @@ def plot_reacquire_vs_lat(
     cyc1 = t1 + reacq1
     cyc2 = t2 + reacq2
     fig, axes = plt.subplots(3, 1, figsize=(8.5, 10.2), sharex=True)
+    xlim = _iss_xlim()
 
+    ax0b = axes[0].twinx()
+    ax0b.bar(
+        centres[iss],
+        w[iss],
+        width=LAT_BIN_DEG * 0.9,
+        color=C_BLUE,
+        alpha=0.2,
+        label="ISS-belt stacks",
+    )
     axes[0].plot(centres[iss], t2[iss], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis dwell")
     axes[0].plot(centres[iss], t1[iss], color=C_RED, lw=2, marker="^", ms=3, label="1-axis dwell")
-    axes[0].set_ylabel("single-target dwell (s)")
-    axes[0].set_title("How long one cluster stays in frame")
-    axes[0].legend(loc="center right", fontsize=8)
+    axes[0].set_ylabel("dwell on one plant (s)")
+    ax0b.set_ylabel("stack-bearing sources in bin")
+    axes[0].set_title("How long one plant stays in the science window")
+    h0, l0 = axes[0].get_legend_handles_labels()
+    h0b, l0b = ax0b.get_legend_handles_labels()
+    axes[0].legend(h0 + h0b, l0 + l0b, loc="center right", fontsize=8)
 
     axes[1].plot(
         centres[finite2],
@@ -540,7 +338,7 @@ def plot_reacquire_vs_lat(
         lw=2,
         marker="o",
         ms=3,
-        label="2-axis T_reacq",
+        label="2-axis",
     )
     axes[1].plot(
         centres[finite1],
@@ -549,64 +347,55 @@ def plot_reacquire_vs_lat(
         lw=2,
         marker="^",
         ms=3,
-        label="1-axis T_reacq",
+        label="1-axis",
     )
-    ax1b = axes[1].twinx()
-    ax1b.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
-    axes[1].set_ylabel("mean reacquire (s)")
+    axes[1].set_ylabel("mean wait to the next plant (s)")
     axes[1].set_yscale("log")
-    ax1b.set_ylabel("stack-bearing sources in bin")
-    axes[1].set_title("Lost time: wait for the next stack at this signed latitude")
-    h1, l1 = axes[1].get_legend_handles_labels()
-    h1b, l1b = ax1b.get_legend_handles_labels()
-    axes[1].legend(h1 + h1b, l1 + l1b, loc="upper right", fontsize=8)
+    axes[1].set_title("Lost time from signed-latitude stack density")
+    axes[1].legend(loc="upper right", fontsize=8)
 
     cyc2_ok = iss & np.isfinite(cyc2)
     cyc1_ok = iss & np.isfinite(cyc1)
     axes[2].plot(
-        centres[cyc2_ok], cyc2[cyc2_ok], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis cycle"
+        centres[cyc2_ok], cyc2[cyc2_ok], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis"
     )
     axes[2].plot(
-        centres[cyc1_ok], cyc1[cyc1_ok], color=C_RED, lw=2, marker="^", ms=3, label="1-axis cycle"
+        centres[cyc1_ok], cyc1[cyc1_ok], color=C_RED, lw=2, marker="^", ms=3, label="1-axis"
     )
-    ax2 = axes[2].twinx()
-    ax2.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
-    axes[2].axvline(iss_i, color=C_RED, ls="--", lw=1)
-    axes[2].axvline(-iss_i, color=C_RED, ls="--", lw=1)
-    axes[2].set_ylabel("cycle T_dwell + T_reacq (s)")
+    axes[2].set_ylabel("start of one track to start of the next (s)")
     axes[2].set_yscale("log")
-    ax2.set_ylabel("stack-bearing sources in bin")
     axes[2].set_xlabel("latitude (deg)")
-    axes[2].set_title("Start of tracking to reacquire of the next target")
-    h2, l2 = axes[2].get_legend_handles_labels()
-    h2b, l2b = ax2.get_legend_handles_labels()
-    axes[2].legend(h2 + h2b, l2 + l2b, loc="upper right", fontsize=8)
+    axes[2].set_title("Cycle = dwell + reacquire")
+    axes[2].legend(loc="upper right", fontsize=8)
+    axes[2].set_xlim(*xlim)
 
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
 
 
-def plot_reacquire_vs_lat_plume_length(
+def plot_yield_vs_lat(
     edges: np.ndarray,
-    t2: np.ndarray,
-    reacq2: np.ndarray,
-    t1_by_label: dict[str, np.ndarray],
-    reacq1_by_label: dict[str, np.ndarray],
+    yld1: np.ndarray,
+    yld2: np.ndarray,
     w: np.ndarray,
+    polar_1: float,
+    belt_2: float,
     path: Path,
 ) -> None:
-    """Write 1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles.
+    """Write daily usable yield vs latitude and the polar vs belt bar.
 
-    Two-axis stays at locked L. One-axis uses R(|lat|) = D(|lat|) + L_pct.
+    Yield is T_usable x daily coverage. The bar panel compares a 1-axis
+    payload tasked only at |lat| >= 45 deg against 2-axis over the full
+    ISS belt, both stack-weighted.
 
     Args:
         edges: Bin edges in degrees.
-        t2: Two-axis dwell at locked L, bin midpoints.
-        reacq2: Two-axis mean reacquire at locked L.
-        t1_by_label: One-axis dwell keyed by percentile label.
-        reacq1_by_label: One-axis reacquire keyed by the same labels.
+        yld1: One-axis T_usable x coverage at bin midpoints.
+        yld2: Two-axis T_usable x coverage at bin midpoints.
         w: Stack counts per bin.
+        polar_1: Stack-weighted 1-axis yield for |lat| >= 45 deg.
+        belt_2: Stack-weighted 2-axis yield over the ISS belt.
         path: Output PNG path.
 
     Returns:
@@ -615,131 +404,88 @@ def plot_reacquire_vs_lat_plume_length(
     centres = 0.5 * (edges[:-1] + edges[1:])
     iss_i = TLE.inclination_deg
     iss = np.abs(centres) <= iss_i + 0.05
-    fig, axes = plt.subplots(3, 1, figsize=(8.5, 10.2), sharex=True)
-    labels = list(t1_by_label.keys())
-    palette: tuple[str, ...] = ("#F6D0B1", "#E89A6F", "#D0562B", "#CC3311", "#7A1F0A")
-    colors = tuple(palette[i % len(palette)] for i in range(len(labels)))
-
-    axes[0].plot(
+    fig, axes = plt.subplots(2, 1, figsize=(8.5, 8.2), gridspec_kw={"height_ratios": (2.2, 1.0)})
+    ax0b = axes[0].twinx()
+    ax0b.bar(
         centres[iss],
-        t2[iss],
-        color=C_TEAL,
-        lw=2.4,
-        marker="o",
-        ms=3,
-        label="2-axis, L=2 km",
+        w[iss],
+        width=LAT_BIN_DEG * 0.9,
+        color=C_BLUE,
+        alpha=0.2,
+        label="ISS-belt stacks",
     )
-    for color, label in zip(colors, labels, strict=True):
-        t1 = t1_by_label[label]
-        axes[0].plot(
-            centres[iss],
-            t1[iss],
-            color=color,
-            lw=1.6,
-            marker="^",
-            ms=3,
-            label=f"1-axis, {label}",
-        )
-    axes[0].set_ylabel("single-target dwell (s)")
-    axes[0].set_title("How long one cluster stays in frame vs plume length L")
-    axes[0].legend(loc="center right", fontsize=7)
-
-    finite2 = iss & np.isfinite(reacq2)
-    axes[1].plot(
-        centres[finite2],
-        reacq2[finite2],
-        color=C_TEAL,
-        lw=2.4,
-        marker="o",
-        ms=3,
-        label="2-axis, L=2 km",
+    axes[0].plot(
+        centres[iss], yld2[iss], color=C_TEAL, lw=2, marker="o", ms=3, label="2-axis yield"
     )
-    for color, label in zip(colors, labels, strict=True):
-        reacq1 = reacq1_by_label[label]
-        finite1 = iss & np.isfinite(reacq1)
-        axes[1].plot(
-            centres[finite1],
-            reacq1[finite1],
-            color=color,
-            lw=1.6,
-            marker="^",
-            ms=3,
-            label=f"1-axis, {label}",
-        )
-    ax1b = axes[1].twinx()
-    ax1b.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
-    axes[1].set_ylabel("mean reacquire (s)")
-    axes[1].set_yscale("log")
-    ax1b.set_ylabel("stack-bearing sources in bin")
-    axes[1].set_title("Lost time: wait for the next stack at this signed latitude")
-    h1, l1 = axes[1].get_legend_handles_labels()
-    h1b, l1b = ax1b.get_legend_handles_labels()
-    axes[1].legend(h1 + h1b, l1 + l1b, loc="upper right", fontsize=7)
+    axes[0].plot(centres[iss], yld1[iss], color=C_RED, lw=2, marker="^", ms=3, label="1-axis yield")
+    axes[0].set_ylabel("daily usable yield (s x frac)")
+    ax0b.set_ylabel("stack-bearing sources in bin")
+    axes[0].set_title("T_usable x daily coverage vs latitude")
+    axes[0].set_xlim(*_iss_xlim())
+    h0, l0 = axes[0].get_legend_handles_labels()
+    h0b, l0b = ax0b.get_legend_handles_labels()
+    axes[0].legend(h0 + h0b, l0 + l0b, loc="upper right", fontsize=8)
 
-    cyc2 = t2 + reacq2
-    cyc2_ok = iss & np.isfinite(cyc2)
-    axes[2].plot(
-        centres[cyc2_ok],
-        cyc2[cyc2_ok],
-        color=C_TEAL,
-        lw=2.4,
-        marker="o",
-        ms=3,
-        label="2-axis, L=2 km",
-    )
-    for color, label in zip(colors, labels, strict=True):
-        cyc1 = t1_by_label[label] + reacq1_by_label[label]
-        cyc1_ok = iss & np.isfinite(cyc1)
-        axes[2].plot(
-            centres[cyc1_ok],
-            cyc1[cyc1_ok],
-            color=color,
-            lw=1.6,
-            marker="^",
-            ms=3,
-            label=f"1-axis, {label}",
-        )
-    ax2 = axes[2].twinx()
-    ax2.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
-    axes[2].axvline(iss_i, color=C_RED, ls="--", lw=1)
-    axes[2].axvline(-iss_i, color=C_RED, ls="--", lw=1)
-    axes[2].set_ylabel("cycle T_dwell + T_reacq (s)")
-    axes[2].set_yscale("log")
-    ax2.set_ylabel("stack-bearing sources in bin")
-    axes[2].set_xlabel("latitude (deg)")
-    axes[2].set_title("Start of tracking to reacquire of the next target")
-    h2, l2 = axes[2].get_legend_handles_labels()
-    h2b, l2b = ax2.get_legend_handles_labels()
-    axes[2].legend(h2 + h2b, l2 + l2b, loc="upper right", fontsize=7)
-
+    labels = (f"1-axis, |lat|>= {POLAR_TASK_LAT_DEG:.0f} deg", "2-axis, full ISS belt")
+    vals = (polar_1, belt_2)
+    axes[1].bar((0, 1), vals, color=(C_RED, C_TEAL), width=0.55)
+    axes[1].set_xticks((0, 1), labels)
+    axes[1].set_ylabel("stack-weighted yield")
+    axes[1].set_title("Polar-tasked 1-axis vs full-belt 2-axis")
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
 
 
-def plot_r_hist(clusters: list[Cluster], path: Path) -> None:
-    """Write stack-weighted covering-radius histogram for the ISS belt.
+def plot_hunt_timeline(
+    rows: list[tuple[float, float, float, HuntResult]],
+    path: Path,
+) -> None:
+    """Write a hunt Gantt at the industrial-belt latitudes.
+
+    Each row is one gimbal at one signed latitude: TRACK dwell, elevation
+    rewind, then the remainder of T_reacq (limb FOV wait or box raster).
 
     Args:
-        clusters: World clusters; ISS-belt filter applied here.
+        rows: (lat_deg, t_dwell_1, t_dwell_2, HuntResult) per latitude.
         path: Output PNG path.
 
     Returns:
         None.
     """
-    iss = [c for c in clusters if abs(c.lat) <= TLE.inclination_deg]
-    radius = np.array([c.r_cover_km for c in iss])
-    w = np.array([float(c.n) for c in iss])
-    fig, ax = plt.subplots(figsize=(8.0, 4.2))
-    bin_edges = np.linspace(0.0, 16.0, 33).tolist()
-    ax.hist(radius, bins=bin_edges, weights=w, color=C_ORANGE, edgecolor="white")
-    ax.axvline(
-        PLUME_R_KM, color=C_INK, ls=":", label=f"L = {PLUME_R_KM:.0f} km (isolated-stack floor)"
-    )
-    ax.set_xlabel("covering radius R = D + L (km)")
-    ax.set_ylabel("stack-bearing sources")
-    ax.set_title("ISS-belt cluster size (stack-weighted)")
-    ax.legend()
+    labels: list[str] = []
+    series: list[tuple[float, float, float, str]] = []
+    for lat_deg, t1, t2, hunted in rows:
+        hem = "N" if lat_deg >= 0.0 else "S"
+        labels.append(f"{abs(lat_deg):.0f} {hem}  2-axis")
+        series.append((t2, hunted.t_rewind_2_s, hunted.t_reacq_2_s, C_TEAL))
+        labels.append(f"{abs(lat_deg):.0f} {hem}  1-axis")
+        series.append((t1, hunted.t_rewind_1_s, hunted.t_reacq_1_s, C_RED))
+    fig, ax = plt.subplots(figsize=(8.5, 4.8))
+    y_pos = np.arange(len(series))
+    for y, (dwell, rewind, reacq, color) in zip(y_pos, series, strict=True):
+        rewind_s = rewind if math.isfinite(rewind) else 0.0
+        reacq_s = reacq if math.isfinite(reacq) else rewind_s
+        limb = max(0.0, reacq_s - rewind_s)
+        ax.barh(y, dwell, color=color, height=0.55)
+        ax.barh(y, rewind_s, left=dwell, color=color, alpha=0.55, height=0.55)
+        ax.barh(y, limb, left=dwell + rewind_s, color=color, alpha=0.25, height=0.55)
+        if not math.isfinite(reacq):
+            ax.annotate(
+                "inf",
+                (dwell + rewind_s + 2.0, y),
+                va="center",
+                fontsize=8,
+                color=C_INK,
+            )
+    ax.set_yticks(y_pos, labels)
+    ax.invert_yaxis()
+    ax.set_xlabel("seconds from start of track")
+    ax.set_title("Hunt cycle: dwell, elevation rewind, then limb search")
+    ax.plot([], [], color=C_INK, lw=8, label="dwell")
+    ax.plot([], [], color=C_INK, lw=8, alpha=0.55, label="rewind")
+    ax.plot([], [], color=C_INK, lw=8, alpha=0.25, label="limb wait / raster")
+    ax.legend(loc="lower right", fontsize=8)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)

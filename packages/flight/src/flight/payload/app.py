@@ -200,10 +200,7 @@ class PayloadApp:
         if cfg.sensor.width_px % 2 or cfg.sensor.height_px % 2:
             raise ValueError("sensor mosaic dimensions must be even")
         plane_h, plane_w = cfg.sensor.height_px // 2, cfg.sensor.width_px // 2
-        if (
-            plane_h != cfg.inference.input_height_px
-            or plane_w != cfg.inference.input_width_px
-        ):
+        if plane_h != cfg.inference.input_height_px or plane_w != cfg.inference.input_width_px:
             raise ValueError("band plane must equal the inference input size")
         if sorted(cfg.sensor.mosaic_layout) != sorted(b.value for b in Band):
             raise ValueError("mosaic_layout must name each Band exactly once")

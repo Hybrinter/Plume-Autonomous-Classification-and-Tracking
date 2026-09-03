@@ -156,7 +156,9 @@ class SensorConfig:
         if self.exposure_min_us >= self.exposure_max_us:
             raise ValueError("exposure_min_us must be < exposure_max_us")
         if not (self.exposure_min_us <= self.initial_exposure_us <= self.exposure_max_us):
-            raise ValueError("initial_exposure_us must be within [exposure_min_us, exposure_max_us]")
+            raise ValueError(
+                "initial_exposure_us must be within [exposure_min_us, exposure_max_us]"
+            )
         if self.gain_min_db > self.gain_max_db:
             raise ValueError("gain_min_db must be <= gain_max_db")
         if not (self.gain_min_db <= self.initial_gain_db <= self.gain_max_db):
@@ -378,12 +380,8 @@ class PactConfig:
         """Reject inference input size that is not the full demosaiced band plane."""
         plane_h = self.sensor.height_px // 2
         plane_w = self.sensor.width_px // 2
-        if (
-            self.inference.input_height_px != plane_h
-            or self.inference.input_width_px != plane_w
-        ):
+        if self.inference.input_height_px != plane_h or self.inference.input_width_px != plane_w:
             raise ValueError(
-                "inference input size must equal the demosaiced band plane "
-                f"({plane_h} x {plane_w})"
+                f"inference input size must equal the demosaiced band plane ({plane_h} x {plane_w})"
             )
         return self

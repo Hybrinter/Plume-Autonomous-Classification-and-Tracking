@@ -16,6 +16,10 @@ from flight.libs.messages import (
 from flight.libs.time import ManualClock
 from flight.libs.types import AckStatus, Err, FaultCode, MessageType, ModelDeployState, Ok, Result
 
+_INF = PactConfig().inference
+_H = _INF.input_height_px
+_W = _INF.input_width_px
+
 
 class _MemStorageReader:
     """In-memory StorageReader double."""
@@ -46,12 +50,12 @@ def _manifest(
     data: dict[str, object] = {
         "version": version,
         "classifier": {
-            "input_shape": [1, classifier_channels, 256, 256],
+            "input_shape": [1, classifier_channels, _H, _W],
             "output_shape": [1, 1],
         },
         "segmentor": {
-            "input_shape": [1, segmentor_channels, 256, 256],
-            "output_shape": [1, 1, 256, 256],
+            "input_shape": [1, segmentor_channels, _H, _W],
+            "output_shape": [1, 1, _H, _W],
         },
     }
     if omit is not None:
@@ -98,14 +102,14 @@ def test_parse_manifest_and_contract() -> None:
     """parse_manifest extracts both contracts; contract_ok compares shapes."""
     parsed = parse_manifest(_manifest("v2"))
     assert parsed is not None
-    assert parsed.classifier.input_shape == (1, 4, 256, 256)
+    assert parsed.classifier.input_shape == (1, 4, _H, _W)
     assert parsed.classifier.output_shape == (1, 1)
-    assert parsed.segmentor.output_shape == (1, 1, 256, 256)
+    assert parsed.segmentor.output_shape == (1, 1, _H, _W)
     assert contract_ok(
         parsed.segmentor.input_shape,
         parsed.segmentor.output_shape,
-        (1, 4, 256, 256),
-        (1, 1, 256, 256),
+        (1, 4, _H, _W),
+        (1, 1, _H, _W),
     )
     assert parse_manifest(b"not json") is None
 
@@ -117,8 +121,8 @@ def test_parse_manifest_rejects_single_network() -> None:
     legacy = json.dumps(
         {
             "version": "v2",
-            "input_shape": [1, 4, 256, 256],
-            "output_shape": [1, 1, 256, 256],
+            "input_shape": [1, 4, _H, _W],
+            "output_shape": [1, 1, _H, _W],
         }
     ).encode("utf-8")
     assert parse_manifest(legacy) is None

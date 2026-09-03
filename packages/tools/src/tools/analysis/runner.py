@@ -8,10 +8,11 @@ or flip the link state). Driving state changes through prepared bus messages / p
 (never a flight code change) is exactly how the existing SIL tests steer the system; the recorder
 captures the response passively.
 
-The suite covers the nominal track plus every required fault/behavior path: thermal and power
-over-limit -> SAFE -> stow, gimbal runaway, watchdog/process-died, EXIT_SAFE recovery via the
-ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the launch-lock interlock, the model
-upload -> activate -> rollback lifecycle, storage eviction, and downlink AOS/budget backpressure.
+The suite covers the nominal track plus every required fault/behavior path: a thermal hot
+sample (telemetry only), power over-limit -> SAFE -> stow, gimbal runaway, watchdog/process-died,
+EXIT_SAFE recovery via the ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the
+launch-lock interlock, the model upload -> activate -> rollback lifecycle, storage eviction,
+and downlink AOS/budget backpressure.
 Faults that the deterministic ``step_once`` cannot raise organically (a gimbal encoder runaway, or
 a watchdog miss when ``step_once`` synthesizes every app's heartbeat each step) are injected as the
 FDIR input FaultEventMsg, which is documented per scenario.
@@ -222,16 +223,18 @@ def _stage_model_action(version: str, channels: int) -> SystemAction:
     publish ModelStagedMsg (the message iss_iface emits after reassembly). model_deploy
     validates digest plus both network contracts exactly as in flight.
     """
+    inf = PactConfig().inference
+    height, width = inf.input_height_px, inf.input_width_px
     blob = json.dumps(
         {
             "version": version,
             "classifier": {
-                "input_shape": [1, channels, 256, 256],
+                "input_shape": [1, channels, height, width],
                 "output_shape": [1, 1],
             },
             "segmentor": {
-                "input_shape": [1, channels, 256, 256],
-                "output_shape": [1, 1, 256, 256],
+                "input_shape": [1, channels, height, width],
+                "output_shape": [1, 1, height, width],
             },
         },
         sort_keys=True,

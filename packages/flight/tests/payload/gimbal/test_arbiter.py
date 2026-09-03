@@ -86,9 +86,7 @@ def test_idle_to_acquiring_on_detection(
     blob = make_blob(persistence_count=1)
     result = make_inference_result(blobs=(blob,))
 
-    new_state, _request, _events = arbiter.step(
-        arbiter_idle_state, result, None, 1.0, False, False
-    )
+    new_state, _request, _events = arbiter.step(arbiter_idle_state, result, None, 1.0, False, False)
 
     assert new_state.gimbal_state == GimbalState.ACQUIRING
 
@@ -194,7 +192,13 @@ def test_rewind_arrives_at_limb_without_blob(default_config: PactConfig) -> None
     )
     empty = make_inference_result(blobs=())
     state, request, _ = arbiter.step(
-        rewind_state, empty, None, 1.0, False, False, el_deg=default_config.gimbal.el_science_max_deg
+        rewind_state,
+        empty,
+        None,
+        1.0,
+        False,
+        False,
+        el_deg=default_config.gimbal.el_science_max_deg,
     )
     assert state.gimbal_state == GimbalState.TRACKING
     assert request is None

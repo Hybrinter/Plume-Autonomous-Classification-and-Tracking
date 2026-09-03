@@ -13,6 +13,9 @@ from sim.scene import build_frames, plume_detector
 from sim.sil import SilHarness, build_sil_system
 
 _KEY = b"sil-test-key-0000000000000000000"
+_INF = PactConfig().inference
+_H = _INF.input_height_px
+_W = _INF.input_width_px
 
 
 def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 4) -> bytes:
@@ -21,12 +24,12 @@ def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 
         {
             "version": version,
             "classifier": {
-                "input_shape": [1, classifier_channels, 256, 256],
+                "input_shape": [1, classifier_channels, _H, _W],
                 "output_shape": [1, 1],
             },
             "segmentor": {
-                "input_shape": [1, segmentor_channels, 256, 256],
-                "output_shape": [1, 1, 256, 256],
+                "input_shape": [1, segmentor_channels, _H, _W],
+                "output_shape": [1, 1, _H, _W],
             },
         }
     ).encode("utf-8")

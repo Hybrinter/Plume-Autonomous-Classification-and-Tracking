@@ -8,7 +8,7 @@ Contains:
   - plot_along_track, plot_disk_angle, plot_time_vs_radius, plot_lost_time.
   - plot_footprint, plot_offset_map, plot_required_az, plot_latitude.
   - plot_lat_hist, plot_folded, plot_expected_vs_lat, plot_r_hist, plot_map.
-  - plot_r_vs_lat, plot_reacquire_vs_lat.
+  - plot_r_vs_lat, plot_reacquire_vs_lat, plot_reacquire_vs_lat_plume_length.
 """
 
 from __future__ import annotations
@@ -581,6 +581,136 @@ def plot_reacquire_vs_lat(
     h2, l2 = axes[2].get_legend_handles_labels()
     h2b, l2b = ax2.get_legend_handles_labels()
     axes[2].legend(h2 + h2b, l2 + l2b, loc="upper right", fontsize=8)
+
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def plot_reacquire_vs_lat_plume_length(
+    edges: np.ndarray,
+    t2: np.ndarray,
+    reacq2: np.ndarray,
+    t1_by_label: dict[str, np.ndarray],
+    reacq1_by_label: dict[str, np.ndarray],
+    w: np.ndarray,
+    path: Path,
+) -> None:
+    """Write 1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles.
+
+    Two-axis stays at locked L. One-axis uses R(|lat|) = D(|lat|) + L_pct.
+
+    Args:
+        edges: Bin edges in degrees.
+        t2: Two-axis dwell at locked L, bin midpoints.
+        reacq2: Two-axis mean reacquire at locked L.
+        t1_by_label: One-axis dwell keyed by percentile label.
+        reacq1_by_label: One-axis reacquire keyed by the same labels.
+        w: Stack counts per bin.
+        path: Output PNG path.
+
+    Returns:
+        None.
+    """
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    iss_i = TLE.inclination_deg
+    iss = np.abs(centres) <= iss_i + 0.05
+    fig, axes = plt.subplots(3, 1, figsize=(8.5, 10.2), sharex=True)
+    labels = list(t1_by_label.keys())
+    palette: tuple[str, ...] = ("#F6D0B1", "#E89A6F", "#D0562B", "#CC3311", "#7A1F0A")
+    colors = tuple(palette[i % len(palette)] for i in range(len(labels)))
+
+    axes[0].plot(
+        centres[iss],
+        t2[iss],
+        color=C_TEAL,
+        lw=2.4,
+        marker="o",
+        ms=3,
+        label="2-axis, L=2 km",
+    )
+    for color, label in zip(colors, labels, strict=True):
+        t1 = t1_by_label[label]
+        axes[0].plot(
+            centres[iss],
+            t1[iss],
+            color=color,
+            lw=1.6,
+            marker="^",
+            ms=3,
+            label=f"1-axis, {label}",
+        )
+    axes[0].set_ylabel("single-target dwell (s)")
+    axes[0].set_title("How long one cluster stays in frame vs plume length L")
+    axes[0].legend(loc="center right", fontsize=7)
+
+    finite2 = iss & np.isfinite(reacq2)
+    axes[1].plot(
+        centres[finite2],
+        reacq2[finite2],
+        color=C_TEAL,
+        lw=2.4,
+        marker="o",
+        ms=3,
+        label="2-axis, L=2 km",
+    )
+    for color, label in zip(colors, labels, strict=True):
+        reacq1 = reacq1_by_label[label]
+        finite1 = iss & np.isfinite(reacq1)
+        axes[1].plot(
+            centres[finite1],
+            reacq1[finite1],
+            color=color,
+            lw=1.6,
+            marker="^",
+            ms=3,
+            label=f"1-axis, {label}",
+        )
+    ax1b = axes[1].twinx()
+    ax1b.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
+    axes[1].set_ylabel("mean reacquire (s)")
+    axes[1].set_yscale("log")
+    ax1b.set_ylabel("stack-bearing sources in bin")
+    axes[1].set_title("Lost time: wait for the next stack at this signed latitude")
+    h1, l1 = axes[1].get_legend_handles_labels()
+    h1b, l1b = ax1b.get_legend_handles_labels()
+    axes[1].legend(h1 + h1b, l1 + l1b, loc="upper right", fontsize=7)
+
+    cyc2 = t2 + reacq2
+    cyc2_ok = iss & np.isfinite(cyc2)
+    axes[2].plot(
+        centres[cyc2_ok],
+        cyc2[cyc2_ok],
+        color=C_TEAL,
+        lw=2.4,
+        marker="o",
+        ms=3,
+        label="2-axis, L=2 km",
+    )
+    for color, label in zip(colors, labels, strict=True):
+        cyc1 = t1_by_label[label] + reacq1_by_label[label]
+        cyc1_ok = iss & np.isfinite(cyc1)
+        axes[2].plot(
+            centres[cyc1_ok],
+            cyc1[cyc1_ok],
+            color=color,
+            lw=1.6,
+            marker="^",
+            ms=3,
+            label=f"1-axis, {label}",
+        )
+    ax2 = axes[2].twinx()
+    ax2.bar(centres, w, width=LAT_BIN_DEG * 0.9, color=C_BLUE, alpha=0.2, label="stacks")
+    axes[2].axvline(iss_i, color=C_RED, ls="--", lw=1)
+    axes[2].axvline(-iss_i, color=C_RED, ls="--", lw=1)
+    axes[2].set_ylabel("cycle T_dwell + T_reacq (s)")
+    axes[2].set_yscale("log")
+    ax2.set_ylabel("stack-bearing sources in bin")
+    axes[2].set_xlabel("latitude (deg)")
+    axes[2].set_title("Start of tracking to reacquire of the next target")
+    h2, l2 = axes[2].get_legend_handles_labels()
+    h2b, l2b = ax2.get_legend_handles_labels()
+    axes[2].legend(h2 + h2b, l2 + l2b, loc="upper right", fontsize=7)
 
     fig.tight_layout()
     fig.savefig(path)

@@ -100,17 +100,30 @@ class RadiusProfile:
     signed_lat: np.ndarray
     stack_dens_per_km2: np.ndarray
 
-    def r_km(self, lat_deg: float) -> float:
+    def r_km(self, lat_deg: float, plume_r_km: float | None = None) -> float:
         """Return interpolated covering radius at ``|lat|``.
+
+        Args:
+            lat_deg: Geocentric latitude in degrees.
+            plume_r_km: Visible-length envelope L. Default is locked PLUME_R_KM.
+
+        Returns:
+            R = D(|lat|) + L in kilometres, clipped to the inclination.
+        """
+        length = PLUME_R_KM if plume_r_km is None else float(plume_r_km)
+        return self.d_km(lat_deg) + length
+
+    def d_km(self, lat_deg: float) -> float:
+        """Return interpolated plant span D at ``|lat|``.
 
         Args:
             lat_deg: Geocentric latitude in degrees.
 
         Returns:
-            R in kilometres, clipped to the inclination.
+            D in kilometres, clipped to the inclination.
         """
         x = min(TLE.inclination_deg, abs(float(lat_deg)))
-        return float(np.interp(x, self.abs_lat, self.mean_r_km))
+        return float(np.interp(x, self.abs_lat, self.mean_d_km))
 
     def dens_km2(self, lat_deg: float) -> float:
         """Return interpolated stack density at signed ``lat_deg``.

@@ -31,6 +31,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     MAX_HW_SLEW_DEG_S,
     MAX_SMEAR_BAND_PX,
     OPTICS_SPEC,
+    PLUME_L_PERCENTILES,
     PLUME_R_KM,
     SEG_FLOPS_256_G,
     SEG_LAT_256_MS,
@@ -80,21 +81,20 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
             "  haversine plant span. That is a possibility set, not a smoke-filled blob.",
             f"- **L = {PLUME_R_KM:.0f} km** is a **conservative visible-length envelope**",
             "  (cooling-tower photo climatologies: typical 0.3-0.8 km, winter often",
-            "  >0.9 km, ~90-95th percentile ~1.5-3 km). Not a Mommert-chip measurement.",
-            "  Not typical length. Wind azimuth is unknown, so L is a radius: the",
-            "  plume CoG sits somewhere in that disk.",
-            "- **Any part of the disk.** Unknown wind puts the plume CoG somewhere",
-            "  in the covering disk. Acquire means: there exists a point of that",
-            "  disk the gimbal can put on the chip. One-axis: the parked FOV",
-            "  (+/-1.60 deg) overlaps the disk azimuth span. Two-axis: the ISS",
-            "  keep-out box (+/-10 deg) overlaps the disk, then the gimbal",
-            "  boresights that in-box point onto the chip. A disk that sticks out",
-            "  of the box still counts if any point is inside. This is not",
-            "  whole-disk-in-box and not whole-disk-in-chip.",
-            "- **P(visible)** = fraction of that disk in the FOV after pointing",
-            "  (unknown-wind geometry). Not computed as a yield weight here.",
-            "  Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR only.",
-            "  Do not multiply the two.",
+            "  >0.9 km). A lognormal fit (P50 = 0.50 km, P95 = 2.5 km) to those",
+            "  bins, Polak 1984 (short <0.3, medium 0.3-0.9, long >0.9 km), and the",
+            "  Indian Point NDCT few-percent tail at 1.6-4 km gives P50/P80/P90/P95/P99",
+            "  = 0.50 / 1.1 / 1.8 / 2.5 / 4.9 km. Climate TRACE has plant span D,",
+            "  not L. Locked design L sits between P90 and P95. Wind azimuth is",
+            "  unknown, so L is a radius: the plume CoG sits somewhere in that disk.",
+            "- **Half the disk on chip.** In-frame means at least 50% of covering-disk",
+            "  area is on the chip after pointing. One-axis parks at az = 0 (elevation",
+            "  tracks the origin). Two-axis boresights the origin when it is inside",
+            "  the +/-10 deg keep-out box; if the origin is outside the box that",
+            "  sample is out. This replaces the any-part existence test.",
+            "- **P(visible)** is that on-chip area fraction. A sample counts if it is",
+            "  >= 0.5. Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR",
+            "  only. Do not multiply the two.",
             "- **No locked design R.** Operational R is per cluster (`r_cover_km`) and,",
             "  for lat tables, stack-weighted mean `R(|lat|) = D(|lat|) + L`.",
             f"- **Camera/lens.** {CAMERA_NAME}, {SENSOR_NAME}, 3.45 um, 2448x2048,",
@@ -401,23 +401,18 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("")
     a("## Covering-disk sensitivity (design pass)")
     a("")
-    a("Elevation tracks the fixed stack / cluster centroid. Acquire is an")
-    a("existence test on unknown wind, not a filled-disk occupancy:")
+    a("Elevation tracks the fixed stack / cluster centroid. Acquire is a")
+    a("50% on-chip area test, not an existence sliver and not whole-disk-in-chip:")
     a("")
-    a("1. **Can we point?** One-axis: the parked chip FOV overlaps the disk")
-    a("   azimuth span. Two-axis: the +/-10 deg ISS keep-out box overlaps")
-    a("   the disk. A disk that sticks out of the box still counts if any")
-    a("   point is inside.")
-    a("2. **Is that point on the chip?** One-axis is already parked, so FOV")
-    a("   overlap is the whole test. Two-axis then boresights the in-box")
-    a("   point (az = 0 on the chip). We do not require the rest of the")
-    a("   disk to fit in the box or on the chip.")
+    a("1. **Can we point?** One-axis is parked at az = 0. Two-axis boresights")
+    a("   the origin if it is inside the +/-10 deg ISS keep-out box. If the")
+    a("   origin is outside the box, that sample is out.")
+    a("2. **Is half the disk on the chip?** After pointing, the chip is a")
+    a("   local-flat ground rectangle of half-widths slant * tan(half_fov).")
+    a("   Count the sample if covering-disk area on that rectangle is >= 50%.")
+    a("   For R well below the chip (~12 km at nadir) this is close to")
+    a("   origin-on-the-FOV-edge for one-axis.")
     a("")
-    a("Whole-disk-in-box was the previous 2-axis test and is wrong for this")
-    a("gimbal: a large disk at the far look can span more than +/-10 deg")
-    a("even when the origin is on boresight, so that test dropped dwell as")
-    a("R grew. The chip-after-boresight test keeps full-window 2-axis dwell")
-    a("whenever any point of the disk is inside the box.")
     a("The radii below are a **sensitivity sweep at the design latitude**,")
     a(f"not a locked operational R. Isolated stacks sit at R = L = {PLUME_R_KM:.0f} km.")
     a("")
@@ -434,10 +429,9 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
         )
     a("")
     a("At the design pass the origin stays in the chip (Earth-rotation az")
-    a("~0). Any-part overlap then keeps the disk in the 1-axis FOV for the")
-    a("whole science window at every R in this sweep: the origin is a point")
-    a("of the disk. Whole-disk-in-chip would still fail for R larger than")
-    a(f"the nadir half-swath ({r_fit:.1f} km).")
+    a("~0). Half-disk on chip then keeps 1-axis and 2-axis at full-window")
+    a("dwell until R is large enough that the chip itself clips half the")
+    a(f"disk (nadir half-swath {r_fit:.1f} km).")
     a("")
     a("Wind during the window (extra walk of a visible plume around the fixed")
     a("origin; already inside the L envelope if L is conservative):")
@@ -828,6 +822,26 @@ def write_industry_report(
     p("The along-track science window is no longer 124 s (that was 60 deg")
     p("off-nadir). Combined FoM is dwell x coverage with the 1 s usable floor.")
     p("")
+    p("## Plume-length percentiles (1-axis)")
+    p("")
+    p("Climate TRACE has plant span D, not visible plume length L. The")
+    p("P50/P80/P90/P95/P99 lengths are a lognormal fit to cooling-tower")
+    p("climatology (typical 0.3-0.8 km; Polak 1984 short/medium/long bins;")
+    p("Indian Point NDCT few-percent tail at 1.6-4 km), with P50 = 0.50 km")
+    p("and P95 = 2.5 km.")
+    p("")
+    p("| percentile | L (km) |")
+    p("| --- | --- |")
+    for pct_name, l_km in PLUME_L_PERCENTILES:
+        p(f"| {pct_name} | {l_km:g} |")
+    p(f"| locked design | {PLUME_R_KM:g} |")
+    p("")
+    p("The companion figure holds 2-axis at L = 2 km and varies 1-axis")
+    p("R(|lat|) = D(|lat|) + L_pct. Under the 50% on-chip test, 1-axis")
+    p("curves nearly overlap except at low latitude where D+L approaches")
+    p("the chip width: half-out is then close to origin-on-the-FOV-edge,")
+    p("so locked L = 2 km does not drive the clocks.")
+    p("")
     p("## Decision numbers")
     p("")
     p(f"1. **Single-target dwell:** stack-weighted **{e['e_t1']:.0f} s vs {e['e_t2']:.0f} s**.")
@@ -877,6 +891,10 @@ def write_industry_report(
                 ("industrial_lat_folded.png", "Folded latitude dwell and stack mass"),
                 ("industrial_time_vs_lat.png", "Single-target dwell vs latitude"),
                 ("industrial_reacquire_vs_lat.png", "Dwell, reacquire, and cycle vs latitude"),
+                (
+                    "industrial_reacquire_vs_lat_plume_length.png",
+                    "1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles",
+                ),
                 ("industrial_cluster_radius.png", "Cluster covering-radius histogram"),
                 ("industrial_r_vs_lat.png", "Covering radius vs latitude"),
                 ("industrial_cluster_map.png", "World cluster map"),
@@ -1010,6 +1028,10 @@ def write_study_readme(
                 ("origin_offset.png", "Off-center cluster tracking time"),
                 ("industrial_time_vs_lat.png", "Single-target dwell vs latitude"),
                 ("industrial_reacquire_vs_lat.png", "Dwell, reacquire, and cycle vs latitude"),
+                (
+                    "industrial_reacquire_vs_lat_plume_length.png",
+                    "1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles",
+                ),
             )
         )
     )

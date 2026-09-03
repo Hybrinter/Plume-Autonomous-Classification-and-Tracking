@@ -2,7 +2,8 @@
 
 Computes the one-sided elevation window, covering-disk azimuth, and
 one-axis vs two-axis in-frame time vs radius, latitude, and origin
-offset. ``run_geometry`` writes CSV, figures, and RESULTS.md.
+offset. In-frame means at least half the covering disk is on the chip
+after pointing. ``run_geometry`` writes CSV, figures, and RESULTS.md.
 
 Contains:
   - WindowTimes / RadiusTable / LatitudeRow / OffsetRow / GeometryResult.
@@ -36,7 +37,7 @@ from analysis.lib.plot_style import apply as apply_plot_style
 from analysis.lib.tracking import (
     PassSamples,
     SampleSpan,
-    disk_any_part_in_stop,
+    disk_half_in_chip,
     in_science_window,
     mask_time_s,
     sample_pass,
@@ -229,7 +230,8 @@ def tracking_time_vs_radius(
 ) -> RadiusTable:
     """Return in-frame time vs covering radius at one latitude.
 
-    The disk is represented by the origin plus the +/- R cross-track edges.
+    In-frame means at least half the covering-disk area is on the chip.
+    Peak disk-edge azimuth still uses the +/- R cross-track edges.
 
     Args:
         orbit: Circular ISS orbit.
@@ -249,12 +251,21 @@ def tracking_time_vs_radius(
     origin = sample_pass(orbit, box, lat_deg, 0.0, 0.0, span)
     science = in_science_window(origin, box)
     for i, radius in enumerate(r_arr):
-        edge_p = sample_pass(orbit, box, lat_deg, 0.0, float(radius), span)
-        edge_m = sample_pass(orbit, box, lat_deg, 0.0, -float(radius), span)
-        one = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, optics.half_az_deg)
-        two = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, box.az_box_deg)
+        one = science & disk_half_in_chip(
+            origin.az, origin.slant, float(radius), optics, boresight_origin=False
+        )
+        two = science & disk_half_in_chip(
+            origin.az,
+            origin.slant,
+            float(radius),
+            optics,
+            boresight_origin=True,
+            az_box_deg=box.az_box_deg,
+        )
         t1[i] = mask_time_s(one, origin.t)
         t2[i] = mask_time_s(two, origin.t)
+        edge_p = sample_pass(orbit, box, lat_deg, 0.0, float(radius), span)
+        edge_m = sample_pass(orbit, box, lat_deg, 0.0, -float(radius), span)
         az_peak[i] = (
             float(np.max(np.maximum(np.abs(edge_p.az), np.abs(edge_m.az))[science]))
             if np.any(science)
@@ -288,15 +299,21 @@ def latitude_table(
     Returns:
         One row per latitude.
     """
-    span = _span()
     rows: list[LatitudeRow] = []
     for lat in lats:
         times, origin = origin_window(orbit, optics, box, lat, 0.0)
-        edge_p = sample_pass(orbit, box, lat, 0.0, radius_km, span)
-        edge_m = sample_pass(orbit, box, lat, 0.0, -radius_km, span)
         science = in_science_window(origin, box)
-        one = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, optics.half_az_deg)
-        two = science & disk_any_part_in_stop(origin.az, edge_p.az, edge_m.az, box.az_box_deg)
+        one = science & disk_half_in_chip(
+            origin.az, origin.slant, radius_km, optics, boresight_origin=False
+        )
+        two = science & disk_half_in_chip(
+            origin.az,
+            origin.slant,
+            radius_km,
+            optics,
+            boresight_origin=True,
+            az_box_deg=box.az_box_deg,
+        )
         rows.append(
             LatitudeRow(
                 lat_deg=lat,

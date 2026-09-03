@@ -3,7 +3,8 @@
 Physical setup: plumes originate at fixed stacks. Unknown wind azimuth
 makes a covering disk of radius L around each stack. Cluster covering
 radius is R = D + L with D from Climate TRACE plant span, not a locked
-design R. Imaging rewind is smear-gated on the 2x2 band plane. Science
+design R. In-frame means at least half that disk is on the chip after
+pointing. Imaging rewind is smear-gated on the 2x2 band plane. Science
 window is one-sided eta_max = 45 deg, set from along-track band GSD
 (~45 m at that look). Slant and incidence are not extra caps.
 
@@ -86,14 +87,38 @@ INDUSTRY_PASS_DT_S = 0.1
 
 # L = 2 km is a conservative visible-length envelope, not a typical length.
 # Cooling-tower photo climatologies: typical 0.3-0.8 km; winter often >0.9 km.
+# Lognormal fit P50 = 0.50 km, P95 = 2.5 km (sigma ~ 0.98) to those bins plus
+# Polak 1984 (short <0.3, medium 0.3-0.9, long >0.9 km) and Indian Point NDCT
+# few-percent annual tail at 1.6-4 km. Climate TRACE has plant span D, not L.
 PLUME_R_KM = 2.0
+PLUME_L_PERCENTILES: tuple[tuple[str, float], ...] = (
+    ("P50", 0.50),
+    ("P80", 1.1),
+    ("P90", 1.8),
+    ("P95", 2.5),
+    ("P99", 4.9),
+)
 CLUSTER_EPS_KM = 8.0
 MAX_CLUSTER_R_KM = 12.0
 MIN_PLANT_R_KM = 0.4
 LAT_BIN_DEG = 2.0
 INVENTORY_YEAR = "2025"
 
-GRID_R_KM: tuple[float, ...] = (0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0)
+GRID_R_KM: tuple[float, ...] = (
+    0.5,
+    1.0,
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0,
+    8.0,
+    10.0,
+    12.0,
+    15.0,
+    18.0,
+    20.0,
+)
 
 FOLDED_LAT_BANDS: tuple[tuple[float, float], ...] = (
     (0.0, 10.0),

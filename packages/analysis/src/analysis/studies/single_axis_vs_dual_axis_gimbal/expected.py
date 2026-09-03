@@ -16,9 +16,7 @@ Contains:
 
 from __future__ import annotations
 
-import csv
 import math
-from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -36,6 +34,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     LAT_BIN_DEG,
     OPTICS_SPEC,
     OUT_DIR,
+    PLUME_L_PERCENTILES,
     STUDY_DIR,
     T_MIN_USABLE_S,
     TLE,
@@ -167,44 +166,6 @@ def _weight_of(cluster: Cluster, weight: Weight) -> float:
     if weight == "stacks":
         return float(cluster.n)
     return cluster.emissions_t
-
-
-def _seed_time_lost_cache(
-    cache_path: Path,
-    csv_path: Path,
-    lats: np.ndarray,
-    rs: np.ndarray,
-) -> None:
-    """Copy a committed time-lost CSV into the npz cache if the npz is missing.
-
-    Args:
-        cache_path: Destination ``.npz``.
-        csv_path: Flattened grid CSV written by a previous industry run.
-        lats: Expected latitude grid. # np.ndarray[float64, (L,)]
-        rs: Expected radius grid. # np.ndarray[float64, (R,)]
-
-    Returns:
-        None. No-op if the npz exists, the CSV is missing, or the grids differ.
-    """
-    if cache_path.is_file() or not csv_path.is_file():
-        return
-    t1 = np.full((lats.size, rs.size), np.nan)
-    t2 = np.full((lats.size, rs.size), np.nan)
-    with csv_path.open(newline="", encoding="utf-8") as fh:
-        for row in csv.DictReader(fh):
-            lat = float(row["lat_deg"])
-            radius = float(row["radius_km"])
-            i = int(np.argmin(np.abs(lats - lat)))
-            j = int(np.argmin(np.abs(rs - radius)))
-            if abs(float(lats[i]) - lat) > 1e-3 or abs(float(rs[j]) - radius) > 1e-3:
-                return
-            t1[i, j] = float(row["one_axis_s"])
-            t2[i, j] = float(row["two_axis_s"])
-    if not np.all(np.isfinite(t1)) or not np.all(np.isfinite(t2)):
-        return
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(cache_path, lats=lats, rs=rs, t1=t1, t2=t2)
-    print(f"  seeded time-lost cache from {csv_path}")
 
 
 def expected_from_clusters(
@@ -348,6 +309,7 @@ def run_industry() -> None:
         plot_r_hist,
         plot_r_vs_lat,
         plot_reacquire_vs_lat,
+        plot_reacquire_vs_lat_plume_length,
     )
     from analysis.studies.single_axis_vs_dual_axis_gimbal.report import (
         write_industry_report,
@@ -396,7 +358,6 @@ def run_industry() -> None:
     lats_grid = np.array(grid_lats_deg(), dtype=float)
     rs_grid = np.array(GRID_R_KM, dtype=float)
     cache_path = CACHE_DIR / "time_lost_grid.npz"
-    _seed_time_lost_cache(cache_path, OUT_DIR / "time_lost_grid.csv", lats_grid, rs_grid)
     fn = TimeLostFn(
         orbit,
         optics,
@@ -446,6 +407,30 @@ def run_industry() -> None:
         cyc1_bin[i] = cycle_s(t1_bin[i], hunted.t_reacq_1_s)
         cyc2_bin[i] = cycle_s(t2_bin[i], hunted.t_reacq_2_s)
 
+    t1_by_label: dict[str, np.ndarray] = {}
+    reacq1_by_label: dict[str, np.ndarray] = {}
+    n_bins = edges.size - 1
+    for pct_name, l_km in PLUME_L_PERCENTILES:
+        t1_l = np.zeros(n_bins)
+        reacq1_l = np.zeros(n_bins)
+        curve = f"{pct_name} L={l_km:g} km"
+        for i, mid in enumerate(0.5 * (edges[:-1] + edges[1:])):
+            if abs(mid) > orbit.inclination_deg:
+                continue
+            radius = profile.r_km(mid, plume_r_km=l_km)
+            t1_l[i], _t2_l, _lost = fn.eval(mid, radius)
+            hunted_l = hunt_at_lat(
+                mid,
+                profile.dens_km2(mid),
+                hunt,
+                t_dwell_1_s=t1_l[i],
+                t_dwell_2_s=t2_bin[i],
+                t_window_s=t2_bin[i],
+            )
+            reacq1_l[i] = hunted_l.t_reacq_1_s
+        t1_by_label[curve] = t1_l
+        reacq1_by_label[curve] = reacq1_l
+
     weights: tuple[Weight, ...] = ("area", "stacks", "emissions")
     exp: dict[str, dict[str, float]] = {}
     for key in weights:
@@ -469,6 +454,15 @@ def run_industry() -> None:
         h_stacks,
         OUT_DIR / "industrial_reacquire_vs_lat.png",
     )
+    plot_reacquire_vs_lat_plume_length(
+        edges,
+        t2_bin,
+        reacq2_bin,
+        t1_by_label,
+        reacq1_by_label,
+        h_stacks,
+        OUT_DIR / "industrial_reacquire_vs_lat_plume_length.png",
+    )
     plot_folded(clusters, fn, profile, OUT_DIR / "industrial_lat_folded.png")
     plot_r_hist(clusters, OUT_DIR / "industrial_cluster_radius.png")
     plot_r_vs_lat(profile, OUT_DIR / "industrial_r_vs_lat.png")
@@ -489,6 +483,20 @@ def run_industry() -> None:
                 f"{dens:.8g},{reacq1_bin[i]:.3f},{reacq2_bin[i]:.3f},"
                 f"{cyc1_bin[i]:.3f},{cyc2_bin[i]:.3f}\n"
             )
+    with (OUT_DIR / "industrial_reacquire_vs_lat_plume_length.csv").open(
+        "w", encoding="utf-8"
+    ) as fh:
+        header = "lat_lo,lat_hi,lat_mid,two_axis_dwell_s,two_axis_reacq_s"
+        for curve in t1_by_label:
+            slug = curve.replace(" ", "_").replace("=", "")
+            header += f",{slug}_dwell_s,{slug}_reacq_s"
+        fh.write(header + "\n")
+        for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
+            mid = 0.5 * (lo + hi)
+            line = f"{lo:.1f},{hi:.1f},{mid:.1f},{t2_bin[i]:.3f},{reacq2_bin[i]:.3f}"
+            for curve in t1_by_label:
+                line += f",{t1_by_label[curve][i]:.3f},{reacq1_by_label[curve][i]:.3f}"
+            fh.write(line + "\n")
     with (OUT_DIR / "r_vs_lat.csv").open("w", encoding="utf-8") as fh:
         fh.write(
             "lat_lo,lat_hi,lat_mid,n_clusters,n_stacks,mean_d_km,mean_r_km,"

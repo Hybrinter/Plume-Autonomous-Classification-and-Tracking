@@ -30,6 +30,8 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     GIMBAL_BOX,
     MAX_HW_SLEW_DEG_S,
     MAX_SMEAR_BAND_PX,
+    OFFSET_PLANT_D_KM,
+    OFFSET_STACK_N,
     OPTICS_SPEC,
     PLUME_L_PERCENTILES,
     PLUME_R_KM,
@@ -38,7 +40,6 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     SENSOR_NAME,
     T_MIN_USABLE_S,
     TLE,
-    WIND_MPS,
 )
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import Cluster
 from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import (
@@ -92,6 +93,10 @@ def _setup_lines(*, include_heading: bool) -> list[str]:
             "  tracks the origin). Two-axis boresights the origin when it is inside",
             "  the +/-10 deg keep-out box; if the origin is outside the box that",
             "  sample is out. This replaces the any-part existence test.",
+            "- **Off-track.** The payload tracks the CoG of plumes still on the chip.",
+            "  A cluster is lost only when the innermost plume fails the half-disk",
+            "  test. Off-track information is plume-seconds, not centroid-in-FOV time.",
+            "  Daily coverage half-swath is the chip or keep-out box plus plant span D.",
             "- **P(visible)** is that on-chip area fraction. A sample counts if it is",
             "  >= 0.5. Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR",
             "  only. Do not multiply the two.",
@@ -221,7 +226,6 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     orbit = result.orbit
     optics = result.optics
     times = result.times
-    table = result.table
     times_perigee = result.times_perigee
     h_km = times.local_alt_km
     r_fit = h_km * math.tan(math.radians(optics.half_az_deg))
@@ -399,58 +403,36 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
     a("nadir. How much a real cluster loses depends on R(|lat|), not on a")
     a("locked design radius.")
     a("")
-    a("## Covering-disk sensitivity (design pass)")
+    a("## Off-track information (design pass)")
     a("")
-    a("Elevation tracks the fixed stack / cluster centroid. Acquire is a")
-    a("50% on-chip area test, not an existence sliver and not whole-disk-in-chip:")
+    a("The payload tracks the CoG of plumes still on the chip, not the")
+    a("cluster centroid. A representative cluster has")
+    a(
+        f"**n = {OFFSET_STACK_N}** stacks on a cross-track line of covering "
+        f"radius **D = {OFFSET_PLANT_D_KM:.1f} km**, each with an L = "
+        f"{PLUME_R_KM:.0f} km disk. One-axis parks at az = 0. Two-axis"
+    )
+    a("boresights each plume that sits inside the +/-10 deg box. A plume")
+    a("counts when at least half its L-disk is on the chip. Information is")
+    a("the sum of those in-frame times (plume-seconds). The cluster is")
+    a("fully lost when the innermost plume fails that test.")
     a("")
-    a("1. **Can we point?** One-axis is parked at az = 0. Two-axis boresights")
-    a("   the origin if it is inside the +/-10 deg ISS keep-out box. If the")
-    a("   origin is outside the box, that sample is out.")
-    a("2. **Is half the disk on the chip?** After pointing, the chip is a")
-    a("   local-flat ground rectangle of half-widths slant * tan(half_fov).")
-    a("   Count the sample if covering-disk area on that rectangle is >= 50%.")
-    a("   For R well below the chip (~12 km at nadir) this is close to")
-    a("   origin-on-the-FOV-edge for one-axis.")
-    a("")
-    a("The radii below are a **sensitivity sweep at the design latitude**,")
-    a(f"not a locked operational R. Isolated stacks sit at R = L = {PLUME_R_KM:.0f} km.")
-    a("")
-    a("| R (km) | peak az (deg) | 1-axis (s) | 2-axis (s) | lost (s) | lost % |")
-    a("| --- | --- | --- | --- | --- | --- |")
-    for i, radius in enumerate(table.radius_km):
-        t1 = float(table.one_axis_s[i])
-        t2 = float(table.two_axis_s[i])
-        lost = float(table.lost_s[i])
-        frac = 0.0 if t2 <= 0 else 100.0 * lost / t2
-        a(
-            f"| {radius:.1f} | {table.az_peak_deg[i]:.2f} | {t1:.1f} | {t2:.1f} | "
-            f"{lost:.1f} | {frac:.1f}% |"
-        )
-    a("")
-    a("At the design pass the origin stays in the chip (Earth-rotation az")
-    a("~0). Half-disk on chip then keeps 1-axis and 2-axis at full-window")
-    a("dwell until R is large enough that the chip itself clips half the")
-    a(f"disk (nadir half-swath {r_fit:.1f} km).")
-    a("")
-    a("Wind during the window (extra walk of a visible plume around the fixed")
-    a("origin; already inside the L envelope if L is conservative):")
-    a("")
-    a("| wind (m/s) | extra displacement (km) | leftover 1-axis budget (km) |")
-    a("| --- | --- | --- |")
-    for wind in WIND_MPS:
-        extra = (wind / 1000.0) * times.along_track_s
-        a(f"| {wind:.0f} | {extra:.2f} | {r_fit - extra:.2f} |")
-    a("")
-    a("## Off-center cluster (design pass, R = 0)")
-    a("")
-    a("| origin cross-track (km) | 1-axis (s) | 2-axis (s) | lost (s) |")
-    a("| --- | --- | --- | --- |")
+    a(
+        "| centroid cross-track (km) | 1-axis (plume-s) | 2-axis (plume-s) | "
+        "1-axis n in | 2-axis n in |"
+    )
+    a("| --- | --- | --- | --- | --- |")
     for row in result.offsets:
+        if abs(row.origin_cross_km % 5.0) > 0.05:
+            continue
         a(
-            f"| {row.origin_cross_km:.0f} | {row.one_axis_s:.1f} | "
-            f"{row.two_axis_s:.1f} | {row.two_axis_s - row.one_axis_s:.1f} |"
+            f"| {row.origin_cross_km:.1f} | {row.one_axis_plume_s:.1f} | "
+            f"{row.two_axis_plume_s:.1f} | {row.one_axis_n_in} | "
+            f"{row.two_axis_n_in} |"
         )
+    a("")
+    a(f"Nadir chip half-swath is {r_fit:.1f} km; 2-axis box half-swath is {r_box:.1f} km.")
+    a("Dense 2.5 km steps: `outputs/origin_offset.csv`.")
     a("")
     a("## Full-frame inference")
     a("")
@@ -517,13 +499,8 @@ def write_geometry_report(result: GeometryResult, path: Path) -> None:
         _figure_embeds(
             (
                 ("along_track_timeline.png", "Along-track elevation window"),
-                ("disk_angular_radius.png", "Covering-disk angular radius"),
-                ("tracking_time_vs_radius.png", "Tracking time vs covering radius"),
-                ("lost_time_vs_radius.png", "Time lost vs two-axis"),
-                ("footprint_vs_time.png", "Sensor footprint vs time"),
-                ("origin_offset.png", "Off-center cluster tracking time"),
-                ("required_az_vs_radius.png", "Required azimuth vs covering radius"),
-                ("latitude_earth_rotation.png", "Earth rotation vs pass latitude"),
+                ("az_walk_vs_time.png", "Earth-rotation azimuth walk vs time"),
+                ("origin_offset.png", "Off-track plume-seconds vs cluster offset"),
             )
         )
     )
@@ -791,9 +768,10 @@ def write_industry_report(
     p("## Lateral swath (why 2-axis still buys something at 50 deg)")
     p("")
     p("Tracking time is conditional on the cluster being in the frame.")
-    p("1-axis only sees +/-1.60 deg (~12 km at nadir). 2-axis sees the +/-10 deg")
-    p("box (~76 km). Ground-track spacing is thousands of km, so daily")
-    p("longitude coverage is proportional to swath.")
+    p("1-axis sees the chip plus plant span D (innermost plume still")
+    p("acquirable when the centroid sits just outside the FOV). 2-axis sees")
+    p("the +/-10 deg box plus D. Ground-track spacing is thousands of km,")
+    p("so daily longitude coverage is proportional to swath.")
     p("")
     p("| | 1-axis | 2-axis | ratio |")
     p("| --- | --- | --- | --- |")
@@ -836,11 +814,9 @@ def write_industry_report(
         p(f"| {pct_name} | {l_km:g} |")
     p(f"| locked design | {PLUME_R_KM:g} |")
     p("")
-    p("The companion figure holds 2-axis at L = 2 km and varies 1-axis")
-    p("R(|lat|) = D(|lat|) + L_pct. Under the 50% on-chip test, 1-axis")
-    p("curves nearly overlap except at low latitude where D+L approaches")
-    p("the chip width: half-out is then close to origin-on-the-FOV-edge,")
-    p("so locked L = 2 km does not drive the clocks.")
+    p("Under the 50% on-chip test, 1-axis dwell vs lat is insensitive to L")
+    p("except at low latitude where D+L approaches the chip width. Locked")
+    p("L = 2 km does not drive the clocks.")
     p("")
     p("## Decision numbers")
     p("")
@@ -888,14 +864,9 @@ def write_industry_report(
         _figure_embeds(
             (
                 ("industrial_lat_hist.png", "Stack latitude histogram"),
-                ("industrial_lat_folded.png", "Folded latitude dwell and stack mass"),
-                ("industrial_time_vs_lat.png", "Single-target dwell vs latitude"),
                 ("industrial_reacquire_vs_lat.png", "Dwell, reacquire, and cycle vs latitude"),
-                (
-                    "industrial_reacquire_vs_lat_plume_length.png",
-                    "1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles",
-                ),
-                ("industrial_cluster_radius.png", "Cluster covering-radius histogram"),
+                ("industrial_yield_vs_lat.png", "Daily usable yield vs latitude"),
+                ("industrial_hunt_timeline.png", "Hunt cycle at 35 N and 35 S"),
                 ("industrial_r_vs_lat.png", "Covering radius vs latitude"),
                 ("industrial_cluster_map.png", "World cluster map"),
             )
@@ -1023,15 +994,11 @@ def write_study_readme(
         _figure_embeds(
             (
                 ("along_track_timeline.png", "Along-track elevation window"),
-                ("latitude_earth_rotation.png", "Earth rotation vs pass latitude"),
-                ("tracking_time_vs_radius.png", "Tracking time vs covering radius"),
-                ("origin_offset.png", "Off-center cluster tracking time"),
-                ("industrial_time_vs_lat.png", "Single-target dwell vs latitude"),
+                ("az_walk_vs_time.png", "Earth-rotation azimuth walk vs time"),
+                ("origin_offset.png", "Off-track plume-seconds vs cluster offset"),
                 ("industrial_reacquire_vs_lat.png", "Dwell, reacquire, and cycle vs latitude"),
-                (
-                    "industrial_reacquire_vs_lat_plume_length.png",
-                    "1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles",
-                ),
+                ("industrial_yield_vs_lat.png", "Daily usable yield vs latitude"),
+                ("industrial_hunt_timeline.png", "Hunt cycle at 35 N and 35 S"),
             )
         )
     )

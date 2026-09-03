@@ -71,9 +71,14 @@ EXPOSURE_S = 1.0e-3
 MAX_SMEAR_BAND_PX = 1.0
 MAX_HW_SLEW_DEG_S = 10.0
 
-DISK_RADII_KM: tuple[float, ...] = (0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0)
-WIND_MPS: tuple[float, ...] = (0.0, 10.0, 20.0)
-ORIGIN_OFFSETS_KM: tuple[float, ...] = (0.0, 5.0, 10.0, 20.0, 40.0, 70.0)
+# Representative multi-stack cluster for the off-track information sweep.
+# n ~ ISS-belt mean sources/cluster; D ~ 30-40 N stack-weighted plant span.
+OFFSET_STACK_N = 3
+OFFSET_PLANT_D_KM = 3.5
+ORIGIN_OFFSETS_KM: tuple[float, ...] = tuple(float(x) for x in np.arange(0.0, 80.0 + 0.01, 2.5))
+AZ_WALK_LATS_DEG: tuple[float, ...] = (0.0, 30.0, TLE.inclination_deg)
+HUNT_TIMELINE_LATS_DEG: tuple[float, ...] = (35.0, -35.0)
+POLAR_TASK_LAT_DEG = 45.0
 
 BAND_LATERAL_PX = OPTICS_SPEC.n_lateral_px // 2
 BAND_ALONG_PX = OPTICS_SPEC.n_along_px // 2

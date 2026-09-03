@@ -35,6 +35,10 @@ Geometry: [`RESULTS.md`](RESULTS.md). Worldwide stack inventory:
   tracks the origin). Two-axis boresights the origin when it is inside
   the +/-10 deg keep-out box; if the origin is outside the box that
   sample is out. This replaces the any-part existence test.
+- **Off-track.** The payload tracks the CoG of plumes still on the chip.
+  A cluster is lost only when the innermost plume fails the half-disk
+  test. Off-track information is plume-seconds, not centroid-in-FOV time.
+  Daily coverage half-swath is the chip or keep-out box plus plant span D.
 - **P(visible)** is that on-chip area fraction. A sample counts if it is
   >= 0.5. Plume volume / Gaussian ribbon (~5% disk fill) is occupancy/SNR
   only. Do not multiply the two.
@@ -129,15 +133,13 @@ PNGs are in git under `outputs/`. CSVs from the same run stay local.
 
 ![Along-track elevation window](outputs/along_track_timeline.png)
 
-![Earth rotation vs pass latitude](outputs/latitude_earth_rotation.png)
+![Earth-rotation azimuth walk vs time](outputs/az_walk_vs_time.png)
 
-![Tracking time vs covering radius](outputs/tracking_time_vs_radius.png)
-
-![Off-center cluster tracking time](outputs/origin_offset.png)
-
-![Single-target dwell vs latitude](outputs/industrial_time_vs_lat.png)
+![Off-track plume-seconds vs cluster offset](outputs/origin_offset.png)
 
 ![Dwell, reacquire, and cycle vs latitude](outputs/industrial_reacquire_vs_lat.png)
 
-![1-axis dwell/reacquire/cycle vs latitude at plume-length percentiles](outputs/industrial_reacquire_vs_lat_plume_length.png)
+![Daily usable yield vs latitude](outputs/industrial_yield_vs_lat.png)
+
+![Hunt cycle at 35 N and 35 S](outputs/industrial_hunt_timeline.png)
 

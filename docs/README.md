@@ -10,6 +10,7 @@
 | [`gse.md`](gse.md) | Ground support equipment package |
 | [`tools.md`](tools.md) | Analysis and acceptance tooling |
 | [`adr.md`](adr.md) | Repository-scope decision index |
+| [`design.md`](design.md) | Architecture briefs (not as-built) |
 
 Design and performance studies live under [`packages/analysis/`](../packages/analysis/)
 (`pact-analysis`). They are not STE-mirrored. `tools.analysis` is SIL capture;
@@ -21,8 +22,11 @@ Design and performance studies live under [`packages/analysis/`](../packages/ana
    `docs/tools` mirror the source trees. They state what the code does now.
 2. **ADR pages** under `docs/adr` (repository scope) and
    `docs/<package>/adr` (package scope) record why a decision was made.
-3. **Requirements** under `docs/requirements` hold the VCRM.
-4. **Validation** under `docs/validation` holds PIL and HIL procedures.
+3. **Design briefs** under `docs/design` specify architecture that is not yet
+   as-built. They are not STE-mirrored. The pointing-controller brief is
+   [`design/single-axis-elevation-controller.md`](design/single-axis-elevation-controller.md).
+4. **Requirements** under `docs/requirements` hold the VCRM.
+5. **Validation** under `docs/validation` holds PIL and HIL procedures.
 
 ## Mirror rule
 
@@ -35,6 +39,8 @@ has `foo.md`.
 - Descriptive pages may link to other descriptive pages.
 - Descriptive pages must not link to ADR pages or cite ADR identifiers.
 - ADR pages may cite other ADR pages.
+- Design briefs may use equations and future-tense language. They must not cite
+  architecture-decision identifiers.
 - Coding standards live in `.claude/rules/`.
 
 ## Writing style

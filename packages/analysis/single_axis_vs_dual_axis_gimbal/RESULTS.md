@@ -248,10 +248,8 @@ compute, not tracking time. The 2x2 band plane is
 | CPU accept latency (linear scale from 256) | 2.3 / 3.4 ms | 44 / 65 ms | |
 
 The 500x parameter cut (DilateNet-w32 23.5 k vs U-Net 13.4 M) is what
-makes full-frame plausible. Full-frame expected latency and FDIR timeout
-are derived in `analysis.studies.orin_nano_full_frame_inference`
-(Orin Nano Super analytic wall, not a placeholder millisecond budget).
-Jetson Nano (4 GB) is tighter on **activation memory**
+makes full-frame plausible. FLOPs still fit the 500 ms budget if latency
+scales with pixels. Jetson Nano (4 GB) is tighter on **activation memory**
 at 1224x1024 than Orin NX; that needs a bench, not a FLOP argument.
 A 256-pixel centre crop on this optic is only ~0.67 deg -- that would
 throw away the 1-axis lateral budget. Full-frame is the right inference

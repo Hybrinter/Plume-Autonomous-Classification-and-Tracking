@@ -5,15 +5,15 @@
   "input_shape": [
     1,
     4,
-    256,
-    256
+    1024,
+    1224
   ],
   "output_shape": [
     1,
     1,
-    256,
-    256
+    1024,
+    1224
   ],
-  "sha256": "de45aad7095a8064bc5faca7c51cd1016233498735c7bc9652c4e2ac722a077c",
-  "quantization": "fp32"
+  "sha256": "d0402825afe766d993eb76c988db968d087c54734a38260aaed44d9eb19eb0f2",
+  "quantization": "int8"
 }

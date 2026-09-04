@@ -18,8 +18,18 @@ from typing import Annotated
 import typer
 
 # internal
+from flight.libs.config import FaultConfig, InferenceConfig
+
 from tools.inference.accept import accept_kind, load_manifest
-from tools.inference.export import ExportConfig, export, int8_artifact_path, promote
+from tools.inference.export import (
+    ExportConfig,
+    export,
+    fp16_artifact_path,
+    int8_artifact_path,
+    promote,
+    quantize_knee,
+    reexport_spatial,
+)
 from tools.inference.fetch import main as fetch_main
 from tools.inference.train import load_train_config, overlay_train_config, train
 
@@ -35,6 +45,9 @@ app = typer.Typer(
     help="Train, eval, compare, sweep, export, accept, finalize, and fetch inference artifacts.",
     no_args_is_help=True,
 )
+
+_INF = InferenceConfig()
+_FAULT = FaultConfig()
 
 
 @app.command("train")
@@ -139,12 +152,22 @@ def export_command(
     int8: Annotated[
         bool, typer.Option("--int8", help="Also write a sibling INT8 QDQ ONNX file.")
     ] = False,
+    fp16: Annotated[
+        bool, typer.Option("--fp16", help="Also write a sibling FP16 ONNX file.")
+    ] = False,
     calib_dir: Annotated[
         str, typer.Option("--calib-dir", help="Processed pack for INT8 calibration.")
     ] = "",
     calib_samples: Annotated[
         int, typer.Option("--calib-samples", help="INT8 calibration sample count.")
     ] = 4,
+    override_spatial: Annotated[
+        bool,
+        typer.Option(
+            "--override-spatial",
+            help="Use --height/--width even when the checkpoint recorded a size.",
+        ),
+    ] = False,
 ) -> None:
     """Export a frozen ONNX artifact and manifest."""
     config = ExportConfig(
@@ -157,8 +180,10 @@ def export_command(
         dataset_hash=dataset_hash,
         model_repo_sha=repo_sha,
         int8=int8,
+        fp16=fp16,
         calib_dir=calib_dir,
         calib_samples=calib_samples,
+        override_spatial=override_spatial,
     )
     try:
         onnx_path, manifest_path, _manifest = export(config)
@@ -171,6 +196,68 @@ def export_command(
         int8_path = int8_artifact_path(onnx_path)
         typer.echo(int8_path)
         typer.echo(int8_path.with_suffix(".json"))
+    if config.fp16:
+        fp16_path = fp16_artifact_path(onnx_path)
+        typer.echo(fp16_path)
+        typer.echo(fp16_path.with_suffix(".json"))
+
+
+@app.command("reexport-spatial")
+def reexport_spatial_command(
+    kind: Annotated[InferenceKind, typer.Option(help="Artifact kind.")],
+    artifact: Annotated[str, typer.Option(help="Source ONNX path.")],
+    arch: Annotated[str, typer.Option(help="Architecture name.")],
+    out: Annotated[str, typer.Option(help="ONNX output path.")],
+    height: Annotated[int, typer.Option(help="Input height in pixels.")] = 1024,
+    width: Annotated[int, typer.Option(help="Input width in pixels.")] = 1224,
+) -> None:
+    """Rebuild an ONNX graph at a new H/W and copy matching trained weights."""
+    try:
+        onnx_path, manifest_path, _manifest = reexport_spatial(
+            artifact,
+            out,
+            kind=kind.value,
+            arch=arch,
+            height=height,
+            width=width,
+        )
+    except (FileNotFoundError, ImportError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(onnx_path)
+    typer.echo(manifest_path)
+
+
+@app.command("quantize-knee")
+def quantize_knee_command(
+    classifier: Annotated[
+        str, typer.Option(help="Classifier ONNX path overwritten with FP16.")
+    ] = "data/models/active_classifier.onnx",
+    segmentor: Annotated[
+        str, typer.Option(help="Segmentor ONNX path overwritten with INT8.")
+    ] = "data/models/active_segmentor.onnx",
+    calib_dir: Annotated[
+        str, typer.Option("--calib-dir", help="Processed pack for INT8 calibration.")
+    ] = "",
+    calib_samples: Annotated[
+        int, typer.Option("--calib-samples", help="INT8 calibration sample count.")
+    ] = 4,
+) -> None:
+    """Overwrite factory ONNX with the quality knee: classifier FP16, segmentor INT8."""
+    try:
+        (cls_onnx, cls_json, _), (seg_onnx, seg_json, _) = quantize_knee(
+            classifier,
+            segmentor,
+            calib_dir=calib_dir,
+            calib_samples=calib_samples,
+        )
+    except (FileNotFoundError, ImportError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(cls_onnx)
+    typer.echo(cls_json)
+    typer.echo(seg_onnx)
+    typer.echo(seg_json)
 
 
 @app.command("accept")
@@ -185,9 +272,9 @@ def accept_command(
     min_accuracy: Annotated[float, typer.Option(help="Minimum classifier accuracy.")] = 0.9,
     max_latency_ms: Annotated[
         float, typer.Option(help="Maximum per-frame inference latency.")
-    ] = 500.0,
-    height: Annotated[int, typer.Option(help="Input height in pixels.")] = 256,
-    width: Annotated[int, typer.Option(help="Input width in pixels.")] = 256,
+    ] = _FAULT.inference_timeout_ms,
+    height: Annotated[int, typer.Option(help="Input height in pixels.")] = _INF.input_height_px,
+    width: Annotated[int, typer.Option(help="Input width in pixels.")] = _INF.input_width_px,
     scenes_dir: Annotated[
         str, typer.Option("--scenes-dir", help="Processed pack supplying golden scenes.")
     ] = "",
@@ -243,7 +330,7 @@ def finalize_command(
     min_accuracy: Annotated[float, typer.Option(help="Minimum classifier accuracy.")] = 0.9,
     max_latency_ms: Annotated[
         float, typer.Option(help="Maximum per-frame inference latency.")
-    ] = 500.0,
+    ] = _FAULT.inference_timeout_ms,
     promote_path: Annotated[
         str | None, typer.Option("--promote", help="Copy the preferred accepted artifact.")
     ] = None,

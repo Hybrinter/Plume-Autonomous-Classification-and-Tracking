@@ -24,7 +24,7 @@ def compute_iou(
     ----------
     box_a, box_b:
         Bounding boxes as (x_min, y_min, x_max, y_max). Coordinates are inclusive
-        pixel indices in the cropped tensor frame.
+        pixel indices in the band-plane inference tensor.
 
     Returns
     -------

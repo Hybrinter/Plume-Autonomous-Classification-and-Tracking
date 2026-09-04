@@ -18,6 +18,8 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from flight.libs.config import FaultConfig
+
 from tools.inference.accept import (
     AcceptanceReport,
     ClassifierAcceptanceReport,
@@ -108,7 +110,7 @@ def finalize(
     scenes_limit: int = 0,
     min_iou: float = 0.5,
     min_accuracy: float = 0.9,
-    max_latency_ms: float = 500.0,
+    max_latency_ms: float = FaultConfig().inference_timeout_ms,
     promote_path: str | None = None,
 ) -> FinalizeReport:
     """Score the test split, export, accept, and write ``finalize.json``.

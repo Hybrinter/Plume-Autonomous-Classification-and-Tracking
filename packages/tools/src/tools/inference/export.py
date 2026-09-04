@@ -1,11 +1,14 @@
-"""Torch-to-ONNX export, manifest sidecar, optional INT8 PTQ, and promote.
+"""Torch-to-ONNX export, manifest sidecar, FP16/INT8 conversion, and promote.
 
 Graphs emit logits; they do not bake sigmoid.
 
-INT8 export is post-training static quantization with QDQ nodes. Graph input
-and output stay float32. onnxruntime loads inside the INT8 path after the
-export extra is installed. Calibration tensors convert to numpy only for
-``CalibrationDataReader``.
+INT8 export is post-training static quantization with QDQ nodes. FP16 conversion
+rewrites weights and activations while keeping graph input and output float32.
+onnxruntime loads inside those paths after the export extra is installed.
+Calibration tensors convert to numpy only for ``CalibrationDataReader``.
+
+The quality knee is classifier FP16 plus segmentor INT8. ``quantize_knee``
+writes that pair over existing factory artifacts.
 
 Promote copies an artifact only after `accept_artifact` (or the classifier
 gate) reports accepted.
@@ -13,8 +16,13 @@ gate) reports accepted.
 Contains:
   - ExportConfig: frozen export hyperparameters.
   - export: write one ONNX graph plus a Manifest JSON sidecar.
+  - reexport_spatial: rebuild a graph at a new H/W and copy matching weights.
+  - convert_fp16: rewrite an FP32 graph to FP16 with float32 I/O.
+  - quantize_int8: static QDQ INT8 with float32 I/O.
+  - quantize_knee: classifier FP16 and segmentor INT8 in place.
   - write_manifest: serialize a Manifest.
   - int8_artifact_path: sibling ``*.int8.onnx`` path for an FP32 artifact.
+  - fp16_artifact_path: sibling ``*.fp16.onnx`` path for an FP32 artifact.
   - promote: copy a passed artifact into the destination path.
   - GateReport: protocol with accepted + detail.
 
@@ -34,7 +42,7 @@ import torch
 from flight.payload.inference.verify import compute_sha256
 from torch import Tensor, nn
 
-from tools.inference.accept import Manifest
+from tools.inference.accept import Manifest, load_manifest
 from tools.inference.arch.registry import build
 from tools.inference.data import _row_image, load_processed_pack
 
@@ -71,8 +79,11 @@ class ExportConfig:
         dataset_hash: Training-pack digest recorded in the manifest.
         opset: ONNX opset for ``torch.onnx.export``.
         int8: When true, also write a sibling INT8 QDQ artifact.
+        fp16: When true, also write a sibling FP16 artifact.
         calib_dir: Processed pack used as INT8 calibration data (train split).
         calib_samples: Maximum calibration tensors.
+        override_spatial: When true, use ``input_height_px`` / ``input_width_px``
+            even if the checkpoint recorded a different size.
     """
 
     kind: str
@@ -86,8 +97,10 @@ class ExportConfig:
     dataset_hash: str = "synthetic"
     opset: int = 17
     int8: bool = False
+    fp16: bool = False
     calib_dir: str = ""
     calib_samples: int = 4
+    override_spatial: bool = False
 
 
 def write_manifest(path: str, manifest: Manifest) -> None:
@@ -125,6 +138,58 @@ def int8_artifact_path(fp32_path: str | Path) -> Path:
     """
     path = Path(fp32_path)
     return path.with_name(f"{path.stem}.int8{path.suffix}")
+
+
+def fp16_artifact_path(fp32_path: str | Path) -> Path:
+    """Return the sibling FP16 ONNX path for an FP32 artifact.
+
+    Args:
+        fp32_path: FP32 ``.onnx`` path.
+
+    Returns:
+        Path: ``<stem>.fp16.onnx`` next to the FP32 file.
+    """
+    path = Path(fp32_path)
+    return path.with_name(f"{path.stem}.fp16{path.suffix}")
+
+
+def _staging_path(source: Path, dest: Path) -> Path:
+    """Return ``dest``, or a sibling temp path when dest would overwrite source."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.resolve() == source.resolve():
+        return dest.with_name(f".{dest.name}.quant")
+    return dest
+
+
+def _commit_staging(staging: Path, dest: Path) -> None:
+    """Move ``staging`` onto ``dest`` when they are different paths."""
+    if staging.resolve() != dest.resolve():
+        staging.replace(dest)
+
+
+def _manifest_after_quant(
+    source: Path,
+    dest: Path,
+    quantization: str,
+) -> Manifest:
+    """Copy provenance from the source sidecar and set digest plus quantization.
+
+    Args:
+        source: Source ONNX path (sidecar must exist).
+        dest: Written ONNX path to hash.
+        quantization: Manifest ``quantization`` field.
+
+    Returns:
+        Manifest for ``dest``.
+
+    Raises:
+        FileNotFoundError: If the source sidecar is missing.
+    """
+    sidecar = source.with_suffix(".json")
+    if not sidecar.is_file():
+        raise FileNotFoundError(str(sidecar))
+    base = load_manifest(str(sidecar))
+    return replace(base, sha256=compute_sha256(str(dest)), quantization=quantization)
 
 
 def _calibration_batches(
@@ -171,19 +236,18 @@ def _calibration_batches(
     ]
 
 
-def _export_int8(
-    fp32_path: Path,
-    input_shape: tuple[int, ...],
-    base_manifest: Manifest,
-    calib_dir: str,
-    calib_samples: int,
+def quantize_int8(
+    source_onnx: str,
+    dest_onnx: str,
+    *,
+    calib_dir: str = "",
+    calib_samples: int = 4,
 ) -> tuple[Path, Path, Manifest]:
-    """Write a sibling INT8 QDQ ONNX file and matching manifest.
+    """Write a QDQ INT8 ONNX file and matching manifest. I/O stay float32.
 
     Args:
-        fp32_path: FP32 ONNX path produced by ``export``.
-        input_shape: Graph input shape ``(1, C, H, W)``.
-        base_manifest: FP32 manifest; SHA-256 and quantization are replaced.
+        source_onnx: FP32 ONNX path.
+        dest_onnx: Destination INT8 path. May equal ``source_onnx``.
         calib_dir: Processed pack directory, or empty for synthetic tensors.
         calib_samples: Maximum calibration tensors.
 
@@ -192,6 +256,7 @@ def _export_int8(
 
     Raises:
         ImportError: If onnxruntime is not installed.
+        FileNotFoundError: If the source ONNX or sidecar is missing.
         ValueError: If calibration tensors do not match the graph input.
     """
     try:
@@ -202,7 +267,18 @@ def _export_int8(
             "onnxruntime is required for INT8 export; install pact-tools[export]"
         ) from exc
 
-    batches = _calibration_batches(input_shape, calib_dir, calib_samples)
+    source = Path(source_onnx)
+    if not source.is_file():
+        raise FileNotFoundError(source_onnx)
+    dest = Path(dest_onnx)
+    sidecar = source.with_suffix(".json")
+    if not sidecar.is_file():
+        raise FileNotFoundError(str(sidecar))
+    base = load_manifest(str(sidecar))
+    if any(dim is None for dim in base.input_shape):
+        raise ValueError(f"INT8 calibration needs a concrete input shape, got {base.input_shape}")
+    concrete = tuple(int(dim) for dim in base.input_shape if dim is not None)
+    batches = _calibration_batches(concrete, calib_dir, calib_samples)
 
     class _CalibrationReader(CalibrationDataReader):  # type: ignore[misc]
         """Yields ``{input: tensor}`` dicts, then None."""
@@ -223,20 +299,92 @@ def _export_int8(
         def rewind(self) -> None:
             self._index = 0
 
-    int8_path = int8_artifact_path(fp32_path)
+    staging = _staging_path(source, dest)
     quantize_static(
-        model_input=str(fp32_path),
-        model_output=str(int8_path),
+        model_input=str(source),
+        model_output=str(staging),
         calibration_data_reader=_CalibrationReader(),
         quant_format=QuantFormat.QDQ,
         activation_type=QuantType.QInt8,
         weight_type=QuantType.QInt8,
     )
-    digest = compute_sha256(str(int8_path))
-    int8_manifest = replace(base_manifest, sha256=digest, quantization="int8")
-    int8_manifest_path = int8_path.with_suffix(".json")
-    write_manifest(str(int8_manifest_path), int8_manifest)
-    return int8_path, int8_manifest_path, int8_manifest
+    _commit_staging(staging, dest)
+    manifest = _manifest_after_quant(source, dest, "int8")
+    manifest_path = dest.with_suffix(".json")
+    write_manifest(str(manifest_path), manifest)
+    return dest, manifest_path, manifest
+
+
+def convert_fp16(source_onnx: str, dest_onnx: str) -> tuple[Path, Path, Manifest]:
+    """Rewrite an FP32 ONNX graph to FP16. Graph I/O stay float32.
+
+    Args:
+        source_onnx: FP32 ONNX path.
+        dest_onnx: Destination FP16 path. May equal ``source_onnx``.
+
+    Returns:
+        tuple: (fp16_onnx_path, fp16_manifest_path, fp16_manifest).
+
+    Raises:
+        ImportError: If onnx or onnxruntime is not installed.
+        FileNotFoundError: If the source ONNX or sidecar is missing.
+    """
+    try:
+        import onnx
+        from onnxruntime.transformers.float16 import convert_float_to_float16
+    except ImportError as exc:
+        raise ImportError(
+            "onnx and onnxruntime are required for FP16 conversion; install pact-tools[export]"
+        ) from exc
+
+    source = Path(source_onnx)
+    if not source.is_file():
+        raise FileNotFoundError(source_onnx)
+    dest = Path(dest_onnx)
+    sidecar = source.with_suffix(".json")
+    if not sidecar.is_file():
+        raise FileNotFoundError(str(sidecar))
+    staging = _staging_path(source, dest)
+    model = onnx.load(str(source))
+    model_fp16 = convert_float_to_float16(model, keep_io_types=True)
+    onnx.save(model_fp16, str(staging))
+    _commit_staging(staging, dest)
+    manifest = _manifest_after_quant(source, dest, "fp16")
+    manifest_path = dest.with_suffix(".json")
+    write_manifest(str(manifest_path), manifest)
+    return dest, manifest_path, manifest
+
+
+def quantize_knee(
+    classifier_onnx: str,
+    segmentor_onnx: str,
+    *,
+    calib_dir: str = "",
+    calib_samples: int = 4,
+) -> tuple[tuple[Path, Path, Manifest], tuple[Path, Path, Manifest]]:
+    """Write the quality-knee pair: classifier FP16, segmentor INT8.
+
+    Both destinations default to overwriting the source factory paths.
+    Graph input and output stay float32.
+
+    Args:
+        classifier_onnx: Classifier ONNX path, overwritten with FP16.
+        segmentor_onnx: Segmentor ONNX path, overwritten with INT8 QDQ.
+        calib_dir: INT8 calibration pack, or empty for synthetic tensors.
+        calib_samples: Maximum INT8 calibration tensors.
+
+    Returns:
+        tuple: ``((cls_onnx, cls_json, cls_manifest), (seg_onnx, seg_json,
+        seg_manifest))``.
+    """
+    classifier = convert_fp16(classifier_onnx, classifier_onnx)
+    segmentor = quantize_int8(
+        segmentor_onnx,
+        segmentor_onnx,
+        calib_dir=calib_dir,
+        calib_samples=calib_samples,
+    )
+    return classifier, segmentor
 
 
 def _build_model(kind: str, arch: str, in_channels: int) -> nn.Module:
@@ -284,10 +432,11 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
 
     Returns:
         tuple: FP32 ``(onnx_path, manifest_path, manifest)``. When ``config.int8``
-        is true, a sibling INT8 pair is also written.
+        is true, a sibling INT8 pair is also written. When ``config.fp16`` is
+        true, a sibling FP16 pair is also written.
 
     Raises:
-        ImportError: If INT8 is requested without onnxruntime.
+        ImportError: If INT8 or FP16 is requested without onnxruntime.
         ValueError: If `config.kind` is unknown.
         FileNotFoundError: If the checkpoint is missing.
     """
@@ -298,8 +447,12 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
     except TypeError:
         payload = torch.load(config.checkpoint_path, map_location="cpu")
     in_channels = int(payload.get("in_channels", config.in_channels))
-    height = int(payload.get("input_height_px", config.input_height_px))
-    width = int(payload.get("input_width_px", config.input_width_px))
+    if config.override_spatial:
+        height = int(config.input_height_px)
+        width = int(config.input_width_px)
+    else:
+        height = int(payload.get("input_height_px", config.input_height_px))
+        width = int(payload.get("input_width_px", config.input_width_px))
     kind = str(payload.get("kind", config.kind))
     if kind not in _EXPORT_KINDS:
         raise ValueError(f"unknown checkpoint kind {kind!r}")
@@ -327,14 +480,147 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
     manifest_path = onnx_path.with_suffix(".json")
     write_manifest(str(manifest_path), manifest)
     if config.int8:
-        _export_int8(
-            fp32_path=onnx_path,
-            input_shape=input_shape,
-            base_manifest=manifest,
+        quantize_int8(
+            str(onnx_path),
+            str(int8_artifact_path(onnx_path)),
             calib_dir=config.calib_dir,
             calib_samples=config.calib_samples,
         )
+    if config.fp16:
+        convert_fp16(str(onnx_path), str(fp16_artifact_path(onnx_path)))
     return onnx_path, manifest_path, manifest
+
+
+def _copy_matching_initializers(source_onnx: str, dest_onnx: str) -> int:
+    """Copy same-name, same-shape initializers from ``source_onnx`` into ``dest_onnx``.
+
+    Args:
+        source_onnx: Trained ONNX path (any spatial size).
+        dest_onnx: Freshly exported graph whose weights are replaced in place.
+
+    Returns:
+        int: Number of tensors copied.
+
+    Raises:
+        ImportError: If onnx is not installed.
+        ValueError: If no matching initializer can be copied.
+    """
+    try:
+        import onnx
+        from onnx import numpy_helper
+    except ImportError as exc:
+        raise ImportError(
+            "onnx is required for spatial re-export; install pact-tools[export]"
+        ) from exc
+
+    src = onnx.load(source_onnx)
+    dst = onnx.load(dest_onnx)
+    src_init = {init.name: init for init in src.graph.initializer}
+    copied = 0
+    for init in dst.graph.initializer:
+        src_tensor = src_init.get(init.name)
+        if src_tensor is None:
+            continue
+        src_arr = numpy_helper.to_array(src_tensor)
+        dst_arr = numpy_helper.to_array(init)
+        if src_arr.shape != dst_arr.shape:
+            continue
+        init.CopyFrom(numpy_helper.from_array(src_arr, name=init.name))
+        copied += 1
+    if copied == 0:
+        raise ValueError(f"no matching ONNX initializers to copy from {source_onnx}")
+    onnx.save(dst, dest_onnx)
+    return copied
+
+
+def reexport_spatial(
+    source_onnx: str,
+    dest_onnx: str,
+    *,
+    kind: str,
+    arch: str,
+    height: int,
+    width: int,
+    in_channels: int = 4,
+    opset: int = 17,
+    version: str | None = None,
+    model_repo_sha: str | None = None,
+    dataset_hash: str | None = None,
+) -> tuple[Path, Path, Manifest]:
+    """Export ``arch`` at ``(H, W)`` and copy matching weights from ``source_onnx``.
+
+    Convolution weights do not include spatial size, so a fully convolutional
+    graph can change H/W without retraining. Provenance fields come from the
+    source sidecar when present.
+
+    Args:
+        source_onnx: Existing FP32 ONNX path whose weights are copied.
+        dest_onnx: Destination ONNX path (may equal ``source_onnx``).
+        kind: ``classifier`` or ``segmentor``.
+        arch: Architecture name passed to ``build``.
+        height: New input height in pixels.
+        width: New input width in pixels.
+        in_channels: Input channel count.
+        opset: ONNX opset for ``torch.onnx.export``.
+        version: Manifest version; defaults to the source sidecar.
+        model_repo_sha: Manifest revision; defaults to the source sidecar.
+        dataset_hash: Manifest dataset digest; defaults to the source sidecar.
+
+    Returns:
+        tuple: ``(onnx_path, manifest_path, manifest)`` at the new spatial size.
+
+    Raises:
+        ValueError: If ``kind`` is unknown or no weights copy.
+        FileNotFoundError: If ``source_onnx`` is missing.
+        ImportError: If onnx is not installed.
+    """
+    if kind not in _EXPORT_KINDS:
+        raise ValueError(f"unknown export kind {kind!r}")
+    source = Path(source_onnx)
+    if not source.is_file():
+        raise FileNotFoundError(source_onnx)
+    src_manifest: Manifest | None = None
+    sidecar = source.with_suffix(".json")
+    if sidecar.is_file():
+        src_manifest = load_manifest(str(sidecar))
+    dest = Path(dest_onnx)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    staging = dest
+    if dest.resolve() == source.resolve():
+        staging = dest.with_name(f".{dest.name}.reexport")
+    model = _build_model(kind, arch, in_channels)
+    model.eval()
+    dummy = torch.zeros(1, in_channels, height, width, dtype=torch.float32)
+    with torch.no_grad():
+        _onnx_export(model, dummy, str(staging), opset)
+    _copy_matching_initializers(str(source), str(staging))
+    if staging != dest:
+        staging.replace(dest)
+    digest = compute_sha256(str(dest))
+    input_shape = (1, in_channels, height, width)
+    output_shape = _output_shape(kind, height, width)
+    manifest = Manifest(
+        version=version
+        if version is not None
+        else (src_manifest.version if src_manifest else "v1"),
+        model_repo_sha=(
+            model_repo_sha
+            if model_repo_sha is not None
+            else (src_manifest.model_repo_sha if src_manifest else "unknown")
+        ),
+        dataset_hash=(
+            dataset_hash
+            if dataset_hash is not None
+            else (src_manifest.dataset_hash if src_manifest else "synthetic")
+        ),
+        input_shape=input_shape,
+        output_shape=output_shape,
+        sha256=digest,
+        quantization="fp32",
+    )
+    manifest_path = dest.with_suffix(".json")
+    write_manifest(str(manifest_path), manifest)
+    return dest, manifest_path, manifest
 
 
 def promote(artifact_path: str, dest_path: str, report: GateReport) -> Path:

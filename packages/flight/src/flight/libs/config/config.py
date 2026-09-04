@@ -62,7 +62,7 @@ class InferenceConfig:
     input_height_px: int = Field(default=1024, gt=0)
     input_width_px: int = Field(default=1224, gt=0)
     use_int8: bool = False
-    latency_budget_ms: float = Field(default=100.0, gt=0.0)
+    latency_budget_ms: float = Field(default=4.0, gt=0.0)
 
 
 @dataclass(frozen=True, config=_SCHEMA)
@@ -182,7 +182,7 @@ class FaultConfig:
 
     watchdog_interval_s: float = Field(default=5.0, gt=0.0)
     watchdog_max_miss_count: int = Field(default=3, ge=1)
-    inference_timeout_ms: float = Field(default=500.0, gt=0.0)
+    inference_timeout_ms: float = Field(default=20.0, gt=0.0)
     power_limit_w: float = Field(default=55.0, gt=0.0)
 
 

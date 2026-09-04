@@ -27,7 +27,8 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`report`](inference/report.md) | module | Figures and markdown into a run directory |
 | [`runs`](inference/runs.md) | module | List and compare local run directories |
 | [`pareto`](inference/pareto.md) | module | Size versus quality frontier over the local run catalog |
-| [`export`](inference/export.md) | module | ONNX export, optional INT8 PTQ, manifest, and promote |
+| [`export`](inference/export.md) | module | ONNX export, FP16/INT8 conversion, manifest, and promote |
+| [`ort_providers`](inference/ort_providers.md) | module | TensorRT/CUDA/CPU provider preference for accept |
 | [`finalize`](inference/finalize.md) | module | Test eval, ONNX export, and acceptance for a trained run |
 | [`arch`](inference/arch.md) | package | Architecture builders and registry grammar |
 | [`cli`](inference/cli.md) | module | Typer commands for inference workflows |
@@ -41,8 +42,8 @@ Re-exports: `Manifest`, `GoldenScene`, `GoldenClassifierScene`,
 `onnx_inference_fn`, `onnx_classifier_inference_fn`, `binary_accuracy`,
 `mean_binary_accuracy`.
 
-Run `pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`
-or `python -m tools.inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`.
+Run `pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|reexport-spatial|quantize-knee|accept|finalize|fetch>`
+or `python -m tools.inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|reexport-spatial|quantize-knee|accept|finalize|fetch>`.
 
 ## Interactions
 

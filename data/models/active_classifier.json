@@ -5,13 +5,13 @@
   "input_shape": [
     1,
     4,
-    256,
-    256
+    1024,
+    1224
   ],
   "output_shape": [
     1,
     1
   ],
-  "sha256": "a20cf1518be7f44825c590dbcbb0f38e8ff108dfaf1cfaf27eca506444e7895d",
-  "quantization": "fp32"
+  "sha256": "49a1c0a4cb64d3cf83e67f9093b320582e13d0827475ecc72473746085048f55",
+  "quantization": "fp16"
 }

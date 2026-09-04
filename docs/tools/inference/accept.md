@@ -91,7 +91,10 @@ None.
 ## Configuration
 
 Callers pass `min_iou`, `min_accuracy`, `max_latency_ms`, `iou_threshold`,
-`logit_threshold`, and expected shapes.
+`logit_threshold`, and expected shapes. Default `max_latency_ms` is 20 ms.
+
+Live `onnx_inference_fn` sessions call `resolve_ort_providers` and log the
+session provider list.
 
 ## Constraints
 
@@ -103,4 +106,5 @@ Golden scenes carry torch tensors. Injected test callables take tensors.
 
 - [`tools.inference`](../inference.md)
 - [`tools.inference.metrics`](metrics.md)
+- [`tools.inference.ort_providers`](ort_providers.md)
 - [`flight.payload.inference.verify`](../../flight/payload/inference/verify.md)

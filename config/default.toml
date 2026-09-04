@@ -31,7 +31,8 @@ input_bands = ["BLUE", "GREEN", "RED", "NIR"]
 input_height_px = 1024
 input_width_px = 1224
 use_int8 = false
-latency_budget_ms = 100.0
+# Derived expected detect wall (Orin Nano Super, mixed knee: cls FP16 + seg INT8).
+latency_budget_ms = 4.0
 
 [comms]
 max_downlink_rate_bps = 5000000
@@ -88,7 +89,9 @@ calibration_dir = ""
 [fault]
 watchdog_interval_s = 5.0
 watchdog_max_miss_count = 3
-inference_timeout_ms = 500.0
+# Derived FDIR detect timeout (5x expected, Orin Nano Super mixed knee).
+inference_timeout_ms = 20.0
+# Payload-bus FDIR allocation. Orin Nano Super module TDP is 25 W; this is not module TDP.
 power_limit_w = 55.0
 
 [thermal]

@@ -19,7 +19,7 @@ into the run directory.
 ## Inputs and outputs
 
 `finalize(run_dir, *, int8=True, calib_samples=32, scenes_limit=0, min_iou=0.5,
-min_accuracy=0.9, max_latency_ms=500.0, promote_path=None) -> FinalizeReport`.
+min_accuracy=0.9, max_latency_ms=20.0, promote_path=None) -> FinalizeReport`.
 
 The report is also written as `run_dir/finalize.json`. Export artifacts land
 under `run_dir/export/`.

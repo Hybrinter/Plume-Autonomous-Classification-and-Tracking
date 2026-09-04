@@ -7,7 +7,11 @@ Descriptive documentation lives under `docs/flight`, `docs/sim`, `docs/gse`, and
 `docs/tools`. Start at [`docs/README.md`](docs/README.md). Writing rules live in
 [`docs/style/ste-guide.md`](docs/style/ste-guide.md). Coding standards live in
 `.claude/rules/`. Design decisions are indexed from [`docs/README.md`](docs/README.md);
-do not cite decision identifiers in descriptive docs or code.
+do not cite decision identifiers in descriptive docs or code. Architecture that is
+not yet as-built lives under [`docs/design/`](docs/design.md). The pointing
+controller specification is
+[`docs/design/single-axis-elevation-controller.md`](docs/design/single-axis-elevation-controller.md);
+do not treat the current Kalman/LQR stand-in as that specification.
 
 ---
 

@@ -39,7 +39,7 @@ def test_io_contract_match_mismatch_and_wildcard() -> None:
 
 def test_latency_budget() -> None:
     """check_inference_latency passes within budget and flags INFERENCE_TIMEOUT over it."""
-    assert isinstance(check_inference_latency(100.0, 500.0), Ok)
-    over = check_inference_latency(600.0, 500.0)
+    assert isinstance(check_inference_latency(10.0, 50.0), Ok)
+    over = check_inference_latency(60.0, 50.0)
     assert isinstance(over, Err) and over.error is FaultCode.INFERENCE_TIMEOUT
     assert isinstance(check_inference_latency(9999.0, 0.0), Ok)  # budget <= 0 disables the check

@@ -50,7 +50,8 @@ None.
 ## Configuration
 
 Expected hash and shapes come from the model manifest at composition-root load time.
-Per-frame budget comes from `InferenceConfig.latency_budget_ms`.
+The detector constructor receives `FaultConfig.inference_timeout_ms` (20 ms).
+`InferenceConfig.latency_budget_ms` records the expected detect latency (4 ms).
 
 ## Constraints
 

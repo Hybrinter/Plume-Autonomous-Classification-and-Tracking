@@ -36,14 +36,22 @@ status.
 5. `sweep` expands a space TOML, trains each trial, scores val, and writes
    JSONL. `arches` prints the curated catalog of kind/name pairs.
 6. `export` writes an ONNX graph and JSON manifest. `--int8` also writes a
-   sibling INT8 QDQ pair.
+   sibling INT8 QDQ pair. `--fp16` also writes a sibling FP16 pair.
+   `--override-spatial` uses `--height` / `--width` even when the checkpoint
+   recorded a size. `reexport-spatial` rebuilds a graph at a new H/W and copies
+   matching trained weights from an existing ONNX file. `quantize-knee`
+   overwrites the factory classifier with FP16 and the factory segmentor with
+   INT8 QDQ.
 7. `accept` runs the classifier or segmentor intake gate and optionally promotes
    an accepted artifact. `--scenes-dir` supplies a processed pack for golden
    scenes. `--scenes-split` names the split (default `test`). `--scenes-limit`
    caps the scene count; zero takes the whole split. Without `--scenes-dir` the
-   quality check has no scenes and the gate fails that check.
+   quality check has no scenes and the gate fails that check. Default height,
+   width, and `max_latency_ms` match flight `InferenceConfig` / `FaultConfig`.
+   Live sessions use `resolve_ort_providers()`.
 8. `finalize` scores the test split of a run, exports FP32 and INT8, and runs
    the golden-scene gate. `--promote` copies the preferred accepted artifact.
+   Default `max_latency_ms` is `FaultConfig.inference_timeout_ms` (20 ms).
 9. `fetch` delegates dataset status, download, and streamed labeled preprocess
    work to `tools.inference.fetch`.
 
@@ -93,6 +101,7 @@ loading.
 - [`tools.inference.pareto`](pareto.md)
 - [`tools.inference.sweep`](sweep.md)
 - [`tools.inference.export`](export.md)
+- [`tools.inference.ort_providers`](ort_providers.md)
 - [`tools.inference.accept`](accept.md)
 - [`tools.inference.finalize`](finalize.md)
 - [`tools.inference.fetch`](fetch.md)

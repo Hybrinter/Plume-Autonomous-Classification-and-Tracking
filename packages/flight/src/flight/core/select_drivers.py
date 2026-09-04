@@ -152,14 +152,15 @@ def select_drivers(
         detector = _require_inputs().detector
     else:
         from flight.payload.inference import OnnxDetector
+        from flight.payload.inference.artifact_path import resolve_quantized_path
 
         inf = config.inference
         bands = len(inf.input_bands)
         height = inf.input_height_px
         width = inf.input_width_px
         detector = OnnxDetector(
-            segmentor_model_path=inf.segmentor_model_path,
-            classifier_model_path=inf.classifier_model_path,
+            segmentor_model_path=resolve_quantized_path(inf.segmentor_model_path, inf.use_int8),
+            classifier_model_path=resolve_quantized_path(inf.classifier_model_path, inf.use_int8),
             confidence_gate=config.controller.confidence_gate,
             min_blob_area_px=config.controller.min_blob_area_px,
             logit_threshold=inf.classifier_logit_threshold,

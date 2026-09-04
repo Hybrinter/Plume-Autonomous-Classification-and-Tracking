@@ -15,6 +15,10 @@ stage TOML files with `pact-tools inference sweep` and
 | 2.7 refine | done (18/18) | done (12/12) |
 | 3 final 256 px + accept | done | done |
 
+Full-frame Orin Nano Super latency and the live expected/timeout pair live in
+[`packages/analysis/orin_nano_full_frame_inference/RESULTS.md`](../../packages/analysis/orin_nano_full_frame_inference/RESULTS.md).
+Stage-3 tables below stay at 256 px.
+
 Metrics under Stages 0 and 3 are scored on the held-out test split. The split
 is the frozen 70/15/15 recipe in `data/manifests/zenodo_4250706_splits.toml` at
 seed 0, applied to the sorted paired filenames of Zenodo 4250706. Stages 1 and 2
@@ -437,11 +441,11 @@ Runs: `segmentor-unet-0-02a955e4`, `segmentor-dilatenet_w32-0-64421cfe`.
 
 ### Selected models
 
-- Classifier: ShuffleNetV2-x0.5 with ImageNet stem surgery, FP32 ONNX.
-  Test accuracy 0.980, F1 0.940, 343 k parameters, 1.35 MB, 3.4 ms.
+- Classifier: ShuffleNetV2-x0.5 with ImageNet stem surgery, factory FP16 ONNX.
+  Test accuracy 0.980, F1 0.940, 343 k parameters.
   Factory path: `data/models/active_classifier.onnx`.
-- Segmentor: DilateNet-w32, FP32 ONNX.
-  Test mean IoU 0.553, 23.5 k parameters, 96 KB, 2.3 ms.
+- Segmentor: DilateNet-w32, factory INT8 QDQ ONNX.
+  Test mean IoU 0.553, 23.5 k parameters.
   Factory path: `data/models/active_segmentor.onnx`.
 
 `config/default.toml` points `[inference]` at those two paths. Flight loads

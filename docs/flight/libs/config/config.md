@@ -73,7 +73,8 @@ Kalman noise parameters, LQR cost weights, and encoder runaway tolerance.
 
 `segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
 `classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
-dimensions (`1024 x 1224`), INT8 flag, and `latency_budget_ms`.
+dimensions (`1024 x 1224`), INT8 flag, and `latency_budget_ms` (4 ms expected
+detect).
 
 ### CommsConfig
 
@@ -89,8 +90,8 @@ QE and well-capacity records, exposure and gain legal ranges plus initials, and
 
 ### FaultConfig
 
-`watchdog_interval_s`, `watchdog_max_miss_count`, `inference_timeout_ms`, and
-`power_limit_w`.
+`watchdog_interval_s`, `watchdog_max_miss_count`, `inference_timeout_ms` (20 ms),
+and `power_limit_w` (payload-bus FDIR; module Super TDP is 25 W).
 
 ### ThermalConfig
 

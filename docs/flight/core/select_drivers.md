@@ -43,10 +43,11 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
    `RealScalarSensor` for both scalars.
 3. **Gimbal axis:** `sim` selects `SimGimbal`. `real` selects `RealGimbal`.
 4. **Compute axis:** `sim` uses the passed `ScriptedDetector`. `real` constructs
-   `OnnxDetector` from `inference.segmentor_model_path` and
-   `inference.classifier_model_path`, with the logit threshold,
-   `fault.inference_timeout_ms` as the detect-time fault threshold, and I/O contract
-   `(1, C, H, W)` from `input_bands` and `input_*_px`.
+   `OnnxDetector` from the paths returned by `resolve_quantized_path` on
+   `inference.segmentor_model_path` and `inference.classifier_model_path`.
+   `use_int8` true selects `<stem>.int8.onnx`. The logit threshold and
+   `fault.inference_timeout_ms` (20 ms) feed the detect-time fault threshold.
+   The I/O contract is `(1, C, H, W)` from `input_bands` and `input_*_px`.
 5. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
 6. **Launch lock:** always `SimLaunchLock`. Flight with `sim_inputs=None` starts ENGAGED.
    SIL uses `sim_inputs.launch_lock_engaged` (default RELEASED).
@@ -68,7 +69,8 @@ None.
 
 Reads `PactConfig.environment` axes (`sensor`, `gimbal`, `compute`, `link`) and per-driver
 sub-configs (`sensor`, `gimbal`, `inference`, `fault`, `link`). The clock axis is handled by
-the caller before this function runs.
+the caller before this function runs. Real compute uses `resolve_quantized_path` when
+`inference.use_int8` is true.
 
 ## Constraints
 
@@ -82,3 +84,4 @@ the caller before this function runs.
 - [`flight.core`](../core.md)
 - [`flight.core.composition`](composition.md)
 - [`flight.core.main`](main.md)
+- [`flight.payload.inference.artifact_path`](../payload/inference/artifact_path.md)

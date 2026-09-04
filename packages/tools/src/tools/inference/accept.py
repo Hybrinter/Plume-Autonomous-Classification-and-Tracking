@@ -39,6 +39,7 @@ from __future__ import annotations
 
 # stdlib
 import json
+import logging
 import math
 import time
 from collections.abc import Callable
@@ -57,10 +58,12 @@ from flight.payload.inference.verify import verify_io_contract, verify_model_has
 from tools.inference.data import ProcessedPack, _row_image, load_processed_pack
 from tools.inference.metrics import compute_iou as compute_iou
 from tools.inference.metrics import mean_binary_accuracy
+from tools.inference.ort_providers import resolve_ort_providers
 
 Shape = tuple[int | None, ...]
 InferenceFn = Callable[[torch.Tensor], torch.Tensor]
 ClassifierInferenceFn = Callable[[torch.Tensor], float]
+_LOG = logging.getLogger(__name__)
 
 __all__ = [
     "AcceptanceReport",
@@ -275,7 +278,9 @@ def _onnx_session(artifact_path: str) -> tuple[Any, str]:
         import onnxruntime
     except ImportError as exc:  # pragma: no cover - exercised only where the SDK is absent
         raise ImportError("onnxruntime is required to run live model acceptance") from exc
-    session = onnxruntime.InferenceSession(artifact_path)
+    providers = resolve_ort_providers()
+    session = onnxruntime.InferenceSession(artifact_path, providers=providers)
+    _LOG.info("onnxruntime providers: %s", session.get_providers())
     return session, session.get_inputs()[0].name
 
 

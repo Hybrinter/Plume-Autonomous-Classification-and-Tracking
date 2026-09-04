@@ -37,12 +37,12 @@ def test_factory_pair_matches_flight_contract() -> None:
     """Active classifier and segmentor load, hash-check, and score an empty frame."""
     cls_manifest = _manifest(_CLASSIFIER)
     seg_manifest = _manifest(_SEGMENTOR)
-    assert cls_manifest["input_shape"] == [1, 4, 256, 256]
+    assert cls_manifest["input_shape"] == [1, 4, 1024, 1224]
     assert cls_manifest["output_shape"] == [1, 1]
-    assert seg_manifest["input_shape"] == [1, 4, 256, 256]
-    assert seg_manifest["output_shape"] == [1, 1, 256, 256]
-    assert cls_manifest["quantization"] == "fp32"
-    assert seg_manifest["quantization"] == "fp32"
+    assert seg_manifest["input_shape"] == [1, 4, 1024, 1224]
+    assert seg_manifest["output_shape"] == [1, 1, 1024, 1224]
+    assert cls_manifest["quantization"] == "fp16"
+    assert seg_manifest["quantization"] == "int8"
     assert compute_sha256(str(_CLASSIFIER)) == cls_manifest["sha256"]
     assert compute_sha256(str(_SEGMENTOR)) == seg_manifest["sha256"]
     detector = OnnxDetector(
@@ -53,15 +53,15 @@ def test_factory_pair_matches_flight_contract() -> None:
         logit_threshold=0.0,
         classifier_sha256=str(cls_manifest["sha256"]),
         segmentor_sha256=str(seg_manifest["sha256"]),
-        expected_input_shape=(1, 4, 256, 256),
-        expected_segmentor_output_shape=(1, 1, 256, 256),
+        expected_input_shape=(1, 4, 1024, 1224),
+        expected_segmentor_output_shape=(1, 1, 1024, 1224),
         expected_classifier_output_shape=(1, 1),
     )
     frame = ProcessedFrameMsg(
         msg_type=MessageType.PROCESSED_FRAME,
         timestamp_utc="2026-08-30T00:00:00.000Z",
         frame_id=0,
-        tensor=np.zeros((4, 256, 256), dtype=np.float32),
+        tensor=np.zeros((4, 1024, 1224), dtype=np.float32),
         quality_flags=frozenset(),
     )
     result = detector.detect(frame)

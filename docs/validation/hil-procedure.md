@@ -36,3 +36,5 @@ requires `config.gimbal.serial_port` nonempty), the real ONNX detector, the sock
 
 - The `lock` (LaunchLock) axis remains a permanent VCRM gap: no device, no config field, no HIL
   coverage. It is documented, never tested.
+- Orin Nano Super HIL compute uses MAXN SUPER (`nvpmodel`) and `jetson_clocks`. Module TDP is
+  25 W. Payload-bus `power_limit_w` stays 55 W. The camera is USB3 Blackfly, not CSI.

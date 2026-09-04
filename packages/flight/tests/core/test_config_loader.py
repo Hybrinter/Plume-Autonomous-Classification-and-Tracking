@@ -30,14 +30,14 @@ def test_loads_default_config() -> None:
     assert result.value.inference.input_height_px == 1024
     assert result.value.inference.input_width_px == 1224
     assert result.value.thermal.camera_max_c == 50.0
-    assert result.value.fault.inference_timeout_ms == 500.0
+    assert result.value.fault.inference_timeout_ms == 20.0
 
 
 def test_flight_override_merges() -> None:
-    """The flight.toml override (use_int8 = true) merges over defaults."""
+    """The flight.toml override loads and keeps use_int8 false (knee is in-path)."""
     result = load_config(_DEFAULT_TOML, _FLIGHT_TOML)
     assert isinstance(result, Ok)
-    assert result.value.inference.use_int8 is True
+    assert result.value.inference.use_int8 is False
 
 
 def test_missing_file_returns_err() -> None:

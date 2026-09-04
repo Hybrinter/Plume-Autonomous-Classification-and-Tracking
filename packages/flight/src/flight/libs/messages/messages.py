@@ -78,7 +78,7 @@ class BlobMeta:
 
     blob_id: int  # uint16 persistent tracker ID
     bbox: tuple[int, int, int, int]  # (x_min, y_min, x_max, y_max) pixel space
-    centroid_raw: tuple[float, float]  # (x, y) float centroid in crop-space pixels
+    centroid_raw: tuple[float, float]  # (x, y) float centroid in band-plane pixels
     pixel_area: int  # number of pixels in blob mask
     mean_confidence: float  # mean softmax probability over blob pixels
     persistence_count: int  # consecutive frames this blob has been tracked

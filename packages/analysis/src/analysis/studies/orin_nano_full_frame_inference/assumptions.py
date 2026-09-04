@@ -9,11 +9,13 @@ Contains:
   - Super compute / memory / power constants.
   - Factory model sizes, 256-tile quality, and area scale.
   - Duty-cycle and budget-policy constants.
+  - Headroom reservations (DRAM, uplink, camera rate) and catalog arches.
   - analysis_root / STUDY_DIR / DATA_DIR / OUT_DIR.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 # --- Board (Orin Nano Super 8 GB, MAXN SUPER 25 W) ---
@@ -55,6 +57,9 @@ CLS_FP32_BYTES = 1_350_000
 SEG_FP32_BYTES = 96_000
 CLS_INT8_BYTES = 540_000
 SEG_INT8_BYTES = 47_000
+# Shipped factory pair on disk (classifier FP16, segmentor INT8 QDQ).
+CLS_FLIGHT_ONNX_BYTES = 763_679
+SEG_FLIGHT_ONNX_BYTES = 44_141
 
 CLS_ACC_FP32 = 0.980
 CLS_ACC_FP16 = 0.980
@@ -89,6 +94,64 @@ PREFERRED_ORT_PROVIDERS: tuple[str, ...] = (
 CLS_ONNX = "data/models/active_classifier.onnx"
 SEG_ONNX = "data/models/active_segmentor.onnx"
 
+# Camera max rate from SensorConfig.max_frame_rate_hz (BFS-U3-50S5).
+MAX_FRAME_RATE_HZ = 35.0
+
+# Flight comms / storage caps (match CommsConfig / StorageConfig defaults).
+MAX_DAILY_UPLINK_BYTES = 104_857_600  # 100 MiB
+MAX_UPLINK_BPS = 2_000_000
+MAX_STORAGE_BYTES = 107_374_182_400  # 100 GB placeholder
+DISK_MODEL_COPIES = 3  # active + rollback + staged
+REASSEMBLY_RAM_COPIES = 2  # chunk map plus concatenated blob
+
+# DRAM reservation policy for a later Nano measurement. Not a live trace.
+# 8 GB minus JetPack/Python/CUDA, ORT/TRT workspace, and camera buffers.
+OS_RUNTIME_GB = 2.5
+ORT_WORKSPACE_GB = 1.0
+CAMERA_PREPROCESS_GB = 0.2
+# TensorRT engine bytes relative to the ONNX file; two sessions during activate.
+TRT_ENGINE_OVERHEAD = 2.0
+GPU_SESSIONS_DURING_ACTIVATE = 2
+
+# Stage-2 catalog at 128 px, four bands (experiments/results README).
+CATALOG_TILE_PX = 128
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogArch:
+    """One stage-2 architecture with 128-px FLOPs, scaled later to 1024x1224.
+
+    Attributes:
+        name: Architecture id from the training catalog.
+        kind: ``cls`` or ``seg``.
+        params: Parameter count.
+        flops_128_g: Forward G count at 128 x 128 x 4.
+    """
+
+    name: str
+    kind: str
+    params: int
+    flops_128_g: float
+
+
+# Classifier candidates scored as FP16; segmentors as INT8 (quality knee).
+CATALOG: tuple[CatalogArch, ...] = (
+    CatalogArch("shufflenetv2_x0_5_pt", "cls", 343_033, 0.03),
+    CatalogArch("mobilenetv3_small_pt", "cls", 1_519_025, 0.04),
+    CatalogArch("mobilenetv3_large_pt", "cls", 4_203_457, 0.15),
+    CatalogArch("efficientnet_b0_pt", "cls", 4_009_117, 0.25),
+    CatalogArch("resnet18_pt", "cls", 11_180_161, 1.21),
+    CatalogArch("resnet50_pt", "cls", 23_513_217, 2.69),
+    CatalogArch("dilatenet_w32", "seg", 23_521, 0.05),
+    CatalogArch("dilatenet_w64", "seg", 83_905, 0.18),
+    CatalogArch("unet_w16_sep", "seg", 105_973, 0.15),
+    CatalogArch("unet_w32_sep", "seg", 397_765, 0.51),
+    CatalogArch("unet_w8", "seg", 210_377, 0.25),
+    CatalogArch("unet_w16", "seg", 838_929, 0.98),
+    CatalogArch("unet_w32", "seg", 3_350_561, 3.89),
+    CatalogArch("unet_baseline", "seg", 13_391_937, 15.48),
+)
+
 
 def area_scale() -> float:
     """Return full-frame pixels divided by 256-tile pixels.
@@ -97,6 +160,16 @@ def area_scale() -> float:
         Spatial area ratio (exact 19.125 for 1024x1224 over 256x256).
     """
     return (FRAME_H_PX * FRAME_W_PX) / (TILE_H_PX * TILE_W_PX)
+
+
+def catalog_area_scale() -> float:
+    """Return full-frame pixels divided by the 128-px catalog tile.
+
+    Returns:
+        Spatial area ratio (exact 76.5 for 1024x1224 over 128x128).
+    """
+    tile = CATALOG_TILE_PX * CATALOG_TILE_PX
+    return (FRAME_H_PX * FRAME_W_PX) / float(tile)
 
 
 def analysis_root() -> Path:

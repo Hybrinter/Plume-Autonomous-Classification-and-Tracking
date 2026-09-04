@@ -6,7 +6,9 @@ I/O) plus weights at the named precision plus live activation maps.
 
 Contains:
   - flops_full_frame_g: scale a 256-tile G count.
-  - weight_bytes / input_bytes / activation_bytes / bytes_moved.
+  - elem_bytes / params_bytes / weight_bytes.
+  - input_bytes / activation_bytes / bytes_moved / bytes_moved_for.
+  - flop_per_param: factory full-frame FLOPs per parameter.
 """
 
 from __future__ import annotations
@@ -26,6 +28,37 @@ from analysis.studies.orin_nano_full_frame_inference.assumptions import (
 )
 
 _ELEM_BYTES: dict[str, int] = {"fp32": 4, "fp16": 2, "int8": 1}
+
+
+def elem_bytes(precision: str) -> int:
+    """Return bytes per parameter at ``precision``.
+
+    Args:
+        precision: ``fp32``, ``fp16``, or ``int8``.
+
+    Returns:
+        Element size in bytes.
+
+    Raises:
+        ValueError: If ``precision`` is unknown.
+    """
+    elem = _ELEM_BYTES.get(precision)
+    if elem is None:
+        raise ValueError(f"unknown precision {precision!r}")
+    return elem
+
+
+def params_bytes(params: float, precision: str) -> float:
+    """Return weight footprint for ``params`` at ``precision``.
+
+    Args:
+        params: Parameter count.
+        precision: ``fp32``, ``fp16``, or ``int8``.
+
+    Returns:
+        Weight bytes.
+    """
+    return float(params) * float(elem_bytes(precision))
 
 
 def flops_full_frame_g(tile_g: float) -> float:
@@ -81,10 +114,21 @@ def weight_bytes(kind: str, precision: str) -> float:
         params = SEG_PARAMS
     else:
         raise ValueError(f"unknown kind {kind!r}")
-    elem = _ELEM_BYTES.get(precision)
-    if elem is None:
-        raise ValueError(f"unknown precision {precision!r}")
-    return float(params * elem)
+    return params_bytes(float(params), precision)
+
+
+def bytes_moved_for(params: float, precision: str) -> float:
+    """Return estimated bytes moved for an arbitrary parameter count.
+
+    Args:
+        params: Parameter count.
+        precision: ``fp32``, ``fp16``, or ``int8``.
+
+    Returns:
+        Sum of input, weights, and live maps. Activations stay at the locked
+        stride-4 64-channel estimate (optimistic for wider nets).
+    """
+    return input_bytes() + params_bytes(params, precision) + activation_bytes()
 
 
 def bytes_moved(kind: str, precision: str) -> float:
@@ -98,3 +142,22 @@ def bytes_moved(kind: str, precision: str) -> float:
         Sum of input, weights, and live maps.
     """
     return input_bytes() + weight_bytes(kind, precision) + activation_bytes()
+
+
+def flop_per_param(kind: str) -> float:
+    """Return factory full-frame FLOPs per parameter.
+
+    Args:
+        kind: ``cls`` or ``seg``.
+
+    Returns:
+        FLOPs / parameter at 1024x1224.
+
+    Raises:
+        ValueError: If ``kind`` is unknown.
+    """
+    if kind == "cls":
+        return cls_flops_ff_g() * 1e9 / float(CLS_PARAMS)
+    if kind == "seg":
+        return seg_flops_ff_g() * 1e9 / float(SEG_PARAMS)
+    raise ValueError(f"unknown kind {kind!r}")

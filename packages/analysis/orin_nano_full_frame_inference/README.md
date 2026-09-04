@@ -20,4 +20,5 @@ Geometry and budgets: [`RESULTS.md`](RESULTS.md). Figures: [`outputs/`](outputs/
 - Repo Python is 3.14. JetPack 6.2+ system Python is 3.10.
   The flight image does not change `requires-python` for this gap.
 - Derived expected 4 ms, timeout 20 ms (mixed knee).
+- Factory pair is 0.77 MiB. Real-time uploads bind on the 20 ms timeout (~5 MiB factory-family, ~8 MiB EfficientNet-B0), not the 100 MiB daily uplink.
 

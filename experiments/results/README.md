@@ -15,7 +15,8 @@ stage TOML files with `pact-tools inference sweep` and
 | 2.7 refine | done (18/18) | done (12/12) |
 | 3 final 256 px + accept | done | done |
 
-Full-frame Orin Nano Super latency and the live expected/timeout pair live in
+Full-frame Orin Nano Super latency, mixed-knee budgets, and remaining headroom
+live in
 [`packages/analysis/orin_nano_full_frame_inference/RESULTS.md`](../../packages/analysis/orin_nano_full_frame_inference/RESULTS.md).
 Stage-3 tables below stay at 256 px.
 

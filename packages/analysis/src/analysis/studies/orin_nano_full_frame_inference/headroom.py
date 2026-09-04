@@ -2,13 +2,15 @@
 
 The shipped mixed knee sits on the activation-memory floor of the 1024x1224
 float32 band plane. Peak FLOPs and 8 GB DRAM therefore look idle, while the
-4 ms expected budget is tight by construction (ceil of detect wall). Larger
-uploads hit the FDIR timeout long before the 100 MiB daily uplink cap.
+4 ms expected budget is tight by construction (ceil of detect wall). Jetson
+memory is unified LPDDR5, not discrete VRAM. AGX Orin uses the same
+Cortex-A78AE CPU with more cores and clock; it is not a different CPU.
 
 Contains:
-  - Utilization / SizeCeiling / CatalogFit.
+  - Utilization / SizeCeiling / CatalogFit / TensorWorkingSet / BoardCompare.
   - utilization / memory_floor_wall_ms / max_params_for_wall.
   - factory_scaled_pair_bytes / size_ceilings / catalog_fits.
+  - tensor_working_set / board_compares.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from analysis.studies.orin_nano_full_frame_inference.assumptions import (
     CATALOG,
     CLS_FLIGHT_ONNX_BYTES,
     CLS_FLIGHT_PRECISION,
+    COMPARE_BOARDS,
     DISK_MODEL_COPIES,
     DRAM_GB,
     ETA_COMPUTE,
@@ -30,21 +33,27 @@ from analysis.studies.orin_nano_full_frame_inference.assumptions import (
     MAX_FRAME_RATE_HZ,
     MAX_STORAGE_BYTES,
     MAX_UPLINK_BPS,
+    NANO_SUPER,
     ORT_WORKSPACE_GB,
     OS_RUNTIME_GB,
+    PAYLOAD_BUS_W,
     REASSEMBLY_RAM_COPIES,
     SEG_FLIGHT_ONNX_BYTES,
     SEG_FLIGHT_PRECISION,
     TRT_ENGINE_OVERHEAD,
+    BoardSpec,
     CatalogArch,
     catalog_area_scale,
 )
 from analysis.studies.orin_nano_full_frame_inference.cost import (
     activation_bytes,
     bytes_moved_for,
+    cls_output_bytes,
     flop_per_param,
     input_bytes,
     params_bytes,
+    seg_output_bytes,
+    weight_bytes,
 )
 from analysis.studies.orin_nano_full_frame_inference.latency import (
     cls_latency,
@@ -346,3 +355,135 @@ def catalog_fit(arch: CatalogArch) -> CatalogFit:
 def catalog_fits() -> tuple[CatalogFit, ...]:
     """Return CatalogFit for every locked catalog architecture."""
     return tuple(catalog_fit(arch) for arch in CATALOG)
+
+
+@dataclass(frozen=True, slots=True)
+class TensorWorkingSet:
+    """Unified-DRAM footprint of both factory nets, resident together.
+
+    Jetson has no discrete VRAM. These bytes come out of the same 8 GB LPDDR5
+    pool as the OS and the Python flight process.
+
+    Attributes:
+        cls_weight_bytes: Classifier FP16 parameters.
+        seg_weight_bytes: Segmentor INT8 parameters.
+        input_bytes: NCHW float32 band plane.
+        activation_bytes: Locked stride-4 live maps.
+        cls_output_bytes: (1, 1) float32 logit.
+        seg_output_bytes: (1, 1, H, W) float32 mask.
+        onnx_bytes: Shipped factory files on disk.
+        tensors_bytes: Weights plus I/O plus maps, both nets resident.
+        workspace_bytes: Named ORT/TRT workspace reservation.
+        gpu_held_bytes: Tensors plus workspace plus TRT engine estimate.
+        frac_dram_tensors: ``tensors_bytes / 8 GB``.
+        frac_dram_gpu_held: ``gpu_held_bytes / 8 GB``.
+    """
+
+    cls_weight_bytes: float
+    seg_weight_bytes: float
+    input_bytes: float
+    activation_bytes: float
+    cls_output_bytes: float
+    seg_output_bytes: float
+    onnx_bytes: float
+    tensors_bytes: float
+    workspace_bytes: float
+    gpu_held_bytes: float
+    frac_dram_tensors: float
+    frac_dram_gpu_held: float
+
+
+@dataclass(frozen=True, slots=True)
+class BoardCompare:
+    """One Orin SKU relative to the locked Nano Super.
+
+    Attributes:
+        spec: Locked board constants.
+        cpu_x: (cores * GHz) over Nano Super.
+        gpu_x: (CUDA cores * MHz) over Nano Super.
+        dram_x: DRAM capacity over Nano Super.
+        bw_x: DRAM bandwidth over Nano Super.
+        tdp_x: Max module TDP over Nano Super.
+        tdp_vs_payload: Module TDP over the 55 W payload-bus FDIR cap.
+    """
+
+    spec: BoardSpec
+    cpu_x: float
+    gpu_x: float
+    dram_x: float
+    bw_x: float
+    tdp_x: float
+    tdp_vs_payload: float
+
+
+def tensor_working_set() -> TensorWorkingSet:
+    """Return both factory nets resident in unified LPDDR5.
+
+    Returns:
+        TensorWorkingSet. Weights are FP16 classifier plus INT8 segmentor.
+        TRT engines are ``TRT_ENGINE_OVERHEAD * onnx``. Workspace is the
+        named 1 GB reservation, not a measured CUDA context.
+    """
+    cls_w = weight_bytes("cls", "fp16")
+    seg_w = weight_bytes("seg", "int8")
+    inp = input_bytes()
+    act = activation_bytes()
+    cls_out = cls_output_bytes()
+    seg_out = seg_output_bytes()
+    onnx = pair_onnx_bytes()
+    tensors = cls_w + seg_w + inp + act + cls_out + seg_out
+    workspace = ORT_WORKSPACE_GB * 1e9
+    engines = TRT_ENGINE_OVERHEAD * onnx
+    gpu_held = tensors + workspace + engines
+    dram = DRAM_GB * 1e9
+    return TensorWorkingSet(
+        cls_weight_bytes=cls_w,
+        seg_weight_bytes=seg_w,
+        input_bytes=inp,
+        activation_bytes=act,
+        cls_output_bytes=cls_out,
+        seg_output_bytes=seg_out,
+        onnx_bytes=onnx,
+        tensors_bytes=tensors,
+        workspace_bytes=workspace,
+        gpu_held_bytes=gpu_held,
+        frac_dram_tensors=tensors / dram,
+        frac_dram_gpu_held=gpu_held / dram,
+    )
+
+
+def _nano_cpu() -> float:
+    """Return Nano Super core-GHz product."""
+    return float(NANO_SUPER.cpu_cores) * NANO_SUPER.cpu_ghz
+
+
+def _nano_gpu() -> float:
+    """Return Nano Super CUDA-core-MHz product."""
+    return float(NANO_SUPER.cuda_cores) * NANO_SUPER.gpu_mhz
+
+
+def board_compare(spec: BoardSpec) -> BoardCompare:
+    """Return ``spec`` scaled to the locked Nano Super.
+
+    Args:
+        spec: Nano Super, AGX 32GB, or AGX 64GB.
+
+    Returns:
+        BoardCompare with CPU/GPU/DRAM/bandwidth/TDP ratios.
+    """
+    cpu = float(spec.cpu_cores) * spec.cpu_ghz
+    gpu = float(spec.cuda_cores) * spec.gpu_mhz
+    return BoardCompare(
+        spec=spec,
+        cpu_x=cpu / _nano_cpu(),
+        gpu_x=gpu / _nano_gpu(),
+        dram_x=spec.dram_gb / NANO_SUPER.dram_gb,
+        bw_x=spec.bw_gbps / NANO_SUPER.bw_gbps,
+        tdp_x=spec.tdp_w / NANO_SUPER.tdp_w,
+        tdp_vs_payload=spec.tdp_w / PAYLOAD_BUS_W,
+    )
+
+
+def board_compares() -> tuple[BoardCompare, ...]:
+    """Return Nano Super, AGX 32GB, and AGX 64GB relative to Nano Super."""
+    return tuple(board_compare(spec) for spec in COMPARE_BOARDS)

@@ -10,6 +10,7 @@ Contains:
   - Factory model sizes, 256-tile quality, and area scale.
   - Duty-cycle and budget-policy constants.
   - Headroom reservations (DRAM, uplink, camera rate) and catalog arches.
+  - Nano Super vs AGX Orin board specs (NVIDIA public module table).
   - analysis_root / STUDY_DIR / DATA_DIR / OUT_DIR.
 """
 
@@ -22,6 +23,7 @@ from pathlib import Path
 BOARD_NAME = "Jetson Orin Nano Super 8 GB"
 CUDA_CORES = 1024
 TENSOR_CORES = 32
+GPU_MHZ = 1020.0
 FP16_TFLOPS = 17.0
 INT8_SPARSE_TOPS = 67.0
 INT8_DENSE_TOPS = 33.0
@@ -38,6 +40,11 @@ CAMERA_NAME = "BFS-U3-50S5"
 PYTHON_REPO = "3.14"
 PYTHON_JETPACK = "3.10"
 JETPACK = "6.2+"
+CPU_NAME = "Arm Cortex-A78AE v8.2"
+CPU_CORES = 6
+CPU_GHZ = 1.7
+CPU_L2_MB = 1.5
+CPU_L3_MB = 4.0
 
 # --- Spatial contract ---
 TILE_H_PX = 256
@@ -112,6 +119,83 @@ CAMERA_PREPROCESS_GB = 0.2
 # TensorRT engine bytes relative to the ONNX file; two sessions during activate.
 TRT_ENGINE_OVERHEAD = 2.0
 GPU_SESSIONS_DURING_ACTIVATE = 2
+
+# NVIDIA public Jetson Orin module table (not a Nano measurement).
+# CPU is the same Cortex-A78AE on every Orin SKU. AGX is more cores and clock,
+# not a different CPU. Memory is unified LPDDR5; there is no discrete VRAM.
+
+
+@dataclass(frozen=True, slots=True)
+class BoardSpec:
+    """One Jetson Orin SKU for the Nano vs AGX comparison.
+
+    Attributes:
+        name: Module name.
+        cpu_cores: Cortex-A78AE core count.
+        cpu_ghz: Max CPU clock.
+        cpu_l2_mb: Total L2.
+        cpu_l3_mb: Total L3.
+        cuda_cores: Ampere CUDA cores.
+        gpu_mhz: Max GPU clock.
+        dram_gb: Unified LPDDR5 capacity.
+        bw_gbps: DRAM bandwidth.
+        tdp_w: Max module TDP.
+        dla_count: NVDLA v2 engines (0 on Nano).
+    """
+
+    name: str
+    cpu_cores: int
+    cpu_ghz: float
+    cpu_l2_mb: float
+    cpu_l3_mb: float
+    cuda_cores: int
+    gpu_mhz: float
+    dram_gb: float
+    bw_gbps: float
+    tdp_w: float
+    dla_count: int
+
+
+NANO_SUPER = BoardSpec(
+    name=BOARD_NAME,
+    cpu_cores=CPU_CORES,
+    cpu_ghz=CPU_GHZ,
+    cpu_l2_mb=CPU_L2_MB,
+    cpu_l3_mb=CPU_L3_MB,
+    cuda_cores=CUDA_CORES,
+    gpu_mhz=GPU_MHZ,
+    dram_gb=DRAM_GB,
+    bw_gbps=BW_GBPS,
+    tdp_w=MODULE_TDP_W,
+    dla_count=0,
+)
+AGX_ORIN_32GB = BoardSpec(
+    name="Jetson AGX Orin 32GB",
+    cpu_cores=8,
+    cpu_ghz=2.2,
+    cpu_l2_mb=2.0,
+    cpu_l3_mb=4.0,
+    cuda_cores=1792,
+    gpu_mhz=1300.0,
+    dram_gb=32.0,
+    bw_gbps=204.8,
+    tdp_w=60.0,
+    dla_count=2,
+)
+AGX_ORIN_64GB = BoardSpec(
+    name="Jetson AGX Orin 64GB",
+    cpu_cores=12,
+    cpu_ghz=2.2,
+    cpu_l2_mb=3.0,
+    cpu_l3_mb=6.0,
+    cuda_cores=2048,
+    gpu_mhz=1300.0,
+    dram_gb=64.0,
+    bw_gbps=204.8,
+    tdp_w=60.0,
+    dla_count=2,
+)
+COMPARE_BOARDS: tuple[BoardSpec, ...] = (NANO_SUPER, AGX_ORIN_32GB, AGX_ORIN_64GB)
 
 # Stage-2 catalog at 128 px, four bands (experiments/results README).
 CATALOG_TILE_PX = 128

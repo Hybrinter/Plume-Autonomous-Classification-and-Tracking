@@ -20,5 +20,6 @@ Geometry and budgets: [`RESULTS.md`](RESULTS.md). Figures: [`outputs/`](outputs/
 - Repo Python is 3.14. JetPack 6.2+ system Python is 3.10.
   The flight image does not change `requires-python` for this gap.
 - Derived expected 4 ms, timeout 20 ms (mixed knee).
-- Factory pair is 0.77 MiB. Real-time uploads bind on the 20 ms timeout (~5 MiB factory-family, ~8 MiB EfficientNet-B0), not the 100 MiB daily uplink.
+- Factory pair tensors are ~82 MiB of unified LPDDR5 (no discrete VRAM).
+- AGX uses the same Cortex-A78AE CPU (8 or 12 cores vs 6). It is not 10x compute; max TDP 60 W exceeds the 55 W payload-bus FDIR cap.
 

@@ -5,19 +5,26 @@ from __future__ import annotations
 from pathlib import Path
 
 from analysis.studies.orin_nano_full_frame_inference.assumptions import (
+    AGX_ORIN_32GB,
+    AGX_ORIN_64GB,
     CATALOG,
     CLS_FLIGHT_ONNX_BYTES,
     CLS_ONNX,
+    CPU_NAME,
     MAX_DAILY_UPLINK_BYTES,
     MAX_FRAME_RATE_HZ,
     MAX_STORAGE_BYTES,
     MAX_UPLINK_BPS,
+    NANO_SUPER,
+    PAYLOAD_BUS_W,
     SEG_FLIGHT_ONNX_BYTES,
     SEG_ONNX,
     catalog_area_scale,
 )
 from analysis.studies.orin_nano_full_frame_inference.headroom import (
     binding_usable_ceiling,
+    board_compare,
+    board_compares,
     catalog_fit,
     catalog_fits,
     factory_scaled_pair_bytes,
@@ -25,6 +32,7 @@ from analysis.studies.orin_nano_full_frame_inference.headroom import (
     memory_floor_wall_ms,
     pair_onnx_bytes,
     size_ceilings,
+    tensor_working_set,
     utilization,
 )
 from analysis.studies.orin_nano_full_frame_inference.latency import (
@@ -144,3 +152,50 @@ def test_max_params_zero_below_memory_floor() -> None:
     floor = memory_floor_wall_ms()
     assert max_params_for_wall(floor * 0.5, "fp16", "cls") == 0.0
     assert max_params_for_wall(10.0, "fp16", "cls") > 343_000.0
+
+
+def test_both_model_tensors_are_under_100_mib() -> None:
+    """Weights plus I/O plus maps for both nets stay well under 100 MiB."""
+    mem = tensor_working_set()
+    mib = 1024.0 * 1024.0
+    assert mem.cls_weight_bytes + mem.seg_weight_bytes < mib
+    assert mem.tensors_bytes < 100.0 * mib
+    assert mem.frac_dram_tensors < 0.02
+    assert mem.frac_dram_gpu_held < 0.20
+
+
+def test_jetson_has_no_discrete_vram_pool() -> None:
+    """Nano Super DRAM is the unified 8 GB LPDDR5 pool."""
+    assert NANO_SUPER.dram_gb == 8.0
+    assert CPU_NAME.startswith("Arm Cortex-A78AE")
+    assert NANO_SUPER.dla_count == 0
+
+
+def test_agx_cpu_is_same_a78ae_with_more_cores() -> None:
+    """AGX is 8 or 12 Cortex-A78AE cores, about 1.7x or 2.6x core-GHz."""
+    nano = board_compare(NANO_SUPER)
+    agx32 = board_compare(AGX_ORIN_32GB)
+    agx64 = board_compare(AGX_ORIN_64GB)
+    assert nano.cpu_x == 1.0
+    assert AGX_ORIN_32GB.cpu_cores == 8
+    assert AGX_ORIN_64GB.cpu_cores == 12
+    assert NANO_SUPER.cpu_cores == 6
+    assert 1.6 < agx32.cpu_x < 1.9
+    assert 2.4 < agx64.cpu_x < 2.8
+    assert agx64.gpu_x < 3.0
+    assert agx64.dram_x == 8.0
+
+
+def test_agx_tdp_exceeds_payload_bus_nano_does_not() -> None:
+    """AGX 60 W is over the 55 W payload-bus FDIR; Nano 25 W is not."""
+    assert board_compare(NANO_SUPER).tdp_vs_payload < 0.5
+    assert board_compare(AGX_ORIN_64GB).tdp_vs_payload > 1.0
+    assert AGX_ORIN_64GB.tdp_w > PAYLOAD_BUS_W
+    assert NANO_SUPER.tdp_w < PAYLOAD_BUS_W
+
+
+def test_latency_unconstrained_bind_is_uplink_not_dram() -> None:
+    """With time ignored, daily uplink is tighter than loadable DRAM."""
+    ceilings = {row.name: row for row in size_ceilings()}
+    assert ceilings["daily uplink"].max_pair_bytes < ceilings["DRAM loadable"].max_pair_bytes
+    assert board_compares()[0].spec.name == NANO_SUPER.name

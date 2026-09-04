@@ -3,7 +3,7 @@
 None of the axes or annotations cite 100 ms or 500 ms.
 
 Contains:
-  - write_figures: seven PNGs under OUT_DIR.
+  - write_figures: nine PNGs under OUT_DIR.
 """
 
 from __future__ import annotations
@@ -19,12 +19,16 @@ from matplotlib.figure import Figure
 
 from analysis.lib.plot_style import C_BLUE, C_ORANGE, C_RED, C_SKY, C_TEAL, apply
 from analysis.studies.orin_nano_full_frame_inference.assumptions import (
+    CAMERA_PREPROCESS_GB,
     CLS_ACC_FP16,
     CLS_ACC_FP32,
     CLS_ACC_INT8,
     CLS_FLOPS_TILE_G,
     CLS_FP32_BYTES,
     CLS_INT8_BYTES,
+    DRAM_GB,
+    ORT_WORKSPACE_GB,
+    OS_RUNTIME_GB,
     OUT_DIR,
     SEG_FLOPS_TILE_G,
     SEG_FP32_BYTES,
@@ -36,8 +40,10 @@ from analysis.studies.orin_nano_full_frame_inference.assumptions import (
 )
 from analysis.studies.orin_nano_full_frame_inference.cost import cls_flops_ff_g, seg_flops_ff_g
 from analysis.studies.orin_nano_full_frame_inference.headroom import (
+    board_compares,
     pair_onnx_bytes,
     size_ceilings,
+    tensor_working_set,
     utilization,
 )
 from analysis.studies.orin_nano_full_frame_inference.latency import (
@@ -267,6 +273,59 @@ def fig_max_pair_size() -> Path:
     return _save(fig, "max_pair_size.png")
 
 
+def fig_dram_stack() -> Path:
+    """Stacked 8 GB bar: OS, workspace, camera, both-model tensors, free."""
+    apply()
+    ws = tensor_working_set()
+    tensors_gb = ws.tensors_bytes / 1e9
+    reserved = OS_RUNTIME_GB + ORT_WORKSPACE_GB + CAMERA_PREPROCESS_GB + tensors_gb
+    chunks = (
+        ("OS / runtime", OS_RUNTIME_GB, C_ORANGE),
+        ("ORT/TRT workspace", ORT_WORKSPACE_GB, C_SKY),
+        ("Camera / preprocess", CAMERA_PREPROCESS_GB, C_BLUE),
+        ("Both-model tensors", tensors_gb, C_TEAL),
+        ("Free", DRAM_GB - reserved, "#BBBBBB"),
+    )
+    fig, ax = plt.subplots(figsize=(7.4, 2.4))
+    left = 0.0
+    for name, width, color in chunks:
+        ax.barh([0], [width], left=left, color=color, label=name)
+        left += width
+    ax.set_yticks([])
+    ax.set_xlim(0, DRAM_GB)
+    ax.set_xlabel("Unified LPDDR5 (GB)")
+    ax.set_title("Orin Nano Super 8 GB: no discrete VRAM")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.35), ncol=3, fontsize=8)
+    return _save(fig, "dram_stack.png")
+
+
+def fig_nano_vs_agx() -> Path:
+    """Relative CPU, GPU, DRAM, bandwidth, and TDP vs Nano Super."""
+    apply()
+    rows = board_compares()
+    labels = ["CPU", "GPU", "DRAM", "Bandwidth", "TDP"]
+    series = [
+        (
+            row.spec.name.replace("Jetson ", ""),
+            [row.cpu_x, row.gpu_x, row.dram_x, row.bw_x, row.tdp_x],
+        )
+        for row in rows
+    ]
+    colors = (C_TEAL, C_BLUE, C_ORANGE)
+    x = np.arange(len(labels))
+    width = 0.26
+    fig, ax = plt.subplots(figsize=(7.6, 4.2))
+    for idx, (name, values) in enumerate(series):
+        ax.bar(x + (idx - 1) * width, values, width, label=name, color=colors[idx])
+    ax.axhline(1.0, color="#888888", linestyle=":", linewidth=1.0)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("Relative to Orin Nano Super")
+    ax.set_title("Same Cortex-A78AE CPU; AGX is more cores, not a new CPU")
+    ax.legend()
+    return _save(fig, "nano_vs_agx.png")
+
+
 def write_figures() -> list[Path]:
     """Write all study figures.
 
@@ -281,4 +340,6 @@ def write_figures() -> list[Path]:
         fig_mean_vs_positive_rate(),
         fig_headroom_time(),
         fig_max_pair_size(),
+        fig_dram_stack(),
+        fig_nano_vs_agx(),
     ]

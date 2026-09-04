@@ -22,6 +22,9 @@ from analysis.studies.orin_nano_full_frame_inference.assumptions import (
     CLS_FLIGHT_ONNX_BYTES,
     CLS_FLOPS_TILE_G,
     CLS_PARAMS,
+    CPU_CORES,
+    CPU_GHZ,
+    CPU_NAME,
     CUDA_CORES,
     DRAM_GB,
     ETA_COMPUTE,
@@ -67,12 +70,14 @@ from analysis.studies.orin_nano_full_frame_inference.cost import (
 from analysis.studies.orin_nano_full_frame_inference.figures import write_figures
 from analysis.studies.orin_nano_full_frame_inference.headroom import (
     binding_usable_ceiling,
+    board_compares,
     catalog_fits,
     factory_scale_for_detect,
     factory_scaled_pair_bytes,
     memory_floor_wall_ms,
     pair_onnx_bytes,
     size_ceilings,
+    tensor_working_set,
     uplink_seconds,
     utilization,
 )
@@ -134,6 +139,13 @@ def write_results(path: Path | None = None) -> Path:
     occ_h = utilization()
     usable_h = binding_usable_ceiling()
     a(f"| GPU busy at 35 Hz detect | {occ_h.gpu_busy_frac_35hz * 100:.1f}% |")
+    mem = tensor_working_set()
+    a(f"| **Both-model tensors** | **{_mib(mem.tensors_bytes)} MiB** |")
+    a(
+        f"| Weights (cls FP16 + seg INT8) | "
+        f"{_mib(mem.cls_weight_bytes + mem.seg_weight_bytes)} MiB |"
+    )
+    a(f"| Tensors / 8 GB unified DRAM | {mem.frac_dram_tensors * 100:.2f}% |")
     a(f"| **Usable pair at 20 ms** | **{_mib(usable_h.max_pair_bytes)} MiB** |")
     a(f"| Daily uplink cap | {_mib(float(MAX_DAILY_UPLINK_BYTES))} MiB |")
     a("")
@@ -143,6 +155,7 @@ def write_results(path: Path | None = None) -> Path:
     a("## Board lock")
     a("")
     a(f"- Ampere {CUDA_CORES} CUDA / {TENSOR_CORES} tensor cores.")
+    a(f"- CPU: {CPU_CORES}-core {CPU_NAME} at {CPU_GHZ:g} GHz. Unified LPDDR5, no VRAM.")
     a(f"- {FP16_TFLOPS:g} FP16 TFLOPS, {FP32_TFLOPS:g} FP32 TFLOPS (CUDA cores).")
     a(f"- {INT8_DENSE_TOPS:g} dense / {INT8_SPARSE_TOPS:g} sparse INT8 TOPS.")
     a(f"- {DRAM_GB:g} GB LPDDR5 at {BW_GBPS:g} GB/s.")
@@ -252,6 +265,61 @@ def write_results(path: Path | None = None) -> Path:
     )
     a("That split is a policy, not a Nano measurement.")
     a("")
+    a("## Unified memory (not VRAM)")
+    a("")
+    mem = tensor_working_set()
+    a("Jetson Orin has no discrete VRAM. CPU, GPU, camera, and models share")
+    a(f"{DRAM_GB:g} GB of LPDDR5.")
+    a("")
+    a("| Resident | Bytes |")
+    a("| --- | --- |")
+    a(f"| Classifier FP16 weights | {_mib(mem.cls_weight_bytes)} MiB |")
+    a(f"| Segmentor INT8 weights | {_mib(mem.seg_weight_bytes)} MiB |")
+    a(f"| Shipped ONNX pair | {_mib(mem.onnx_bytes)} MiB |")
+    a(f"| Input (1, 4, 1024, 1224) float32 | {_mib(mem.input_bytes)} MiB |")
+    a(f"| Live maps (stride 4, 64 ch) | {_mib(mem.activation_bytes)} MiB |")
+    a(f"| Segmentor mask out | {_mib(mem.seg_output_bytes)} MiB |")
+    a(f"| **Both nets, tensors** | **{_mib(mem.tensors_bytes)} MiB** |")
+    a(
+        f"| Plus 1 GB workspace + TRT engines | {_mib(mem.gpu_held_bytes)} MiB "
+        f"({mem.frac_dram_gpu_held * 100:.1f}% of 8 GB) |"
+    )
+    a("")
+    a(
+        f"Weights are {_mib(mem.cls_weight_bytes + mem.seg_weight_bytes)} MiB. "
+        "Almost all of the inference footprint is the float32 band plane and "
+        "feature maps, not parameters."
+    )
+    a("If latency is not the gate, the 100 MiB daily uplink binds before DRAM.")
+    a("A wide full-res U-Net can grow skip maps toward ~1 GB and still fit.")
+    a("ResNet-50 FP16 (~45 MiB) plus the shipped segmentor is a rounding error.")
+    a("")
+    a("## Nano vs AGX")
+    a("")
+    a(f"Every Orin SKU uses {CPU_NAME}. AGX is more cores and a higher clock,")
+    a("not a faster CPU microarchitecture.")
+    a(f"Nano Super is {CPU_CORES} cores at {CPU_GHZ:g} GHz.")
+    a("")
+    a("| | CPU | GPU | DRAM | BW | TDP | TDP / 55 W bus | DLA |")
+    a("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for cmp in board_compares():
+        spec = cmp.spec
+        a(
+            f"| {spec.name} | {spec.cpu_cores}c x {spec.cpu_ghz:g} GHz "
+            f"({cmp.cpu_x:.2f}x) | {spec.cuda_cores} CUDA ({cmp.gpu_x:.2f}x) | "
+            f"{spec.dram_gb:g} GB ({cmp.dram_x:.2f}x) | {spec.bw_gbps:g} GB/s "
+            f"({cmp.bw_x:.2f}x) | {spec.tdp_w:g} W ({cmp.tdp_x:.2f}x) | "
+            f"{cmp.tdp_vs_payload * 100:.0f}% | {spec.dla_count} |"
+        )
+    a("")
+    a("AGX 64GB is about 2.6x CPU throughput and 2.5x GPU CUDA-clock product.")
+    a("It is 8x DRAM capacity and 2x bandwidth. It is not 10x compute.")
+    a(f"AGX max TDP {60:g} W exceeds payload-bus FDIR {PAYLOAD_BUS_W:g} W.")
+    a("Nano Super 25 W is 45% of that bus. The flight stack is Python apps")
+    a("on six A78AE cores; extra cores do not change the model working set.")
+    a("Orin NX 16GB Super is the SODIMM step if DRAM ever binds: 8 cores,")
+    a("16 GB, 102 GB/s, 2x DLA, 25-40 W. AGX is the wrong lever for this pair.")
+    a("")
     a("## Max pair size")
     a("")
     a("A classifier+segmentor pair upload is one bundle. Factory-family size")
@@ -286,13 +354,13 @@ def write_results(path: Path | None = None) -> Path:
     a("")
     a("| Arch | Kind | Params | FF GFLOP | Pair detect | 4 ms | 20 ms | 35 Hz |")
     a("| --- | --- | --- | --- | --- | --- | --- | --- |")
-    for row in catalog_fits():
+    for fit in catalog_fits():
         yes = {True: "yes", False: "no"}
         a(
-            f"| `{row.arch.name}` | {row.arch.kind} | "
-            f"{row.arch.params / 1e6:.2f} M | {row.flops_ff_g:.2f} | "
-            f"{row.pair_detect_ms:.2f} ms | {yes[row.fits_expected]} | "
-            f"{yes[row.fits_timeout]} | {yes[row.fits_frame]} |"
+            f"| `{fit.arch.name}` | {fit.arch.kind} | "
+            f"{fit.arch.params / 1e6:.2f} M | {fit.flops_ff_g:.2f} | "
+            f"{fit.pair_detect_ms:.2f} ms | {yes[fit.fits_expected]} | "
+            f"{yes[fit.fits_timeout]} | {yes[fit.fits_frame]} |"
         )
     a("")
     a("Largest catalog classifier inside 20 ms with the shipped segmentor is")
@@ -316,6 +384,10 @@ def write_results(path: Path | None = None) -> Path:
     a("![Time headroom](outputs/headroom_time.png)")
     a("")
     a("![Max pair size](outputs/max_pair_size.png)")
+    a("")
+    a("![Unified DRAM stack](outputs/dram_stack.png)")
+    a("")
+    a("![Nano vs AGX](outputs/nano_vs_agx.png)")
     a("")
     a("CPU ORT traces are not plotted as Orin. A laptop-GPU CSV, when present,")
     a("is labelled separately from Super estimates.")
@@ -360,10 +432,10 @@ def write_readme(path: Path | None = None) -> Path:
     a(f"- Repo Python is {PYTHON_REPO}. JetPack {JETPACK} system Python is {PYTHON_JETPACK}.")
     a("  The flight image does not change `requires-python` for this gap.")
     a(f"- Derived expected {budget.expected_ms} ms, timeout {budget.timeout_ms} ms (mixed knee).")
+    a("- Factory pair tensors are ~82 MiB of unified LPDDR5 (no discrete VRAM).")
     a(
-        "- Factory pair is 0.77 MiB. Real-time uploads bind on the 20 ms "
-        "timeout (~5 MiB factory-family, ~8 MiB EfficientNet-B0), not the "
-        "100 MiB daily uplink."
+        "- AGX uses the same Cortex-A78AE CPU (8 or 12 cores vs 6). It is not "
+        "10x compute; max TDP 60 W exceeds the 55 W payload-bus FDIR cap."
     )
     a("")
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")

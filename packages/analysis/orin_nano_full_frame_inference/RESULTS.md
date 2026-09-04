@@ -17,6 +17,9 @@ efficiency policy. It does not use placeholder millisecond targets.
 | **FDIR timeout** | **20 ms** |
 | Timeout policy | `ceil(5 x expected)` |
 | GPU busy at 35 Hz detect | 5.7% |
+| **Both-model tensors** | **81.96 MiB** |
+| Weights (cls FP16 + seg INT8) | 0.68 MiB |
+| Tensors / 8 GB unified DRAM | 1.07% |
 | **Usable pair at 20 ms** | **4.71 MiB** |
 | Daily uplink cap | 100.00 MiB |
 
@@ -26,6 +29,7 @@ into `fault.inference_timeout_ms`.
 ## Board lock
 
 - Ampere 1024 CUDA / 32 tensor cores.
+- CPU: 6-core Arm Cortex-A78AE v8.2 at 1.7 GHz. Unified LPDDR5, no VRAM.
 - 17 FP16 TFLOPS, 2.08 FP32 TFLOPS (CUDA cores).
 - 33 dense / 67 sparse INT8 TOPS.
 - 8 GB LPDDR5 at 102 GB/s.
@@ -102,6 +106,47 @@ Weights are 0.8 MiB against 76.50 MiB of I/O and maps.
 DRAM reservation leaves 4.30 GB of 8 GB after 2.5 GB OS/runtime, 1 GB ORT/TRT workspace, and 0.2 GB camera buffers.
 That split is a policy, not a Nano measurement.
 
+## Unified memory (not VRAM)
+
+Jetson Orin has no discrete VRAM. CPU, GPU, camera, and models share
+8 GB of LPDDR5.
+
+| Resident | Bytes |
+| --- | --- |
+| Classifier FP16 weights | 0.65 MiB |
+| Segmentor INT8 weights | 0.02 MiB |
+| Shipped ONNX pair | 0.77 MiB |
+| Input (1, 4, 1024, 1224) float32 | 19.12 MiB |
+| Live maps (stride 4, 64 ch) | 57.38 MiB |
+| Segmentor mask out | 4.78 MiB |
+| **Both nets, tensors** | **81.96 MiB** |
+| Plus 1 GB workspace + TRT engines | 1037.17 MiB (13.6% of 8 GB) |
+
+Weights are 0.68 MiB. Almost all of the inference footprint is the float32 band plane and feature maps, not parameters.
+If latency is not the gate, the 100 MiB daily uplink binds before DRAM.
+A wide full-res U-Net can grow skip maps toward ~1 GB and still fit.
+ResNet-50 FP16 (~45 MiB) plus the shipped segmentor is a rounding error.
+
+## Nano vs AGX
+
+Every Orin SKU uses Arm Cortex-A78AE v8.2. AGX is more cores and a higher clock,
+not a faster CPU microarchitecture.
+Nano Super is 6 cores at 1.7 GHz.
+
+| | CPU | GPU | DRAM | BW | TDP | TDP / 55 W bus | DLA |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Jetson Orin Nano Super 8 GB | 6c x 1.7 GHz (1.00x) | 1024 CUDA (1.00x) | 8 GB (1.00x) | 102 GB/s (1.00x) | 25 W (1.00x) | 45% | 0 |
+| Jetson AGX Orin 32GB | 8c x 2.2 GHz (1.73x) | 1792 CUDA (2.23x) | 32 GB (4.00x) | 204.8 GB/s (2.01x) | 60 W (2.40x) | 109% | 2 |
+| Jetson AGX Orin 64GB | 12c x 2.2 GHz (2.59x) | 2048 CUDA (2.55x) | 64 GB (8.00x) | 204.8 GB/s (2.01x) | 60 W (2.40x) | 109% | 2 |
+
+AGX 64GB is about 2.6x CPU throughput and 2.5x GPU CUDA-clock product.
+It is 8x DRAM capacity and 2x bandwidth. It is not 10x compute.
+AGX max TDP 60 W exceeds payload-bus FDIR 55 W.
+Nano Super 25 W is 45% of that bus. The flight stack is Python apps
+on six A78AE cores; extra cores do not change the model working set.
+Orin NX 16GB Super is the SODIMM step if DRAM ever binds: 8 cores,
+16 GB, 102 GB/s, 2x DLA, 25-40 W. AGX is the wrong lever for this pair.
+
 ## Max pair size
 
 A classifier+segmentor pair upload is one bundle. Factory-family size
@@ -168,6 +213,10 @@ U-Net and ResNet-50 are not real-time at 1024x1224 on this module.
 ![Time headroom](outputs/headroom_time.png)
 
 ![Max pair size](outputs/max_pair_size.png)
+
+![Unified DRAM stack](outputs/dram_stack.png)
+
+![Nano vs AGX](outputs/nano_vs_agx.png)
 
 CPU ORT traces are not plotted as Orin. A laptop-GPU CSV, when present,
 is labelled separately from Super estimates.

@@ -8,6 +8,7 @@ Contains:
   - flops_full_frame_g: scale a 256-tile G count.
   - elem_bytes / params_bytes / weight_bytes.
   - input_bytes / activation_bytes / bytes_moved / bytes_moved_for.
+  - cls_output_bytes / seg_output_bytes.
   - flop_per_param: factory full-frame FLOPs per parameter.
 """
 
@@ -93,6 +94,16 @@ def activation_bytes() -> float:
     height = FRAME_H_PX // OUTPUT_STRIDE
     width = FRAME_W_PX // OUTPUT_STRIDE
     return float(LIVE_MAPS * LIVE_CHANNELS * height * width * 4)
+
+
+def cls_output_bytes() -> float:
+    """Return classifier logit tensor bytes (1, 1) float32."""
+    return 4.0
+
+
+def seg_output_bytes() -> float:
+    """Return segmentor mask tensor bytes (1, 1, H, W) float32."""
+    return float(FRAME_H_PX * FRAME_W_PX * 4)
 
 
 def weight_bytes(kind: str, precision: str) -> float:

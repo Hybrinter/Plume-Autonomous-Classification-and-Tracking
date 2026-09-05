@@ -29,7 +29,7 @@ are deliberately absent rather than falsely marked verified.
 | REQ-COMM-HIGH-001 | Downlink gated by AOS visibility | SIL | sil-link-real | test_sil_closed_loop; scenario:ingress_auth_accept | verified |
 | REQ-AIML-GIMB-001 | Autonomous closed-loop pointing toward plume | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
 | REQ-GIMB-HIGH-001 | Closed-loop pointing keeps the plume in the full band-plane field of view | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
-| REQ-GIMB-HIGH-003 | Runaway gimbal detection forces stow | SIL | sil | test_runaway | verified |
+| REQ-GIMB-HIGH-003 | Runaway gimbal detection forces stow | SIL | sil | test_sil_closed_loop; test_sim_gimbal | verified |
 | REQ-COMM-CMD-001 | Command routing + ARM/EXECUTE two-step + inhibit re-check | SIL | sil | test_routing; test_sil_command_router; scenario:command_route_exec | verified |
 | REQ-SAFE-EXIT-001 | Single latched SAFE; ground EXIT_SAFE gated on fault clear | SIL | sil | test_sil_command_router | verified |
 | REQ-DATA-STORE-001 | Checksummed, quota'd, retention-managed product storage | unit | unit | test_storage | verified |

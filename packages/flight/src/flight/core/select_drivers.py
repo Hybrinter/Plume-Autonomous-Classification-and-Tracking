@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from flight.core.composition import Drivers
 from flight.hal.drivers_sim import (
     SimGimbal,
+    SimIssEphemeris,
     SimLaunchLock,
     SimScalarSensor,
     SimSensor,
@@ -39,6 +40,7 @@ from flight.hal.drivers_sim import (
 from flight.hal.interfaces import (
     GimbalActuator,
     ImagingSensor,
+    IssEphemeris,
     ScalarSensor,
     StationLink,
 )
@@ -81,6 +83,7 @@ def select_drivers(
       - thermal_sensor + power_sensor follow the sensor axis: 'sim' ->
         SimScalarSensor(readings); 'real' -> RealScalarSensor().
       - gimbal: 'sim' -> SimGimbal(clock, cfg); 'real' -> RealGimbal(clock, cfg).
+      - ephemeris: 'sim' -> SimIssEphemeris(clock, cfg); 'real' -> RealIssEphemeris().
       - compute: 'sim' -> the passed ScriptedDetector; 'real' -> OnnxDetector
         (classifier + segmentor artifacts, I/O contract from inference config).
       - link: 'sim' -> SimStationLink(inbound_packets); 'real' -> RealStationLink(cfg, clock).
@@ -99,7 +102,7 @@ def select_drivers(
         SystemExit: If the real-sensor startup exposure or gain command fails.
 
     Notes:
-        Real driver SDK modules (PySpin/pyserial/onnxruntime/socket) are imported lazily
+        Real driver SDK modules (PySpin/onnxruntime/socket) are imported lazily
         inside their 'real' branches, so this module imports SDK-free. flight.core.main
         and sim.sil are the only other places allowed to construct drivers. Each branch
         local is typed with its HAL Protocol, so the Drivers(...) construction type-checks
@@ -140,11 +143,24 @@ def select_drivers(
     gimbal: GimbalActuator
     if env.gimbal == "sim":
         _require_inputs()
-        gimbal = SimGimbal(clock=clock, cfg=config.gimbal)
+        gimbal = SimGimbal(
+            clock=clock,
+            cfg=config.gimbal,
+            inner_dt_s=config.controller.inner.dt_s,
+        )
     else:
         from flight.hal.drivers_real import RealGimbal
 
         gimbal = RealGimbal(clock=clock, cfg=config.gimbal)
+
+    # --- ephemeris ---
+    ephemeris: IssEphemeris
+    if env.ephemeris == "sim":
+        ephemeris = SimIssEphemeris(clock=clock, cfg=config.ephemeris)
+    else:
+        from flight.hal.drivers_real import RealIssEphemeris
+
+        ephemeris = RealIssEphemeris()
 
     # --- compute (detector backend) ---
     detector: DetectorBackend
@@ -161,8 +177,8 @@ def select_drivers(
         detector = OnnxDetector(
             segmentor_model_path=resolve_quantized_path(inf.segmentor_model_path, inf.use_int8),
             classifier_model_path=resolve_quantized_path(inf.classifier_model_path, inf.use_int8),
-            confidence_gate=config.controller.confidence_gate,
-            min_blob_area_px=config.controller.min_blob_area_px,
+            confidence_gate=config.controller.vision.confidence_gate,
+            min_blob_area_px=config.controller.vision.min_blob_area_px,
             logit_threshold=inf.classifier_logit_threshold,
             latency_budget_ms=config.fault.inference_timeout_ms,
             expected_input_shape=(1, bands, height, width),
@@ -190,6 +206,7 @@ def select_drivers(
     return Drivers(
         sensor=sensor,
         gimbal=gimbal,
+        ephemeris=ephemeris,
         detector=detector,
         station=station,
         thermal_sensor=thermal_sensor,

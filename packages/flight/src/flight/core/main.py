@@ -79,12 +79,9 @@ def build_flight_system(
         SystemExit: If the uplink key file is missing/unreadable, or if the
             real-sensor startup exposure/gain tuning fails (both unrecoverable at
             startup; the latter now lives inside select_drivers).
-        ValueError: If a 'real' gimbal is selected with an empty config.gimbal.serial_port
-            (RealGimbal cannot open its link -- an unrecoverable startup misconfig).
-
     Notes:
         Driver construction is delegated to flight.core.select_drivers, which lazily
-        imports PySpin/pyserial/onnxruntime only inside the 'real' branches it backs.
+        imports PySpin/onnxruntime only inside the 'real' branches it backs.
         With the default all-"real" environment this builds the full hardware stack, so
         this function runs only on flight hardware. sim_inputs is None: the default flight
         env has no 'sim' axis, so no sim construction inputs are needed (select_drivers

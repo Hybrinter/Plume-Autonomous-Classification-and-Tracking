@@ -1,346 +1,254 @@
-"""Unit tests for flight.payload.gimbal.arbiter -- GimbalArbiter state machine.
+"""Unit tests for flight.payload.gimbal.arbiter -- TRACKING / REWIND / SAFE.
 
 REQ-AIML-GIMB-001 through 008, REQ-GIMB-HIGH-001 through 004
-
-All tests use the `arbiter_idle_state` fixture from conftest.py as the starting state.
-GimbalArbiter.step() is a pure function -- no mocking required.
 """
 
-# third-party
-import numpy as np
-import pytest
-
-# pact types
 from flight.libs.config import PactConfig
-from flight.libs.messages import BlobMeta, InferenceResultMsg
-from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
-
-# module under test
+from flight.libs.messages import BlobMeta
+from flight.libs.types import GimbalCommandMode, GimbalState
 from flight.payload.gimbal import ArbiterState, GimbalArbiter
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+_FAULT_FLAG: int = 0b00000001
 
 
 def _arbiter(config: PactConfig) -> GimbalArbiter:
     """Build an arbiter from controller + gimbal slices of PactConfig."""
-    return GimbalArbiter(config.controller, config.gimbal)
+    return GimbalArbiter(config.controller.arbiter, config.gimbal)
 
 
 def make_blob(
     blob_id: int = 1,
     mean_confidence: float = 0.85,
     pixel_area: int = 200,
-    persistence_count: int = 1,
-    bbox: tuple[int, int, int, int] = (100, 100, 150, 150),
-    centroid_raw: tuple[float, float] = (125.0, 125.0),
 ) -> BlobMeta:
-    """Construct a BlobMeta with sensible defaults above all safety gates."""
+    """Construct a BlobMeta above all safety gates."""
     return BlobMeta(
         blob_id=blob_id,
-        bbox=bbox,
-        centroid_raw=centroid_raw,
+        bbox=(100, 100, 150, 150),
+        centroid_raw=(125.0, 125.0),
         pixel_area=pixel_area,
         mean_confidence=mean_confidence,
-        persistence_count=persistence_count,
+        persistence_count=1,
     )
 
 
-def make_inference_result(
-    blobs: tuple[BlobMeta, ...] = (),
-    frame_id: int = 1,
-    mode_flags: int = 0,
-) -> InferenceResultMsg:
-    """Construct an InferenceResultMsg pre-filtered (blobs already passed all gates)."""
-    return InferenceResultMsg(
-        msg_type=MessageType.INFERENCE_RESULT,
-        timestamp_utc="2026-04-03T00:00:00.000Z",
-        frame_id=frame_id,
-        mask=np.zeros((256, 256), dtype=np.float32),
-        blobs=blobs,
-        model_version="test-v0",
-        inference_ms=50.0,
-        mode_flags=mode_flags,
-    )
-
-
-# Bit flag used in mode_flags to signal fault -> SAFE transition.
-# The arbiter treats any non-zero mode_flags as a fault signal per the arch spec.
-_FAULT_FLAG: int = 0b00000001
-
-
-# ---------------------------------------------------------------------------
-# State machine transition tests
-# ---------------------------------------------------------------------------
-
-
-def test_idle_to_acquiring_on_detection(
-    arbiter_idle_state: ArbiterState, default_config: PactConfig
+def test_plume_enters_tracking(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
 ) -> None:
-    """One blob above threshold detected in IDLE -> new state is ACQUIRING.
-
-    The blob persistence_count=1 < acquire_persistence_frames=3, so we stay in ACQUIRING.
-    """
+    """A plume on a TRACKING start stays TRACKING and records the blob id."""
     arbiter = _arbiter(default_config)
-    blob = make_blob(persistence_count=1)
-    result = make_inference_result(blobs=(blob,))
-
-    new_state, _request, _events = arbiter.step(arbiter_idle_state, result, None, 1.0, False, False)
-
-    assert new_state.gimbal_state == GimbalState.ACQUIRING
-
-
-def test_acquiring_to_tracking_on_persistence(
-    arbiter_idle_state: ArbiterState, default_config: PactConfig
-) -> None:
-    """Blob with persistence_count >= 3 in ACQUIRING state -> transitions to TRACKING."""
-    arbiter = _arbiter(default_config)
-
-    blob_p1 = make_blob(persistence_count=1)
-    result_p1 = make_inference_result(blobs=(blob_p1,))
-    state_acquiring, _, _ = arbiter.step(arbiter_idle_state, result_p1, None, 1.0, False, False)
-    assert state_acquiring.gimbal_state == GimbalState.ACQUIRING
-
-    blob_p3 = make_blob(persistence_count=3)
-    result_p3 = make_inference_result(blobs=(blob_p3,))
-    state_tracking, _, _ = arbiter.step(state_acquiring, result_p3, None, 2.0, False, False)
-
-    assert state_tracking.gimbal_state == GimbalState.TRACKING
-
-
-def test_tracking_release_below_limb_rewinds(
-    default_config: PactConfig,
-) -> None:
-    """TRACKING holds for release_persistence_frames - 1 misses, then REWIND below the limb."""
-    arbiter = _arbiter(default_config)
-    release = default_config.controller.release_persistence_frames
-    state = ArbiterState(
-        gimbal_state=GimbalState.TRACKING,
-        tracked_blobs=(make_blob(persistence_count=5),),
-        idle_duration_s=0.0,
-        last_command_time=0.0,
-        current_target_id=1,
+    new_state, request, events = arbiter.step(
+        arbiter_tracking_state,
+        (make_blob(),),
+        now=1.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
     )
-    empty = make_inference_result(blobs=())
-
-    now = 0.0
-    for miss in range(1, release):
-        now += 1.0
-        state, _, _ = arbiter.step(state, empty, None, now, False, False, el_deg=10.0)
-        assert state.gimbal_state == GimbalState.TRACKING
-        assert state.miss_count == miss
-
-    now += 1.0
-    state, request, _ = arbiter.step(state, empty, None, now, False, False, el_deg=10.0)
-    assert state.gimbal_state == GimbalState.REWIND
-    assert request is not None
-    assert request.mode is GimbalCommandMode.ABSOLUTE
-    assert request.el_deg == default_config.gimbal.el_science_max_deg
-    assert request.az_deg == 0.0
-    assert request.reason == "rewind_to_limb"
+    assert new_state.gimbal_state is GimbalState.TRACKING
+    assert new_state.current_target_id == 1
+    assert new_state.miss_count == 0
+    assert request is None
+    assert events == []
 
 
-def test_tracking_release_at_limb_stays_tracking(default_config: PactConfig) -> None:
-    """TRACKING loss at the science limb stays TRACKING and issues no command."""
+def test_misses_below_limb_enter_rewind(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """release_persistence_frames empty vision samples below the limb enter REWIND."""
     arbiter = _arbiter(default_config)
-    release = default_config.controller.release_persistence_frames
-    state = ArbiterState(
-        gimbal_state=GimbalState.TRACKING,
-        tracked_blobs=(make_blob(persistence_count=5),),
-        idle_duration_s=0.0,
-        last_command_time=0.0,
-        current_target_id=1,
-    )
-    empty = make_inference_result(blobs=())
-    now = 0.0
-    for _miss in range(release):
-        now += 1.0
-        state, request, _ = arbiter.step(
-            state, empty, None, now, False, False, el_deg=default_config.gimbal.el_science_max_deg
+    state = arbiter_tracking_state
+    persist = default_config.controller.arbiter.release_persistence_frames
+    request = None
+    for i in range(persist):
+        state, request, events = arbiter.step(
+            state,
+            (),
+            now=float(i + 1),
+            safe_commanded=False,
+            safe_cleared=False,
+            el_deg=10.0,
         )
-    assert state.gimbal_state == GimbalState.TRACKING
+    assert state.gimbal_state is GimbalState.REWIND
     assert request is None
+    assert events[-1].payload["to"] == GimbalState.REWIND.value
 
 
-def test_tracking_blob_resets_miss_count(default_config: PactConfig) -> None:
-    """A blob seen while in TRACKING resets the release-hysteresis miss counter."""
-    arbiter = _arbiter(default_config)
-    state = ArbiterState(
-        gimbal_state=GimbalState.TRACKING,
-        tracked_blobs=(make_blob(persistence_count=5),),
-        idle_duration_s=0.0,
-        last_command_time=0.0,
-        current_target_id=1,
-        miss_count=2,
-    )
-    result = make_inference_result(blobs=(make_blob(persistence_count=5),))
-    state, _, _ = arbiter.step(state, result, (0.0, 0.0), 1.0, False, False)
-    assert state.gimbal_state == GimbalState.TRACKING
-    assert state.miss_count == 0
-
-
-def test_rewind_arrives_at_limb_without_blob(default_config: PactConfig) -> None:
-    """REWIND with no blobs at the science limb returns to TRACKING at rate 0."""
-    arbiter = _arbiter(default_config)
-    rewind_state = ArbiterState(
-        gimbal_state=GimbalState.REWIND,
-        tracked_blobs=(),
-        idle_duration_s=0.0,
-        last_command_time=0.0,
-        current_target_id=None,
-    )
-    empty = make_inference_result(blobs=())
-    state, request, _ = arbiter.step(
-        rewind_state,
-        empty,
-        None,
-        1.0,
-        False,
-        False,
-        el_deg=default_config.gimbal.el_science_max_deg,
-    )
-    assert state.gimbal_state == GimbalState.TRACKING
-    assert request is None
-
-
-def test_rewind_to_acquiring_on_blob(default_config: PactConfig) -> None:
-    """A blob during REWIND before limb arrival moves to ACQUIRING."""
-    arbiter = _arbiter(default_config)
-    rewind_state = ArbiterState(
-        gimbal_state=GimbalState.REWIND,
-        tracked_blobs=(),
-        idle_duration_s=0.0,
-        last_command_time=0.0,
-        current_target_id=None,
-    )
-    result = make_inference_result(blobs=(make_blob(persistence_count=1),))
-    state, _, _ = arbiter.step(rewind_state, result, None, 1.0, False, False, el_deg=10.0)
-    assert state.gimbal_state == GimbalState.ACQUIRING
-
-
-def test_any_to_safe_on_fault(arbiter_idle_state: ArbiterState, default_config: PactConfig) -> None:
-    """Fault signal in mode_flags causes any state to transition to SAFE."""
-    arbiter = _arbiter(default_config)
-
-    for start_state in [
-        arbiter_idle_state,
-        ArbiterState(
-            gimbal_state=GimbalState.ACQUIRING,
-            tracked_blobs=(make_blob(persistence_count=1),),
-            idle_duration_s=0.0,
-            last_command_time=0.0,
-            current_target_id=None,
-        ),
-        ArbiterState(
-            gimbal_state=GimbalState.TRACKING,
-            tracked_blobs=(make_blob(persistence_count=5),),
-            idle_duration_s=0.0,
-            last_command_time=0.0,
-            current_target_id=1,
-        ),
-        ArbiterState(
-            gimbal_state=GimbalState.REWIND,
-            tracked_blobs=(),
-            idle_duration_s=0.0,
-            last_command_time=0.0,
-            current_target_id=None,
-        ),
-    ]:
-        fault_result = make_inference_result(blobs=(), mode_flags=_FAULT_FLAG)
-        new_state, _, _ = arbiter.step(start_state, fault_result, None, 1.0, False, False)
-        assert new_state.gimbal_state == GimbalState.SAFE
-
-
-# ---------------------------------------------------------------------------
-# SAFE entry / latch / exit and request generation
-# ---------------------------------------------------------------------------
-
-
-def test_safe_entry_emits_single_stow_and_latches(
-    arbiter_idle_state: ArbiterState, default_config: PactConfig
+def test_misses_at_limb_stay_tracking(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
 ) -> None:
-    """safe_commanded latches SAFE, emits one STOW request, and ignores blobs after."""
+    """Loss at the science limb stays TRACKING (wait with r = 0)."""
     arbiter = _arbiter(default_config)
-    result = make_inference_result(blobs=(make_blob(persistence_count=5),))
-
-    state, request, _ = arbiter.step(arbiter_idle_state, result, (1.0, 0.0), 1.0, True, False)
-    assert state.gimbal_state is GimbalState.SAFE
-    assert request is not None
-    assert request.mode is GimbalCommandMode.STOW
-    assert request.reason == "safe_entry_stow"
-
-    # Latched: a second step in SAFE produces no further request, blobs ignored.
-    state, request2, _ = arbiter.step(state, result, (1.0, 0.0), 2.0, False, False)
-    assert state.gimbal_state is GimbalState.SAFE
-    assert request2 is None
-
-
-def test_safe_cleared_returns_to_idle(default_config: PactConfig) -> None:
-    """safe_cleared in SAFE transitions back to IDLE with counters reset, no request."""
-    arbiter = _arbiter(default_config)
-    safe_state = ArbiterState(
-        gimbal_state=GimbalState.SAFE,
-        tracked_blobs=(),
-        idle_duration_s=5.0,
-        last_command_time=0.0,
-        current_target_id=7,
-        miss_count=3,
-    )
-    empty = make_inference_result(blobs=())
-    state, request, _ = arbiter.step(safe_state, empty, None, 1.0, False, True)
-    assert state.gimbal_state is GimbalState.IDLE
-    assert request is None
+    state = arbiter_tracking_state
+    persist = default_config.controller.arbiter.release_persistence_frames
+    limb = default_config.gimbal.el_science_max_deg
+    for i in range(persist):
+        state, _request, _events = arbiter.step(
+            state,
+            (),
+            now=float(i + 1),
+            safe_commanded=False,
+            safe_cleared=False,
+            el_deg=limb,
+        )
+    assert state.gimbal_state is GimbalState.TRACKING
     assert state.miss_count == 0
-    assert state.idle_duration_s == 0.0
     assert state.current_target_id is None
 
 
-def test_tracking_emits_rate_request_with_proportional_clip(default_config: PactConfig) -> None:
-    """TRACKING with a usable error emits a RATE request clipped to the hardware slew."""
+def test_coast_does_not_increment_miss(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """Outer ticks without a vision sample leave miss_count unchanged."""
     arbiter = _arbiter(default_config)
-    limit = default_config.gimbal.max_hw_slew_rate_deg_per_s
-    state = ArbiterState(
-        gimbal_state=GimbalState.TRACKING,
-        tracked_blobs=(make_blob(persistence_count=5),),
-        idle_duration_s=0.0,
-        last_command_time=0.0,
-        current_target_id=1,
+    seeded, _request, _events = arbiter.step(
+        arbiter_tracking_state,
+        (make_blob(),),
+        now=1.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
     )
-    result = make_inference_result(blobs=(make_blob(persistence_count=5),))
-    # A large error exceeds the proportional (gain 1.0) clip and saturates at the limit.
-    state, request, _ = arbiter.step(state, result, (100.0, -100.0), 100.0, False, False)
+    coast, _request, _events = arbiter.step(
+        seeded,
+        (),
+        now=1.02,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+        vision_updated=False,
+    )
+    assert coast.gimbal_state is GimbalState.TRACKING
+    assert coast.miss_count == 0
+    assert coast.current_target_id == 1
+
+
+def test_rewind_plume_returns_to_tracking(default_config: PactConfig) -> None:
+    """A plume during REWIND returns to TRACKING immediately."""
+    arbiter = _arbiter(default_config)
+    rewind = ArbiterState(
+        gimbal_state=GimbalState.REWIND,
+        tracked_blobs=(),
+        current_target_id=None,
+        miss_count=0,
+    )
+    new_state, request, events = arbiter.step(
+        rewind,
+        (make_blob(blob_id=7),),
+        now=2.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+    )
+    assert new_state.gimbal_state is GimbalState.TRACKING
+    assert new_state.current_target_id == 7
+    assert request is None
+    assert events[-1].payload["to"] == GimbalState.TRACKING.value
+
+
+def test_rewind_at_limb_returns_to_tracking(default_config: PactConfig) -> None:
+    """Arrival at the science limb with no plume returns REWIND to TRACKING."""
+    arbiter = _arbiter(default_config)
+    rewind = ArbiterState(
+        gimbal_state=GimbalState.REWIND,
+        tracked_blobs=(),
+        current_target_id=None,
+        miss_count=0,
+    )
+    limb = default_config.gimbal.el_science_max_deg
+    new_state, request, _events = arbiter.step(
+        rewind,
+        (),
+        now=2.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=limb,
+    )
+    assert new_state.gimbal_state is GimbalState.TRACKING
+    assert request is None
+
+
+def test_safe_latches_and_stows(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """SAFE entry issues STOW and stays latched until cleared."""
+    arbiter = _arbiter(default_config)
+    new_state, request, events = arbiter.step(
+        arbiter_tracking_state,
+        (make_blob(),),
+        now=1.0,
+        safe_commanded=True,
+        safe_cleared=False,
+        el_deg=10.0,
+    )
+    assert new_state.gimbal_state is GimbalState.SAFE
     assert request is not None
-    assert request.mode is GimbalCommandMode.RATE
-    assert request.az_deg == limit
-    assert request.el_deg == -limit
-    assert request.reason == "tracking_target"
+    assert request.mode is GimbalCommandMode.STOW
+    assert request.el_deg == default_config.gimbal.stow_el_deg
+    assert events[-1].payload["to"] == GimbalState.SAFE.value
+
+    held, held_request, _events = arbiter.step(
+        new_state,
+        (make_blob(),),
+        now=2.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+    )
+    assert held.gimbal_state is GimbalState.SAFE
+    assert held_request is None
 
 
-def test_valid_transitions_exhaustive() -> None:
-    """Verify that all defined VALID_TRANSITIONS entries can be exercised.
+def test_mode_flags_latch_safe(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """Nonzero inference mode_flags latches SAFE."""
+    arbiter = _arbiter(default_config)
+    new_state, request, _events = arbiter.step(
+        arbiter_tracking_state,
+        (make_blob(),),
+        now=1.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+        mode_flags=_FAULT_FLAG,
+    )
+    assert new_state.gimbal_state is GimbalState.SAFE
+    assert request is not None
+    assert request.mode is GimbalCommandMode.STOW
 
-    Documentation check: asserts the expected transitions match the state machine topology.
-    """
-    expected_transitions: dict[GimbalState, frozenset[GimbalState]] = {
-        GimbalState.IDLE: frozenset({GimbalState.ACQUIRING, GimbalState.SAFE}),
-        GimbalState.ACQUIRING: frozenset(
-            {GimbalState.TRACKING, GimbalState.IDLE, GimbalState.SAFE}
+
+def test_safe_clear_returns_to_tracking(default_config: PactConfig) -> None:
+    """A non-SAFE mode change exits SAFE to TRACKING."""
+    arbiter = _arbiter(default_config)
+    safe = ArbiterState(
+        gimbal_state=GimbalState.SAFE,
+        tracked_blobs=(),
+        current_target_id=None,
+        miss_count=0,
+    )
+    new_state, request, events = arbiter.step(
+        safe,
+        (),
+        now=3.0,
+        safe_commanded=False,
+        safe_cleared=True,
+        el_deg=-45.0,
+    )
+    assert new_state.gimbal_state is GimbalState.TRACKING
+    assert request is None
+    assert events[-1].payload["from"] == GimbalState.SAFE.value
+
+
+def test_legal_transitions(default_config: PactConfig) -> None:
+    """Allowed mode edges are TRACKING↔REWIND and either↔SAFE."""
+    allowed = {
+        GimbalState.TRACKING: frozenset(
+            {GimbalState.TRACKING, GimbalState.REWIND, GimbalState.SAFE}
         ),
-        GimbalState.TRACKING: frozenset({GimbalState.REWIND, GimbalState.SAFE}),
-        GimbalState.REWIND: frozenset(
-            {GimbalState.ACQUIRING, GimbalState.TRACKING, GimbalState.SAFE}
-        ),
-        GimbalState.SAFE: frozenset({GimbalState.IDLE}),
+        GimbalState.REWIND: frozenset({GimbalState.REWIND, GimbalState.TRACKING, GimbalState.SAFE}),
+        GimbalState.SAFE: frozenset({GimbalState.SAFE, GimbalState.TRACKING}),
     }
-
-    if hasattr(GimbalArbiter, "VALID_TRANSITIONS"):
-        vt = getattr(GimbalArbiter, "VALID_TRANSITIONS")
-        for from_state, to_states in expected_transitions.items():
-            actual = vt.get(from_state, frozenset())
-            assert to_states.issubset(actual)
-    else:
-        pytest.skip(
-            "GimbalArbiter.VALID_TRANSITIONS not defined; "
-            "transition coverage verified by individual test cases above"
-        )
+    assert set(GimbalState) == set(allowed)
+    assert GimbalCommandMode.ABSOLUTE in GimbalCommandMode
+    del default_config

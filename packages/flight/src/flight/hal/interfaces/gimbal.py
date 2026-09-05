@@ -1,12 +1,10 @@
 """Gimbal-actuator hardware abstraction.
 
-Defines the GimbalActuator protocol that formalizes the closed-loop gimbal command
-set (absolute angle, rate, home, stow, encoder readback, stow switch), plus the
-GimbalPosition readback type carrying a monotonic encoder timestamp.
-
-The driver enforces the hardware envelope (travel/slew limits); the arbiter enforces
-the mission envelope (defense in depth). The legacy send_command delta path was removed
-by the pointing switchover -- actuation flows through the typed command methods.
+Elevation torque plant. `GimbalActuator` commands torque and reads encoder
+elevation. `stow` / `home` / `goto_angle` latch a pose target for stow-switch
+arming. The payload position loop writes the rate reference `r` into the inner
+PI; the driver does not close a position or rate loop. There is no azimuth axis
+and no rate command.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001, REQ-GIMB-HIGH-002.
 """
@@ -23,48 +21,44 @@ from flight.libs.types import FaultCode, Result
 
 @dataclass(frozen=True, slots=True)
 class GimbalPosition:
-    """Current gimbal pointing with encoder timestamp.
+    """Current gimbal elevation with encoder timestamp.
 
     Attributes:
-        az_deg: Azimuth in degrees (positive right of boresight).
-        el_deg: Elevation in degrees (positive above boresight).
+        el_deg: Elevation in signed off-nadir degrees (positive along-track).
         timestamp_s: Monotonic seconds at the encoder read (from the injected Clock).
     """
 
-    az_deg: float
     el_deg: float
     timestamp_s: float
 
 
 @runtime_checkable
 class GimbalActuator(Protocol):
-    """Hardware abstraction for the payload pointing gimbal.
+    """Hardware abstraction for the single-axis elevation gimbal.
 
-    The closed-loop surface covers absolute-angle, rate, home, and stow commands,
-    plus encoder position readback and stow-switch sensing. The driver enforces the
-    hardware envelope; the arbiter enforces the mission envelope (defense in depth).
+    Tracking and STOW / HOME / GOTO write torque. `stow` / `home` / `goto_angle`
+    latch a pose target and arm stow-switch logic. The driver does not run an
+    internal position or rate controller.
     """
 
-    def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
-        """Command an absolute pointing; the driver clamps to travel limits."""
+    def set_torque(self, tau_nm: float) -> Result[None, FaultCode]:
+        """Command motor torque in N·m. The driver clips to tau_max."""
         ...
 
-    def set_rate(
-        self, az_rate_deg_per_s: float, el_rate_deg_per_s: float
-    ) -> Result[None, FaultCode]:
-        """Command axis rates; the driver clamps to the hardware slew envelope."""
+    def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
+        """Latch a pose target. Motion still comes from `set_torque`."""
         ...
 
     def home(self) -> Result[None, FaultCode]:
-        """Drive to the configured home pose."""
+        """Latch the configured home pose as the pose target."""
         ...
 
     def stow(self) -> Result[None, FaultCode]:
-        """Drive to the configured stow pose (the SAFE-mode mechanical safing action)."""
+        """Latch the stow pose and arm the stow switch."""
         ...
 
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
-        """Read timestamped encoder angles."""
+        """Read timestamped encoder elevation."""
         ...
 
     def read_stow_switch(self) -> Result[bool, FaultCode]:

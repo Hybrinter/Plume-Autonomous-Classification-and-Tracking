@@ -42,14 +42,14 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
         nonlocal now
         for _ in range(steps):
             now += 1.0
-            system.clock.advance(1.0)
             harness.step(now)
+            system.clock.advance(1.0)
 
     advance(6)  # plume present, but the lock inhibits all gimbal motion
     locked_pos = system.gimbal.read_position()
     assert isinstance(locked_pos, Ok)
-    assert abs(locked_pos.value.az_deg) < 0.1  # gimbal held at the origin while ENGAGED
     assert abs(locked_pos.value.el_deg) < 0.1
+    assert not hasattr(locked_pos.value, "az_deg")
 
     # Hazardous release: ARM then EXECUTE over the link.
     system.station.enqueue(
@@ -73,7 +73,7 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     advance(10)  # with the lock released the payload now tracks the plume
     freed_pos = system.gimbal.read_position()
     assert isinstance(freed_pos, Ok)
-    assert abs(freed_pos.value.az_deg) > 0.5 or abs(freed_pos.value.el_deg) > 0.5
+    assert abs(freed_pos.value.el_deg) > 0.5
 
 
 def _drain(subscription: object) -> list:  # type: ignore[type-arg]

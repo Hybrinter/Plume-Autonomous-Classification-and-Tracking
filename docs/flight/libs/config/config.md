@@ -13,7 +13,13 @@ object is constructed.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ControllerConfig` | class | Gimbal controller, tracker, LQR, and runaway tuning |
+| `ArbiterConfig` | class | TRACKING / REWIND / SAFE persistence and limb arrival |
+| `VisionConfig` | class | Blob gates and in-process vision queue depth |
+| `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
+| `OuterLoopConfig` | class | Outer period and proportional error gain |
+| `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
+| `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
+| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, and position configs |
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
@@ -21,10 +27,11 @@ object is constructed.
 | `PreprocessingConfig` | class | Quality-flag thresholds |
 | `FaultConfig` | class | Watchdog, inference timeout, and power limit |
 | `ThermalConfig` | class | Record-only per-component temperature limits |
-| `GimbalConfig` | class | Hardware and science elevation envelopes, stow/home, sim, serial |
+| `GimbalConfig` | class | Elevation envelopes, stow/home, plant scalars, encoder |
 | `LinkConfig` | class | TCP/UDP endpoints and CCSDS APIDs |
 | `CommandIngressConfig` | class | HMAC key path, auth flag, accepted sources |
 | `CommandRouterConfig` | class | Hazardous ARM window duration |
+| `EphemerisConfig` | class | Circular-orbit ISS elements and WGS-84 constants |
 | `EnvironmentConfig` | class | Per-axis sim/real wiring selector |
 | `PactConfig` | class | Top-level config composing all sub-configs |
 | `AxisMode` | type alias | `"sim"` or `"real"` |
@@ -45,7 +52,7 @@ into `PactConfig`.
 4. Unknown keys and out-of-range values fail at construction.
 5. `PactConfig` requires inference `H,W` to equal the demosaiced band plane
    (`height_px/2`, `width_px/2`).
-6. `EnvironmentConfig` names sim/real axes for sensor, gimbal, compute, link, and clock.
+6. `EnvironmentConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
 7. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
 8. `CommandIngressConfig` names the HMAC key path and accepted command sources.
 9. Routable targets and hazardous commands come from the command dictionary, not from router
@@ -66,8 +73,15 @@ The module defines configuration. Key field groups:
 
 ### ControllerConfig
 
-Confidence gate, EMA alpha, retarget rate, persistence frame counts, blob IoU threshold,
-Kalman noise parameters, LQR cost weights, and encoder runaway tolerance.
+Nested tables under `[controller]`:
+
+- `vision`: `confidence_gate`, `blob_iou_match_threshold`, `min_blob_area_px`,
+  `queue_depth`
+- `arbiter`: `release_persistence_frames`, `limb_arrival_deg`
+- `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
+- `outer`: `dt_s`, `Kp`
+- `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
+- `position`: `K_pos`, `r_max_deg_per_s`
 
 ### InferenceConfig
 
@@ -102,8 +116,8 @@ not compare these values.
 
 Hardware elevation `[el_hw_min_deg, el_hw_max_deg]`, science window
 `[el_science_min_deg, el_science_max_deg]`, stow and home elevation, max hardware slew,
-sim dynamics parameters, and PTU serial settings. Azimuth travel is not configured;
-drivers pin azimuth at 0.
+plant copies `J_kg_m2`, `B_nms_per_rad`, `tau_max_nm`, 18-bit encoder counts, and sim
+encoder noise. There is no azimuth travel field.
 
 ### LinkConfig
 
@@ -118,15 +132,21 @@ drivers pin azimuth at 0.
 
 `arm_window_s` for hazardous ARM/EXECUTE pairing.
 
+### EphemerisConfig
+
+ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
+`mu_m3_s2`, `epoch_utc_s`), Earth rate, and WGS-84 `a` and `f`.
+
 ## Constraints
 
 - Default field values must match `config/default.toml` exactly.
 - No subsystem reads TOML directly.
 - `calibration_dir=""` selects identity calibration (SIL only).
-- `serial_port=""` marks real gimbal unavailable at startup.
 - Launch-lock axis is not in `EnvironmentConfig`.
 - Science elevation must lie inside hardware travel. Stow and home must lie inside
   hardware travel.
+- `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have
+  length 2.
 
 ## Related documents
 

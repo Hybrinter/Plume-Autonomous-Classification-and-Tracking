@@ -16,6 +16,7 @@ from flight.libs.config import (
     CommsConfig,
     ControllerConfig,
     EnvironmentConfig,
+    EphemerisConfig,
     FaultConfig,
     GimbalConfig,
     InferenceConfig,
@@ -53,6 +54,7 @@ _SECTION_TO_DATACLASS = {
     "link": LinkConfig,
     "command_ingress": CommandIngressConfig,
     "command_router": CommandRouterConfig,
+    "ephemeris": EphemerisConfig,
     "environment": EnvironmentConfig,
 }
 
@@ -64,6 +66,29 @@ def _normalize(value: object) -> object:
     return value
 
 
+def _compare_defaults(
+    path: str, dataclass_value: object, toml_value: object, mismatches: list[str]
+) -> None:
+    """Recurse into nested config dataclasses so nested TOML tables are checked."""
+    if dataclasses.is_dataclass(dataclass_value) and not isinstance(dataclass_value, type):
+        if not isinstance(toml_value, dict):
+            mismatches.append(f"{path}: expected nested table, got {toml_value!r}")
+            return
+        for field in dataclasses.fields(type(dataclass_value)):
+            key = f"{path}.{field.name}"
+            if field.name not in toml_value:
+                mismatches.append(f"{key}: missing from TOML")
+                continue
+            _compare_defaults(
+                key, getattr(dataclass_value, field.name), toml_value[field.name], mismatches
+            )
+        return
+    left = _normalize(dataclass_value)
+    right = _normalize(toml_value)
+    if left != right:
+        mismatches.append(f"{path}: dataclass={left!r} toml={right!r}")
+
+
 def test_config_defaults_match_default_toml() -> None:
     """Every config dataclass field default equals its config/default.toml value."""
     with _DEFAULT_TOML.open("rb") as fh:
@@ -73,15 +98,6 @@ def test_config_defaults_match_default_toml() -> None:
     for section, dataclass_type in _SECTION_TO_DATACLASS.items():
         defaults = dataclass_type()
         toml_section = toml_data.get(section, {})
-        for field in dataclasses.fields(dataclass_type):
-            if field.name not in toml_section:
-                mismatches.append(f"{section}.{field.name}: missing from TOML")
-                continue
-            dataclass_value = _normalize(getattr(defaults, field.name))
-            toml_value = _normalize(toml_section[field.name])
-            if dataclass_value != toml_value:
-                mismatches.append(
-                    f"{section}.{field.name}: dataclass={dataclass_value!r} toml={toml_value!r}"
-                )
+        _compare_defaults(section, defaults, toml_section, mismatches)
 
     assert not mismatches, "config default divergence:\n" + "\n".join(mismatches)

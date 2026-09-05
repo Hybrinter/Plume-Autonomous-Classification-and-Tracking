@@ -95,6 +95,7 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
         frames.append(
             MosaicFrame(
                 timestamp_utc="2026-06-01T00:00:00.000Z",
+                timestamp_s=float(frame_id),
                 frame_id=frame_id,
                 mosaic=mosaic,
                 exposure_us=1000.0,

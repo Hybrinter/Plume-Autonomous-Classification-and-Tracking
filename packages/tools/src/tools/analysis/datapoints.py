@@ -123,9 +123,10 @@ class DeviceSample:
     samples it exactly once and every gimbal extractor reads the same cached numbers.
 
     Fields:
-        gimbal_az_meas_deg / gimbal_el_meas_deg: ``read_position`` angles (with encoder noise).
-        gimbal_az_true_deg / gimbal_el_true_deg: the clean integrated pose (driver truth).
-        gimbal_rate_az_deg_s / gimbal_rate_el_deg_s: the commanded RATE-mode rates (clamped).
+        gimbal_el_meas_deg: ``read_position`` elevation (with encoder noise).
+        gimbal_el_true_deg: the clean integrated pose (driver truth).
+        gimbal_omega_rad_s: true plant rate (rad/s).
+        gimbal_tau_nm: held torque command (N·m).
         gimbal_mode: the active GimbalCommandMode name, or "NONE" before the first command.
         stow_switch: True once stow is commanded and the pose is within stow tolerance.
         launch_lock_state: the LaunchLockState name read from the launch-lock driver.
@@ -134,12 +135,10 @@ class DeviceSample:
         sensor_index / thermal_index / power_index: replay cursors of the sim sources.
     """
 
-    gimbal_az_meas_deg: float
     gimbal_el_meas_deg: float
-    gimbal_az_true_deg: float
     gimbal_el_true_deg: float
-    gimbal_rate_az_deg_s: float
-    gimbal_rate_el_deg_s: float
+    gimbal_omega_rad_s: float
+    gimbal_tau_nm: float
     gimbal_mode: str
     stow_switch: bool
     launch_lock_state: str
@@ -456,20 +455,6 @@ def _payload_signals() -> list[Signal]:
             lambda ctx: ctx.payload_state.arbiter.gimbal_state.value,
         ),
         _num(
-            "payload.idle_duration_s",
-            "payload",
-            "Arbiter idle duration",
-            "s",
-            lambda ctx: float(ctx.payload_state.arbiter.idle_duration_s),
-        ),
-        _num(
-            "payload.last_command_time",
-            "payload",
-            "Last arbiter command time",
-            "s",
-            lambda ctx: float(ctx.payload_state.arbiter.last_command_time),
-        ),
-        _num(
             "payload.current_target_id",
             "payload",
             "Tracked blob id",
@@ -495,81 +480,53 @@ def _payload_signals() -> list[Signal]:
             lambda ctx: float(ctx.payload_state.arbiter.miss_count),
         ),
         _num(
-            "payload.commanded_az_rate_deg_s",
+            "payload.r_rad_s",
             "payload",
-            "Commanded azimuth rate",
-            "deg/s",
-            lambda ctx: float(ctx.payload_state.commanded_az_rate_deg_per_s),
+            "Outer rate reference",
+            "rad/s",
+            lambda ctx: float(ctx.payload_state.r_rad_s),
         ),
         _num(
-            "payload.commanded_el_rate_deg_s",
+            "payload.y_m",
             "payload",
-            "Commanded elevation rate",
-            "deg/s",
-            lambda ctx: float(ctx.payload_state.commanded_el_rate_deg_per_s),
+            "Encoder rate estimate",
+            "rad/s",
+            lambda ctx: float(ctx.payload_state.y_m),
         ),
         _num(
-            "payload.ema_centroid_x",
+            "payload.tau_nm",
             "payload",
-            "EMA boresight error x",
-            "deg",
-            lambda ctx: float(ctx.payload_state.ema.centroid[0]),
+            "Inner torque command",
+            "N*m",
+            lambda ctx: float(ctx.payload_state.last_tau_nm),
         ),
         _num(
-            "payload.ema_centroid_y",
+            "payload.e_hat",
             "payload",
-            "EMA boresight error y",
-            "deg",
-            lambda ctx: float(ctx.payload_state.ema.centroid[1]),
+            "Residual elevation error",
+            "rad",
+            lambda ctx: float(ctx.payload_state.residual.x[0]),
         ),
         _num(
-            "payload.ema_initialized",
+            "payload.omega_t_res",
             "payload",
-            "EMA initialized",
-            "bool",
-            _bool(lambda ctx: ctx.payload_state.ema.initialized),
+            "Residual rate estimate",
+            "rad/s",
+            lambda ctx: float(ctx.payload_state.residual.x[1]),
         ),
         _num(
-            "payload.kalman_az_err",
+            "payload.omega_t_nom",
             "payload",
-            "Kalman azimuth error",
-            "deg",
-            lambda ctx: float(ctx.payload_state.kalman.x[0]),
+            "Co-rotating predictor rate",
+            "rad/s",
+            lambda ctx: float(ctx.payload_state.last_omega_t_nom),
         ),
         _num(
-            "payload.kalman_el_err",
+            "payload.residual_p_trace",
             "payload",
-            "Kalman elevation error",
-            "deg",
-            lambda ctx: float(ctx.payload_state.kalman.x[1]),
-        ),
-        _num(
-            "payload.kalman_az_vel",
-            "payload",
-            "Kalman azimuth rate",
-            "deg/s",
-            lambda ctx: float(ctx.payload_state.kalman.x[2]),
-        ),
-        _num(
-            "payload.kalman_el_vel",
-            "payload",
-            "Kalman elevation rate",
-            "deg/s",
-            lambda ctx: float(ctx.payload_state.kalman.x[3]),
-        ),
-        _num(
-            "payload.kalman_p_trace",
-            "payload",
-            "Kalman covariance trace",
-            "deg^2",
-            lambda ctx: float(np.trace(ctx.payload_state.kalman.P)),
-        ),
-        _num(
-            "payload.runaway_strikes",
-            "payload",
-            "Encoder runaway strikes",
-            "count",
-            lambda ctx: float(ctx.payload_state.runaway.strike_count),
+            "Residual covariance trace",
+            "rad^2",
+            lambda ctx: float(np.trace(ctx.payload_state.residual.P)),
         ),
         _num(
             "payload.motion_inhibited",
@@ -579,25 +536,11 @@ def _payload_signals() -> list[Signal]:
             _bool(lambda ctx: ctx.system.apps.payload.lock_gate.engaged),
         ),
         _num(
-            "payload.gimbal_az_meas_deg",
-            "payload",
-            "Gimbal azimuth (measured)",
-            "deg",
-            lambda ctx: ctx.devices.gimbal_az_meas_deg,
-        ),
-        _num(
             "payload.gimbal_el_meas_deg",
             "payload",
             "Gimbal elevation (measured)",
             "deg",
             lambda ctx: ctx.devices.gimbal_el_meas_deg,
-        ),
-        _num(
-            "payload.gimbal_az_true_deg",
-            "payload",
-            "Gimbal azimuth (truth)",
-            "deg",
-            lambda ctx: ctx.devices.gimbal_az_true_deg,
         ),
         _num(
             "payload.gimbal_el_true_deg",
@@ -607,18 +550,18 @@ def _payload_signals() -> list[Signal]:
             lambda ctx: ctx.devices.gimbal_el_true_deg,
         ),
         _num(
-            "payload.gimbal_rate_az_deg_s",
+            "payload.gimbal_omega_rad_s",
             "payload",
-            "Gimbal azimuth rate (driver)",
-            "deg/s",
-            lambda ctx: ctx.devices.gimbal_rate_az_deg_s,
+            "Gimbal plant rate (truth)",
+            "rad/s",
+            lambda ctx: ctx.devices.gimbal_omega_rad_s,
         ),
         _num(
-            "payload.gimbal_rate_el_deg_s",
+            "payload.gimbal_tau_nm",
             "payload",
-            "Gimbal elevation rate (driver)",
-            "deg/s",
-            lambda ctx: ctx.devices.gimbal_rate_el_deg_s,
+            "Gimbal held torque",
+            "N*m",
+            lambda ctx: ctx.devices.gimbal_tau_nm,
         ),
         _cat(
             "payload.gimbal_driver_mode",
@@ -673,13 +616,6 @@ def _payload_signals() -> list[Signal]:
             "payload",
             "Last gimbal command mode",
             _last_cat(GimbalCommandMsg, lambda m: m.mode.value),
-        ),
-        _num(
-            "payload.gimbal_command_az",
-            "payload",
-            "Last gimbal command az value",
-            "deg",
-            _last_num(GimbalCommandMsg, lambda m: m.az_value_deg),
         ),
         _num(
             "payload.gimbal_command_el",
@@ -1303,48 +1239,32 @@ def _enrichment_signals() -> list[Signal]:
     """
     signals: list[Signal] = [
         _num(
-            "payload.kalman_p00",
+            "payload.residual_p00",
             "payload",
-            "Kalman P[0,0] (az err var)",
-            "deg^2",
-            lambda ctx: float(ctx.payload_state.kalman.P[0, 0]),
+            "Residual P[0,0] (e var)",
+            "rad^2",
+            lambda ctx: float(ctx.payload_state.residual.P[0, 0]),
         ),
         _num(
-            "payload.kalman_p11",
+            "payload.residual_p11",
             "payload",
-            "Kalman P[1,1] (el err var)",
-            "deg^2",
-            lambda ctx: float(ctx.payload_state.kalman.P[1, 1]),
+            "Residual P[1,1] (omega_res var)",
+            "rad^2/s^2",
+            lambda ctx: float(ctx.payload_state.residual.P[1, 1]),
         ),
         _num(
-            "payload.kalman_p22",
+            "payload.vision_accepted",
             "payload",
-            "Kalman P[2,2] (az rate var)",
-            "deg^2/s^2",
-            lambda ctx: float(ctx.payload_state.kalman.P[2, 2]),
+            "Residual filter has a measurement",
+            "bool",
+            _bool(lambda ctx: ctx.payload_state.residual.has_measurement),
         ),
         _num(
-            "payload.kalman_p33",
+            "payload.gimbal_el_noise_deg",
             "payload",
-            "Kalman P[3,3] (el rate var)",
-            "deg^2/s^2",
-            lambda ctx: float(ctx.payload_state.kalman.P[3, 3]),
-        ),
-        _num(
-            "payload.ema_error_mag",
-            "payload",
-            "EMA boresight error magnitude",
+            "Gimbal el measure-minus-truth",
             "deg",
-            lambda ctx: float(
-                math.hypot(ctx.payload_state.ema.centroid[0], ctx.payload_state.ema.centroid[1])
-            ),
-        ),
-        _num(
-            "payload.gimbal_az_noise_deg",
-            "payload",
-            "Gimbal az measure-minus-truth",
-            "deg",
-            lambda ctx: ctx.devices.gimbal_az_meas_deg - ctx.devices.gimbal_az_true_deg,
+            lambda ctx: ctx.devices.gimbal_el_meas_deg - ctx.devices.gimbal_el_true_deg,
         ),
         _num(
             "payload.is_tracking",

@@ -71,15 +71,18 @@ def step_once(
     acquired = sensor.acquire_frame()
     if isinstance(acquired, Ok):
         pos = gimbal.read_position()
+        slew = 0.0
         payload_state, _ = apps.payload.process_frame(
             acquired.value,
             payload_state,
             now,
-            0.0,
+            slew,
             pos.value if isinstance(pos, Ok) else None,
             safe_commanded,
             safe_cleared,
         )
+    payload_state, _ = apps.payload.advance_outer(payload_state, now, safe_commanded, safe_cleared)
+    payload_state = apps.payload.advance_inner(payload_state, now)
 
     apps.iss_iface.tick()
     apps.command_router.tick()

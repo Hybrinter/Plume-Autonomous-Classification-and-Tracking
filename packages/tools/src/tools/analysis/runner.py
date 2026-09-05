@@ -302,9 +302,8 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="nominal_tracking",
             title="Nominal plume tracking",
             description=(
-                "Detect the scripted plume, transition IDLE -> ACQUIRING -> TRACKING, and slew "
-                "elevation toward the target (negative elevation, azimuth pinned at 0). No faults; "
-                "the system stays nominal the whole run."
+                "Detect the scripted plume, enter TRACKING, and slew elevation toward "
+                "the target. No faults; the system stays nominal the whole run."
             ),
             category="nominal",
             steps=14,

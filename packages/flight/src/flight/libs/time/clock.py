@@ -19,6 +19,10 @@ class Clock(Protocol):
         """Monotonic seconds since an arbitrary epoch (intervals, timeouts, rates)."""
         ...
 
+    def utc_s(self) -> float:
+        """UTC seconds since the Unix epoch (ephemeris and Earth rotation)."""
+        ...
+
     def wall_clock_iso(self) -> str:
         """Current UTC time as ISO 8601 with millisecond precision (message stamps)."""
         ...
@@ -31,39 +35,51 @@ class RealClock:
         """Return time.monotonic() in seconds."""
         return _time.monotonic()
 
+    def utc_s(self) -> float:
+        """Return time.time() Unix UTC seconds."""
+        return _time.time()
+
     def wall_clock_iso(self) -> str:
         """Return current UTC time as 'YYYY-MM-DDTHH:MM:SS.mmmZ'."""
         return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 class ManualClock:
-    """Deterministic clock for tests; monotonic time is advanced explicitly."""
+    """Deterministic clock for tests; monotonic and UTC time advance together."""
 
     def __init__(
         self,
         monotonic_s: float = 0.0,
-        wall_clock: str = "2026-01-01T00:00:00.000Z",
+        utc_s: float = 1_788_249_600.0,
+        wall_clock: str = "2026-09-01T00:00:00.000Z",
     ) -> None:
         """Initialize the manual clock.
 
         Args:
             monotonic_s: Initial monotonic seconds.
+            utc_s: Initial UTC Unix seconds (ephemeris).
             wall_clock: Initial wall-clock ISO 8601 string.
         """
         self._monotonic_s = monotonic_s
+        self._utc_s = utc_s
         self._wall_clock = wall_clock
 
     def monotonic_s(self) -> float:
         """Return the current (manually set) monotonic seconds."""
         return self._monotonic_s
 
+    def utc_s(self) -> float:
+        """Return the current (manually set) UTC Unix seconds."""
+        return self._utc_s
+
     def wall_clock_iso(self) -> str:
         """Return the current (manually set) wall-clock ISO string."""
         return self._wall_clock
 
     def advance(self, delta_s: float) -> None:
-        """Advance monotonic time by delta_s seconds."""
+        """Advance monotonic and UTC time by delta_s seconds."""
         self._monotonic_s += delta_s
+        self._utc_s += delta_s
 
     def set_wall_clock(self, wall_clock: str) -> None:
         """Set the wall-clock ISO string returned by wall_clock_iso()."""

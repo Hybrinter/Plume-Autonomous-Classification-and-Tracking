@@ -54,6 +54,12 @@ Reads all TOML sections backed by the `PactConfig` schema:
 
 | Section | Dataclass |
 | --- | --- |
+| `controller.vision` | `VisionConfig` |
+| `controller.arbiter` | `ArbiterConfig` |
+| `controller.inner` | `InnerLoopConfig` |
+| `controller.outer` | `OuterLoopConfig` |
+| `controller.residual` | `ResidualConfig` |
+| `controller.position` | `PositionLoopConfig` |
 | `controller` | `ControllerConfig` |
 | `inference` | `InferenceConfig` |
 | `comms` | `CommsConfig` |
@@ -65,6 +71,7 @@ Reads all TOML sections backed by the `PactConfig` schema:
 | `link` | `LinkConfig` |
 | `command_ingress` | `CommandIngressConfig` |
 | `command_router` | `CommandRouterConfig` |
+| `ephemeris` | `EphemerisConfig` |
 | `environment` | `EnvironmentConfig` |
 
 ## Constraints

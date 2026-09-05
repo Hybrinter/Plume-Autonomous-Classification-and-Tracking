@@ -1,10 +1,7 @@
 """Conformance tests: sim/real drivers satisfy the HAL protocols."""
 
 import socket
-import sys
-import types
 
-import pytest
 from flight.hal.drivers_real import RealGimbal, RealStationLink
 from flight.hal.drivers_sim import SimGimbal, SimSensor, SimStationLink
 from flight.hal.interfaces import GimbalActuator, ImagingSensor, StationLink
@@ -52,17 +49,7 @@ def test_real_station_link_satisfies_station_link() -> None:
         link.close()
 
 
-def test_real_gimbal_satisfies_gimbal_actuator(monkeypatch: pytest.MonkeyPatch) -> None:
-    """RealGimbal conforms to GimbalActuator (constructed over a fake serial module)."""
-
-    class _FakePort:
-        def __init__(self, port: str, baudrate: int, timeout: float) -> None:
-            pass
-
-    fake = types.ModuleType("serial")
-    fake.Serial = _FakePort  # type: ignore[attr-defined]
-    fake.SerialException = type("SerialException", (Exception,), {})  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "serial", fake)
-
-    gimbal: GimbalActuator = RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
+def test_real_gimbal_satisfies_gimbal_actuator() -> None:
+    """RealGimbal conforms to GimbalActuator (torque stub, no vendor SDK)."""
+    gimbal: GimbalActuator = RealGimbal(clock=ManualClock(), cfg=GimbalConfig())
     assert isinstance(gimbal, GimbalActuator)

@@ -1,35 +1,11 @@
-"""Payload application shell: binds the HAL and the pure payload core into one loop.
+"""Payload application shell: binds HAL, vision queue, and the cascaded controller.
 
-Collapses the legacy imaging + inference + controller processes into a single
-in-process payload app. Per frame: acquire a raw mosaic frame from the imaging sensor,
-preprocess it co-located (calibrate the raw mosaic plane -> CFA-separate into band planes
--> normalize -> select bands -> quality flags; no queue round-trip, honoring the
-preprocessing co-location invariant), run the swappable detector, step the pure
-PayloadController, then drive the gimbal HAL and publish results onto the typed bus. All
-decision logic lives in PayloadController; this module owns only I/O, sequencing, and
-message construction.
+Per frame: acquire a raw mosaic, preprocess co-located, detect, enqueue a vision
+sample. The outer loop dequeues vision, reads ephemeris, and writes r. The inner
+loop reads the encoder and writes torque. Catch-up methods advance in T_in / T_out
+steps so a ManualClock jump still moves the plant.
 
-Contains:
-  - TickOutcome: per-frame result summary (frame id, fault code, command-issued flag,
-    resulting gimbal state) used for telemetry and testing.
-  - PayloadApp: frozen holder of injected services, including the MosaicCalibration and
-    the SensorConfig geometry. from_config() assembles it from a PactConfig, concrete
-    drivers, and an injected MosaicCalibration, validating sensor/inference geometry at
-    startup; process_frame() runs one frame end-to-end; run() is the acquisition loop
-    (emits heartbeats, computes the slew rate from gimbal reads, publishes a fault on
-    camera stall).
-
-Non-obvious notes:
-  - The arbiter `now` is sourced from Clock.monotonic_s() (it consumes `now` only as
-    interval/rate-limit deltas); message timestamps use Clock.wall_clock_iso().
-  - The full demosaiced band plane is passed to inference with no crop and no scale.
-    Quality flags always run on that plane.
-  - The MOTION_SMEAR quality gate consumes a slew rate; run() derives it from consecutive
-    gimbal encoder reads and degrades to 0.0 (never-flag) on the first frame or a failed
-    read.
-
-Satisfies: REQ-AIML-COMP-001, REQ-AIML-COMP-002 (payload process orchestration),
-           REQ-OPER-HIGH-002 (subsystem app loop).
+Satisfies: REQ-AIML-COMP-001, REQ-AIML-COMP-002, REQ-OPER-HIGH-002.
 """
 
 from __future__ import annotations
@@ -37,13 +13,20 @@ from __future__ import annotations
 # stdlib
 import math
 import threading
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import dataclass, field, replace
 
 # third-party
 import numpy as np
 
 # internal
-from flight.hal.interfaces import GimbalActuator, GimbalPosition, ImagingSensor, StorageWriter
+from flight.hal.interfaces import (
+    GimbalActuator,
+    GimbalPosition,
+    ImagingSensor,
+    IssEphemeris,
+    StorageWriter,
+)
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import (
     FaultConfig,
@@ -77,7 +60,8 @@ from flight.libs.types import (
     Ok,
     SystemMode,
 )
-from flight.payload.control import ControlState, PayloadController
+from flight.payload.control import ControlState, IssSample, PayloadController, VisionSample
+from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
     MosaicCalibration,
@@ -96,7 +80,7 @@ class TickOutcome:
     Attributes:
         frame_id: The frame_id of the processed raw frame.
         fault: FaultCode if preprocessing or detection failed this frame, else None.
-        command_issued: True if a GimbalCommandMsg was sent to the gimbal this frame.
+        command_issued: True if a GimbalCommandMsg was published this cycle.
         gimbal_state: The arbiter GimbalState after this frame.
     """
 
@@ -122,30 +106,28 @@ class LockGate:
 
 @dataclass(frozen=True)
 class PayloadApp:
-    """Payload subsystem app: imperative shell around the pure payload core.
-
-    Holds the injected HAL drivers, detector, pure controller, bus, clock, mosaic
-    calibration, and the config slices needed for preprocessing, sensor geometry, and
-    heartbeats. Frozen to prevent field reassignment; the held services are themselves
-    mutable (consistent with the composition-root injection pattern).
+    """Payload subsystem app: imperative shell around the cascaded pointing loops.
 
     Attributes:
-        sensor: ImagingSensor driver (sim or real), acquire-only mosaic contract.
-        gimbal: GimbalActuator driver (sim or real).
-        detector: DetectorBackend (ScriptedDetector or OnnxDetector composer).
-        controller: The pure PayloadController.
-        bus: The typed MessageBus to publish onto.
-        clock: Injected Clock (RealClock in flight, ManualClock in tests).
-        calib: MosaicCalibration applied to the raw mosaic plane (identity in SIL).
-        sensor_cfg: SensorConfig (mosaic geometry, bit depth, IFOV).
-        inference_cfg: InferenceConfig (band selection + input geometry).
-        preprocessing_cfg: PreprocessingConfig (quality thresholds).
-        fault_cfg: FaultConfig (heartbeat interval).
-        mode_sub: Subscription to ModeChangeMsg; drained each frame for SAFE entry/exit.
+        sensor: ImagingSensor driver.
+        gimbal: GimbalActuator driver.
+        ephemeris: IssEphemeris driver.
+        detector: DetectorBackend.
+        controller: Pure PayloadController.
+        bus: Typed MessageBus.
+        clock: Injected Clock.
+        calib: MosaicCalibration.
+        storage: StorageWriter.
+        sensor_cfg, inference_cfg, preprocessing_cfg, fault_cfg: Config slices.
+        mode_sub, lock_sub: Bus subscriptions.
+        lock_gate: Launch-lock inhibit.
+        vision_queue: In-process vision samples (not the MessageBus).
+        inner_lock: Serializes ControlState between the inner thread and the outer path.
     """
 
     sensor: ImagingSensor
     gimbal: GimbalActuator
+    ephemeris: IssEphemeris
     detector: DetectorBackend
     controller: PayloadController
     bus: MessageBus
@@ -159,43 +141,25 @@ class PayloadApp:
     mode_sub: Subscription[ModeChangeMsg]
     lock_sub: Subscription[LaunchLockStateMsg]
     lock_gate: LockGate = field(default_factory=LockGate)
+    vision_queue: deque[VisionSample] = field(default_factory=lambda: deque(maxlen=4))
+    inner_lock: threading.Lock = field(default_factory=threading.Lock)
 
     @staticmethod
     def from_config(
         cfg: PactConfig,
         sensor: ImagingSensor,
         gimbal: GimbalActuator,
+        ephemeris: IssEphemeris,
         detector: DetectorBackend,
         bus: MessageBus,
         clock: Clock,
         calib: MosaicCalibration,
         storage: StorageWriter,
     ) -> PayloadApp:
-        """Assemble a PayloadApp from a PactConfig, injected services, and a calibration.
-
-        Builds the pure PayloadController from cfg.controller and carries cfg.sensor,
-        cfg.inference, cfg.preprocessing, and cfg.fault for the loop. The drivers,
-        detector, bus, clock, and MosaicCalibration are injected by the caller (the
-        composition root chooses real vs sim and loads/identity-builds the calibration).
-
-        Inputs:
-            cfg (PactConfig): Top-level configuration.
-            sensor (ImagingSensor): Imaging sensor driver (sim or real).
-            gimbal (GimbalActuator): Gimbal actuator driver (sim or real).
-            detector (DetectorBackend): Detector backend (scripted or ONNX).
-            bus (MessageBus): The typed bus to publish onto.
-            clock (Clock): Injected clock (RealClock in flight, ManualClock in tests).
-            calib (MosaicCalibration): Per-pixel mosaic calibration (identity in SIL).
-
-        Outputs:
-            PayloadApp: A fully constructed payload app.
+        """Assemble a PayloadApp from a PactConfig and injected services.
 
         Raises:
-            ValueError: If the sensor mosaic dimensions are odd, the band plane does not
-                equal the inference input size, the mosaic_layout does not name each Band
-                exactly once, or input_bands is not a subset of mosaic_layout. Raising is
-                correct here: composition-root startup is the one place a bad config is
-                unrecoverable.
+            ValueError: Invalid sensor mosaic or inference geometry.
         """
         if cfg.sensor.width_px % 2 or cfg.sensor.height_px % 2:
             raise ValueError("sensor mosaic dimensions must be even")
@@ -209,8 +173,11 @@ class PayloadApp:
         return PayloadApp(
             sensor=sensor,
             gimbal=gimbal,
+            ephemeris=ephemeris,
             detector=detector,
-            controller=PayloadController.from_config(cfg.controller, cfg.sensor, cfg.gimbal),
+            controller=PayloadController.from_config(
+                cfg.controller, cfg.sensor, cfg.gimbal, cfg.ephemeris, cfg.preprocessing
+            ),
             bus=bus,
             clock=clock,
             calib=calib,
@@ -222,18 +189,12 @@ class PayloadApp:
             mode_sub=bus.subscribe(ModeChangeMsg),
             lock_sub=bus.subscribe(LaunchLockStateMsg),
             lock_gate=LockGate(),
+            vision_queue=deque(maxlen=cfg.controller.vision.queue_depth),
+            inner_lock=threading.Lock(),
         )
 
     def poll_mode_changes(self) -> tuple[bool, bool]:
-        """Drain pending ModeChangeMsg; return (safe_commanded, safe_cleared).
-
-        SAFE requests latch the payload via the arbiter; any non-SAFE mode message is the
-        ground-commanded recovery signal. Both may be True in one drain (last writer wins
-        downstream: the arbiter applies safe_commanded first).
-
-        Outputs:
-            tuple[bool, bool]: (safe_commanded, safe_cleared) over all drained messages.
-        """
+        """Drain pending ModeChangeMsg; return (safe_commanded, safe_cleared)."""
         safe_commanded = False
         safe_cleared = False
         while not self.mode_sub.empty():
@@ -245,15 +206,7 @@ class PayloadApp:
         return safe_commanded, safe_cleared
 
     def poll_lock_state(self) -> None:
-        """Drain pending LaunchLockStateMsg and update the launch-lock motion-inhibit gate.
-
-        The gate is set ENGAGED only by an explicit ENGAGED state and cleared by any other
-        state (RELEASED/UNKNOWN -> motion permitted, since the lock is no longer holding). The
-        latest message wins; with no messages the gate is unchanged (sticky).
-
-        Outputs:
-            None.
-        """
+        """Drain pending LaunchLockStateMsg and update the launch-lock inhibit gate."""
         while not self.lock_sub.empty():
             self.lock_gate.engaged = self.lock_sub.get_nowait().state is LaunchLockState.ENGAGED
 
@@ -267,35 +220,12 @@ class PayloadApp:
         safe_commanded: bool = False,
         safe_cleared: bool = False,
     ) -> tuple[ControlState, TickOutcome]:
-        """Process one raw mosaic frame end-to-end: preprocess -> detect -> control -> actuate.
+        """Preprocess, detect, and enqueue a vision sample. Does not write torque.
 
-        Runs the co-located preprocessing pipeline (calibrate the raw mosaic plane ->
-        CFA-separate -> normalize -> select bands -> quality flags). The full band plane
-        is passed to inference with no crop and no scale. Then the detector, then the
-        pure PayloadController. Publishes InferenceResultMsg
-        and each arbiter TelemetryEventMsg; when a request is issued it is mapped onto
-        the GimbalActuator HAL (set_rate/goto_angle/stow/home by mode) and a
-        GimbalCommandMsg telemetry record is published. A control fault (encoder runaway)
-        publishes a FaultEventMsg. On a preprocessing or detection
-        fault the state is returned unchanged, a FaultEventMsg is published, and
-        outcome.fault is set.
-
-        Inputs:
-            raw (MosaicFrame): Raw mosaic frame; raw.mosaic must match the calibration
-                shape (sensor height_px x width_px).
-            state (ControlState): Control state carried from the previous frame.
-            now (float): Monotonic seconds for the arbiter (interval/rate-limit deltas).
-            slew_rate_deg_per_s (float): Gimbal slew rate over the exposure for the
-                MOTION_SMEAR gate; defaults to 0.0 (never-flag).
-            gimbal_pos (GimbalPosition | None): Latest encoder read for the runaway monitor.
-            safe_commanded (bool): True to latch SAFE and stow this frame.
-            safe_cleared (bool): True to exit SAFE to IDLE this frame.
-
-        Outputs:
-            tuple[ControlState, TickOutcome]: (new_state, outcome). new_state is unchanged
-            on a fault before control.
+        SAFE flags are accepted for call-site compatibility; the outer loop applies them.
         """
-        mosaic = np.asarray(raw.mosaic, dtype=np.float32)  # np.ndarray[float32, (H, W)]
+        del now, gimbal_pos, safe_commanded, safe_cleared
+        mosaic = np.asarray(raw.mosaic, dtype=np.float32)
 
         calibrated = calibrate_mosaic(mosaic, self.calib)
         if isinstance(calibrated, Err):
@@ -328,7 +258,7 @@ class PayloadApp:
             msg_type=MessageType.PROCESSED_FRAME,
             timestamp_utc=raw.timestamp_utc,
             frame_id=raw.frame_id,
-            tensor=selected.value,  # np.ndarray[float32, (len(input_bands), plane_h, plane_w)]
+            tensor=selected.value,
             quality_flags=quality_flags,
         )
 
@@ -340,19 +270,109 @@ class PayloadApp:
         self.bus.publish(inference)
         self._store_mask_product(inference)
 
-        new_state, request, telemetry, ctrl_fault = self.controller.step(
-            state, inference, now, gimbal_pos, safe_commanded, safe_cleared
+        new_state, sample = self.controller.ingest_inference(
+            state, inference, raw.timestamp_s, raw.exposure_us
         )
-        for event in telemetry:
-            self.bus.publish(event)
-        if ctrl_fault is not None:
-            self._publish_fault(ctrl_fault, f"control fault frame_id={raw.frame_id}")
+        self.vision_queue.append(sample)
+        outcome = TickOutcome(
+            frame_id=raw.frame_id,
+            fault=None,
+            command_issued=False,
+            gimbal_state=new_state.arbiter.gimbal_state,
+        )
+        return new_state, outcome
 
-        actuated = False
-        if request is not None and self.lock_gate.engaged:
-            # Launch-lock interlock: the pin is ENGAGED, so gimbal motion is inhibited. The
-            # request is suppressed (not actuated, no GimbalCommandMsg so the mechanical app
-            # does not read it as motion); annunciate the inhibit via telemetry.
+    def advance_outer(
+        self,
+        state: ControlState,
+        now: float,
+        safe_commanded: bool = False,
+        safe_cleared: bool = False,
+    ) -> tuple[ControlState, TickOutcome]:
+        """Catch up the outer loop to `now` in T_out steps.
+
+        Dequeues at most one due vision sample per outer tick (shutter time <= tick
+        time; oldest first). Reads ephemeris each tick. Publishes pointing telemetry
+        and pose GimbalCommandMsg.
+        """
+        dt = self.controller.cfg.outer.dt_s
+        current = state
+        command_issued = False
+        t = current.last_outer_s
+        while t + dt <= now + 1e-12:
+            t = t + dt
+            vision: VisionSample | None = None
+            if self.vision_queue:
+                sample_t = self.vision_queue[0].t_s
+                last_tick = t + dt > now + 1e-12
+                if sample_t <= t + 1e-9 or (last_tick and sample_t <= now + 1e-9):
+                    vision = self.vision_queue.popleft()
+            iss = self._read_iss()
+            pos = self.gimbal.read_position()
+            theta = math.radians(pos.value.el_deg) if isinstance(pos, Ok) else 0.0
+            tick = self.controller.outer_step(
+                current,
+                t,
+                theta,
+                vision,
+                iss,
+                safe_commanded,
+                safe_cleared,
+                dt,
+                timestamp_utc=self.clock.wall_clock_iso(),
+            )
+            current = tick.state
+            for event in tick.telemetry:
+                if (
+                    self.lock_gate.engaged
+                    and event.subsystem == "payload"
+                    and event.event_name == "pointing"
+                ):
+                    payload = dict(event.payload)
+                    payload["r"] = 0.0
+                    event = replace(event, payload=payload)
+                self.bus.publish(event)
+            if tick.request is not None:
+                issued = self._actuate_pose(tick.request, current, frame_id=0)
+                command_issued = command_issued or issued
+            safe_commanded = False
+            safe_cleared = False
+        outcome = TickOutcome(
+            frame_id=0,
+            fault=None,
+            command_issued=command_issued,
+            gimbal_state=current.arbiter.gimbal_state,
+        )
+        return current, outcome
+
+    def advance_inner(self, state: ControlState, now: float) -> ControlState:
+        """Catch up the inner loop to `now` in T_in steps and write torque."""
+        dt = self.controller.cfg.inner.dt_s
+        current = state
+        t = current.last_inner_s
+        while t + dt <= now + 1e-12:
+            t = t + dt
+            pos = self.gimbal.read_position()
+            theta = math.radians(pos.value.el_deg) if isinstance(pos, Ok) else 0.0
+            tick = self.controller.inner_step(current, t, theta, dt)
+            current = tick.state
+            if not self.lock_gate.engaged:
+                send = self.gimbal.set_torque(tick.tau_nm)
+                if isinstance(send, Err):
+                    self._publish_fault(send.error, "gimbal torque failed")
+        return current
+
+    def _read_iss(self) -> IssSample | None:
+        """Read ISS ECI state; None on Err (predictor then uses omega_t_nom=0)."""
+        result = self.ephemeris.read_state(self.clock.utc_s())
+        if isinstance(result, Err):
+            return None
+        value = result.value
+        return IssSample(r_m=value.r_m, v_m_s=value.v_m_s, utc_s=value.epoch_utc_s)
+
+    def _actuate_pose(self, request: GimbalRequest, state: ControlState, frame_id: int) -> bool:
+        """Map a pose GimbalRequest onto HAL and publish GimbalCommandMsg."""
+        if self.lock_gate.engaged:
             self.bus.publish(
                 TelemetryEventMsg(
                     msg_type=MessageType.TELEMETRY_EVENT,
@@ -362,71 +382,47 @@ class PayloadApp:
                     payload={"reason": "launch_lock_engaged", "mode": request.mode.value},
                 )
             )
-        elif request is not None:
-            if request.mode is GimbalCommandMode.RATE:
-                send_result = self.gimbal.set_rate(request.az_deg, request.el_deg)
-            elif request.mode is GimbalCommandMode.ABSOLUTE:
-                send_result = self.gimbal.goto_angle(request.az_deg, request.el_deg)
-            elif request.mode is GimbalCommandMode.STOW:
-                send_result = self.gimbal.stow()
-            else:
-                send_result = self.gimbal.home()
-            if isinstance(send_result, Err):
-                self._publish_fault(
-                    send_result.error, f"gimbal actuation failed frame_id={raw.frame_id}"
-                )
-            self.bus.publish(
-                GimbalCommandMsg(
-                    msg_type=MessageType.GIMBAL_COMMAND,
-                    timestamp_utc=self.clock.wall_clock_iso(),
-                    frame_id=raw.frame_id,
-                    mode=request.mode,
-                    az_value_deg=request.az_deg,
-                    el_value_deg=request.el_deg,
-                    state=new_state.arbiter.gimbal_state,
-                    reason=request.reason,
-                )
+            return False
+        if request.mode is GimbalCommandMode.STOW:
+            send_result = self.gimbal.stow()
+        elif request.mode is GimbalCommandMode.HOME:
+            send_result = self.gimbal.home()
+        else:
+            send_result = self.gimbal.goto_angle(request.el_deg)
+        if isinstance(send_result, Err):
+            self._publish_fault(send_result.error, "gimbal pose actuation failed")
+        self.bus.publish(
+            GimbalCommandMsg(
+                msg_type=MessageType.GIMBAL_COMMAND,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                frame_id=frame_id,
+                mode=request.mode,
+                el_value_deg=request.el_deg,
+                state=state.arbiter.gimbal_state,
+                reason=request.reason,
             )
-            actuated = True
-
-        outcome = TickOutcome(
-            frame_id=raw.frame_id,
-            fault=None,
-            command_issued=actuated,
-            gimbal_state=new_state.arbiter.gimbal_state,
         )
-        return new_state, outcome
+        return True
 
     def run(self, stop_event: threading.Event) -> None:
-        """Run the payload acquisition loop until stop_event is set.
-
-        Starts acquisition, then repeatedly: emits a HeartbeatMsg every
-        fault_cfg.watchdog_interval_s, acquires a frame, computes the gimbal slew rate
-        from consecutive encoder reads, and processes the frame (publishing a
-        FaultEventMsg on a camera stall). Stops acquisition on exit. Control state is
-        threaded internally, starting from controller.initial_state().
-
-        Inputs:
-            stop_event (threading.Event): The loop exits cleanly once it is set.
-
-        Outputs:
-            None.
-
-        Notes:
-            The slew rate is the angular speed between the previous and current gimbal
-            positions divided by the elapsed monotonic seconds; it is 0.0 on the first
-            frame, when no time has elapsed, or when the position read fails, so the
-            MOTION_SMEAR gate degrades gracefully. SAFE/recovery mode messages are drained
-            each iteration via poll_mode_changes and threaded into process_frame. As a
-            shell-level safety fallback, if SAFE is commanded while frame acquisition fails,
-            stow() is called directly so a stalled camera cannot prevent mechanical safing.
-        """
+        """Run acquisition + outer loop; spawn the inner torque thread."""
         self.sensor.start_acquisition()
-        state = self.controller.initial_state()
+        holder: dict[str, ControlState] = {"state": self.controller.initial_state()}
         heartbeat_seq = 0
         last_heartbeat = self.clock.monotonic_s()
         prev_pos: GimbalPosition | None = None
         prev_pos_now = 0.0
+
+        def inner_loop() -> None:
+            """Inner rate loop: catch up and write torque until stop."""
+            while not stop_event.is_set():
+                now_inner = self.clock.monotonic_s()
+                with self.inner_lock:
+                    holder["state"] = self.advance_inner(holder["state"], now_inner)
+                stop_event.wait(timeout=self.controller.cfg.inner.dt_s)
+
+        inner_thread = threading.Thread(target=inner_loop, name="payload-inner", daemon=True)
+        inner_thread.start()
         try:
             while not stop_event.is_set():
                 now = self.clock.monotonic_s()
@@ -444,44 +440,36 @@ class PayloadApp:
                 safe_commanded, safe_cleared = self.poll_mode_changes()
                 self.poll_lock_state()
                 acq = self.sensor.acquire_frame()
-                if isinstance(acq, Ok):
-                    slew_rate = 0.0
-                    pos: GimbalPosition | None = None
-                    pos_res = self.gimbal.read_position()
-                    if isinstance(pos_res, Ok):
-                        pos = pos_res.value
-                        if prev_pos is not None and now > prev_pos_now:
-                            d_az = pos_res.value.az_deg - prev_pos.az_deg
-                            d_el = pos_res.value.el_deg - prev_pos.el_deg
-                            slew_rate = math.hypot(d_az, d_el) / (now - prev_pos_now)
-                        prev_pos = pos_res.value
-                        prev_pos_now = now
-                    state, _outcome = self.process_frame(
-                        acq.value, state, now, slew_rate, pos, safe_commanded, safe_cleared
-                    )
-                else:
-                    self._publish_fault(acq.error, "imaging sensor stall")
-                    if safe_commanded:
-                        self.gimbal.stow()
+                with self.inner_lock:
+                    current = holder["state"]
+                    if isinstance(acq, Ok):
+                        slew_rate = 0.0
+                        pos_res = self.gimbal.read_position()
+                        pos: GimbalPosition | None = None
+                        if isinstance(pos_res, Ok):
+                            pos = pos_res.value
+                            if prev_pos is not None and now > prev_pos_now:
+                                slew_rate = abs(pos.el_deg - prev_pos.el_deg) / (now - prev_pos_now)
+                            prev_pos = pos
+                            prev_pos_now = now
+                        current, _outcome = self.process_frame(
+                            acq.value, current, now, slew_rate, pos
+                        )
+                    else:
+                        self._publish_fault(acq.error, "imaging sensor stall")
+                        if safe_commanded and not self.lock_gate.engaged:
+                            self.gimbal.stow()
+                    current, _outer = self.advance_outer(current, now, safe_commanded, safe_cleared)
+                    holder["state"] = current
+                stop_event.wait(timeout=self.controller.cfg.outer.dt_s)
         finally:
+            stop_event.set()
+            inner_thread.join(timeout=1.0)
             self.sensor.stop_acquisition()
 
     def _store_mask_product(self, inference: InferenceResultMsg) -> None:
-        """Persist a compact uint8 thumbnail of the segmentation mask as a science product.
-
-        The mask is a science product (spec Section 4): it is decimated to at most 32x32 and
-        quantized to bytes, stored via the injected StorageWriter (bypassing the bus -- the
-        large-artifact invariant), and advertised on the bus as a compact ProductRefMsg the
-        downlink manager can prioritize. A storage failure is swallowed here (the StorageWriter
-        already published a STORAGE_FULL fault); the frame loop continues.
-
-        Inputs:
-            inference (InferenceResultMsg): The detection result whose mask is stored.
-
-        Outputs:
-            None.
-        """
-        mask = np.asarray(inference.mask, dtype=np.float32)  # np.ndarray[float32, (H, W)]
+        """Persist a compact uint8 thumbnail of the segmentation mask as a science product."""
+        mask = np.asarray(inference.mask, dtype=np.float32)
         if mask.ndim != 2 or mask.size == 0:
             return
         step = max(1, mask.shape[0] // 32, mask.shape[1] // 32)
@@ -502,15 +490,7 @@ class PayloadApp:
             )
 
     def _publish_fault(self, code: FaultCode, detail: str) -> None:
-        """Publish a FaultEventMsg from the payload subsystem onto the bus.
-
-        Inputs:
-            code (FaultCode): The fault code to report.
-            detail (str): Human-readable detail string for logging/telemetry.
-
-        Outputs:
-            None.
-        """
+        """Publish a FaultEventMsg from the payload subsystem onto the bus."""
         self.bus.publish(
             FaultEventMsg(
                 msg_type=MessageType.FAULT_EVENT,
@@ -522,17 +502,7 @@ class PayloadApp:
         )
 
     def _fault_outcome(self, frame_id: int, code: FaultCode, state: ControlState) -> TickOutcome:
-        """Build a TickOutcome for a frame that faulted before control ran.
-
-        Inputs:
-            frame_id (int): The frame_id that faulted.
-            code (FaultCode): The fault code raised.
-            state (ControlState): The unchanged control state (its arbiter state is
-                reported).
-
-        Outputs:
-            TickOutcome: With command_issued=False and the prior gimbal state.
-        """
+        """Build a TickOutcome for a frame that faulted before control ran."""
         return TickOutcome(
             frame_id=frame_id,
             fault=code,

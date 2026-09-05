@@ -31,12 +31,11 @@ def default_config() -> PactConfig:
 
 
 @pytest.fixture
-def arbiter_idle_state() -> ArbiterState:
-    """An ArbiterState in GimbalState.IDLE with no tracked blobs."""
+def arbiter_tracking_state() -> ArbiterState:
+    """An ArbiterState in GimbalState.TRACKING with no tracked blobs."""
     return ArbiterState(
-        gimbal_state=GimbalState.IDLE,
+        gimbal_state=GimbalState.TRACKING,
         tracked_blobs=(),
-        idle_duration_s=0.0,
-        last_command_time=0.0,
         current_target_id=None,
+        miss_count=0,
     )

@@ -14,14 +14,15 @@ and gimbal control.
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`app`](payload/app.md) | app shell | Per-frame loop: acquire, preprocess, detect, control, actuate |
-| [`control`](payload/control.md) | pure module | Composes tracking, safety gates, arbiter, and LQR into one step |
+| [`app`](payload/app.md) | app shell | Acquire, preprocess, detect, enqueue vision; inner/outer catch-up |
+| [`control`](payload/control.md) | pure module | Cascaded elevation inner and outer loops |
+
 | [`calibration_io`](payload/calibration_io.md) | module | Loads checksummed mosaic calibration artifacts at startup |
 | [`blobs`](payload/blobs.md) | module | Connected-component blob extraction from a probability mask |
 | [`preprocess`](payload/preprocess.md) | package | Pure functions from raw mosaic to inference tensor |
 | [`inference`](payload/inference.md) | package | Classifier, segmentor, detector composer, and artifact verification |
-| [`gimbal`](payload/gimbal.md) | package | Pure gimbal FSM, control law, pointing math, and safety gates |
-| [`tracking`](payload/tracking.md) | package | EMA smoothing, Kalman estimation, and blob association |
+| [`gimbal`](payload/gimbal.md) | package | Pure elevation FSM, inner/outer laws, pointing math, and safety gates |
+| [`tracking`](payload/tracking.md) | package | Residual Kalman filter and blob association |
 
 ## Package interface
 
@@ -33,8 +34,8 @@ directly (`flight.payload.app`, `flight.payload.control`, and the child packages
 The payload app subscribes to `ModeChangeMsg` and `LaunchLockStateMsg`. It publishes
 `HeartbeatMsg`, `InferenceResultMsg`, `GimbalCommandMsg`, `FaultEventMsg`,
 `TelemetryEventMsg`, and `ProductRefMsg`. It uses the `ImagingSensor`, `GimbalActuator`,
-and `StorageWriter` HAL protocols. Preprocessing runs inside `process_frame()` and does
-not publish `ProcessedFrameMsg` on the bus.
+`IssEphemeris`, and `StorageWriter` HAL protocols. Preprocessing runs inside
+`process_frame()` and does not publish `ProcessedFrameMsg` on the bus.
 
 ## Constraints
 

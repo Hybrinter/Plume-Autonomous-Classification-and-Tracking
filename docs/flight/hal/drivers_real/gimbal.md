@@ -5,53 +5,43 @@
 
 ## Purpose
 
-`RealGimbal` drives a serial PTU over an ASCII line protocol. It satisfies
-`GimbalActuator` structurally. The driver pins azimuth at 0 and clamps elevation and
-slew before sending encoder counts.
+`RealGimbal` is a torque-command stub. The PTU ASCII path is removed. Commands
+return `Ok` and do not move hardware. Pose methods latch a commanded elevation
+for stub encoder reads. They do not close a position or rate loop. The driver
+does not import a vendor SDK.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `RealGimbal` | class | Serial PTU gimbal driver |
+| `RealGimbal` | class | Torque-command stub satisfying `GimbalActuator` |
 
 ## Inputs and outputs
 
-Construction takes a `Clock`, an optional `GimbalConfig`, and a serial read timeout in
-seconds.
+Construction takes a `Clock` and optional `GimbalConfig`.
 
 | Method | Inputs | Outputs |
 | --- | --- | --- |
-| `goto_angle(az_deg, el_deg)` | Target degrees | `Result[None, FaultCode]` |
-| `set_rate(az_rate_deg_per_s, el_rate_deg_per_s)` | Axis rates | `Result[None, FaultCode]` |
-| `home()` | None | `Result[None, FaultCode]` |
-| `stow()` | None | `Result[None, FaultCode]` |
-| `read_position()` | None | `Result[GimbalPosition, FaultCode]` |
-| `read_stow_switch()` | None | `Result[bool, FaultCode]` |
-
-Construction raises `ImportError` when pyserial is absent. It raises `ValueError` when
-`GimbalConfig.serial_port` is empty.
+| `set_torque(tau_nm)` | Torque in N·m (ignored) | `Ok(None)` |
+| `goto_angle(el_deg)` | Target degrees | `Ok(None)` |
+| `home()` | None | `Ok(None)` |
+| `stow()` | None | `Ok(None)` |
+| `read_position()` | None | `Ok(GimbalPosition)` |
+| `read_stow_switch()` | None | `Ok(bool)` |
 
 ## Behavior
 
-1. Construction opens the configured serial port at the configured baud rate.
-2. Each command writes one ASCII line (`<verb><signed counts>\n`) and reads one response
-   line.
-3. A `*` response prefix means success. Any other prefix or I/O error is a fault.
-4. `goto_angle` sends `PP` and `TP` with clamped targets. `set_rate` sends `PS` and `TS`
-   with clamped rates.
-5. `home` and `stow` delegate to `goto_angle` with configured poses.
-6. `read_position` queries bare `PP` and `TP`, converts counts to degrees, and stamps
-   monotonic time from the clock.
-7. `read_stow_switch` infers stow from encoder pose within 0.5 deg of the configured stow
-   pose. The reference PTU has no discrete switch.
-8. A lock serializes all serial transactions.
+1. `set_torque` is a no-op `Ok`. Amp current mapping is not implemented.
+2. `goto_angle` latches a travel-clamped elevation used as the stub encoder
+   reading. It does not command torque or close a loop.
+3. `home` and `stow` latch the configured poses. `stow` also arms the switch.
+4. `read_position` returns the last latched pose (0 until a pose command).
+5. `read_stow_switch` is true when stow was commanded and the latched pose is near
+   stow.
 
 ## Errors and faults
 
-| Fault | Trigger |
-| --- | --- |
-| `GIMBAL_FAULT` | Non-success PTU response, serial I/O error, or unparseable position line |
+None in this stub. All methods return `Ok`.
 
 ## Messages
 
@@ -59,17 +49,14 @@ None.
 
 ## Configuration
 
-Reads `GimbalConfig`: hardware elevation limits, stow and home elevation, max hardware slew,
-serial port, baud rate, and `counts_per_deg`.
+Reads `GimbalConfig` travel limits and stow/home poses.
 
 ## Constraints
 
-- pyserial imports inside `__init__` only.
-- Verb set (`PP`, `TP`, `PS`, `TS`) is a reference assumption for HIL validation.
-- The driver enforces the hardware envelope. The arbiter enforces mission limits above it.
+Construction does not open a serial port. The amp interface is future work.
 
 ## Related documents
 
-- [`flight.hal.interfaces.gimbal`](interfaces/gimbal.md)
-- [`flight.hal.drivers_real`](drivers_real.md)
-- [`flight.hal.drivers_sim.gimbal`](drivers_sim/gimbal.md)
+- [`flight.hal.interfaces.gimbal`](../interfaces/gimbal.md)
+- [`flight.hal.drivers_real`](../drivers_real.md)
+- [`flight.hal.drivers_sim.gimbal`](../drivers_sim/gimbal.md)

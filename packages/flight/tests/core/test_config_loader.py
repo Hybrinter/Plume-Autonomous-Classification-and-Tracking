@@ -73,16 +73,22 @@ def test_gimbal_section_loads() -> None:
     assert g.max_hw_slew_rate_deg_per_s == 10.0
     assert g.stow_el_deg == -45.0
     assert g.home_el_deg == 45.0
-    assert g.serial_port == ""
+    assert g.J_kg_m2 == 0.008
+    assert g.tau_max_nm == 1.0
+    assert g.encoder_counts_per_rev == 262144
 
 
-def test_controller_runaway_fields_load() -> None:
-    """Encoder-runaway tuning fields map into ControllerConfig."""
+def test_controller_placeholder_fields_load() -> None:
+    """Nested inner/outer/residual tables map into ControllerConfig."""
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     c = result.value.controller
-    assert c.runaway_rate_tolerance_deg_per_s == 1.0
-    assert c.runaway_strike_count == 3
+    assert c.inner.dt_s == 0.001
+    assert c.inner.kp == 200.0
+    assert c.outer.Kp == 8.0
+    assert c.arbiter.release_persistence_frames == 5
+    assert c.vision.queue_depth == 4
+    assert c.position.K_pos == 4.0
 
 
 def test_link_section_loads() -> None:
@@ -163,11 +169,28 @@ def test_inverted_thermal_record_rejected(tmp_path: Path) -> None:
     assert "camera_min_c" in result.error
 
 
-def test_ema_alpha_out_of_unit_range_rejected(tmp_path: Path) -> None:
-    """ema_alpha must lie in (0, 1]."""
-    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[controller]\nema_alpha = 1.5\n"))
+def test_kp_nonpositive_rejected(tmp_path: Path) -> None:
+    """Outer Kp must be positive."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[controller.outer]\nKp = 0.0\n"))
+    assert isinstance(result, Err)
+    assert "Kp" in result.error
+
+
+def test_flat_controller_key_rejected(tmp_path: Path) -> None:
+    """A leftover flat controller key (for example ema_alpha) is unknown."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[controller]\nema_alpha = 0.3\n"))
     assert isinstance(result, Err)
     assert "ema_alpha" in result.error
+
+
+def test_inner_rate_fit_degree_rejected(tmp_path: Path) -> None:
+    """rate_fit_n must be greater than rate_fit_degree."""
+    result = load_config(
+        _DEFAULT_TOML,
+        _override(tmp_path, "[controller.inner]\nrate_fit_n = 3\nrate_fit_degree = 3\n"),
+    )
+    assert isinstance(result, Err)
+    assert "rate_fit_n" in result.error
 
 
 def test_gimbal_inverted_travel_limits_rejected(tmp_path: Path) -> None:

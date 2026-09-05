@@ -5,7 +5,7 @@ import socket
 
 import pytest
 from flight.hal.drivers_real import RealGimbal, RealSensor, RealStationLink
-from flight.libs.config import GimbalConfig, LinkConfig
+from flight.libs.config import LinkConfig
 from flight.libs.time import ManualClock, RealClock
 from flight.libs.types import Ok
 
@@ -26,14 +26,11 @@ def test_real_sensor_requires_pyspin_when_absent() -> None:
         RealSensor(clock=RealClock())
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("serial") is not None,
-    reason="pyserial is installed; the absent-SDK guard cannot be exercised",
-)
-def test_real_gimbal_requires_pyserial_when_absent() -> None:
-    """Constructing RealGimbal without pyserial raises a helpful ImportError."""
-    with pytest.raises(ImportError):
-        RealGimbal(clock=RealClock(), cfg=GimbalConfig(serial_port="COM3"))
+def test_real_gimbal_constructs_without_sdk() -> None:
+    """RealGimbal is a torque stub. Construction does not import a vendor SDK."""
+    gimbal = RealGimbal(clock=RealClock())
+    result = gimbal.set_torque(0.0)
+    assert isinstance(result, Ok)
 
 
 def test_real_station_link_constructs_and_closes() -> None:

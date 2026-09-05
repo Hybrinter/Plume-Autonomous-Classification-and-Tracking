@@ -6,14 +6,15 @@
 
 ## What HIL exercises
 
-HIL runs every axis **real** (`profiles/hil.toml`: all five axes `"real"`,
-`host="jetson_aarch64"`): the PySpin camera (`RealSensor`), the serial gimbal (`RealGimbal`,
-requires `config.gimbal.serial_port` nonempty), the real ONNX detector, the socket station link
-(`RealStationLink`), and `RealClock`. It is the highest-fidelity venue short of flight.
+HIL runs every axis **real** (`profiles/hil.toml`: all axes `"real"`,
+`host="jetson_aarch64"`): the PySpin camera (`RealSensor`), the torque-stub gimbal
+(`RealGimbal`), the real ONNX detector, the socket station link
+(`RealStationLink`), `RealIssEphemeris` (stub), and `RealClock`. It is the
+highest-fidelity venue short of flight.
 
 ## Prerequisites
 
-- Full bench: camera connected (PySpin SDK present), gimbal on its serial port, radio or socket
+- Full bench: camera connected (PySpin SDK present), gimbal torque interface, radio or socket
   bridge to the ground station emulator.
 - The HIL socket harness backend (`gse.harness.SocketBackend`) -- **deferred** (raises
   `NotImplementedError("PIL/HIL socket backend deferred")`). Bench runners are the next,
@@ -21,7 +22,7 @@ requires `config.gimbal.serial_port` nonempty), the real ONNX detector, the sock
 
 ## Procedure (when hardware exists)
 
-1. Provision the bench and verify each SDK loads (PySpin, pyserial, onnxruntime) -- these imports
+1. Provision the bench and verify each SDK loads (PySpin, onnxruntime) -- these imports
    are lazy and only resolve when the real drivers are constructed.
 2. Load config: `load_config("config/default.toml", "profiles/hil.toml")`.
 3. Construct drivers with `select_drivers(config, RealClock())` (no `sim_inputs` needed -- every

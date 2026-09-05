@@ -79,14 +79,16 @@ def test_gimbal_section_loads() -> None:
 
 
 def test_controller_placeholder_fields_load() -> None:
-    """Inner/outer placeholder fields map into ControllerConfig."""
+    """Nested inner/outer/residual tables map into ControllerConfig."""
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     c = result.value.controller
-    assert c.dt_inner_s == 0.001
-    assert c.kp == 200.0
-    assert c.Kp == 8.0
-    assert c.release_persistence_frames == 5
+    assert c.inner.dt_s == 0.001
+    assert c.inner.kp == 200.0
+    assert c.outer.Kp == 8.0
+    assert c.arbiter.release_persistence_frames == 5
+    assert c.vision.queue_depth == 4
+    assert c.position.K_pos == 4.0
 
 
 def test_link_section_loads() -> None:
@@ -169,9 +171,26 @@ def test_inverted_thermal_record_rejected(tmp_path: Path) -> None:
 
 def test_kp_nonpositive_rejected(tmp_path: Path) -> None:
     """Outer Kp must be positive."""
-    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[controller]\nKp = 0.0\n"))
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[controller.outer]\nKp = 0.0\n"))
     assert isinstance(result, Err)
     assert "Kp" in result.error
+
+
+def test_flat_controller_key_rejected(tmp_path: Path) -> None:
+    """A leftover flat controller key (for example ema_alpha) is unknown."""
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[controller]\nema_alpha = 0.3\n"))
+    assert isinstance(result, Err)
+    assert "ema_alpha" in result.error
+
+
+def test_inner_rate_fit_degree_rejected(tmp_path: Path) -> None:
+    """rate_fit_n must be greater than rate_fit_degree."""
+    result = load_config(
+        _DEFAULT_TOML,
+        _override(tmp_path, "[controller.inner]\nrate_fit_n = 3\nrate_fit_degree = 3\n"),
+    )
+    assert isinstance(result, Err)
+    assert "rate_fit_n" in result.error
 
 
 def test_gimbal_inverted_travel_limits_rejected(tmp_path: Path) -> None:

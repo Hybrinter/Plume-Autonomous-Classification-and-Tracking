@@ -36,7 +36,7 @@ None.
 
 ## Configuration
 
-`ControllerConfig.rate_fit_n` and `rate_fit_degree` select window length and degree.
+`InnerLoopConfig.rate_fit_n` and `rate_fit_degree` select window length and degree.
 
 ## Constraints
 

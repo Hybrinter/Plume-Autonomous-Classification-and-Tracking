@@ -1,7 +1,9 @@
 """Real gimbal driver stub. The PTU ASCII path is removed.
 
-`set_torque` and pose commands succeed as no-ops until the motor-amp interface
-exists. Encoder reads return elevation 0. This stub does not import a vendor SDK.
+`set_torque` is a no-op `Ok` until the motor-amp interface exists. Pose methods
+latch a commanded elevation for stub encoder reads and stow-switch arming. They
+do not close a position or rate loop. Encoder reads return the last latched pose
+(0 until a pose command). This stub does not import a vendor SDK.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-004.
 """
@@ -51,7 +53,10 @@ class RealGimbal:
         return Ok(None)
 
     def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
-        """Record a pose target. No hardware motion.
+        """Latch a travel-clamped pose. No hardware motion.
+
+        The stub stores the commanded elevation as the encoder reading. A real
+        amp will leave encoder reads to `read_position` and motion to `set_torque`.
 
         Inputs:
             el_deg (float): Target elevation in degrees.

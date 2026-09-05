@@ -146,7 +146,7 @@ def select_drivers(
         gimbal = SimGimbal(
             clock=clock,
             cfg=config.gimbal,
-            inner_dt_s=config.controller.dt_inner_s,
+            inner_dt_s=config.controller.inner.dt_s,
         )
     else:
         from flight.hal.drivers_real import RealGimbal
@@ -177,8 +177,8 @@ def select_drivers(
         detector = OnnxDetector(
             segmentor_model_path=resolve_quantized_path(inf.segmentor_model_path, inf.use_int8),
             classifier_model_path=resolve_quantized_path(inf.classifier_model_path, inf.use_int8),
-            confidence_gate=config.controller.confidence_gate,
-            min_blob_area_px=config.controller.min_blob_area_px,
+            confidence_gate=config.controller.vision.confidence_gate,
+            min_blob_area_px=config.controller.vision.min_blob_area_px,
             logit_threshold=inf.classifier_logit_threshold,
             latency_budget_ms=config.fault.inference_timeout_ms,
             expected_input_shape=(1, bands, height, width),

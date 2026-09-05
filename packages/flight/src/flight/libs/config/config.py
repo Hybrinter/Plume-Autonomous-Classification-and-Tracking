@@ -30,41 +30,88 @@ _MOSAIC_BANDS: frozenset[str] = frozenset({"BLUE", "GREEN", "RED", "NIR"})
 
 
 @dataclass(frozen=True, config=_SCHEMA)
-class ControllerConfig:
-    """Configuration for the cascaded elevation controller and safety arbiter."""
+class VisionConfig:
+    """Blob gates and the in-process vision queue (not a pointing estimator)."""
 
     confidence_gate: float = Field(default=0.55, ge=0.0, le=1.0)
-    release_persistence_frames: int = Field(default=5, ge=1)
     blob_iou_match_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
     min_blob_area_px: int = 15
+    queue_depth: int = Field(default=4, ge=1)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class ArbiterConfig:
+    """TRACKING / REWIND / SAFE mode-machine thresholds."""
+
+    release_persistence_frames: int = Field(default=5, ge=1)
     limb_arrival_deg: float = Field(default=0.5, gt=0.0)
-    dt_inner_s: float = Field(default=0.001, gt=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class InnerLoopConfig:
+    """Inner PI, computed torque, and causal encoder-rate fit."""
+
+    dt_s: float = Field(default=0.001, gt=0.0)
     rate_fit_n: int = Field(default=7, ge=3)
     rate_fit_degree: int = Field(default=2, ge=1)
     kp: float = Field(default=200.0, gt=0.0)
     ki: float = Field(default=10_000.0, ge=0.0)
     tau_cl_s: float = Field(default=0.010, gt=0.0)
-    dt_outer_s: float = Field(default=0.020, gt=0.0)
-    Kp: float = Field(default=8.0, gt=0.0)  # noqa: N815
-    Q_diag: tuple[float, ...] = Field(default=(1.0e-11, 3.0e-8))  # noqa: N815
-    R_v: float = Field(default=2.12e-9, gt=0.0)  # noqa: N815
-    P0_diag: tuple[float, ...] = Field(default=(1.0e-3, 1.2e-5))  # noqa: N815
-    rewind_horizon_s: float = Field(default=0.10, gt=0.0)
-    rewind_snapshots: int = Field(default=8, ge=1)
-    vision_queue_depth: int = Field(default=4, ge=1)
-    K_pos: float = Field(default=4.0, gt=0.0)  # noqa: N815
-    r_max_stow_deg_per_s: float = Field(default=8.0, gt=0.0)
 
     @model_validator(mode="after")
     def _rate_fit_window(self) -> Self:
         """Reject a polynomial degree that does not fit in the encoder ring."""
         if self.rate_fit_n <= self.rate_fit_degree:
             raise ValueError("rate_fit_n must be greater than rate_fit_degree")
+        return self
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class OuterLoopConfig:
+    """Outer rate law period and proportional error gain."""
+
+    dt_s: float = Field(default=0.020, gt=0.0)
+    Kp: float = Field(default=8.0, gt=0.0)  # noqa: N815
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class ResidualConfig:
+    """Two-state residual Kalman process/measurement noise and rewind ring."""
+
+    Q_diag: tuple[float, ...] = Field(default=(1.0e-11, 3.0e-8))  # noqa: N815
+    R_v: float = Field(default=2.12e-9, gt=0.0)  # noqa: N815
+    P0_diag: tuple[float, ...] = Field(default=(1.0e-3, 1.2e-5))  # noqa: N815
+    rewind_horizon_s: float = Field(default=0.10, gt=0.0)
+    rewind_snapshots: int = Field(default=8, ge=1)
+
+    @model_validator(mode="after")
+    def _diag_length(self) -> Self:
+        """Reject residual covariances that are not two-state."""
         if len(self.Q_diag) != 2:
             raise ValueError("Q_diag must have length 2")
         if len(self.P0_diag) != 2:
             raise ValueError("P0_diag must have length 2")
         return self
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class PositionLoopConfig:
+    """STOW / HOME / GOTO proportional rate into the inner PI."""
+
+    K_pos: float = Field(default=4.0, gt=0.0)  # noqa: N815
+    r_max_deg_per_s: float = Field(default=8.0, gt=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class ControllerConfig:
+    """Nested configuration for vision gates, arbiter, and cascaded loops."""
+
+    vision: VisionConfig = field(default_factory=VisionConfig)
+    arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
+    inner: InnerLoopConfig = field(default_factory=InnerLoopConfig)
+    outer: OuterLoopConfig = field(default_factory=OuterLoopConfig)
+    residual: ResidualConfig = field(default_factory=ResidualConfig)
+    position: PositionLoopConfig = field(default_factory=PositionLoopConfig)
 
 
 @dataclass(frozen=True, config=_SCHEMA)

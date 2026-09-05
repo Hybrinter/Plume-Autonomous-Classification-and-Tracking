@@ -39,7 +39,7 @@ None.
 
 ## Configuration
 
-Thresholds come from `ControllerConfig.confidence_gate` and `min_blob_area_px`. The
+Thresholds come from `VisionConfig.confidence_gate` and `min_blob_area_px`. The
 detector passes them at construction time.
 
 ## Constraints

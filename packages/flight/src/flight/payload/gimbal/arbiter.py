@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from flight.libs.config import ControllerConfig, GimbalConfig
+from flight.libs.config import ArbiterConfig, GimbalConfig
 from flight.libs.messages import BlobMeta, TelemetryEventMsg, utc_now_iso
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
@@ -47,11 +47,11 @@ class GimbalArbiter:
     GimbalArbiter holds no mutable instance state; ArbiterState threads externally.
     """
 
-    def __init__(self, cfg: ControllerConfig, gimbal: GimbalConfig) -> None:
-        """Hold controller thresholds and the science-limb elevation.
+    def __init__(self, cfg: ArbiterConfig, gimbal: GimbalConfig) -> None:
+        """Hold arbiter thresholds and the science-limb elevation.
 
         Args:
-            cfg: ControllerConfig supplying release persistence and limb arrival.
+            cfg: ArbiterConfig supplying release persistence and limb arrival.
             gimbal: GimbalConfig supplying science-limb elevation.
         """
         self._cfg = cfg

@@ -145,8 +145,8 @@ def test_walking_cog_does_not_set_nominal_rate() -> None:
 def test_residual_recovers_extra_rate() -> None:
     """An extra 0.1 deg/s residual rate is recovered after vision updates."""
     cfg = ControllerConfig()
-    filt = ResidualFilter.from_config(cfg)
-    dt = cfg.dt_outer_s
+    filt = ResidualFilter.from_config(cfg.residual, cfg.outer.dt_s)
+    dt = cfg.outer.dt_s
     extra = math.radians(0.1)
     state = filt.initial_state()
     e_true = 0.0
@@ -162,8 +162,8 @@ def test_residual_recovers_extra_rate() -> None:
 def test_lagged_zv_rewind_differs_from_current_update() -> None:
     """Rewind does not apply a stale z_v as if it were a measurement at now."""
     cfg = ControllerConfig()
-    filt = ResidualFilter.from_config(cfg)
-    dt = cfg.dt_outer_s
+    filt = ResidualFilter.from_config(cfg.residual, cfg.outer.dt_s)
+    dt = cfg.outer.dt_s
     state = filt.initial_state()
     snaps: tuple[ResidualSnapshot, ...] = ()
     now = 0.0
@@ -174,11 +174,11 @@ def test_lagged_zv_rewind_differs_from_current_update() -> None:
         snaps = push_snapshot(
             snaps,
             ResidualSnapshot(t_s=now, state=state, dt_s=dt, omega_t_nom=0.0, y_m=y_m),
-            cfg.rewind_snapshots,
+            cfg.residual.rewind_snapshots,
         )
     z_v = 0.02
     t_s = dt
-    rewound = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.rewind_horizon_s)
+    rewound = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.residual.rewind_horizon_s)
     naive = update(filt, state, z_v)
     assert abs(float(rewound.x[0]) - float(naive.x[0])) > 1e-8
 

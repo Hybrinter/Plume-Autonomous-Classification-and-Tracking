@@ -724,20 +724,20 @@ Defaults must match `config/default.toml`. Do not hide numbers in source.
 | `tau_max_nm` | 1.0 | |
 | `max_hw_slew_rate_deg_per_s` | 10.0 | keep |
 | `encoder_counts_per_rev` | 262144 | 18-bit; drop PTU 77.6 counts/deg |
-| `dt_inner_s` | 0.001 | |
-| `rate_fit_n` / `rate_fit_degree` | 7 / 2 | |
-| `kp` / `ki` | 200 / 10000 | 1/s and 1/s² on rad/s |
-| `tau_cl_s` | 0.010 | design statement |
-| `dt_outer_s` | 0.020 | |
-| `Kp` | 8.0 | 1/s on rad |
-| `Q_diag` | `[1e-11, 3e-8]` | per outer step |
-| `R_v` | 2.12e-9 | rad² (~1 band px) |
-| `P0_diag` | `[1e-3, 1.2e-5]` | |
-| `rewind_horizon_s` | 0.10 | |
-| `rewind_snapshots` | 8 | |
-| `vision_queue_depth` | 4 | |
-| `K_pos` | 4.0 | 1/s |
-| `r_max_stow_deg_per_s` | 8.0 | not smear-capped |
+| `controller.inner.dt_s` | 0.001 | |
+| `controller.inner.rate_fit_n` / `rate_fit_degree` | 7 / 2 | |
+| `controller.inner.kp` / `ki` | 200 / 10000 | 1/s and 1/s² on rad/s |
+| `controller.inner.tau_cl_s` | 0.010 | design statement |
+| `controller.outer.dt_s` | 0.020 | |
+| `controller.outer.Kp` | 8.0 | 1/s on rad |
+| `controller.residual.Q_diag` | `[1e-11, 3e-8]` | per outer step |
+| `controller.residual.R_v` | 2.12e-9 | rad² (~1 band px) |
+| `controller.residual.P0_diag` | `[1e-3, 1.2e-5]` | |
+| `controller.residual.rewind_horizon_s` | 0.10 | |
+| `controller.residual.rewind_snapshots` | 8 | |
+| `controller.vision.queue_depth` | 4 | |
+| `controller.position.K_pos` | 4.0 | 1/s |
+| `controller.position.r_max_deg_per_s` | 8.0 | not smear-capped |
 | WGS-84 `a_m`, `f` | 6378137, 1/298.257223563 | |
 | `omega_earth_rad_s` | 7.2921159e-5 | |
 

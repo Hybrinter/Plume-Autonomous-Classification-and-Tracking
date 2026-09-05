@@ -25,7 +25,7 @@ def apply_confidence_gate(
         Candidate blobs from the current inference result.
     threshold:
         Minimum acceptable mean_confidence (exclusive lower bound).
-        Sourced from ControllerConfig.confidence_gate (default 0.55).
+        Sourced from VisionConfig.confidence_gate (default 0.55).
 
     Returns
     -------
@@ -47,7 +47,7 @@ def apply_min_area_gate(
         Candidate blobs (typically already confidence-gated).
     min_px:
         Minimum acceptable pixel area (exclusive lower bound).
-        Sourced from ControllerConfig.min_blob_area_px (default 15).
+        Sourced from VisionConfig.min_blob_area_px (default 15).
 
     Returns
     -------

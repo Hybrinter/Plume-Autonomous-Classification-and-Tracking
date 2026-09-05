@@ -13,7 +13,7 @@ _FAULT_FLAG: int = 0b00000001
 
 def _arbiter(config: PactConfig) -> GimbalArbiter:
     """Build an arbiter from controller + gimbal slices of PactConfig."""
-    return GimbalArbiter(config.controller, config.gimbal)
+    return GimbalArbiter(config.controller.arbiter, config.gimbal)
 
 
 def make_blob(
@@ -58,7 +58,7 @@ def test_misses_below_limb_enter_rewind(
     """release_persistence_frames empty vision samples below the limb enter REWIND."""
     arbiter = _arbiter(default_config)
     state = arbiter_tracking_state
-    persist = default_config.controller.release_persistence_frames
+    persist = default_config.controller.arbiter.release_persistence_frames
     request = None
     for i in range(persist):
         state, request, events = arbiter.step(
@@ -80,7 +80,7 @@ def test_misses_at_limb_stay_tracking(
     """Loss at the science limb stays TRACKING (wait with r = 0)."""
     arbiter = _arbiter(default_config)
     state = arbiter_tracking_state
-    persist = default_config.controller.release_persistence_frames
+    persist = default_config.controller.arbiter.release_persistence_frames
     limb = default_config.gimbal.el_science_max_deg
     for i in range(persist):
         state, _request, _events = arbiter.step(

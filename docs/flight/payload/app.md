@@ -77,7 +77,7 @@ Vision samples do not travel on the bus.
 | `InferenceConfig` | Input bands and tensor size |
 | `PreprocessingConfig` | Quality-flag thresholds and smear budget |
 | `FaultConfig` | Heartbeat interval |
-| `ControllerConfig` | Inner/outer periods, gains, residual filter, queue depth |
+| `ControllerConfig` | Nested vision, arbiter, inner, outer, residual, and position tables |
 | `GimbalConfig` | Plant, envelopes, encoder |
 | `EphemerisConfig` | WGS-84 and circular-orbit elements |
 

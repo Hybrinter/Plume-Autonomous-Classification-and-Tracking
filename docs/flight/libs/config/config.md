@@ -13,7 +13,13 @@ object is constructed.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ControllerConfig` | class | Cascaded elevation controller, tracker, and residual KF |
+| `ArbiterConfig` | class | TRACKING / REWIND / SAFE persistence and limb arrival |
+| `VisionConfig` | class | Blob gates and in-process vision queue depth |
+| `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
+| `OuterLoopConfig` | class | Outer period and proportional error gain |
+| `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
+| `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
+| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, and position configs |
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
@@ -67,9 +73,15 @@ The module defines configuration. Key field groups:
 
 ### ControllerConfig
 
-Confidence and area gates, persistence frames, blob IoU, inner PI and SG window, outer
-`Kp` and residual KF (`Q_diag`, `R_v`, `P0_diag`), rewind snapshots, vision queue depth,
-and STOW/HOME position-loop gains.
+Nested tables under `[controller]`:
+
+- `vision`: `confidence_gate`, `blob_iou_match_threshold`, `min_blob_area_px`,
+  `queue_depth`
+- `arbiter`: `release_persistence_frames`, `limb_arrival_deg`
+- `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
+- `outer`: `dt_s`, `Kp`
+- `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
+- `position`: `K_pos`, `r_max_deg_per_s`
 
 ### InferenceConfig
 

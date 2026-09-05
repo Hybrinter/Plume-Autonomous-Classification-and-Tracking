@@ -14,9 +14,15 @@ from flight.payload.tracking.residual import (
 )
 
 
+def _filter(cfg: ControllerConfig | None = None) -> tuple[ControllerConfig, ResidualFilter]:
+    """Build a residual filter from controller defaults."""
+    resolved = cfg if cfg is not None else ControllerConfig()
+    return resolved, ResidualFilter.from_config(resolved.residual, resolved.outer.dt_s)
+
+
 def test_cold_state_is_zero() -> None:
     """The filter starts at e=0, omega_res=0, has_measurement=False."""
-    filt = ResidualFilter.from_config(ControllerConfig())
+    _cfg, filt = _filter()
     state = filt.initial_state()
     assert state.has_measurement is False
     assert np.allclose(state.x, np.zeros(2))
@@ -24,7 +30,7 @@ def test_cold_state_is_zero() -> None:
 
 def test_first_update_snaps_e() -> None:
     """The first vision update may snap e to z_v."""
-    filt = ResidualFilter.from_config(ControllerConfig())
+    _cfg, filt = _filter()
     state = filt.initial_state()
     z_v = math.radians(-0.4)
     updated = update(filt, state, z_v)
@@ -34,7 +40,7 @@ def test_first_update_snaps_e() -> None:
 
 def test_predict_ramps_error_from_rate_mismatch() -> None:
     """A residual rate mismatch integrates into e during predict."""
-    filt = ResidualFilter.from_config(ControllerConfig())
+    _cfg, filt = _filter()
     state = filt.initial_state()
     dt = 0.02
     predicted = predict(filt, state, dt, omega_t_nom=0.1, y_m=0.0)
@@ -44,9 +50,8 @@ def test_predict_ramps_error_from_rate_mismatch() -> None:
 
 def test_rewind_update_replays_to_now() -> None:
     """A lagged z_v restores a snapshot, updates, and replays to now."""
-    cfg = ControllerConfig()
-    filt = ResidualFilter.from_config(cfg)
-    dt = cfg.dt_outer_s
+    cfg, filt = _filter()
+    dt = cfg.outer.dt_s
     state = update(filt, filt.initial_state(), 0.0)
     snaps: tuple[ResidualSnapshot, ...] = ()
     now = 0.0
@@ -57,11 +62,11 @@ def test_rewind_update_replays_to_now() -> None:
         snaps = push_snapshot(
             snaps,
             ResidualSnapshot(t_s=now, state=state, dt_s=dt, omega_t_nom=omega, y_m=0.0),
-            cfg.rewind_snapshots,
+            cfg.residual.rewind_snapshots,
         )
     z_v = 0.01
     t_s = dt * 2
-    rewound = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.rewind_horizon_s)
+    rewound = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.residual.rewind_horizon_s)
     naive = update(filt, state, z_v)
     assert rewound.has_measurement is True
     # Lagged update must not equal treating z_v as a measurement at `now`.

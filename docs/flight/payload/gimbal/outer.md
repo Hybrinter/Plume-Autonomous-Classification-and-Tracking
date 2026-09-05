@@ -41,7 +41,7 @@ None.
 
 ## Configuration
 
-`ControllerConfig.Kp` and `PreprocessingConfig.max_motion_smear_px` set the
+`OuterLoopConfig.Kp` and `PreprocessingConfig.max_motion_smear_px` set the
 proportional gain and smear budget. Hardware slew comes from `GimbalConfig`.
 
 ## Constraints

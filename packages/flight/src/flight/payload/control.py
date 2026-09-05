@@ -218,8 +218,8 @@ class PayloadController:
             gimbal=gimbal,
             eph=eph_cfg,
             preprocessing=prep,
-            arbiter=GimbalArbiter(cfg, gimbal),
-            residual_filt=ResidualFilter.from_config(cfg),
+            arbiter=GimbalArbiter(cfg.arbiter, gimbal),
+            residual_filt=ResidualFilter.from_config(cfg.residual, cfg.outer.dt_s),
             plane_width_px=sensor.width_px // 2,
             plane_height_px=sensor.height_px // 2,
             pixel_pitch_m=2.0 * sensor.pixel_um * 1.0e-6,
@@ -277,10 +277,10 @@ class PayloadController:
             tuple[ControlState, VisionSample]: State with updated tracked-blob
             ancestry only in the sample; the arbiter still owns mode.
         """
-        gated = apply_confidence_gate(result.blobs, self.cfg.confidence_gate)
-        gated = apply_min_area_gate(gated, self.cfg.min_blob_area_px)
+        gated = apply_confidence_gate(result.blobs, self.cfg.vision.confidence_gate)
+        gated = apply_min_area_gate(gated, self.cfg.vision.min_blob_area_px)
         matched = match_blobs(
-            state.arbiter.tracked_blobs, tuple(gated), self.cfg.blob_iou_match_threshold
+            state.arbiter.tracked_blobs, tuple(gated), self.cfg.vision.blob_iou_match_threshold
         )
         z_v: float | None = None
         p_cog: tuple[float, float] | None = None
@@ -317,17 +317,17 @@ class PayloadController:
             state: Current control state.
             now: Monotonic seconds of this tick.
             theta_enc_rad: Encoder elevation, radians.
-            dt_s: Inner period; defaults to cfg.dt_inner_s.
+            dt_s: Inner period; defaults to cfg.inner.dt_s.
 
         Outputs:
             InnerTick: Updated state and torque.
         """
-        dt = self.cfg.dt_inner_s if dt_s is None else dt_s
+        dt = self.cfg.inner.dt_s if dt_s is None else dt_s
         ring = state.encoder_ring + (theta_enc_rad,)
-        max_n = self.cfg.rate_fit_n
+        max_n = self.cfg.inner.rate_fit_n
         if len(ring) > max_n:
             ring = ring[-max_n:]
-        y_m = fit_rate(ring, dt, self.cfg.rate_fit_n, self.cfg.rate_fit_degree)
+        y_m = fit_rate(ring, dt, self.cfg.inner.rate_fit_n, self.cfg.inner.rate_fit_degree)
         el_deg = math.degrees(theta_enc_rad)
         stopped = (
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
@@ -339,8 +339,8 @@ class PayloadController:
             dt,
             self.gimbal.J_kg_m2,
             self.gimbal.B_nms_per_rad,
-            self.cfg.kp,
-            self.cfg.ki,
+            self.cfg.inner.kp,
+            self.cfg.inner.ki,
             self.gimbal.tau_max_nm,
             stopped,
         )
@@ -375,13 +375,13 @@ class PayloadController:
             vision: Dequeued vision sample, or None on coast.
             iss: ISS ECI state, or None (omega_t_nom = 0).
             safe_commanded, safe_cleared: FDIR SAFE flags.
-            dt_s: Outer period; defaults to cfg.dt_outer_s.
+            dt_s: Outer period; defaults to cfg.outer.dt_s.
             timestamp_utc: ISO stamp for pointing telemetry (empty skips the event).
 
         Outputs:
             OuterTick: Updated state, optional STOW request, telemetry.
         """
-        dt = self.cfg.dt_outer_s if dt_s is None else dt_s
+        dt = self.cfg.outer.dt_s if dt_s is None else dt_s
         el_deg = math.degrees(theta_g_rad)
         blobs = vision.blobs if vision is not None else ()
         mode_flags = vision.mode_flags if vision is not None else 0
@@ -452,7 +452,7 @@ class PayloadController:
             omega_t_nom=omega_t_nom,
             y_m=state.y_m,
         )
-        snapshots = push_snapshot(state.snapshots, snap, self.cfg.rewind_snapshots)
+        snapshots = push_snapshot(state.snapshots, snap, self.cfg.residual.rewind_snapshots)
 
         if vision is not None and vision.z_v is not None:
             residual = rewind_update(
@@ -462,7 +462,7 @@ class PayloadController:
                 now,
                 vision.t_s,
                 vision.z_v,
-                self.cfg.rewind_horizon_s,
+                self.cfg.residual.rewind_horizon_s,
             )
 
         live = bool(residual.has_measurement)
@@ -473,15 +473,15 @@ class PayloadController:
             r = position_rate(
                 math.radians(pose_el),
                 theta_g_rad,
-                self.cfg.K_pos,
-                math.radians(self.cfg.r_max_stow_deg_per_s),
+                self.cfg.position.K_pos,
+                math.radians(self.cfg.position.r_max_deg_per_s),
             )
         else:
             r = outer_rate(
                 omega_t_nom,
                 omega_res,
                 e_hat,
-                self.cfg.Kp,
+                self.cfg.outer.Kp,
                 new_arbiter.gimbal_state,
                 live,
                 theta_g_rad,

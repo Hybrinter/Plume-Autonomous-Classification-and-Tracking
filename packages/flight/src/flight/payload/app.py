@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 import threading
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 # third-party
 import numpy as np
@@ -291,8 +291,9 @@ class PayloadApp:
     ) -> tuple[ControlState, TickOutcome]:
         """Catch up the outer loop to `now` in T_out steps.
 
-        Dequeues at most one vision sample per outer tick (oldest first). Reads
-        ephemeris each tick. Publishes pointing telemetry and pose GimbalCommandMsg.
+        Dequeues at most one due vision sample per outer tick (shutter time <= tick
+        time; oldest first). Reads ephemeris each tick. Publishes pointing telemetry
+        and pose GimbalCommandMsg.
         """
         dt = self.controller.cfg.dt_outer_s
         current = state
@@ -300,7 +301,12 @@ class PayloadApp:
         t = current.last_outer_s
         while t + dt <= now + 1e-12:
             t = t + dt
-            vision = self.vision_queue.popleft() if self.vision_queue else None
+            vision: VisionSample | None = None
+            if self.vision_queue:
+                sample_t = self.vision_queue[0].t_s
+                last_tick = t + dt > now + 1e-12
+                if sample_t <= t + 1e-9 or (last_tick and sample_t <= now + 1e-9):
+                    vision = self.vision_queue.popleft()
             iss = self._read_iss()
             pos = self.gimbal.read_position()
             theta = math.radians(pos.value.el_deg) if isinstance(pos, Ok) else 0.0
@@ -317,6 +323,14 @@ class PayloadApp:
             )
             current = tick.state
             for event in tick.telemetry:
+                if (
+                    self.lock_gate.engaged
+                    and event.subsystem == "payload"
+                    and event.event_name == "pointing"
+                ):
+                    payload = dict(event.payload)
+                    payload["r"] = 0.0
+                    event = replace(event, payload=payload)
                 self.bus.publish(event)
             if tick.request is not None:
                 issued = self._actuate_pose(tick.request, current, frame_id=0)

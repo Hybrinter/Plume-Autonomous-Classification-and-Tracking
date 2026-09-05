@@ -28,6 +28,7 @@
 
 1. Drain `GimbalCommandMsg` pose commands (`ABSOLUTE`, `STOW`, `HOME`) and payload
    `pointing` telemetry with `|r| > 1e-6`. Either marks the gimbal as moving.
+   A locked payload publishes `r=0`.
 2. Drain routed commands targeting `mechanical`.
 3. On `RELEASE_LAUNCH_LOCK`, reject when gimbal motion is active; otherwise call `lock.release()`.
 4. Reject unsupported commands with `COMMAND_INVALID`.

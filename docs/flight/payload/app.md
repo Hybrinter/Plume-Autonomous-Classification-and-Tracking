@@ -42,9 +42,9 @@ sample and does not write torque.
    stop.
 3. Each outer iteration publishes a heartbeat on the watchdog interval, drains mode
    and lock messages, acquires a frame, and enqueues vision.
-4. `advance_outer` dequeues at most one vision sample per outer tick, reads
+4. `advance_outer` dequeues a vision sample when its shutter time is due, reads
    ephemeris, and publishes pointing telemetry. Pose `GimbalCommandMsg` is published
-   on STOW / HOME / ABSOLUTE.
+   on STOW / HOME / ABSOLUTE. When the launch lock is engaged, published `r` is 0.
 5. `advance_inner` reads the encoder and calls `set_torque` unless the launch lock
    is engaged.
 6. Catch-up methods step in `T_in` / `T_out` so a `ManualClock` jump still moves the

@@ -128,6 +128,7 @@ class SilHarness:
             system: The wired SilSystem to drive.
         """
         self._system = system
+        self._now = 0.0
         self._payload_state: ControlState = system.apps.payload.controller.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
 
@@ -141,6 +142,7 @@ class SilHarness:
         Args:
             now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
         """
+        self._now = now
         system = self._system
         self._payload_state, self._fault_entries = step_once(
             system.apps,
@@ -163,7 +165,7 @@ class SilHarness:
             count: Number of steps to run.
             dt: Seconds to advance `now` per step.
         """
-        now = 0.0
+        now = self._now
         for _ in range(count):
             now += dt
             self.step(now)

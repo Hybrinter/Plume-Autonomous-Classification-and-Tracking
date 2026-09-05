@@ -47,15 +47,16 @@ def test_rewind_update_replays_to_now() -> None:
     cfg = ControllerConfig()
     filt = ResidualFilter.from_config(cfg)
     dt = cfg.dt_outer_s
-    state = filt.initial_state()
+    state = update(filt, filt.initial_state(), 0.0)
     snaps: tuple[ResidualSnapshot, ...] = ()
     now = 0.0
+    omega = 0.1
     for _ in range(4):
         now += dt
-        state = predict(filt, state, dt, 0.0, 0.0)
+        state = predict(filt, state, dt, omega, 0.0)
         snaps = push_snapshot(
             snaps,
-            ResidualSnapshot(t_s=now, state=state, dt_s=dt, omega_t_nom=0.0, y_m=0.0),
+            ResidualSnapshot(t_s=now, state=state, dt_s=dt, omega_t_nom=omega, y_m=0.0),
             cfg.rewind_snapshots,
         )
     z_v = 0.01

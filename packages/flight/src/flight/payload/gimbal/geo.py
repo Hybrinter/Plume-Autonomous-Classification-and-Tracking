@@ -11,6 +11,7 @@ from __future__ import annotations
 
 # stdlib
 import math
+from typing import cast
 
 # third-party
 import numpy as np
@@ -81,7 +82,7 @@ def eci_from_ecef(
     Outputs:
         np.ndarray[float64, (3,)]: ECI meters.
     """
-    return rz(omega_earth_rad_s * (utc_s - epoch_utc_s)) @ r_ecef_m
+    return cast(np.ndarray, rz(omega_earth_rad_s * (utc_s - epoch_utc_s)) @ r_ecef_m)
 
 
 def ecef_from_eci(
@@ -101,7 +102,7 @@ def ecef_from_eci(
     Outputs:
         np.ndarray[float64, (3,)]: ECEF meters.
     """
-    return rz(-omega_earth_rad_s * (utc_s - epoch_utc_s)) @ r_eci_m
+    return cast(np.ndarray, rz(-omega_earth_rad_s * (utc_s - epoch_utc_s)) @ r_eci_m)
 
 
 def lvlh_axes(
@@ -206,7 +207,7 @@ def mount_to_eci(d_mount: np.ndarray, r_eci_m: np.ndarray, v_eci_m_s: np.ndarray
     nrm = float(np.linalg.norm(d_eci))
     if nrm < 1e-18:
         return z_hat
-    return d_eci / nrm
+    return cast(np.ndarray, d_eci / nrm)
 
 
 def wgs84_intersect(

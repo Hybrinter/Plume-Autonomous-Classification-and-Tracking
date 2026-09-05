@@ -78,8 +78,9 @@ class RealGimbal:
         Outputs:
             Ok(None).
         """
+        result = self.goto_angle(self._cfg.stow_el_deg)
         self._stow_commanded = True
-        return self.goto_angle(self._cfg.stow_el_deg)
+        return result
 
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
         """Return the last recorded pose (0 until a pose command), timestamped.

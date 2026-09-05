@@ -22,7 +22,6 @@ every app, and runs them under the thread scheduler until shutdown.
 - Inputs: validated `PactConfig`, shared `MessageBus`, injected `Clock`, `MosaicCalibration`.
 - Output: wired `SystemApps`.
 - Raises `SystemExit` on uplink key load failure or real-sensor exposure/gain setup failure.
-- Raises `ValueError` when a real gimbal has an empty serial port.
 
 **`main(config_path="config/default.toml") -> None`**
 

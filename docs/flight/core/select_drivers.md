@@ -77,7 +77,7 @@ uses `resolve_quantized_path` when `inference.use_int8` is true.
 ## Constraints
 
 - This module imports both `drivers_sim` and lazy `drivers_real` branches.
-- SDK modules (PySpin, pyserial, onnxruntime, socket) load only inside `real` branches.
+- SDK modules (PySpin, onnxruntime, socket) load only inside `real` branches.
 - No real launch-lock driver exists. Every profile uses `SimLaunchLock`.
 - Each branch local is typed with its HAL protocol. No casts are used at construction.
 

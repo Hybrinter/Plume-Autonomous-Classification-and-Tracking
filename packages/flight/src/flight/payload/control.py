@@ -46,9 +46,11 @@ from flight.payload.tracking import (
     ResidualSnapshot,
     ResidualState,
     match_blobs,
-    predict as residual_predict,
     push_snapshot,
     rewind_update,
+)
+from flight.payload.tracking import (
+    predict as residual_predict,
 )
 
 
@@ -402,11 +404,8 @@ class PayloadController:
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             pose_mode = GimbalCommandMode.STOW
             pose_el = self.gimbal.stow_el_deg
-        elif (
-            new_arbiter.gimbal_state is not GimbalState.SAFE and pose_mode is GimbalCommandMode.STOW
-        ):
-            if safe_cleared:
-                pose_mode = None
+        elif pose_mode is GimbalCommandMode.STOW and safe_cleared:
+            pose_mode = None
 
         if vision is not None and vision.exposure_us > 0.0:
             exposure_us = vision.exposure_us

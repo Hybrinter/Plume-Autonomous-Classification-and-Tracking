@@ -102,7 +102,7 @@ def select_drivers(
         SystemExit: If the real-sensor startup exposure or gain command fails.
 
     Notes:
-        Real driver SDK modules (PySpin/pyserial/onnxruntime/socket) are imported lazily
+        Real driver SDK modules (PySpin/onnxruntime/socket) are imported lazily
         inside their 'real' branches, so this module imports SDK-free. flight.core.main
         and sim.sil are the only other places allowed to construct drivers. Each branch
         local is typed with its HAL Protocol, so the Drivers(...) construction type-checks

@@ -37,7 +37,7 @@ None.
 
 ## Configuration
 
-Gains `kp` and `ki` come from `ControllerConfig`. Plant copies `J`, `B`, and
+Gains `kp` and `ki` come from `InnerLoopConfig`. Plant copies `J`, `B`, and
 `tau_max` come from `GimbalConfig`.
 
 ## Constraints

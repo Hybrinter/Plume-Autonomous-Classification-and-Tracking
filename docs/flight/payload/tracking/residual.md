@@ -24,7 +24,8 @@ replays.
 
 ## Inputs and outputs
 
-`ResidualFilter.from_config(cfg)` builds scalars from `ControllerConfig`.
+`ResidualFilter.from_config(cfg, dt_outer_s)` builds scalars from `ResidualConfig`
+and the outer period.
 `predict` returns a predicted `ResidualState`. `update` takes `z_v` in radians.
 `rewind_update` takes the ring, current state, `now`, shutter time, `z_v`, and
 horizon.
@@ -47,8 +48,8 @@ None.
 
 ## Configuration
 
-`ControllerConfig.Q_diag`, `R_v`, `P0_diag`, `dt_outer_s`, `rewind_horizon_s`, and
-`rewind_snapshots`.
+`ResidualConfig.Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, and
+`rewind_snapshots`, plus `OuterLoopConfig.dt_s`.
 
 ## Constraints
 

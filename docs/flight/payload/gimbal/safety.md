@@ -34,7 +34,7 @@ None.
 
 ## Configuration
 
-Uses `ControllerConfig.confidence_gate` and `min_blob_area_px`.
+Uses `VisionConfig.confidence_gate` and `min_blob_area_px`.
 
 ## Constraints
 

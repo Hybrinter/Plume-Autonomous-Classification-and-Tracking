@@ -73,7 +73,7 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     cfg = PactConfig()
     bus = MessageBus()
     clock = ManualClock()
-    gimbal = SimGimbal(clock=clock, cfg=cfg.gimbal, inner_dt_s=cfg.controller.dt_inner_s)
+    gimbal = SimGimbal(clock=clock, cfg=cfg.gimbal, inner_dt_s=cfg.controller.inner.dt_s)
     sensor = SimSensor([])
     eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)

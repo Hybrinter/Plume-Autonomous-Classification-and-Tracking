@@ -189,7 +189,7 @@ class PayloadApp:
             mode_sub=bus.subscribe(ModeChangeMsg),
             lock_sub=bus.subscribe(LaunchLockStateMsg),
             lock_gate=LockGate(),
-            vision_queue=deque(maxlen=cfg.controller.vision_queue_depth),
+            vision_queue=deque(maxlen=cfg.controller.vision.queue_depth),
             inner_lock=threading.Lock(),
         )
 
@@ -295,7 +295,7 @@ class PayloadApp:
         time; oldest first). Reads ephemeris each tick. Publishes pointing telemetry
         and pose GimbalCommandMsg.
         """
-        dt = self.controller.cfg.dt_outer_s
+        dt = self.controller.cfg.outer.dt_s
         current = state
         command_issued = False
         t = current.last_outer_s
@@ -347,7 +347,7 @@ class PayloadApp:
 
     def advance_inner(self, state: ControlState, now: float) -> ControlState:
         """Catch up the inner loop to `now` in T_in steps and write torque."""
-        dt = self.controller.cfg.dt_inner_s
+        dt = self.controller.cfg.inner.dt_s
         current = state
         t = current.last_inner_s
         while t + dt <= now + 1e-12:
@@ -419,7 +419,7 @@ class PayloadApp:
                 now_inner = self.clock.monotonic_s()
                 with self.inner_lock:
                     holder["state"] = self.advance_inner(holder["state"], now_inner)
-                stop_event.wait(timeout=self.controller.cfg.dt_inner_s)
+                stop_event.wait(timeout=self.controller.cfg.inner.dt_s)
 
         inner_thread = threading.Thread(target=inner_loop, name="payload-inner", daemon=True)
         inner_thread.start()
@@ -461,7 +461,7 @@ class PayloadApp:
                             self.gimbal.stow()
                     current, _outer = self.advance_outer(current, now, safe_commanded, safe_cleared)
                     holder["state"] = current
-                stop_event.wait(timeout=self.controller.cfg.dt_outer_s)
+                stop_event.wait(timeout=self.controller.cfg.outer.dt_s)
         finally:
             stop_event.set()
             inner_thread.join(timeout=1.0)

@@ -54,8 +54,8 @@ shell publishes them.
 
 ## Configuration
 
-Reads inner/outer periods, PI and `K_p` gains, residual `Q`/`R`, rewind horizon,
-position-loop gain, plant copies, encoder counts, WGS-84 scalars, and smear budget.
+Reads nested `ControllerConfig` tables (vision, arbiter, inner, outer, residual,
+position), plant copies, encoder counts, WGS-84 scalars, and smear budget.
 
 ## Constraints
 

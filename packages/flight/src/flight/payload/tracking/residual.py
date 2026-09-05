@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 # internal
-from flight.libs.config import ControllerConfig
+from flight.libs.config import ResidualConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,11 +65,12 @@ class ResidualFilter:
     dt_outer_s: float
 
     @staticmethod
-    def from_config(cfg: ControllerConfig) -> ResidualFilter:
-        """Build filter scalars from ControllerConfig.
+    def from_config(cfg: ResidualConfig, dt_outer_s: float) -> ResidualFilter:
+        """Build filter scalars from residual config and the outer period.
 
         Inputs:
-            cfg: ControllerConfig with Q_diag, R_v, P0_diag, dt_outer_s.
+            cfg: ResidualConfig with Q_diag, R_v, P0_diag, and rewind fields.
+            dt_outer_s: Outer-loop period used to scale discrete Q.
 
         Outputs:
             ResidualFilter: Frozen gain/noise holder.
@@ -80,7 +81,7 @@ class ResidualFilter:
             r_v=cfg.R_v,
             p0_11=float(cfg.P0_diag[0]),
             p0_22=float(cfg.P0_diag[1]),
-            dt_outer_s=cfg.dt_outer_s,
+            dt_outer_s=dt_outer_s,
         )
 
     def initial_state(self) -> ResidualState:

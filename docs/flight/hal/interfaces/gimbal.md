@@ -5,9 +5,10 @@
 
 ## Purpose
 
-This module defines the elevation gimbal surface. `GimbalActuator` commands torque,
-reads encoder elevation, and sets pose-loop targets. There is no azimuth axis and no
-rate command.
+This module defines the elevation gimbal surface. `GimbalActuator` commands torque
+and reads encoder elevation. `stow` / `home` / `goto_angle` latch a pose target for
+stow-switch arming. They do not run a position or rate controller. There is no
+azimuth axis and no rate command.
 
 ## Public interface
 
@@ -29,9 +30,10 @@ rate command.
 
 ## Behavior
 
-1. Tracking and the pose loop write torque through `set_torque`.
-2. `stow`, `home`, and `goto_angle` set the position-loop target and arm stow-switch
-   logic.
+1. Tracking and STOW / HOME / GOTO write torque through `set_torque`.
+2. `stow`, `home`, and `goto_angle` latch a pose target and arm stow-switch logic.
+   The payload position loop turns that target into a rate reference `r` for the
+   inner PI. The driver does not close a position or rate loop.
 3. The driver clips torque, rate, and travel to the hardware envelope.
 4. `read_position()` returns encoder elevation with a monotonic timestamp.
 5. `read_stow_switch()` returns `True` when the mechanism is at the stow pose.

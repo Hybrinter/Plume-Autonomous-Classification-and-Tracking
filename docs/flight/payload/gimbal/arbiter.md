@@ -13,12 +13,12 @@ torque. SAFE latches until ground clears it.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `ArbiterState` | dataclass | Immutable FSM snapshot: mode, blobs, target id, miss count |
-| `GimbalArbiter` | class | Stateless arbiter holding `ControllerConfig` and `GimbalConfig` |
+| `GimbalArbiter` | class | Stateless arbiter holding `ArbiterConfig` and `GimbalConfig` |
 | `GimbalArbiter.step` | method | Advances the FSM one outer tick |
 
 ## Inputs and outputs
 
-`GimbalArbiter(cfg, gimbal)` stores controller thresholds and science-limb elevation.
+`GimbalArbiter(cfg, gimbal)` stores arbiter thresholds and science-limb elevation.
 
 `step(state, blobs, now, safe_commanded, safe_cleared, el_deg, mode_flags=0,
 vision_updated=True)` returns
@@ -49,7 +49,7 @@ Returns `TelemetryEventMsg` with event name `state_transition` and subsystem
 
 ## Configuration
 
-Reads `ControllerConfig.release_persistence_frames` and `limb_arrival_deg`. Reads
+Reads `ArbiterConfig.release_persistence_frames` and `limb_arrival_deg`. Reads
 `GimbalConfig` science-limb and stow elevation.
 
 ## Constraints

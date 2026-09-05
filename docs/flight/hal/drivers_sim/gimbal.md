@@ -36,7 +36,8 @@ Observability properties: `true_el_deg`, `true_omega_rad_s`.
 1. `set_torque` clips torque and integrates elapsed clock time, minus catch-up debt.
 2. Repeated `set_torque` at a frozen clock steps one inner period per call and
    records catch-up debt so a later clock jump does not double-count.
-3. `stow` / `home` / `goto_angle` record a pose target. Motion comes from torque.
+3. `stow` / `home` / `goto_angle` latch a pose target. Motion comes from torque.
+   The driver does not close a position or rate loop.
 4. `read_position` quantizes true elevation to encoder counts and adds Gaussian
    noise.
 5. `read_stow_switch` is true after `stow()` and when elevation is within 0.5 deg of

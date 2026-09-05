@@ -34,7 +34,7 @@ None.
 
 ## Configuration
 
-`ControllerConfig.K_pos` and `r_max_stow_deg_per_s` set the gain and saturation.
+`PositionLoopConfig.K_pos` and `r_max_deg_per_s` set the gain and saturation.
 
 ## Constraints
 

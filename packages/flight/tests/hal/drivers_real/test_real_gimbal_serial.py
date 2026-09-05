@@ -1,98 +1,33 @@
-"""RealGimbal behavior tests against a fake pyserial module (no SDK in CI)."""
+"""RealGimbal torque-stub tests (no serial PTU, no pyserial)."""
 
-import sys
-import types
-
-import pytest
+from flight.hal.drivers_real import RealGimbal
 from flight.libs.config import GimbalConfig
 from flight.libs.time import ManualClock
-from flight.libs.types import Err, FaultCode, Ok
+from flight.libs.types import Ok
 
 
-class _FakeSerial:
-    """Scriptable serial port: records writes, replays queued response lines."""
-
-    def __init__(self, port: str, baudrate: int, timeout: float) -> None:
-        self.writes: list[bytes] = []
-        self.responses: list[bytes] = []
-
-    def write(self, data: bytes) -> int:
-        self.writes.append(data)
-        return len(data)
-
-    def readline(self) -> bytes:
-        return self.responses.pop(0) if self.responses else b""
+def test_set_torque_is_ok_noop() -> None:
+    """set_torque returns Ok and does not require a vendor SDK."""
+    gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig())
+    assert isinstance(gimbal.set_torque(0.5), Ok)
 
 
-def _install_fake_serial(monkeypatch: pytest.MonkeyPatch) -> type[_FakeSerial]:
-    """Install a scriptable fake `serial` module into sys.modules."""
-    fake = types.ModuleType("serial")
-
-    class SerialException(Exception):  # noqa: N818 -- name mirrors pyserial's real class
-        pass
-
-    fake.Serial = _FakeSerial  # type: ignore[attr-defined]
-    fake.SerialException = SerialException  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "serial", fake)
-    return _FakeSerial
-
-
-def test_goto_angle_writes_position_commands(monkeypatch: pytest.MonkeyPatch) -> None:
-    """goto_angle converts degrees to encoder counts and writes PP/TP commands."""
-    _install_fake_serial(monkeypatch)
-    from flight.hal.drivers_real import RealGimbal
-
-    gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
-    gimbal._port.responses = [b"*\n", b"*\n"]
-    result = gimbal.goto_angle(10.0, -5.0)
-    assert isinstance(result, Ok)
-    assert gimbal._port.writes[0] == b"PP0\n"  # azimuth is pinned at 0
-    assert gimbal._port.writes[1] == b"TP-388\n"  # -5.0 deg * 77.6 counts/deg
-
-
-def test_goto_angle_clamps_to_travel_limits(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Targets outside the travel envelope are clamped before conversion."""
-    _install_fake_serial(monkeypatch)
-    from flight.hal.drivers_real import RealGimbal
-
-    gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
-    gimbal._port.responses = [b"*\n", b"*\n"]
-    assert isinstance(gimbal.goto_angle(0.0, 500.0), Ok)
-    assert gimbal._port.writes[0] == b"PP0\n"  # azimuth is pinned at 0
-    assert gimbal._port.writes[1] == b"TP6984\n"  # clamped to el_hw_max 90 deg
-
-
-def test_error_response_is_gimbal_fault(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A '!' response from the PTU maps to Err(GIMBAL_FAULT)."""
-    _install_fake_serial(monkeypatch)
-    from flight.hal.drivers_real import RealGimbal
-
-    gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
-    gimbal._port.responses = [b"! illegal command\n"]
-    result = gimbal.goto_angle(1.0, 0.0)
-    assert isinstance(result, Err)
-    assert result.error == FaultCode.GIMBAL_FAULT
-
-
-def test_read_position_parses_counts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """read_position queries PP/TP and converts counts back to timestamped degrees."""
-    _install_fake_serial(monkeypatch)
-    from flight.hal.drivers_real import RealGimbal
-
+def test_goto_angle_records_clamped_elevation() -> None:
+    """goto_angle stores a travel-clamped elevation for later reads."""
     clock = ManualClock()
-    gimbal = RealGimbal(clock=clock, cfg=GimbalConfig(serial_port="COM3"))
-    gimbal._port.responses = [b"* 776\n", b"* -388\n"]
-    result = gimbal.read_position()
-    assert isinstance(result, Ok)
-    assert abs(result.value.az_deg - 10.0) < 1e-6
-    assert abs(result.value.el_deg - (-5.0)) < 1e-6
-    assert result.value.timestamp_s == clock.monotonic_s()
+    gimbal = RealGimbal(clock=clock, cfg=GimbalConfig())
+    assert isinstance(gimbal.goto_angle(500.0), Ok)
+    pos = gimbal.read_position()
+    assert isinstance(pos, Ok)
+    assert pos.value.el_deg == 90.0
+    assert pos.value.timestamp_s == clock.monotonic_s()
+    assert not hasattr(pos.value, "az_deg")
 
 
-def test_missing_pyserial_raises_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without pyserial installed, constructing RealGimbal raises ImportError."""
-    monkeypatch.setitem(sys.modules, "serial", None)
-    from flight.hal.drivers_real import RealGimbal
-
-    with pytest.raises(ImportError):
-        RealGimbal(clock=ManualClock(), cfg=GimbalConfig(serial_port="COM3"))
+def test_stow_records_pose_and_switch() -> None:
+    """stow() records the stow elevation and reports the switch True."""
+    gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig())
+    assert isinstance(gimbal.stow(), Ok)
+    switch = gimbal.read_stow_switch()
+    assert isinstance(switch, Ok)
+    assert switch.value is True

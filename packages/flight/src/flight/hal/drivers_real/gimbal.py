@@ -1,197 +1,99 @@
-"""Real two-axis PTU gimbal driver over a serial ASCII protocol (reference: FLIR PTU
-E46-class; spec Section 2).
+"""Real gimbal driver stub. The PTU ASCII path is removed.
 
-pyserial imports lazily in __init__ (the SDK-free CI pattern). Protocol subset, line
-oriented: commands are '<verb><signed counts>\\n' writes; every command yields one
-response line -- '*' prefix = success, '!' prefix = error. Angle <-> count conversion
-uses GimbalConfig.counts_per_deg. Verbs: PP/TP = pan/tilt absolute position command
-or (bare) position query; PS/TS = pan/tilt rate. The exact verb set is a documented
-reference assumption to be validated at HIL bring-up against the actual unit's manual.
-The driver enforces the travel and slew envelopes by clamping before conversion
-(defense in depth below the arbiter's mission limits). A lock serializes transactions
-(capture loop vs control plane). Driver-level failures map to GIMBAL_FAULT.
+`set_torque` and pose commands succeed as no-ops until the motor-amp interface
+exists. Encoder reads return elevation 0. This stub does not import a vendor SDK.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-004.
 """
 
 from __future__ import annotations
 
-# stdlib
-import threading
-
-# internal
 from flight.hal.interfaces.gimbal import GimbalPosition
 from flight.libs.config import GimbalConfig
 from flight.libs.time import Clock
-from flight.libs.types import Err, FaultCode, Ok, Result
+from flight.libs.types import FaultCode, Ok, Result
 
 
 class RealGimbal:
-    """Serial PTU driver satisfying GimbalActuator structurally.
+    """Torque-command stub satisfying GimbalActuator structurally.
 
     Notes:
-        The PTU exposes no discrete stow switch; read_stow_switch infers stow from the
-        encoder pose (within 0.5 deg of the configured stow pose on both axes).
+        Amp current mapping (K_t) is not implemented. Commands return Ok and do
+        not move hardware.
     """
 
     def __init__(
         self,
         clock: Clock,
         cfg: GimbalConfig | None = None,
-        timeout_s: float = 1.0,
     ) -> None:
-        """Open the configured serial port.
+        """Hold the clock and config. No serial port is opened.
 
         Inputs:
             clock (Clock): Injected clock used to timestamp encoder reads.
-            cfg (GimbalConfig | None): Gimbal envelope/pose/link config; None uses
-                the GimbalConfig defaults.
-            timeout_s (float): Serial read timeout in seconds (default 1.0).
-
-        Raises:
-            ImportError: If pyserial is not installed.
-            ValueError: If cfg.serial_port is empty (startup misconfiguration).
+            cfg (GimbalConfig | None): Envelope config; None uses defaults.
         """
-        try:
-            import serial
-        except ImportError as exc:
-            raise ImportError(
-                "pyserial is not installed. Install it to use RealGimbal; use "
-                "SimGimbal in tests and simulation."
-            ) from exc
         self._cfg = cfg if cfg is not None else GimbalConfig()
-        if not self._cfg.serial_port:
-            raise ValueError("GimbalConfig.serial_port must be set to use RealGimbal")
-        self._serial_exc = serial.SerialException
-        self._port = serial.Serial(
-            port=self._cfg.serial_port, baudrate=self._cfg.serial_baud, timeout=timeout_s
-        )
         self._clock = clock
-        self._lock = threading.Lock()
+        self._el_deg = 0.0
+        self._stow_commanded = False
 
-    def _transact(self, command: str) -> Result[str, FaultCode]:
-        """Write one command line and read its response.
-
-        Inputs:
-            command (str): The verb (+ optional signed counts) to send, without newline.
-
-        Outputs:
-            Result[str, FaultCode]: Ok(response line) on a '*' response; Err(GIMBAL_FAULT)
-            on a '!' (or any non-'*') response or a serial I/O error.
-        """
-        try:
-            self._port.write(f"{command}\n".encode("ascii"))
-            response = self._port.readline().decode("ascii", errors="replace").strip()
-        except self._serial_exc:
-            return Err(FaultCode.GIMBAL_FAULT)
-        if not response.startswith("*"):
-            return Err(FaultCode.GIMBAL_FAULT)
-        return Ok(response)
-
-    def _counts(self, deg: float) -> int:
-        """Convert degrees to encoder counts via GimbalConfig.counts_per_deg.
+    def set_torque(self, tau_nm: float) -> Result[None, FaultCode]:
+        """Accept a torque command. The amp interface is not wired; this is a no-op.
 
         Inputs:
-            deg (float): Angle or rate in degrees (per second for rates).
+            tau_nm (float): Commanded torque in N·m (ignored).
 
         Outputs:
-            int: The rounded encoder-count value.
+            Ok(None).
         """
-        return round(deg * self._cfg.counts_per_deg)
-
-    def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
-        """Command absolute pan/tilt positions. Azimuth is pinned at 0; elevation is
-        clamped to the hardware travel envelope.
-
-        Inputs:
-            az_deg (float): Target azimuth in degrees (ignored; drivers pin azimuth at 0).
-            el_deg (float): Target elevation in degrees (clamped to el_hw_min/el_hw_max).
-
-        Outputs:
-            Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
-        """
-        cfg = self._cfg
-        az = 0.0
-        el = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
-        with self._lock:
-            for verb, value in (("PP", az), ("TP", el)):
-                result = self._transact(f"{verb}{self._counts(value)}")
-                if isinstance(result, Err):
-                    return Err(result.error)
+        del tau_nm
         return Ok(None)
 
-    def set_rate(
-        self, az_rate_deg_per_s: float, el_rate_deg_per_s: float
-    ) -> Result[None, FaultCode]:
-        """Command pan/tilt rates, clamped to the hardware slew envelope.
+    def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
+        """Record a pose target. No hardware motion.
 
         Inputs:
-            az_rate_deg_per_s (float): Azimuth rate in deg/s (clamped to +-max_hw_slew).
-            el_rate_deg_per_s (float): Elevation rate in deg/s (clamped to +-max_hw_slew).
+            el_deg (float): Target elevation in degrees.
 
         Outputs:
-            Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
+            Ok(None).
         """
-        limit = self._cfg.max_hw_slew_rate_deg_per_s
-        az = 0.0
-        el = min(max(el_rate_deg_per_s, -limit), limit)
-        with self._lock:
-            for verb, value in (("PS", az), ("TS", el)):
-                result = self._transact(f"{verb}{self._counts(value)}")
-                if isinstance(result, Err):
-                    return Err(result.error)
+        cfg = self._cfg
+        self._el_deg = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
+        self._stow_commanded = False
         return Ok(None)
 
     def home(self) -> Result[None, FaultCode]:
-        """Drive to the configured home pose.
+        """Record the configured home pose.
 
         Outputs:
-            Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
+            Ok(None).
         """
-        return self.goto_angle(0.0, self._cfg.home_el_deg)
+        return self.goto_angle(self._cfg.home_el_deg)
 
     def stow(self) -> Result[None, FaultCode]:
-        """Drive to the configured stow pose.
+        """Record the configured stow pose.
 
         Outputs:
-            Result[None, FaultCode]: Ok(None), or Err(GIMBAL_FAULT) on a PTU error.
+            Ok(None).
         """
-        return self.goto_angle(0.0, self._cfg.stow_el_deg)
+        self._stow_commanded = True
+        return self.goto_angle(self._cfg.stow_el_deg)
 
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
-        """Query pan/tilt positions and convert counts to timestamped degrees.
+        """Return the last recorded pose (0 until a pose command), timestamped.
 
         Outputs:
-            Result[GimbalPosition, FaultCode]: Ok with the encoder pose stamped from the
-            injected clock, or Err(GIMBAL_FAULT) on a PTU error or unparseable response.
+            Ok(GimbalPosition).
         """
-        with self._lock:
-            counts: list[int] = []
-            for verb in ("PP", "TP"):
-                result = self._transact(verb)
-                if isinstance(result, Err):
-                    return Err(result.error)
-                try:
-                    counts.append(int(result.value.lstrip("* ").strip()))
-                except ValueError:
-                    return Err(FaultCode.GIMBAL_FAULT)
-        return Ok(
-            GimbalPosition(
-                az_deg=counts[0] / self._cfg.counts_per_deg,
-                el_deg=counts[1] / self._cfg.counts_per_deg,
-                timestamp_s=self._clock.monotonic_s(),
-            )
-        )
+        return Ok(GimbalPosition(el_deg=self._el_deg, timestamp_s=self._clock.monotonic_s()))
 
     def read_stow_switch(self) -> Result[bool, FaultCode]:
-        """Infer stow from encoder pose (the reference PTU exposes no discrete switch).
+        """True when stow was commanded and the recorded pose is near stow.
 
         Outputs:
-            Result[bool, FaultCode]: Ok(True) when both axes are within 0.5 deg of the
-            configured stow pose, Ok(False) otherwise, or Err(GIMBAL_FAULT) on a read
-            failure.
+            Ok(bool).
         """
-        pos = self.read_position()
-        if isinstance(pos, Err):
-            return Err(pos.error)
-        return Ok(abs(pos.value.el_deg - self._cfg.stow_el_deg) < 0.5)
+        at_pose = abs(self._el_deg - self._cfg.stow_el_deg) < 0.5
+        return Ok(self._stow_commanded and at_pose)

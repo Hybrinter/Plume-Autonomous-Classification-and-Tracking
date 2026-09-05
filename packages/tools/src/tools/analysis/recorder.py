@@ -97,22 +97,18 @@ def sample_devices(system: SilSystem) -> DeviceSample:
     gimbal = system.gimbal
     position = gimbal.read_position()
     if isinstance(position, Ok):
-        az_meas, el_meas = position.value.az_deg, position.value.el_deg
+        el_meas = position.value.el_deg
     else:
-        az_meas = el_meas = float("nan")
+        el_meas = float("nan")
     stow = gimbal.read_stow_switch()
     stow_engaged = isinstance(stow, Ok) and stow.value is True
-    # Private sim-driver fields are read read-only for observability (truth pose, commanded rate,
-    # mode, replay cursors); none are mutated and flight behavior is untouched.
-    mode = gimbal._mode
+    pose_mode = "STOW" if gimbal._stow_commanded else "NONE"
     return DeviceSample(
-        gimbal_az_meas_deg=az_meas,
         gimbal_el_meas_deg=el_meas,
-        gimbal_az_true_deg=gimbal._az,
-        gimbal_el_true_deg=gimbal._el,
-        gimbal_rate_az_deg_s=gimbal._rate_az,
-        gimbal_rate_el_deg_s=gimbal._rate_el,
-        gimbal_mode=mode.value if mode is not None else "NONE",
+        gimbal_el_true_deg=gimbal.true_el_deg,
+        gimbal_omega_rad_s=gimbal.true_omega_rad_s,
+        gimbal_tau_nm=gimbal._tau_nm,
+        gimbal_mode=pose_mode,
         stow_switch=stow_engaged,
         launch_lock_state=system.apps.mechanical.state.last_state.value,
         link_state=system.station.link_state().value,
@@ -178,7 +174,6 @@ def record_run(
     now = 0.0
     for step in range(1, steps + 1):
         now += dt
-        system.clock.advance(dt)
         if pre_step is not None:
             pre_step(system, step)
         payload_state, fault_entries = step_once(
@@ -191,6 +186,7 @@ def record_run(
             payload_state,
             fault_entries,
         )
+        system.clock.advance(dt)
         messages: dict[type, tuple[object, ...]] = {
             message_type: _drain(subscription)
             for message_type, subscription in subscriptions.items()

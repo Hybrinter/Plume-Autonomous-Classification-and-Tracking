@@ -6,14 +6,15 @@
 
 ## What HIL exercises
 
-HIL runs every axis **real** (`profiles/hil.toml`: all five axes `"real"`,
-`host="jetson_aarch64"`): the PySpin camera (`RealSensor`), the serial gimbal (`RealGimbal`,
-requires `config.gimbal.serial_port` nonempty), the real ONNX detector, the socket station link
-(`RealStationLink`), and `RealClock`. It is the highest-fidelity venue short of flight.
+HIL runs every axis **real** (`profiles/hil.toml`: all axes `"real"`,
+`host="jetson_aarch64"`): the PySpin camera (`RealSensor`), the torque-stub gimbal
+(`RealGimbal`), the real ONNX detector, the socket station link
+(`RealStationLink`), `RealIssEphemeris` (stub), and `RealClock`. It is the
+highest-fidelity venue short of flight.
 
 ## Prerequisites
 
-- Full bench: camera connected (PySpin SDK present), gimbal on its serial port, radio or socket
+- Full bench: camera connected (PySpin SDK present), gimbal torque interface, radio or socket
   bridge to the ground station emulator.
 - The HIL socket harness backend (`gse.harness.SocketBackend`) -- **deferred** (raises
   `NotImplementedError("PIL/HIL socket backend deferred")`). Bench runners are the next,

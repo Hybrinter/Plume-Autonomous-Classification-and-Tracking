@@ -25,6 +25,7 @@ def test_manual_clock_advances() -> None:
     assert clock.monotonic_s() == 10.0
     clock.advance(2.5)
     assert clock.monotonic_s() == 12.5
+    assert clock.utc_s() == 1_788_249_600.0 + 2.5
 
 
 def test_manual_clock_wall_clock_settable() -> None:

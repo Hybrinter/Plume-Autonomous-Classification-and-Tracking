@@ -41,16 +41,15 @@ def _release(seq: int = 1) -> RoutedCommandMsg:
 
 
 def _motion() -> GimbalCommandMsg:
-    """Build a GimbalCommandMsg indicating active RATE motion."""
+    """Build a GimbalCommandMsg indicating active STOW motion."""
     return GimbalCommandMsg(
         msg_type=MessageType.GIMBAL_COMMAND,
         timestamp_utc="t",
         frame_id=1,
-        mode=GimbalCommandMode.RATE,
-        az_value_deg=1.5,
-        el_value_deg=0.0,
-        state=GimbalState.TRACKING,
-        reason="track",
+        mode=GimbalCommandMode.STOW,
+        el_value_deg=-45.0,
+        state=GimbalState.SAFE,
+        reason="safe_entry_stow",
     )
 
 

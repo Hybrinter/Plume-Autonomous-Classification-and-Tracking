@@ -106,8 +106,6 @@ def test_queue_depth_and_devices_are_sampled() -> None:
     bus = result.wide["bus"]
     assert "bus.depth.total" in bus.columns
     payload = result.wide["payload"]
-    assert "payload.gimbal_az_true_deg" in payload.columns
     assert "payload.gimbal_el_true_deg" in payload.columns
-    # Azimuth stays pinned; elevation slews while tracking the off-boresight plume.
-    assert float(payload["payload.gimbal_az_true_deg"].abs().max()) == 0.0
+    # Elevation slews while tracking the off-boresight plume.
     assert float(payload["payload.gimbal_el_true_deg"].abs().max()) > 0.0

@@ -27,6 +27,7 @@ from flight.fault.app import FaultApp
 from flight.hal.interfaces import (
     GimbalActuator,
     ImagingSensor,
+    IssEphemeris,
     LaunchLock,
     ScalarSensor,
     StationLink,
@@ -134,6 +135,7 @@ class Drivers:
 
     sensor: ImagingSensor
     gimbal: GimbalActuator
+    ephemeris: IssEphemeris
     detector: DetectorBackend
     station: StationLink
     thermal_sensor: ScalarSensor
@@ -192,7 +194,15 @@ def build_apps(
     storage = StorageService.from_config(config, bus, clock)
     return SystemApps(
         payload=PayloadApp.from_config(
-            config, drivers.sensor, drivers.gimbal, drivers.detector, bus, clock, calib, storage
+            config,
+            drivers.sensor,
+            drivers.gimbal,
+            drivers.ephemeris,
+            drivers.detector,
+            bus,
+            clock,
+            calib,
+            storage,
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored),
         iss_iface=IssIfaceApp.from_config(

@@ -1,13 +1,11 @@
 """
 Safety gates for PACT controller subsystem.
 
-All safety gate functions run BEFORE the GimbalArbiter.step() is called. They are pure
-functions with no side effects. The process loop in process.py applies them in order:
-
-    confidence gate -> min area gate -> (blob matching) -> rate limit -> arbiter
+Confidence and minimum-area gates run before blob matching. They are pure
+functions with no side effects.
 
 Satisfies: REQ-AIML-DATA-008, REQ-AIML-DATA-009,
-           REQ-AIML-GIMB-005, REQ-AIML-GIMB-006, REQ-AIML-GIMB-007
+           REQ-AIML-GIMB-006, REQ-AIML-GIMB-007
 """
 
 from __future__ import annotations
@@ -57,34 +55,3 @@ def apply_min_area_gate(
         Filtered blobs; may be empty.
     """
     return tuple(b for b in blobs if b.pixel_area >= min_px)
-
-
-def check_rate_limit(
-    last_command_time: float,
-    now: float,
-    rate_limit_hz: float,
-) -> bool:
-    """Return True if sufficient time has elapsed since the last command. REQ-AIML-GIMB-005.
-
-    Prevents the gimbal from being commanded faster than rate_limit_hz, which protects
-    the motor drive from thermal overload and ensures commands do not stack up.
-
-    Parameters
-    ----------
-    last_command_time:
-        Unix timestamp of the most recent GimbalCommandMsg that was issued.
-        Pass 0.0 if no command has ever been issued.
-    now:
-        Current Unix timestamp in seconds (supplied by caller for determinism).
-    rate_limit_hz:
-        Maximum command rate in Hz (ControllerConfig.retarget_rate_limit_hz, default 0.5).
-
-    Returns
-    -------
-    bool
-        True if a new command may be issued; False if the rate limit has not yet elapsed.
-    """
-    if rate_limit_hz <= 0.0:
-        return False
-    min_interval_s = 1.0 / rate_limit_hz
-    return (now - last_command_time) >= min_interval_s

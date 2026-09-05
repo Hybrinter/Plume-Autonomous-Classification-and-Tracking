@@ -42,20 +42,17 @@ across subsystems.
 
 | Member | Description |
 | --- | --- |
-| `IDLE` | No gimbal activity |
-| `ACQUIRING` | Seeking a target |
-| `TRACKING` | Tracking a confirmed blob |
+| `TRACKING` | Closed-loop pointing or limb wait with `r=0` |
 | `REWIND` | Slew elevation to the science limb after TRACKING loss |
-| `SAFE` | Gimbal inhibited |
+| `SAFE` | Gimbal inhibited; position loop drives stow |
 
 ### GimbalCommandMode
 
 | Member | Description |
 | --- | --- |
-| `RATE` | Axis values are rates in deg/s |
-| `ABSOLUTE` | Axis values are target angles in degrees |
-| `STOW` | Driver moves to configured stow pose |
-| `HOME` | Driver moves to configured home pose |
+| `ABSOLUTE` | Elevation is a target angle in degrees |
+| `STOW` | Position loop drives the configured stow pose |
+| `HOME` | Position loop drives the configured home pose |
 
 ### FaultCode
 
@@ -77,6 +74,7 @@ across subsystems.
 | `CALIBRATION_INVALID` | Startup calibration integrity failure |
 | `FRAME_MALFORMED` | Per-frame geometry violation |
 | `GIMBAL_FAULT` | Driver-level gimbal failure |
+| `EPHEMERIS_FAULT` | ISS ephemeris read failed |
 | `COMMAND_CRC_FAIL` | CCSDS packet CRC or length failure |
 | `COMMAND_AUTH_FAIL` | HMAC authentication failure |
 | `COMMAND_SEQ_ERROR` | Command sequence replay or ordering failure |

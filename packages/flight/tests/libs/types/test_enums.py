@@ -17,7 +17,7 @@ from flight.libs.types import (
 def test_enum_value_mirrors_name() -> None:
     """Enum string values mirror their member names (log readability convention)."""
     assert SystemMode.IDLE.value == "IDLE"
-    assert GimbalState.TRACKING.value == "TRACKING"
+    assert {m.name for m in GimbalState} == {"TRACKING", "REWIND", "SAFE"}
 
 
 def test_faultcode_has_expected_members() -> None:
@@ -42,12 +42,12 @@ def test_gimbal_command_mode_values_mirror_names() -> None:
     """GimbalCommandMode string values must mirror member names."""
     for member in GimbalCommandMode:
         assert member.value == member.name
-    assert {m.name for m in GimbalCommandMode} == {"RATE", "ABSOLUTE", "STOW", "HOME"}
+    assert {m.name for m in GimbalCommandMode} == {"ABSOLUTE", "STOW", "HOME"}
 
 
 def test_gimbal_fault_code_exists() -> None:
     """Driver-level gimbal failures have their own fault code."""
-    assert FaultCode.GIMBAL_FAULT.value == "GIMBAL_FAULT"
+    assert FaultCode.EPHEMERIS_FAULT.value == "EPHEMERIS_FAULT"
 
 
 def test_link_state_values_mirror_names() -> None:

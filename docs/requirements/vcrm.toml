@@ -86,7 +86,10 @@ statement = "Runaway / unsafe gimbal motion is detected and forces a stow."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-GIMB-HIGH-003"]
-evidence = ["packages/flight/tests/payload/gimbal/test_runaway.py"]
+evidence = [
+    "packages/sim/tests/sil/test_sil_closed_loop.py",
+    "packages/flight/tests/hal/drivers_sim/test_sim_gimbal.py",
+]
 status = "verified"
 
 # --- FSW code-complete capabilities (2026-06-14): command path, data system, mechanical,

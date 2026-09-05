@@ -5,8 +5,8 @@ software. The Ok/Err/Result types live in flight.libs.types.result.
 
 Includes:
 - SystemMode: top-level operational mode transitions.
-- GimbalState: four-state arbiter for gimbal control.
-- GimbalCommandMode: interpretation of gimbal command axis values (RATE/ABSOLUTE/STOW/HOME).
+- GimbalState: TRACKING / REWIND / SAFE arbiter for gimbal control.
+- GimbalCommandMode: interpretation of gimbal pose commands (ABSOLUTE/STOW/HOME).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
   (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
   command-ingress integrity codes (COMMAND_CRC_FAIL, COMMAND_AUTH_FAIL, COMMAND_SEQ_ERROR,
@@ -48,27 +48,23 @@ class SystemMode(enum.Enum):
 
 
 class GimbalState(enum.Enum):
-    """Four-state + safe arbiter. REQ-AIML-GIMB-008."""
+    """Three-state + safe arbiter. REQ-AIML-GIMB-008."""
 
-    IDLE = "IDLE"
-    ACQUIRING = "ACQUIRING"
     TRACKING = "TRACKING"
     REWIND = "REWIND"
     SAFE = "SAFE"
 
 
 class GimbalCommandMode(enum.Enum):
-    """How a gimbal command's axis values are interpreted.
+    """How a gimbal pose command's elevation is interpreted.
 
-    RATE: az/el are rates in deg/s (TRACKING). ABSOLUTE: az/el are target angles in
-    degrees (REWIND to the science limb). STOW/HOME: axis values are ignored;
-    the driver resolves the configured stow/home pose.
+    ABSOLUTE: el is a target angle in degrees (HOME/GOTO via the position loop).
+    STOW/HOME: elevation is ignored; the driver or position loop uses the configured pose.
 
     String values mirror member names (log readability convention).
     Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
     """
 
-    RATE = "RATE"
     ABSOLUTE = "ABSOLUTE"
     STOW = "STOW"
     HOME = "HOME"
@@ -93,6 +89,7 @@ class FaultCode(enum.Enum):
     CALIBRATION_INVALID = "CALIBRATION_INVALID"
     FRAME_MALFORMED = "FRAME_MALFORMED"
     GIMBAL_FAULT = "GIMBAL_FAULT"
+    EPHEMERIS_FAULT = "EPHEMERIS_FAULT"
     COMMAND_CRC_FAIL = "COMMAND_CRC_FAIL"
     COMMAND_AUTH_FAIL = "COMMAND_AUTH_FAIL"
     COMMAND_SEQ_ERROR = "COMMAND_SEQ_ERROR"

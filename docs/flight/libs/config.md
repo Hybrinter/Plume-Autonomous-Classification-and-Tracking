@@ -23,7 +23,7 @@ read TOML directly.
 | --- | --- |
 | `AxisMode` | type alias |
 | `CommandIngressConfig`, `CommandRouterConfig`, `CommsConfig` | class |
-| `ControllerConfig`, `EnvironmentConfig`, `FaultConfig` | class |
+| `ControllerConfig`, `EnvironmentConfig`, `EphemerisConfig`, `FaultConfig` | class |
 | `GimbalConfig`, `InferenceConfig`, `LinkConfig` | class |
 | `PactConfig`, `PreprocessingConfig`, `SensorConfig`, `StorageConfig` | class |
 | `ThermalConfig` | class |

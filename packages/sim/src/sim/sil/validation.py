@@ -172,8 +172,8 @@ class ValidationHarness:
         now = 0.0
         for _ in range(count):
             now += dt
-            self._system.clock.advance(dt)
             self.step(now)
+            self._system.clock.advance(dt)
 
 
 def load_profile_config(config_path: str, override_path: str) -> PactConfig:

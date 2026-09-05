@@ -5,23 +5,23 @@
 
 ## Purpose
 
-This module defines the closed-loop gimbal surface. `GimbalActuator` covers absolute
-angle, rate, home, stow, encoder readback, and stow-switch sensing. `GimbalPosition`
-carries a monotonic encoder timestamp.
+This module defines the elevation gimbal surface. `GimbalActuator` commands torque,
+reads encoder elevation, and sets pose-loop targets. There is no azimuth axis and no
+rate command.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `GimbalPosition` | dataclass | Timestamped azimuth and elevation in degrees |
-| `GimbalActuator` | Protocol | Closed-loop gimbal command and readback surface |
+| `GimbalPosition` | dataclass | Timestamped elevation in degrees |
+| `GimbalActuator` | Protocol | Torque, pose targets, encoder, and stow switch |
 
 ## Inputs and outputs
 
 | Method | Inputs | Outputs |
 | --- | --- | --- |
-| `goto_angle(az_deg, el_deg)` | Target azimuth and elevation in degrees | `Result[None, FaultCode]` |
-| `set_rate(az_rate_deg_per_s, el_rate_deg_per_s)` | Axis rates in deg/s | `Result[None, FaultCode]` |
+| `set_torque(tau_nm)` | Torque in N·m | `Result[None, FaultCode]` |
+| `goto_angle(el_deg)` | Target elevation in degrees | `Result[None, FaultCode]` |
 | `home()` | None | `Result[None, FaultCode]` |
 | `stow()` | None | `Result[None, FaultCode]` |
 | `read_position()` | None | `Result[GimbalPosition, FaultCode]` |
@@ -29,16 +29,17 @@ carries a monotonic encoder timestamp.
 
 ## Behavior
 
-1. The payload gimbal path issues pointing commands through the typed methods.
-2. The driver clamps commands to the hardware travel and slew envelope.
-3. `read_position()` returns encoder angles with a monotonic timestamp.
-4. `read_stow_switch()` returns `True` when the mechanism is at the stow pose.
-5. The gimbal arbiter enforces mission limits above the driver envelope.
+1. Tracking and the pose loop write torque through `set_torque`.
+2. `stow`, `home`, and `goto_angle` set the position-loop target and arm stow-switch
+   logic.
+3. The driver clips torque, rate, and travel to the hardware envelope.
+4. `read_position()` returns encoder elevation with a monotonic timestamp.
+5. `read_stow_switch()` returns `True` when the mechanism is at the stow pose.
 
 ## Errors and faults
 
-Driver implementations map hardware and serial failures to `GIMBAL_FAULT` or related
-codes. The Protocol itself does not fix fault values.
+Driver implementations map hardware failures to `GIMBAL_FAULT` or related codes.
+The Protocol itself does not fix fault values.
 
 ## Messages
 
@@ -46,18 +47,17 @@ None.
 
 ## Configuration
 
-None at the Protocol level. Concrete drivers read poses, limits, and link settings from
-`GimbalConfig`.
+None at the Protocol level. Concrete drivers read poses, limits, and plant scalars
+from `GimbalConfig`.
 
 ## Constraints
 
-- The legacy delta-command path is removed. Actuation flows through the typed methods.
-- The driver enforces the hardware envelope. The arbiter enforces the mission envelope.
-- `GimbalPosition.timestamp_s` uses the injected `Clock` monotonic time.
+`GimbalPosition` has elevation and timestamp only. `GimbalPosition.timestamp_s` uses
+the injected `Clock` monotonic time.
 
 ## Related documents
 
-- [`flight.hal.interfaces`](interfaces.md)
-- [`flight.hal.drivers_real.gimbal`](drivers_real/gimbal.md)
-- [`flight.hal.drivers_sim.gimbal`](drivers_sim/gimbal.md)
-- [`flight.payload.gimbal`](payload/gimbal.md)
+- [`flight.hal.interfaces`](../interfaces.md)
+- [`flight.hal.drivers_real.gimbal`](../drivers_real/gimbal.md)
+- [`flight.hal.drivers_sim.gimbal`](../drivers_sim/gimbal.md)
+- [`flight.payload.gimbal`](../../payload/gimbal.md)

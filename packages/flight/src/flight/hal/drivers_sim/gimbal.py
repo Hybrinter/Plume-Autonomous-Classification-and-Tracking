@@ -1,12 +1,9 @@
-"""Simulated gimbal with first-order dynamics, travel/slew limits, and encoder noise.
+"""Simulated elevation gimbal: rigid-body ODE plant, encoder quantization, noise.
 
-Position integrates lazily: every public call first advances the internal state by the
-clock time elapsed since the previous call, so the same driver is honest under the
-threaded flight loop (RealClock) and the stepped SIL (ManualClock). ABSOLUTE/STOW/HOME
-approach their target with a first-order exponential response clamped to the hardware
-slew envelope; RATE integrates the clamped commanded rates. Position is clamped to the
-travel limits after every update. Encoder reads add seeded Gaussian noise and carry
-the monotonic read timestamp.
+Integrates J * omega_dot + B * omega = tau in SI. Lazy clock integration advances
+the plant by elapsed monotonic time. Repeated `set_torque` at a frozen clock (SIL
+catch-up) steps one inner period per call and records a catch-up debt so a later
+clock jump does not double-count.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-002.
 """
@@ -23,176 +20,209 @@ import numpy as np
 from flight.hal.interfaces.gimbal import GimbalPosition
 from flight.libs.config import GimbalConfig
 from flight.libs.time import Clock
-from flight.libs.types import FaultCode, GimbalCommandMode, Ok, Result
+from flight.libs.types import FaultCode, Ok, Result
 
-_STOW_TOLERANCE_DEG = 0.5  # switch closes within this of the stow pose
+_STOW_TOLERANCE_DEG = 0.5
 
 
 class SimGimbal:
-    """Gimbal driver with first-order dynamics for SIL (satisfies GimbalActuator).
+    """Elevation plant with viscous-stand-in damping (satisfies GimbalActuator).
 
     Attributes (internal):
-        _clock: Injected time source; used to measure elapsed time between calls.
-        _cfg: GimbalConfig (dynamics, limits, poses, noise).
-        _az: Current azimuth pose (degrees).
-        _el: Current elevation pose (degrees).
-        _mode: Active command mode; None means no command issued yet.
-        _target_az: Target azimuth for ABSOLUTE/STOW/HOME modes.
-        _target_el: Target elevation for ABSOLUTE/STOW/HOME modes.
-        _rate_az: Commanded azimuth rate (deg/s) for RATE mode.
-        _rate_el: Commanded elevation rate (deg/s) for RATE mode.
-        _stow_commanded: True once stow() has been called; enables stow-switch logic.
-        _last_t: Monotonic time at the last _integrate() call.
-        _rng: Seeded numpy Generator for reproducible encoder noise.
+        _clock: Injected time source.
+        _cfg: GimbalConfig (plant, limits, encoder, noise).
+        _theta_rad: True elevation, rad.
+        _omega_rad_s: True rate, rad/s.
+        _tau_nm: Held torque command, N·m.
+        _stow_commanded: True once stow() has been called.
+        _last_t: Monotonic time at the last clock-based integrate.
+        _catchup_debt_s: Plant time already applied at a frozen clock.
+        _inner_dt_s: Catch-up inner period when the clock does not advance.
+        _rng: Seeded numpy Generator for encoder noise.
     """
 
     def __init__(
         self,
         clock: Clock,
         cfg: GimbalConfig | None = None,
-        az_deg: float = 0.0,
         el_deg: float = 0.0,
+        inner_dt_s: float = 0.001,
     ) -> None:
-        """Start at a pose with the configured dynamics and a seeded noise RNG.
+        """Start at an elevation with the configured plant and a seeded noise RNG.
 
         Args:
             clock: Injected time source for lazy integration.
             cfg: GimbalConfig; defaults to GimbalConfig() if None.
-            az_deg: Initial azimuth in degrees.
             el_deg: Initial elevation in degrees.
+            inner_dt_s: Inner period used for frozen-clock catch-up steps.
         """
         self._clock = clock
         self._cfg = cfg if cfg is not None else GimbalConfig()
-        self._az = 0.0
-        self._el = el_deg
-        self._mode: GimbalCommandMode | None = None
-        self._target_az = az_deg
-        self._target_el = el_deg
-        self._rate_az = 0.0
-        self._rate_el = 0.0
+        self._theta_rad = math.radians(el_deg)
+        self._omega_rad_s = 0.0
+        self._tau_nm = 0.0
+        self._target_el_deg = el_deg
         self._stow_commanded = False
         self._last_t = clock.monotonic_s()
+        self._catchup_debt_s = 0.0
+        self._inner_dt_s = inner_dt_s
         self._rng = np.random.default_rng(self._cfg.sim_seed)
 
-    def _clamp_travel(self) -> None:
-        """Pin azimuth at 0 and clamp elevation into the hardware travel limits."""
+    def _clip_tau(self, tau_nm: float) -> float:
+        """Clip torque to +-tau_max_nm."""
+        limit = self._cfg.tau_max_nm
+        return min(max(tau_nm, -limit), limit)
+
+    def _ode_step(self, dt_s: float) -> None:
+        """Advance the rigid-body plant by dt_s with the held torque.
+
+        Args:
+            dt_s: Integration step, seconds. Non-positive is a no-op.
+        """
+        if dt_s <= 0.0:
+            return
         cfg = self._cfg
-        self._az = 0.0
-        self._el = min(max(self._el, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
+        j = cfg.J_kg_m2
+        b = cfg.B_nms_per_rad
+        tau = self._tau_nm
+        omega_max = math.radians(cfg.max_hw_slew_rate_deg_per_s)
+        theta_min = math.radians(cfg.el_hw_min_deg)
+        theta_max = math.radians(cfg.el_hw_max_deg)
+        # Semi-implicit Euler on J * omega_dot + B * omega = tau
+        omega_dot = (tau - b * self._omega_rad_s) / j
+        omega = self._omega_rad_s + omega_dot * dt_s
+        omega = min(max(omega, -omega_max), omega_max)
+        theta = self._theta_rad + omega * dt_s
+        if theta > theta_max:
+            theta = theta_max
+            if omega > 0.0:
+                omega = 0.0
+        elif theta < theta_min:
+            theta = theta_min
+            if omega < 0.0:
+                omega = 0.0
+        self._theta_rad = theta
+        self._omega_rad_s = omega
 
-    def _integrate(self) -> None:
-        """Advance the pose by the clock time elapsed since the last call.
+    def _integrate_clock(self) -> None:
+        """Advance the plant by elapsed clock time, minus catch-up debt.
 
-        Notes:
-            RATE mode: integrates clamped commanded rates.
-            ABSOLUTE/STOW/HOME modes: first-order exponential approach toward the
-            target, clamped to the hardware slew envelope per step.
-            No-op when dt <= 0 (repeated calls at the same clock time are idempotent).
+        A frozen clock (dt ~ 0) leaves catch-up debt in place. Clearing debt on a
+        frozen read would make a later clock jump double-count plant time.
         """
         now = self._clock.monotonic_s()
         dt = now - self._last_t
-        self._last_t = now
-        if dt <= 0.0:
-            return
-        cfg = self._cfg
-        max_step = cfg.max_hw_slew_rate_deg_per_s * dt
-        if self._mode is GimbalCommandMode.RATE:
-            self._az = 0.0
-            self._el += min(max(self._rate_el * dt, -max_step), max_step)
-        elif self._mode is not None:
-            alpha = 1.0 - math.exp(-dt / cfg.sim_time_constant_s)
-            el_step = (self._target_el - self._el) * alpha
-            self._az = 0.0
-            self._el += min(max(el_step, -max_step), max_step)
-        self._clamp_travel()
+        if dt > 1e-12:
+            dt_eff = dt - self._catchup_debt_s
+            self._catchup_debt_s = 0.0
+            self._last_t = now
+            if dt_eff > 0.0:
+                self._ode_step(dt_eff)
 
-    def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
-        """Set an absolute target, clamped into the travel limits.
+    def set_torque(self, tau_nm: float) -> Result[None, FaultCode]:
+        """Hold a clipped torque. Integrate clock dt, or one inner period if frozen.
 
         Args:
-            az_deg: Target azimuth in degrees.
-            el_deg: Target elevation in degrees.
-
-        Returns:
-            Ok(None) always (the sim never fails hardware commands).
-        """
-        self._integrate()
-        cfg = self._cfg
-        self._target_az = 0.0
-        self._target_el = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
-        self._mode = GimbalCommandMode.ABSOLUTE
-        self._stow_commanded = False
-        return Ok(None)
-
-    def set_rate(
-        self, az_rate_deg_per_s: float, el_rate_deg_per_s: float
-    ) -> Result[None, FaultCode]:
-        """Set axis rates, clamped to the hardware slew envelope.
-
-        Args:
-            az_rate_deg_per_s: Azimuth rate in deg/s.
-            el_rate_deg_per_s: Elevation rate in deg/s.
+            tau_nm: Commanded torque, N·m.
 
         Returns:
             Ok(None) always.
         """
-        self._integrate()
-        limit = self._cfg.max_hw_slew_rate_deg_per_s
-        self._rate_az = 0.0
-        self._rate_el = min(max(el_rate_deg_per_s, -limit), limit)
-        self._mode = GimbalCommandMode.RATE
+        now = self._clock.monotonic_s()
+        dt = now - self._last_t
+        if dt > 1e-12:
+            dt_eff = dt - self._catchup_debt_s
+            self._catchup_debt_s = 0.0
+            self._last_t = now
+            if dt_eff > 0.0:
+                self._ode_step(dt_eff)
+            self._tau_nm = self._clip_tau(tau_nm)
+        else:
+            self._tau_nm = self._clip_tau(tau_nm)
+            self._ode_step(self._inner_dt_s)
+            self._catchup_debt_s += self._inner_dt_s
+        return Ok(None)
+
+    def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
+        """Record a position-loop target. Motion comes from torque, not this call.
+
+        Args:
+            el_deg: Target elevation in degrees.
+
+        Returns:
+            Ok(None) always.
+        """
+        self._integrate_clock()
+        cfg = self._cfg
+        self._target_el_deg = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
         self._stow_commanded = False
         return Ok(None)
 
     def home(self) -> Result[None, FaultCode]:
-        """Drive to the configured home pose.
+        """Record the configured home pose as the position-loop target.
 
         Returns:
             Ok(None) always.
         """
-        self._integrate()
-        self._target_az, self._target_el = 0.0, self._cfg.home_el_deg
-        self._mode = GimbalCommandMode.HOME
-        self._stow_commanded = False
-        return Ok(None)
+        return self.goto_angle(self._cfg.home_el_deg)
 
     def stow(self) -> Result[None, FaultCode]:
-        """Drive to the configured stow pose and arm the stow switch.
+        """Record the stow pose and arm the stow switch.
 
         Returns:
             Ok(None) always.
         """
-        self._integrate()
-        self._target_az, self._target_el = 0.0, self._cfg.stow_el_deg
-        self._mode = GimbalCommandMode.STOW
+        self._integrate_clock()
+        self._target_el_deg = self._cfg.stow_el_deg
         self._stow_commanded = True
         return Ok(None)
 
-    def read_position(self) -> Result[GimbalPosition, FaultCode]:
-        """Return the noisy, timestamped encoder pose.
+    def _quantize_deg(self, theta_rad: float) -> float:
+        """Quantize true elevation to encoder counts, then add Gaussian noise.
+
+        Args:
+            theta_rad: True elevation, rad.
 
         Returns:
-            Ok(GimbalPosition) with Gaussian noise applied and the clock timestamp.
+            Noisy encoder elevation, degrees.
         """
-        self._integrate()
-        noise = self._rng.normal(0.0, self._cfg.sim_encoder_noise_deg, 2)
+        cpr = float(self._cfg.encoder_counts_per_rev)
+        theta_deg = math.degrees(theta_rad)
+        counts = round(theta_deg / 360.0 * cpr)
+        quantized = counts / cpr * 360.0
+        noise = float(self._rng.normal(0.0, self._cfg.sim_encoder_noise_deg))
+        return quantized + noise
+
+    def read_position(self) -> Result[GimbalPosition, FaultCode]:
+        """Return the quantized, noisy, timestamped encoder elevation.
+
+        Returns:
+            Ok(GimbalPosition) with the clock timestamp.
+        """
+        self._integrate_clock()
         return Ok(
             GimbalPosition(
-                az_deg=self._az + float(noise[0]),
-                el_deg=self._el + float(noise[1]),
+                el_deg=self._quantize_deg(self._theta_rad),
                 timestamp_s=self._last_t,
             )
         )
 
     def read_stow_switch(self) -> Result[bool, FaultCode]:
-        """True once stow was commanded and the pose is within the switch tolerance.
+        """True once stow was commanded and elevation is within the switch tolerance.
 
         Returns:
-            Ok(bool): True when stow was commanded and the gimbal is near the stow pose.
+            Ok(bool): True when stow was commanded and the gimbal is near stow.
         """
-        self._integrate()
-        at_pose = (
-            abs(self._az) < _STOW_TOLERANCE_DEG
-            and abs(self._el - self._cfg.stow_el_deg) < _STOW_TOLERANCE_DEG
-        )
+        self._integrate_clock()
+        at_pose = abs(math.degrees(self._theta_rad) - self._cfg.stow_el_deg) < _STOW_TOLERANCE_DEG
         return Ok(self._stow_commanded and at_pose)
+
+    @property
+    def true_el_deg(self) -> float:
+        """True (pre-encoder) elevation in degrees. Observability for analysis tools."""
+        return math.degrees(self._theta_rad)
+
+    @property
+    def true_omega_rad_s(self) -> float:
+        """True plant rate in rad/s. Observability for analysis tools."""
+        return self._omega_rad_s

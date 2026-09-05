@@ -67,8 +67,8 @@ Frame-scoped messages also carry `frame_id: int` (uint32 monotonic counter).
 5. `utc_now_iso()` formats UTC with a trailing `Z` suffix.
 6. `BlobMeta` embeds in `InferenceResultMsg.blobs` with tracker ID, bbox, centroid, area,
    confidence, and persistence count.
-7. `GimbalCommandMsg` records mode, axis values, arbiter state, and reason. It is a telemetry
-   record, not an actuation carrier.
+7. `GimbalCommandMsg` records pose mode, elevation target, arbiter state, and reason.
+   Tracking torque is not a command message. Compact pointing uses `TelemetryEventMsg`.
 8. `CommandAckMsg` correlates via `(source, seq, command_id)`. On `REJECTED`, `fault_code`
    carries the reject reason.
 9. `DownlinkItemMsg` carries inline `payload_bytes` or a non-empty `storage_ref` for large
@@ -89,7 +89,7 @@ The module defines message shapes only. Producers emit `FaultEventMsg` with appr
 | --- | --- | --- |
 | `ProcessedFrameMsg` | payload (internal; not bus in current pipeline) | inference path in payload |
 | `InferenceResultMsg` | payload | payload controller, storage |
-| `GimbalCommandMsg` | payload | downlink, logging |
+| `GimbalCommandMsg` | payload (pose commands) | mechanical, downlink, logging |
 | `TelemetryEventMsg` | any subsystem | telemetry reporter |
 | `FaultEventMsg` | any subsystem | fault |
 | `HeartbeatMsg` | monitored subsystems | fault watchdog |

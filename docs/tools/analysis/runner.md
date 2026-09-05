@@ -71,9 +71,10 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 
 ## Constraints
 
-- Faults the harness cannot raise organically (runaway, watchdog miss) arrive as injected
-  `FaultEventMsg`.
-- Gimbal runaway is injected. The sim gimbal tracks commands faithfully.
+- Faults the harness cannot raise organically (watchdog miss, injected `GIMBAL_RUNAWAY`)
+  arrive as `FaultEventMsg`.
+- The sim gimbal integrates applied torque. The `gimbal_runaway` suite still injects
+  `GIMBAL_RUNAWAY` as a fault event.
 - File scenarios prefix names with `file_` and category `scenario-file`.
 
 ## Related documents

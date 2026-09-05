@@ -256,21 +256,21 @@ class InProcessBackend:
         self._harness = ValidationHarness(system)
 
     def step(self, now: float) -> None:
-        """Advance every subsystem one cycle via the harness, advancing the ManualClock first.
+        """Advance every subsystem one cycle via the harness, then step the ManualClock.
 
         Args:
             now: Monotonic seconds for the arbiter/watchdog (caller-advanced per step).
 
         Notes:
-            The shared ManualClock is advanced to now so SimGimbal first-order dynamics
-            integrate between steps (the closed loop only moves the gimbal across steps).
+            The payload catch-up methods step the plant at frozen clock time. The
+            ManualClock advances after the step so a later integrate does not double-count.
         """
         if self._harness is None:
             raise RuntimeError("build() must be called before step()")
+        self._harness.step(now)
         delta = now - self._clock.monotonic_s()
         if delta > 0.0:
             self._clock.advance(delta)
-        self._harness.step(now)
 
     def inject_command(self, step: CommandStep) -> None:
         """Send one command live for a real link; a no-op (pre-baked) for a sim link.
@@ -316,7 +316,7 @@ class InProcessBackend:
         gimbal_moved = False
         read = self._system.gimbal.read_position()
         if not isinstance(read, Err):
-            worst = max(abs(read.value.az_deg), abs(read.value.el_deg))
+            worst = abs(read.value.el_deg)
             gimbal_moved = worst > _GIMBAL_MOVED_TOLERANCE_DEG
 
         mode_changes = tuple(m.new_mode for m in self._drain(self._mode_sub))

@@ -44,8 +44,8 @@ and `ccsds` are mutually independent. `commands` imports `types` for `CommandId`
 - Library functions return `Result`. They do not raise for caller-handled failures.
 - `MosaicFrame` and preprocessing tensors never ride the bus.
 - Enum string values equal member names, except `DownlinkPriority` uses ints `0..3`.
-- `Clock` separates monotonic time from wall-clock ISO stamps. Pure logic receives time
-  as arguments; it does not read a clock.
+- `Clock` separates monotonic time, UTC seconds, and wall-clock ISO stamps. Pure logic
+  receives time as arguments; it does not read a clock.
 
 ## Related documents
 

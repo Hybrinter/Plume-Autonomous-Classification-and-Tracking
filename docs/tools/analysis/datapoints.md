@@ -37,8 +37,8 @@ each step.
    iss_iface, thermal, electrical, command_router, storage, downlink, mechanical,
    model_deploy, and enrichment.
 2. Bus signals emit publish count, queue depth, drops, and overflow per message type.
-3. Payload signals read control state, Kalman and EMA estimators, gimbal driver samples, and
-   bus output counts.
+3. Payload signals read control state, residual KF, pointing rates, elevation driver samples,
+   and bus output counts.
 4. Fault signals read latch state, watchdog misses, heartbeat counts, and per-code fault
    rates.
 5. Duplicate signal names raise `ValueError` at registry build time.

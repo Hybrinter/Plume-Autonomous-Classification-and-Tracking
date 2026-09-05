@@ -5,32 +5,30 @@
 
 ## Purpose
 
-The tracking package holds pure target-state estimation and blob association helpers.
-EMA smoothing feeds the Kalman filter; IoU matching assigns persistent blob IDs across
-frames.
+The tracking package holds the two-state residual Kalman filter and blob association
+helpers. IoU matching assigns persistent blob IDs across frames.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`filter`](tracking/filter.md) | pure module | EMA centroid smoothing in boresight-error space |
-| [`kalman`](tracking/kalman.md) | pure module | Constant-velocity Kalman predict and update |
+| [`residual`](tracking/residual.md) | pure module | Elevation-error / residual-rate filter |
 | [`tracker`](tracking/tracker.md) | pure module | IoU blob matching and persistence counting |
 
 ## Package interface
 
-Re-exports: `EmaFilterState`, `KalmanFilter`, `KalmanState`, `compute_iou`, `ema_update`,
-`match_blobs`, `predict`, `update`.
+Re-exports: `ResidualFilter`, `ResidualSnapshot`, `ResidualState`, `compute_iou`,
+`match_blobs`, `predict`, `push_snapshot`, `rewind_update`, `update`.
 
 ## Interactions
 
-None. `PayloadController.step` calls these functions directly. Outputs update
-`ControlState` fields consumed by the arbiter and LQR in the app.
+`PayloadController` calls these functions directly. Outputs update `ControlState`
+fields consumed by the outer law.
 
 ## Constraints
 
-All functions are pure with threaded immutable state. The EMA and Kalman operate in
-boresight-error degrees after pointing conversion in the controller.
+All functions are pure with threaded immutable state. Residual state is SI radians
+and rad/s.
 
 ## Related documents
 

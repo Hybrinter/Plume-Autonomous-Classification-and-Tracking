@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | `MechanicalState` | class | Mutable state holding the last published lock state |
 | `MechanicalApp` | class | Frozen mechanical app with lock, bus, clock, and subscriptions |
-| `MechanicalApp.from_config` | function | Builds the app and subscribes to routed commands and gimbal commands |
+| `MechanicalApp.from_config` | function | Builds the app and subscribes to routed commands, pose commands, and pointing |
 | `MechanicalApp.tick` | method | Handles release commands and publishes lock state |
 | `MechanicalApp.run` | method | Periodic loop with heartbeats until `stop_event` is set |
 
@@ -26,8 +26,8 @@
 
 ## Behavior
 
-1. Drain `GimbalCommandMsg` values this cycle and detect commanded motion
-   (`ABSOLUTE`, `STOW`, `HOME`, or non-zero `RATE`).
+1. Drain `GimbalCommandMsg` pose commands (`ABSOLUTE`, `STOW`, `HOME`) and payload
+   `pointing` telemetry with `|r| > 1e-6`. Either marks the gimbal as moving.
 2. Drain routed commands targeting `mechanical`.
 3. On `RELEASE_LAUNCH_LOCK`, reject when gimbal motion is active; otherwise call `lock.release()`.
 4. Reject unsupported commands with `COMMAND_INVALID`.
@@ -45,7 +45,7 @@
 
 | Direction | Type |
 | --- | --- |
-| Subscribe | `RoutedCommandMsg`, `GimbalCommandMsg` |
+| Subscribe | `RoutedCommandMsg`, `GimbalCommandMsg`, `TelemetryEventMsg` |
 | Publish | `LaunchLockStateMsg`, `TelemetryEventMsg`, `FaultEventMsg`, `CommandAckMsg`, `HeartbeatMsg` |
 
 ## Configuration

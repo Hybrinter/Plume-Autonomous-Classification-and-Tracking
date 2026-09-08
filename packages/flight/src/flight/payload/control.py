@@ -33,7 +33,7 @@ from flight.payload.gimbal import (
     GimbalRequest,
     apply_confidence_gate,
     apply_min_area_gate,
-    fit_rate,
+    fit_rate_timed,
     inner_step,
     intersect_cog,
     outer_rate,
@@ -126,6 +126,7 @@ class ControlState:
     arbiter: ArbiterState
     residual: ResidualState
     encoder_ring: tuple[float, ...]
+    encoder_timestamp_ring: tuple[float, ...]
     integrator: float
     r_cog_ecef_m: tuple[float, float, float] | None
     r_rad_s: float
@@ -256,6 +257,7 @@ class PayloadController:
             ),
             residual=self.residual_filt.initial_state(),
             encoder_ring=(),
+            encoder_timestamp_ring=(),
             integrator=0.0,
             r_cog_ecef_m=None,
             r_rad_s=0.0,
@@ -309,7 +311,15 @@ class PayloadController:
         p_cog: tuple[float, float] | None = None
         e_az = state.last_e_az
         if matched:
-            p_cog = matched[0].centroid_raw
+            # All accepted components form one visible-plume aggregate.  Do not
+            # select a component by ID or order: each component centroid is
+            # weighted by its accepted pixel area, which is equivalent to the
+            # union-pixel centroid for disjoint connected components.
+            total_area = sum(blob.pixel_area for blob in matched)
+            p_cog = (
+                sum(blob.pixel_area * blob.centroid_raw[0] for blob in matched) / total_area,
+                sum(blob.pixel_area * blob.centroid_raw[1] for blob in matched) / total_area,
+            )
             e_az, z_v = pinhole_error_rad(
                 p_cog,
                 self.plane_width_px,
@@ -335,6 +345,7 @@ class PayloadController:
         now: float,
         theta_enc_rad: float,
         dt_s: float | None = None,
+        encoder_timestamp_s: float | None = None,
         locked: bool = False,
         safe_latched: bool = False,
     ) -> InnerTick:
@@ -352,11 +363,16 @@ class PayloadController:
             InnerTick: Updated state and torque.
         """
         dt = self.cfg.inner.dt_s if dt_s is None else dt_s
+        sample_s = now if encoder_timestamp_s is None else encoder_timestamp_s
         ring = state.encoder_ring + (theta_enc_rad,)
+        timestamp_ring = state.encoder_timestamp_ring + (sample_s,)
         max_n = self.cfg.inner.rate_fit_n
         if len(ring) > max_n:
             ring = ring[-max_n:]
-        y_m = fit_rate(ring, dt, self.cfg.inner.rate_fit_n, self.cfg.inner.rate_fit_degree)
+            timestamp_ring = timestamp_ring[-max_n:]
+        y_m = fit_rate_timed(
+            ring, timestamp_ring, self.cfg.inner.rate_fit_n, self.cfg.inner.rate_fit_degree
+        )
         el_deg = math.degrees(theta_enc_rad)
         at_sci_min = el_deg <= self.gimbal.el_science_min_deg + 1e-9
         at_sci_max = el_deg >= self.gimbal.el_science_max_deg - 1e-9
@@ -380,6 +396,28 @@ class PayloadController:
                 )
         else:
             r = state.r_rad_s
+            max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2
+            guard = math.radians(self.cfg.integrity.science_boundary_guard_deg)
+            if r > 0.0:
+                remaining = max(
+                    0.0,
+                    math.radians(self.gimbal.el_science_max_deg) - guard - theta_enc_rad,
+                )
+                r = min(
+                    r,
+                    math.sqrt(2.0 * max_decel * remaining),
+                    self.cfg.inner.kp * remaining,
+                )
+            elif r < 0.0:
+                remaining = max(
+                    0.0,
+                    theta_enc_rad - math.radians(self.gimbal.el_science_min_deg) - guard,
+                )
+                r = max(
+                    r,
+                    -math.sqrt(2.0 * max_decel * remaining),
+                    -self.cfg.inner.kp * remaining,
+                )
         if locked:
             r = 0.0
         at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
@@ -399,6 +437,7 @@ class PayloadController:
         new_state = replace(
             state,
             encoder_ring=ring,
+            encoder_timestamp_ring=timestamp_ring,
             integrator=result.integrator,
             r_rad_s=r,
             y_m=y_m,
@@ -448,6 +487,7 @@ class PayloadController:
             el_deg,
             mode_flags,
             vision_updated=vision is not None,
+            observation_t_s=vision.t_s if vision is not None else None,
             timestamp_utc=timestamp_utc,
         )
 
@@ -541,7 +581,10 @@ class PayloadController:
                     self.cfg.residual.rewind_horizon_s,
                 )
 
-        live = new_arbiter.current_target_id is not None and iss is not None
+        # Vision establishes aggregate liveness; navigation only contributes an
+        # optional nominal-rate prediction. This permits startup and tracking
+        # through an ephemeris outage.
+        live = new_arbiter.aggregate_live
         e_hat = float(residual.x[0])
         omega_res = float(residual.x[1])
 
@@ -567,6 +610,8 @@ class PayloadController:
                 self.preprocessing.max_motion_smear_px,
                 self.ifov_band_deg_per_px,
                 math.radians(self.gimbal.el_science_min_deg),
+                self.gimbal.tau_max_nm / self.gimbal.J_kg_m2,
+                self.cfg.inner.kp,
             )
 
         new_state = replace(

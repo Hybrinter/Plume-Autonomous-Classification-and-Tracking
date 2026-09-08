@@ -84,10 +84,18 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
         ),
         common.line_panel(
             wide,
+            ["payload.observation_age_s"],
+            name="payload_observation_age",
+            title="Accepted aggregate observation age",
+            ylabel="s",
+        ),
+        common.line_panel(
+            wide,
             [
                 "payload.motion_inhibited",
                 "payload.stow_switch",
                 "payload.is_tracking",
+                "payload.aggregate_live",
                 "payload.vision_accepted",
             ],
             name="payload_flags",

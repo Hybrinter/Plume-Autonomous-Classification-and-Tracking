@@ -41,10 +41,16 @@ class VisionConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class ArbiterConfig:
-    """TRACKING / REWIND / SAFE mode-machine thresholds."""
+    """TRACKING / REWIND / SAFE mode-machine thresholds.
+
+    ``max_observation_age_s`` is an independent ceiling on prediction-only
+    coasting.  It protects against a vision pipeline that stops producing
+    packets, where ``release_persistence_frames`` cannot advance.
+    """
 
     release_persistence_frames: int = Field(default=5, ge=1)
     limb_arrival_deg: float = Field(default=0.5, gt=0.0)
+    max_observation_age_s: float = Field(default=0.25, gt=0.0)
 
 
 @dataclass(frozen=True, config=_SCHEMA)
@@ -112,6 +118,11 @@ class IntegrityConfig:
     encoder_rate_ratio: float = Field(default=0.2, gt=0.0)
     lock_fight_rad_s: float = Field(default=0.05, gt=0.0)
     lock_fight_strikes: int = Field(default=50, ge=1)
+    command_authority_s: float = Field(default=0.020, gt=0.0)
+    feedback_max_age_s: float = Field(default=0.010, gt=0.0)
+    recovery_max_attempts: int = Field(default=3, ge=0)
+    recovery_window_s: float = Field(default=1.0, gt=0.0)
+    science_boundary_guard_deg: float = Field(default=0.25, ge=0.0)
 
 
 @dataclass(frozen=True, config=_SCHEMA)

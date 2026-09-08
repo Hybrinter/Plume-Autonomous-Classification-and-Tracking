@@ -17,10 +17,10 @@ import math
 import numpy as np
 
 # internal
-from flight.hal.interfaces.gimbal import GimbalPosition
+from flight.hal.interfaces.gimbal import GimbalHealth, GimbalPosition
 from flight.libs.config import GimbalConfig
 from flight.libs.time import Clock
-from flight.libs.types import FaultCode, Ok, Result
+from flight.libs.types import Err, FaultCode, Ok, Result
 
 _STOW_TOLERANCE_DEG = 0.5
 
@@ -69,6 +69,15 @@ class SimGimbal:
         self._rng = np.random.default_rng(self._cfg.sim_seed)
         self._encoder_frozen = False
         self._frozen_el_deg = math.degrees(self._theta_rad)
+        self._command_valid_until_s: float | None = None
+        self._inhibited = True
+        self._last_feedback_s: float | None = None
+
+    def _expire_command_if_needed(self, now: float) -> None:
+        """Fail closed when the host has not refreshed command authority."""
+        if self._command_valid_until_s is not None and now >= self._command_valid_until_s:
+            self._tau_nm = 0.0
+            self._inhibited = True
 
     def _clip_tau(self, tau_nm: float) -> float:
         """Clip torque to +-tau_max_nm."""
@@ -113,6 +122,7 @@ class SimGimbal:
         frozen read would make a later clock jump double-count plant time.
         """
         now = self._clock.monotonic_s()
+        self._expire_command_if_needed(now)
         dt = now - self._last_t
         if dt > 1e-12:
             dt_eff = dt - self._catchup_debt_s
@@ -121,7 +131,9 @@ class SimGimbal:
             if dt_eff > 0.0:
                 self._ode_step(dt_eff)
 
-    def set_torque(self, tau_nm: float) -> Result[None, FaultCode]:
+    def set_torque(
+        self, tau_nm: float, valid_until_s: float | None = None
+    ) -> Result[None, FaultCode]:
         """Hold a clipped torque. Integrate clock dt, or one inner period if frozen.
 
         Args:
@@ -131,6 +143,14 @@ class SimGimbal:
             Ok(None) always.
         """
         now = self._clock.monotonic_s()
+        if not math.isfinite(tau_nm):
+            self._tau_nm = 0.0
+            self._inhibited = True
+            return Err(FaultCode.GIMBAL_FAULT)
+        if valid_until_s is not None and valid_until_s <= now:
+            self._tau_nm = 0.0
+            self._inhibited = True
+            return Err(FaultCode.GIMBAL_FAULT)
         dt = now - self._last_t
         if dt > 1e-12:
             dt_eff = dt - self._catchup_debt_s
@@ -143,7 +163,37 @@ class SimGimbal:
             self._tau_nm = self._clip_tau(tau_nm)
             self._ode_step(self._inner_dt_s)
             self._catchup_debt_s += self._inner_dt_s
+        # A legacy caller that omits an authority lease cannot leave torque held
+        # indefinitely; the simulated hardware expires it after one inner period.
+        self._command_valid_until_s = (
+            now + self._inner_dt_s if valid_until_s is None else valid_until_s
+        )
+        self._inhibited = tau_nm == 0.0
         return Ok(None)
+
+    def inhibit(self, reason: str) -> Result[GimbalHealth, FaultCode]:
+        """Immediately de-energize the simulated drive and report confirmation."""
+        del reason
+        self._integrate_clock()
+        self._tau_nm = 0.0
+        self._command_valid_until_s = self._clock.monotonic_s()
+        self._inhibited = True
+        return Ok(self._health())
+
+    def _health(self) -> GimbalHealth:
+        """Build the driver's current local health evidence."""
+        return GimbalHealth(
+            feedback_valid=True,
+            last_feedback_s=self._last_feedback_s,
+            command_valid_until_s=self._command_valid_until_s,
+            inhibited=self._inhibited,
+            inhibit_confirmed=self._inhibited,
+        )
+
+    def read_health(self) -> Result[GimbalHealth, FaultCode]:
+        """Return driver-side command-expiry and feedback evidence."""
+        self._integrate_clock()
+        return Ok(self._health())
 
     def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
         """Record a position-loop target. Motion comes from torque, not this call.
@@ -212,10 +262,15 @@ class SimGimbal:
             el_deg = self._frozen_el_deg
         else:
             el_deg = self._quantize_deg(self._theta_rad)
+        # Deterministic catch-up calls advance the simulated plant while a
+        # ManualClock is frozen. Stamp that virtual plant time so the flight
+        # rate fit sees the same chronology as the simulated encoder.
+        sample_t_s = self._last_t + self._catchup_debt_s
+        self._last_feedback_s = sample_t_s
         return Ok(
             GimbalPosition(
                 el_deg=el_deg,
-                timestamp_s=self._last_t,
+                timestamp_s=sample_t_s,
             )
         )
 

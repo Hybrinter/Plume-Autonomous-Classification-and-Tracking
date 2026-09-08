@@ -1,8 +1,10 @@
 """Integration tests for the payload application shell."""
 
 import threading
+from dataclasses import replace
 
 import numpy as np
+import pytest
 from flight.hal.drivers_sim import SimGimbal, SimIssEphemeris, SimSensor
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
@@ -19,6 +21,7 @@ from flight.libs.messages import (
 from flight.libs.time import ManualClock
 from flight.libs.types import (
     DownlinkPriority,
+    Err,
     FaultCode,
     GimbalCommandMode,
     GimbalState,
@@ -171,7 +174,7 @@ def test_no_detection_publishes_inference_but_no_pose_command() -> None:
 
 
 def test_mode_change_safe_issues_stow_actuation() -> None:
-    """A ModeChangeMsg(SAFE) makes advance_outer issue STOW and the position loop stow."""
+    """SAFE issues STOW, but a stopped host expires torque instead of driving on."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     cmd_sub = bus.subscribe(GimbalCommandMsg)
 
@@ -197,9 +200,9 @@ def test_mode_change_safe_issues_stow_actuation() -> None:
 
     state = app.advance_inner(state, now=7.0)
     clock.advance(7.0)
-    switch = gimbal.read_stow_switch()
-    assert isinstance(switch, Ok)
-    assert switch.value is True
+    health = gimbal.read_health()
+    assert isinstance(health, Ok)
+    assert health.value.inhibit_confirmed is True
 
 
 def test_run_loop_starts_and_stops_cleanly() -> None:
@@ -238,12 +241,44 @@ def test_lock_engaged_writes_zero_torque() -> None:
             state=LaunchLockState.ENGAGED,
         )
     )
-    from dataclasses import replace
-
     state = replace(app.controller.initial_state(), r_rad_s=0.1)
     state = app.advance_inner(state, now=1.0)
     assert gimbal._tau_nm == 0.0
     assert state.r_rad_s == 0.0
+
+
+def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:
+    """Healthy SAFE cannot continue a stale outward tracking command."""
+    app, _bus, gimbal, _clock = _build_app(_plume_detector())
+    assert isinstance(gimbal.set_torque(0.2, valid_until_s=1.0), Ok)
+    app.safe_latch.commanded = True
+    state = replace(app.controller.initial_state(), last_inner_s=0.0, r_rad_s=0.1)
+    app.advance_inner(state, now=0.001)
+    assert gimbal._tau_nm <= 0.0
+
+
+def test_encoder_failure_contains_motion_and_commands_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cached encoder state cannot authorize torque after a feedback failure."""
+    app, _bus, gimbal, _clock = _build_app(_plume_detector())
+    assert isinstance(gimbal.set_torque(0.2, valid_until_s=1.0), Ok)
+    monkeypatch.setattr(
+        gimbal,
+        "read_position",
+        lambda: Err(FaultCode.GIMBAL_FAULT),
+    )
+    state = replace(
+        app.controller.initial_state(),
+        last_inner_s=0.0,
+        last_theta_enc_rad=0.1,
+        r_rad_s=0.1,
+    )
+    state = app.advance_inner(state, now=0.001)
+    assert gimbal._tau_nm == 0.0
+    assert app.safe_latch.commanded is True
+    state, _outcome = app.advance_outer(state, now=0.021)
+    assert state.arbiter.gimbal_state is GimbalState.SAFE
 
 
 def test_ground_goto_latches_pose_mode() -> None:

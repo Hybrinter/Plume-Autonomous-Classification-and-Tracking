@@ -457,7 +457,7 @@ def _payload_signals() -> list[Signal]:
         _num(
             "payload.current_target_id",
             "payload",
-            "Tracked blob id",
+            "Deprecated single-blob target id",
             "id",
             lambda ctx: (
                 float(ctx.payload_state.arbiter.current_target_id)
@@ -473,9 +473,27 @@ def _payload_signals() -> list[Signal]:
             lambda ctx: float(len(ctx.payload_state.arbiter.tracked_blobs)),
         ),
         _num(
+            "payload.aggregate_live",
+            "payload",
+            "Accepted aggregate or bounded coast live",
+            "bool",
+            lambda ctx: float(ctx.payload_state.arbiter.aggregate_live),
+        ),
+        _num(
+            "payload.observation_age_s",
+            "payload",
+            "Age of last accepted aggregate observation",
+            "s",
+            lambda ctx: (
+                max(0.0, ctx.t - ctx.payload_state.arbiter.last_observation_s)
+                if ctx.payload_state.arbiter.last_observation_s is not None
+                else _NAN
+            ),
+        ),
+        _num(
             "payload.miss_count",
             "payload",
-            "TRACKING miss hysteresis",
+            "Received-empty release counter",
             "count",
             lambda ctx: float(ctx.payload_state.arbiter.miss_count),
         ),

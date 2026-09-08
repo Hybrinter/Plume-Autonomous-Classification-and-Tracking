@@ -7,7 +7,7 @@ import pytest
 from flight.hal.drivers_real import RealGimbal, RealSensor, RealStationLink
 from flight.libs.config import LinkConfig
 from flight.libs.time import ManualClock, RealClock
-from flight.libs.types import Ok
+from flight.libs.types import Err, FaultCode, Ok
 
 
 def _free_port() -> int:
@@ -29,8 +29,9 @@ def test_real_sensor_requires_pyspin_when_absent() -> None:
 def test_real_gimbal_constructs_without_sdk() -> None:
     """RealGimbal is a torque stub. Construction does not import a vendor SDK."""
     gimbal = RealGimbal(clock=RealClock())
-    result = gimbal.set_torque(0.0)
-    assert isinstance(result, Ok)
+    result = gimbal.set_torque(0.0, valid_until_s=1.0)
+    assert isinstance(result, Err)
+    assert result.error is FaultCode.GIMBAL_FAULT
 
 
 def test_real_station_link_constructs_and_closes() -> None:

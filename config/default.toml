@@ -12,6 +12,7 @@ queue_depth = 4
 [controller.arbiter]
 release_persistence_frames = 5
 limb_arrival_deg = 0.5
+max_observation_age_s = 0.25
 
 [controller.inner]
 dt_s = 0.001
@@ -43,6 +44,14 @@ r_min_rad_s = 0.01745
 encoder_rate_ratio = 0.2
 lock_fight_rad_s = 0.05
 lock_fight_strikes = 50
+# Driver-side command lease. Hardware must independently inhibit on expiry.
+command_authority_s = 0.020
+feedback_max_age_s = 0.010
+# Only classified transient availability faults may use this bounded retry budget.
+recovery_max_attempts = 3
+recovery_window_s = 1.0
+# Provisional braking/feedback margin inside each science boundary.
+science_boundary_guard_deg = 0.25
 
 [inference]
 segmentor_model_path = "data/models/active_segmentor.onnx"

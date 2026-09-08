@@ -1,4 +1,4 @@
-"""Tests for the outer rate law and live smear cap."""
+"""Tests for the outer rate law and separate optical smear estimate."""
 
 import math
 
@@ -14,8 +14,8 @@ def test_smear_cap_scales_with_exposure() -> None:
     assert abs(b - 2.0 * a) < 1e-12
 
 
-def test_tracking_live_clips_to_smear() -> None:
-    """TRACKING live |r| respects the live smear cap and hardware slew."""
+def test_tracking_live_clips_to_hardware_rate() -> None:
+    """TRACKING control authority is independent of science-frame smear."""
     ifov = 0.002636
     r = outer_rate(
         omega_t_nom=0.0,
@@ -31,7 +31,7 @@ def test_tracking_live_clips_to_smear() -> None:
         max_motion_smear_px=1.0,
         ifov_band_deg_per_px=ifov,
     )
-    cap = smear_cap_rad_s(1000.0, 1.0, ifov)
+    cap = math.radians(10.0)
     assert abs(abs(r) - cap) < 1e-12
 
 
@@ -54,8 +54,8 @@ def test_cold_tracking_is_zero() -> None:
     assert r == 0.0
 
 
-def test_rewind_uses_smear_toward_limb() -> None:
-    """REWIND drives toward the science limb at the smear/hardware cap."""
+def test_rewind_uses_hardware_rate_toward_limb() -> None:
+    """REWIND drives toward the science limb at the hardware cap."""
     ifov = 0.002636
     r = outer_rate(
         omega_t_nom=0.0,
@@ -71,7 +71,7 @@ def test_rewind_uses_smear_toward_limb() -> None:
         max_motion_smear_px=1.0,
         ifov_band_deg_per_px=ifov,
     )
-    cap = min(smear_cap_rad_s(1000.0, 1.0, ifov), math.radians(10.0))
+    cap = math.radians(10.0)
     assert abs(r - cap) < 1e-12
 
 

@@ -83,8 +83,8 @@ same inner PI. That loop is not smear-capped.
   payload catch-up methods so ManualClock jumps still move the plant.
 - Formal gain scheduling, online inertia identification, or a RESULTS.md campaign
   beyond the elevation-controller block tests.
-- Auto-exposure or other camera-control loops. The smear cap **reads** the live
-  exposure; it does not set it.
+- Auto-exposure or other camera-control loops. Science qualification reads the
+  live exposure; it does not set it.
 - Slant, incidence, or GSD as controller or predictor **outputs**. Slant may exist
   as an intermediate of the ray-Earth intersect; it must not enter \(r\) or the
   residual state.
@@ -637,21 +637,22 @@ of chasing pixels.
 **Smear cap (imaging).** During TRACKING (once live) and REWIND:
 
 \[
-r_{\max,\mathrm{img}}
+\omega_{\mathrm{sharp}}
 =\frac{\sigma_{\mathrm{smear}}\,\mathrm{IFOV}_{\mathrm{band}}}{\Delta t_{\mathrm{exp}}},
 \qquad
-|r|\le \min(r_{\max,\mathrm{img}},\omega_{\mathrm{hw}}). \tag{19}
+\text{science sharp when }|\omega_{\mathrm{target}}-\omega_g|\le\omega_{\mathrm{sharp}}. \tag{19}
 \]
 
 \(\sigma_{\mathrm{smear}}\) is `max_motion_smear_px`. \(\Delta t_{\mathrm{exp}}\)
-is the **live** frame exposure (and the last known exposure during REWIND). Do
-not use `initial_exposure_us` as a frozen science exposure. Also clip to
-\(\omega_{\mathrm{hw}}\): a 13 µs exposure makes (19) larger than the hardware cap.
+is the live frame exposure. Do not use `initial_exposure_us` as a frozen science
+exposure. Equation (19) qualifies target-relative image motion and does not
+reduce gimbal control authority.
 
 Do not suppress \(\omega_{t,\mathrm{nom}}+\hat\omega_{t,\mathrm{res}}\) while
 TRACKING. Orbit feedforward must continue even when \(e\) is small.
 
-SAFE/STOW/HOME use the position loop and are not smear-capped.
+SAFE replaces tracking with the stow position loop while actuator integrity is
+healthy. An actuator-integrity SAFE inhibits torque.
 
 ---
 
@@ -664,16 +665,16 @@ There is no RATE command mode. `GimbalCommandMode` is ABSOLUTE / STOW / HOME.
 
 | State | Rate reference \(r\) | Notes |
 | --- | --- | --- |
-| TRACKING (cold / limb wait) | \(0\) | No `current_target_id` or no ISS this tick, or arrived at the science limb with no plume. |
-| TRACKING (live) | (18) with live smear cap and science-window clip | Live = arbiter has `current_target_id` and ISS is present. Re-intersect CoG at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). |
-| Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Until `release_persistence_frames`. |
-| REWIND | \(r=\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,r_{\max,\mathrm{img}}\) toward the science limb | Hunt after loss below the limb. Not an azimuth raster. |
+| TRACKING (cold / limb wait) | \(0\) | No accepted aggregate, or arrived at the science limb after loss. |
+| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). Image-smear estimates qualify science frames separately. |
+| Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Ends at the first of `release_persistence_frames` received-empty samples, `max_observation_age_s`, or an estimator uncertainty gate. |
+| REWIND | \(r=\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) toward the science limb | Hunt after loss below the limb. Not an azimuth raster. |
 | REWIND at limb | → TRACKING with \(r=0\) | Wait. Blob → TRACKING live. |
-| SAFE | position loop to stow | Latch until ground clear. Blobs ignored. |
+| SAFE | inhibit torque; request contained HAL STOW | Latch until ground clear. Blobs ignored. |
 
-REWIND uses the inner rate loop at the smear cap, not an open-loop absolute
-goto. Arrival at the limb is \(|\theta_g-\theta_{\mathrm{sci,max}}|\) within a
-small config tolerance.
+REWIND uses the inner rate loop at the hardware and stopping-distance caps, not
+an open-loop absolute goto. Arrival at the limb is
+\(|\theta_g-\theta_{\mathrm{sci,max}}|\) within a small config tolerance.
 
 ---
 
@@ -683,7 +684,9 @@ small config tolerance.
 
 Elevation torque plant.
 
-- `set_torque(tau_nm) -> Result[None, FaultCode]` -- tracking and pose-loop path
+- `set_torque(tau_nm, valid_until_s) -> Result[None, FaultCode]` -- leased tracking path
+- `inhibit(reason) -> Result[GimbalHealth, FaultCode]` -- confirmed drive containment
+- `read_health() -> Result[GimbalHealth, FaultCode]` -- feedback and authority evidence
 - `read_position() -> Result[GimbalPosition, FaultCode]` -- elevation + monotonic timestamp
 - `read_stow_switch() -> Result[bool, FaultCode]`
 - `stow()` / `home()` / `goto_angle(el_deg)` -- set the position-loop target
@@ -694,7 +697,8 @@ Elevation torque plant.
 Sim driver: integrate (1), encoder quantization and noise, travel/torque/slew
 clamps, stow switch.
 
-Real driver: stub `set_torque`. Delete the PTU ASCII path.
+Real driver: refuse torque and containment until the amplifier interface and
+independent expiry/inhibit channel are implemented.
 
 ### 14.2 Ephemeris
 

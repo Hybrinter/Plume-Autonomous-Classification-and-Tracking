@@ -32,6 +32,23 @@ class GimbalPosition:
     timestamp_s: float
 
 
+@dataclass(frozen=True, slots=True)
+class GimbalHealth:
+    """Actuator safety evidence exposed by the gimbal driver.
+
+    ``inhibit_confirmed`` only means that the driver has evidence that its output
+    stage is inhibited.  A driver which cannot independently inhibit the motor
+    must return ``Err`` from :meth:`GimbalActuator.inhibit`, rather than claiming
+    this condition.
+    """
+
+    feedback_valid: bool
+    last_feedback_s: float | None
+    command_valid_until_s: float | None
+    inhibited: bool
+    inhibit_confirmed: bool
+
+
 @runtime_checkable
 class GimbalActuator(Protocol):
     """Hardware abstraction for the single-axis elevation gimbal.
@@ -41,8 +58,22 @@ class GimbalActuator(Protocol):
     internal position or rate controller.
     """
 
-    def set_torque(self, tau_nm: float) -> Result[None, FaultCode]:
-        """Command motor torque in N·m. The driver clips to tau_max."""
+    def set_torque(
+        self, tau_nm: float, valid_until_s: float | None = None
+    ) -> Result[None, FaultCode]:
+        """Command motor torque in N·m until an absolute monotonic deadline.
+
+        A supplied deadline is command authority, not a suggested refresh period:
+        after it expires the driver must independently inhibit drive output.
+        """
+        ...
+
+    def inhibit(self, reason: str) -> Result[GimbalHealth, FaultCode]:
+        """Immediately remove drive authority and return confirmed inhibit evidence."""
+        ...
+
+    def read_health(self) -> Result[GimbalHealth, FaultCode]:
+        """Return current feedback, command-authority, and inhibit evidence."""
         ...
 
     def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:

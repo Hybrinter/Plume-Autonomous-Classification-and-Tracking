@@ -18,7 +18,7 @@ def test_constant_torque_moves_elevation() -> None:
     """Held torque integrates the plant; elevation leaves the origin."""
     clock = ManualClock()
     gimbal = _gimbal(clock)
-    assert isinstance(gimbal.set_torque(0.2), Ok)
+    assert isinstance(gimbal.set_torque(0.2, valid_until_s=2.0), Ok)
     clock.advance(1.0)
     pos = gimbal.read_position()
     assert isinstance(pos, Ok)
@@ -30,7 +30,7 @@ def test_torque_clip_and_slew_cap() -> None:
     """Torque above tau_max and resulting rate stay inside the hardware envelope."""
     clock = ManualClock()
     gimbal = _gimbal(clock, tau_max_nm=1.0, max_hw_slew_rate_deg_per_s=10.0)
-    gimbal.set_torque(50.0)
+    gimbal.set_torque(50.0, valid_until_s=2.0)
     clock.advance(1.0)
     pos = gimbal.read_position()
     assert isinstance(pos, Ok)
@@ -42,7 +42,7 @@ def test_travel_stop_clamps_elevation() -> None:
     """Sustained torque stops at the hardware travel limit."""
     clock = ManualClock()
     gimbal = _gimbal(clock)
-    gimbal.set_torque(1.0)
+    gimbal.set_torque(1.0, valid_until_s=31.0)
     clock.advance(30.0)
     pos = gimbal.read_position()
     assert isinstance(pos, Ok)
@@ -57,7 +57,7 @@ def test_stow_switch_requires_command_and_pose() -> None:
     early = gimbal.read_stow_switch()
     assert isinstance(early, Ok)
     assert early.value is False
-    gimbal.set_torque(-1.0)
+    gimbal.set_torque(-1.0, valid_until_s=21.0)
     clock.advance(20.0)
     done = gimbal.read_stow_switch()
     assert isinstance(done, Ok)
@@ -75,6 +75,18 @@ def test_read_position_is_timestamped() -> None:
     pos = gimbal.read_position()
     assert isinstance(pos, Ok)
     assert pos.value.timestamp_s == clock.monotonic_s()
+
+
+def test_command_authority_expiry_inhibits_drive() -> None:
+    """A stale host command cannot leave simulated torque energized."""
+    clock = ManualClock()
+    gimbal = _gimbal(clock)
+    assert isinstance(gimbal.set_torque(0.2, valid_until_s=0.01), Ok)
+    clock.advance(0.02)
+    health = gimbal.read_health()
+    assert isinstance(health, Ok)
+    assert health.value.inhibit_confirmed is True
+    assert gimbal._tau_nm == 0.0
 
 
 def test_frozen_catch_up_does_not_double_count() -> None:

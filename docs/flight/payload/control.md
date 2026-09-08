@@ -35,15 +35,18 @@ elevation, optional `VisionSample`, optional `IssSample`, and SAFE flags.
 ## Behavior
 
 1. `ingest_inference` applies confidence and area gates, matches blobs, and forms
-   pinhole `z_v`. It stamps shutter elevation and ISS onto the sample.
+   the area-weighted centroid of every accepted component. That centroid is the
+   visible-plume aggregate used for pinhole `z_v`; component IDs remain association
+   metadata. It stamps shutter elevation and ISS onto the sample.
 2. `inner_step` pushes the encoder sample, fits `y_m`, and runs the inner PI.
    Locked or SAFE/pose ticks freeze or replace `r` before the PI.
 3. `outer_step` runs the arbiter, intersects CoG with shutter-stamped pose, predicts
    `omega_t_nom`, predicts/updates the residual filter, and writes `r`. SAFE skips
    rewind and CoG replace. EXIT_SAFE cold-starts the residual.
-4. Live TRACKING is `current_target_id is not None` and ISS present, not
-   `has_measurement`. Science-window clips zero `r` that would leave
-   `[el_science_min, el_science_max]`.
+4. Live TRACKING follows arbiter aggregate liveness, so visual feedback works
+   without an ISS sample. An ISS sample only supplies optional nominal motion.
+   Science-window clips zero `r` that would leave `[el_science_min,
+   el_science_max]`.
 5. STOW / HOME / ABSOLUTE override `r` through the position loop.
 6. `last_inner_s` and `last_outer_s` start as `None`.
 

@@ -261,8 +261,8 @@ def test_rewind_posterior_matches_discrete_oracle() -> None:
     assert not np.allclose(rewound.x, state.x)
 
 
-def test_smear_oracle_is_px_ifov_over_texp() -> None:
-    """Smear cap is px * IFOV_rad / t_exp; 13 us is hardware-limited."""
+def test_smear_oracle_is_separate_from_control_rate() -> None:
+    """Optical smear scales with exposure without reducing control authority."""
     ifov = 0.002636
     ifov_rad = math.radians(ifov)
     hw = math.radians(10.0)
@@ -299,7 +299,8 @@ def test_smear_oracle_is_px_ifov_over_texp() -> None:
         1.0,
         ifov,
     )
-    assert abs(abs(r_long) - oracle) < 1e-12
+    assert oracle < hw
+    assert abs(abs(r_long) - hw) < 1e-12
 
 
 def test_safe_position_loop_and_cold_start() -> None:

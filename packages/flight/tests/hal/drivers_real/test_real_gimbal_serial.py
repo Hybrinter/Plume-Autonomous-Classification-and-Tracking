@@ -3,13 +3,15 @@
 from flight.hal.drivers_real import RealGimbal
 from flight.libs.config import GimbalConfig
 from flight.libs.time import ManualClock
-from flight.libs.types import Ok
+from flight.libs.types import Err, FaultCode, Ok
 
 
-def test_set_torque_is_ok_noop() -> None:
-    """set_torque returns Ok and does not require a vendor SDK."""
+def test_set_torque_refuses_unimplemented_amp() -> None:
+    """The real stub must not claim motor containment or drive authority."""
     gimbal = RealGimbal(clock=ManualClock(), cfg=GimbalConfig())
-    assert isinstance(gimbal.set_torque(0.5), Ok)
+    result = gimbal.set_torque(0.5, valid_until_s=1.0)
+    assert isinstance(result, Err)
+    assert result.error is FaultCode.GIMBAL_FAULT
 
 
 def test_goto_angle_latches_target_not_encoder() -> None:

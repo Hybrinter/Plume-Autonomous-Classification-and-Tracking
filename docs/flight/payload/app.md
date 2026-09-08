@@ -15,7 +15,7 @@ in-process queue. The outer loop writes `r`. The inner loop writes torque.
 | --- | --- | --- |
 | `TickOutcome` | dataclass | Per-cycle summary: frame id, fault, command flag, gimbal state |
 | `LockGate` | dataclass | Fail-closed launch-lock gate; `UNKNOWN` counts as engaged |
-| `SafeLatch` | dataclass | SAFE flag the inner thread reads every `T_in` |
+| `SafeLatch` | dataclass | SAFE flag that replaces tracking rate with the stow loop |
 | `StowGate` | dataclass | Re-issue STOW after lock release if still SAFE |
 | `PoseIntent` | dataclass | Ground STOW / HOME / GOTO waiting for the next outer tick |
 | `PayloadApp` | dataclass | Frozen holder of injected services and config slices |
@@ -43,9 +43,9 @@ sample and does not write torque.
 1. `from_config` validates mosaic dimensions, band layout, and inference input
    geometry, then subscribes to mode, launch-lock, and routed-command messages.
    The lock gate starts engaged.
-2. `run` starts sensor acquisition and an inner torque thread. The inner thread
-   copies `ControlState` under a short lock, runs one `inner_step` plus
-   `set_torque` per `T_in`, and merges results. Detect is not held under that lock.
+2. `run` starts sensor acquisition and an inner torque thread. All gimbal HAL calls
+   are serialized by the actuator I/O lock. Torque commands carry a monotonic
+   authority deadline that the driver must enforce independently.
 3. Each outer iteration publishes a heartbeat on the watchdog interval, drains mode,
    lock, and pose commands, acquires a frame, and enqueues a shutter-stamped vision
    sample (`theta_g` and ISS at ingest).
@@ -55,12 +55,12 @@ sample and does not write torque.
    on STOW / HOME / ABSOLUTE after a successful HAL latch. HAL `Err` does not
    publish command-success. Catch-up longer than `catchup_max_s` publishes
    `GIMBAL_FAULT`.
-5. `advance_inner` uses the same origin rule. Encoder `Err` holds the last good
-   angle; if none exist it writes `r = 0`, `tau = 0`, and `GIMBAL_FAULT`. While
-   locked it always calls `set_torque(0.0)` and freezes the integrator. Ephemeris
-   `Err` publishes `EPHEMERIS_FAULT` and keeps tracking cold. The integrity
-   detector may publish `GIMBAL_RUNAWAY`.
-6. On SAFE the inner path uses the stow position loop, not the last tracking `r`.
+5. Any encoder `Err` immediately requests confirmed inhibit; cached position may
+   support outer-loop continuity but cannot authorize torque. Transient
+   `COMM_TIMEOUT` failures use a bounded retry budget and reset inner controller
+   memory before autonomous recovery. Integrity and unclassified faults latch SAFE.
+6. Healthy SAFE operation replaces tracking rate with the stow position loop.
+   Launch lock or a latched actuator-integrity fault inhibits torque instead.
    After lock release, a pending SAFE STOW is re-issued.
 
 ## Errors and faults
@@ -69,7 +69,7 @@ sample and does not write torque.
 | --- | --- |
 | Preprocessing faults | Calibration, demosaic, or band-select failure |
 | Detection faults | Detector returns `Err` |
-| Gimbal actuation faults | HAL call returns `Err` |
+| Gimbal actuation faults | HAL `Err`, stale feedback, or unconfirmed containment |
 | `ValueError` at startup | Invalid sensor mosaic or inference geometry in `from_config` |
 | Camera stall | `acquire_frame` returns `Err` |
 
@@ -97,8 +97,10 @@ Vision samples do not travel on the bus.
 ## Constraints
 
 Preprocessing runs as function calls inside `process_frame`; it never publishes
-`ProcessedFrameMsg`. The full selected band plane is passed to inference. The app
-uses `Clock.monotonic_s()` for loops and `Clock.utc_s()` for ephemeris.
+`ProcessedFrameMsg`. The full selected band plane is passed to inference. Frame
+quality follows the inference result for science qualification and does not become
+a control safety flag. The app uses `Clock.monotonic_s()` for loops and
+`Clock.utc_s()` for ephemeris.
 
 ## Related documents
 

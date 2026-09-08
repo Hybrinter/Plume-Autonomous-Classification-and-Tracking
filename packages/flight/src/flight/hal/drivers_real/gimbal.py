@@ -12,10 +12,10 @@ Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-004.
 
 from __future__ import annotations
 
-from flight.hal.interfaces.gimbal import GimbalPosition
+from flight.hal.interfaces.gimbal import GimbalHealth, GimbalPosition
 from flight.libs.config import GimbalConfig
 from flight.libs.time import Clock
-from flight.libs.types import FaultCode, Ok, Result
+from flight.libs.types import Err, FaultCode, Ok, Result
 
 
 class RealGimbal:
@@ -43,17 +43,36 @@ class RealGimbal:
         self._target_el_deg = 0.0
         self._stow_commanded = False
 
-    def set_torque(self, tau_nm: float) -> Result[None, FaultCode]:
-        """Accept a torque command. The amp interface is not wired; this is a no-op.
+    def set_torque(
+        self, tau_nm: float, valid_until_s: float | None = None
+    ) -> Result[None, FaultCode]:
+        """Refuse drive authority until a motor amplifier is implemented.
 
         Inputs:
             tau_nm (float): Commanded torque in N·m (ignored).
 
         Outputs:
-            Ok(None).
+            Err(GIMBAL_FAULT): this stub has no independent expiry or inhibit path.
         """
-        del tau_nm
-        return Ok(None)
+        del tau_nm, valid_until_s
+        return Err(FaultCode.GIMBAL_FAULT)
+
+    def inhibit(self, reason: str) -> Result[GimbalHealth, FaultCode]:
+        """Refuse to claim containment without a wired amplifier inhibit channel."""
+        del reason
+        return Err(FaultCode.GIMBAL_FAULT)
+
+    def read_health(self) -> Result[GimbalHealth, FaultCode]:
+        """Report that this development stub has no verified containment evidence."""
+        return Ok(
+            GimbalHealth(
+                feedback_valid=False,
+                last_feedback_s=None,
+                command_valid_until_s=None,
+                inhibited=True,
+                inhibit_confirmed=False,
+            )
+        )
 
     def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
         """Latch a travel-clamped pose target. Encoder is unchanged.

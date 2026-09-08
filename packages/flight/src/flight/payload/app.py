@@ -22,6 +22,7 @@ import numpy as np
 # internal
 from flight.hal.interfaces import (
     GimbalActuator,
+    GimbalHealth,
     GimbalPosition,
     ImagingSensor,
     IssEphemeris,
@@ -61,6 +62,7 @@ from flight.libs.types import (
     MessageType,
     MosaicFrame,
     Ok,
+    Result,
     SystemMode,
 )
 from flight.payload.control import ControlState, IssSample, PayloadController, VisionSample
@@ -127,6 +129,18 @@ class PoseIntent:
     el_deg: float = 0.0
 
 
+@dataclass(slots=True)
+class ActuatorSafety:
+    """Mutable shell state for driver evidence and bounded recovery accounting."""
+
+    last_feedback_s: float | None = None
+    recovery_window_start_s: float | None = None
+    recovery_attempts: int = 0
+    latched_fault: bool = False
+    recovery_pending_reset: bool = False
+    last_health_publish_s: float | None = None
+
+
 @dataclass(frozen=True)
 class PayloadApp:
     """Payload subsystem app: imperative shell around the cascaded pointing loops.
@@ -173,6 +187,8 @@ class PayloadApp:
     pose_intent: PoseIntent = field(default_factory=PoseIntent)
     vision_queue: deque[VisionSample] = field(default_factory=lambda: deque(maxlen=4))
     inner_lock: threading.Lock = field(default_factory=threading.Lock)
+    actuator_io_lock: threading.Lock = field(default_factory=threading.Lock)
+    actuator_safety: ActuatorSafety = field(default_factory=ActuatorSafety)
 
     @staticmethod
     def from_config(
@@ -225,6 +241,8 @@ class PayloadApp:
             pose_intent=PoseIntent(),
             vision_queue=deque(maxlen=cfg.controller.vision.queue_depth),
             inner_lock=threading.Lock(),
+            actuator_io_lock=threading.Lock(),
+            actuator_safety=ActuatorSafety(),
         )
 
     def poll_mode_changes(self) -> tuple[bool, bool]:
@@ -237,8 +255,8 @@ class PayloadApp:
                 safe_commanded = True
                 self.safe_latch.commanded = True
             else:
-                safe_cleared = True
-                self.safe_latch.commanded = False
+                safe_cleared = self._clear_actuator_fault_for_ground()
+                self.safe_latch.commanded = not safe_cleared
         return safe_commanded, safe_cleared
 
     def poll_lock_state(self) -> None:
@@ -367,6 +385,7 @@ class PayloadApp:
         dt = self.controller.cfg.outer.dt_s
         current = state
         command_issued = False
+        safe_commanded = safe_commanded or self.safe_latch.commanded
         if self.pose_intent.mode is not None:
             pose_mode = self.pose_intent.mode
             pose_el = self.pose_intent.el_deg
@@ -400,7 +419,7 @@ class PayloadApp:
             iss, eph_err = self._read_iss_at(t)
             if eph_err is not None:
                 self._publish_fault(eph_err, "ephemeris read failed")
-            pos = self.gimbal.read_position()
+            pos = self._read_position()
             if isinstance(pos, Ok):
                 theta = math.radians(pos.value.el_deg)
                 current = replace(current, last_theta_enc_rad=theta)
@@ -483,24 +502,31 @@ class PayloadApp:
             current = replace(current, last_inner_s=t)
         while t + dt <= now + 1e-12:
             t = t + dt
-            pos = self.gimbal.read_position()
+            pos = self._read_position()
             if isinstance(pos, Ok):
                 theta = math.radians(pos.value.el_deg)
-            elif current.last_theta_enc_rad is not None:
-                theta = current.last_theta_enc_rad
+                encoder_timestamp_s = pos.value.timestamp_s
             else:
-                self._publish_fault(FaultCode.GIMBAL_FAULT, "encoder unavailable")
+                self._publish_fault(pos.error, "encoder unavailable")
                 current = replace(current, r_rad_s=0.0)
-                send = self.gimbal.set_torque(0.0)
-                if isinstance(send, Err):
-                    self._publish_fault(send.error, "gimbal torque failed")
                 break
+            if self.actuator_safety.recovery_pending_reset:
+                current = self._fresh_inner_state(current)
             enc_rate = 0.0
-            if current.last_theta_enc_rad is not None and dt > 0.0:
-                enc_rate = (theta - current.last_theta_enc_rad) / dt
+            if current.last_theta_enc_rad is not None and current.encoder_timestamp_ring:
+                prior_s = current.encoder_timestamp_ring[-1]
+                measured_dt_s = encoder_timestamp_s - prior_s
+                if measured_dt_s > 0.0:
+                    enc_rate = (theta - current.last_theta_enc_rad) / measured_dt_s
             locked = self.lock_gate.engaged
             tick = self.controller.inner_step(
-                current, t, theta, dt, locked=locked, safe_latched=self.safe_latch.commanded
+                current,
+                t,
+                theta,
+                dt,
+                encoder_timestamp_s=encoder_timestamp_s,
+                locked=locked,
+                safe_latched=self.safe_latch.commanded,
             )
             current, integrity_fault = self._apply_integrity(
                 current, tick.state, tick.tau_nm, theta, t, enc_rate, locked
@@ -508,10 +534,10 @@ class PayloadApp:
             if integrity_fault is not None:
                 self._publish_fault(integrity_fault, "pointing integrity trip")
                 self.safe_latch.commanded = True
-            tau = 0.0 if locked else tick.tau_nm
-            send = self.gimbal.set_torque(tau)
-            if isinstance(send, Err):
-                self._publish_fault(send.error, "gimbal torque failed")
+            if integrity_fault is not None:
+                self._inhibit_motion("pointing integrity trip")
+            else:
+                self._write_torque(tick.tau_nm, t, locked)
         return current
 
     def _apply_integrity(
@@ -548,6 +574,180 @@ class PayloadApp:
         )
         return updated, integrity.fault
 
+    def _read_position(self) -> Result[GimbalPosition, FaultCode]:
+        """Read encoder feedback under the sole driver-I/O lock.
+
+        A failed read immediately latches drive containment before the next torque
+        write.  The pure controller receives the hardware's sample timestamp
+        separately, so no wall-clock arrival time is mistaken for an encoder time.
+        """
+        with self.actuator_io_lock:
+            result = self.gimbal.read_position()
+        if isinstance(result, Ok):
+            self.actuator_safety.last_feedback_s = result.value.timestamp_s
+        else:
+            self._record_actuator_failure(result.error, self.clock.monotonic_s())
+            self._inhibit_motion("encoder unavailable")
+            if self.actuator_safety.latched_fault:
+                self.safe_latch.commanded = True
+        return result
+
+    def _clear_actuator_fault_for_ground(self) -> bool:
+        """Clear a latched actuator fault only from confirmed inhibited health."""
+        if not self.actuator_safety.latched_fault:
+            return True
+        with self.actuator_io_lock:
+            health = self.gimbal.read_health()
+        if (
+            isinstance(health, Err)
+            or not health.value.feedback_valid
+            or not health.value.inhibit_confirmed
+        ):
+            self._publish_fault(FaultCode.GIMBAL_FAULT, "actuator fault clear rejected")
+            return False
+        self.actuator_safety.latched_fault = False
+        self.actuator_safety.recovery_pending_reset = True
+        self.actuator_safety.recovery_attempts = 0
+        self.actuator_safety.recovery_window_start_s = None
+        self._publish_actuator_recovery("ground_cleared")
+        return True
+
+    def _inhibit_motion(self, reason: str) -> bool:
+        """Request driver-side containment and fault if it cannot be confirmed."""
+        with self.actuator_io_lock:
+            result = self.gimbal.inhibit(reason)
+        if isinstance(result, Err):
+            self._publish_fault(result.error, f"gimbal inhibit unconfirmed: {reason}")
+            self.actuator_safety.latched_fault = True
+            return False
+        if not result.value.inhibit_confirmed:
+            self._publish_fault(FaultCode.GIMBAL_FAULT, f"gimbal inhibit unconfirmed: {reason}")
+            self.actuator_safety.latched_fault = True
+            return False
+        self._publish_actuator_health(result.value, force=True)
+        return True
+
+    def _write_torque(self, tau_nm: float, now: float, locked: bool) -> bool:
+        """Write a leased torque command only while feedback and integrity are healthy."""
+        if locked or self.actuator_safety.latched_fault:
+            return self._inhibit_motion("motion inhibited by lock or actuator fault")
+        with self.actuator_io_lock:
+            health = self.gimbal.read_health()
+        if isinstance(health, Err) or not health.value.feedback_valid:
+            self.actuator_safety.latched_fault = True
+            self.safe_latch.commanded = True
+            self._inhibit_motion("invalid actuator feedback")
+            self._publish_fault(FaultCode.GIMBAL_FAULT, "invalid actuator feedback")
+            return False
+        authority_now = self.clock.monotonic_s()
+        last_feedback_s = health.value.last_feedback_s
+        if (
+            last_feedback_s is None
+            or authority_now - last_feedback_s > self.controller.cfg.integrity.feedback_max_age_s
+        ):
+            self.actuator_safety.latched_fault = True
+            self.safe_latch.commanded = True
+            self._inhibit_motion("stale actuator feedback")
+            self._publish_fault(FaultCode.GIMBAL_FAULT, "stale actuator feedback")
+            return False
+        self._publish_actuator_health(health.value)
+        valid_until_s = authority_now + self.controller.cfg.integrity.command_authority_s
+        with self.actuator_io_lock:
+            send = self.gimbal.set_torque(tau_nm, valid_until_s)
+        if isinstance(send, Err):
+            self._record_actuator_failure(send.error, now)
+            self._inhibit_motion("torque command failed")
+            if self.actuator_safety.latched_fault:
+                self.safe_latch.commanded = True
+            return False
+        if self.actuator_safety.recovery_pending_reset:
+            self._publish_actuator_recovery("recovered")
+        self.actuator_safety.recovery_pending_reset = False
+        self.actuator_safety.recovery_attempts = 0
+        self.actuator_safety.recovery_window_start_s = None
+        return True
+
+    def _record_actuator_failure(self, code: FaultCode, now: float) -> None:
+        """Classify failures; only transient availability faults receive a retry budget."""
+        transient = code is FaultCode.COMM_TIMEOUT
+        safety = self.actuator_safety
+        cfg = self.controller.cfg.integrity
+        if not transient:
+            safety.latched_fault = True
+            self._publish_fault(code, "unclassified actuator failure")
+            return
+        if (
+            safety.recovery_window_start_s is None
+            or now - safety.recovery_window_start_s > cfg.recovery_window_s
+        ):
+            safety.recovery_window_start_s = now
+            safety.recovery_attempts = 0
+        safety.recovery_attempts += 1
+        safety.recovery_pending_reset = True
+        self._publish_actuator_recovery("retrying")
+        if safety.recovery_attempts > cfg.recovery_max_attempts:
+            safety.latched_fault = True
+            self._publish_fault(code, "actuator transient recovery budget exhausted")
+
+    @staticmethod
+    def _fresh_inner_state(state: ControlState) -> ControlState:
+        """Discard dynamic controller memory before resuming after an I/O outage."""
+        return replace(
+            state,
+            encoder_ring=(),
+            encoder_timestamp_ring=(),
+            integrator=0.0,
+            y_m=0.0,
+            last_theta_enc_rad=None,
+            last_tau_nm=0.0,
+            integrity_freeze_strikes=0,
+            integrity_lock_strikes=0,
+        )
+
+    def _publish_actuator_recovery(self, state: str) -> None:
+        """Expose bounded transient-recovery state without treating it as integrity."""
+        self.bus.publish(
+            TelemetryEventMsg(
+                msg_type=MessageType.TELEMETRY_EVENT,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                subsystem="payload",
+                event_name="gimbal_actuator_recovery",
+                payload={
+                    "state": state,
+                    "attempt": self.actuator_safety.recovery_attempts,
+                },
+            )
+        )
+
+    def _publish_actuator_health(self, health: GimbalHealth, force: bool = False) -> None:
+        """Publish compact, persistent actuator-health evidence for FDIR and ground."""
+        now = self.clock.monotonic_s()
+        last = self.actuator_safety.last_health_publish_s
+        if not force and last is not None and now - last < self.fault_cfg.watchdog_interval_s:
+            return
+        self.actuator_safety.last_health_publish_s = now
+        self.bus.publish(
+            TelemetryEventMsg(
+                msg_type=MessageType.TELEMETRY_EVENT,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                subsystem="payload",
+                event_name="gimbal_actuator_health",
+                payload={
+                    "feedback_valid": health.feedback_valid,
+                    "last_feedback_s": (
+                        math.nan if health.last_feedback_s is None else health.last_feedback_s
+                    ),
+                    "command_valid_until_s": (
+                        math.nan
+                        if health.command_valid_until_s is None
+                        else health.command_valid_until_s
+                    ),
+                    "inhibited": health.inhibited,
+                    "inhibit_confirmed": health.inhibit_confirmed,
+                },
+            )
+        )
+
     def _read_iss_at(self, monotonic_t: float) -> tuple[IssSample | None, FaultCode | None]:
         """Read ISS ECI at the UTC corresponding to monotonic_t. Err is published by caller."""
         utc = self.clock.utc_s() + (monotonic_t - self.clock.monotonic_s())
@@ -560,6 +760,7 @@ class PayloadApp:
     def _actuate_pose(self, request: GimbalRequest, state: ControlState, frame_id: int) -> bool:
         """Map a pose GimbalRequest onto HAL and publish GimbalCommandMsg."""
         if self.lock_gate.engaged:
+            self._inhibit_motion("launch lock engaged")
             self.bus.publish(
                 TelemetryEventMsg(
                     msg_type=MessageType.TELEMETRY_EVENT,
@@ -570,12 +771,13 @@ class PayloadApp:
                 )
             )
             return False
-        if request.mode is GimbalCommandMode.STOW:
-            send_result = self.gimbal.stow()
-        elif request.mode is GimbalCommandMode.HOME:
-            send_result = self.gimbal.home()
-        else:
-            send_result = self.gimbal.goto_angle(request.el_deg)
+        with self.actuator_io_lock:
+            if request.mode is GimbalCommandMode.STOW:
+                send_result = self.gimbal.stow()
+            elif request.mode is GimbalCommandMode.HOME:
+                send_result = self.gimbal.home()
+            else:
+                send_result = self.gimbal.goto_angle(request.el_deg)
         if isinstance(send_result, Err):
             self._publish_fault(send_result.error, "gimbal pose actuation failed")
             return False
@@ -617,26 +819,32 @@ class PayloadApp:
                 if snap.last_inner_s == now_inner:
                     stop_event.wait(timeout=dt)
                     continue
-                pos = self.gimbal.read_position()
+                pos = self._read_position()
                 if isinstance(pos, Ok):
                     theta = math.radians(pos.value.el_deg)
-                elif snap.last_theta_enc_rad is not None:
-                    theta = snap.last_theta_enc_rad
+                    encoder_timestamp_s = pos.value.timestamp_s
                 else:
-                    self._publish_fault(FaultCode.GIMBAL_FAULT, "encoder unavailable")
-                    send = self.gimbal.set_torque(0.0)
-                    if isinstance(send, Err):
-                        self._publish_fault(send.error, "gimbal torque failed")
+                    self._publish_fault(pos.error, "encoder unavailable")
                     with self.inner_lock:
                         latest = holder["state"]
                         holder["state"] = replace(latest, r_rad_s=0.0)
                     stop_event.wait(timeout=dt)
                     continue
+                if self.actuator_safety.recovery_pending_reset:
+                    snap = self._fresh_inner_state(snap)
                 enc_rate = 0.0
-                if snap.last_theta_enc_rad is not None and dt > 0.0:
-                    enc_rate = (theta - snap.last_theta_enc_rad) / dt
+                if snap.last_theta_enc_rad is not None and snap.encoder_timestamp_ring:
+                    measured_dt_s = encoder_timestamp_s - snap.encoder_timestamp_ring[-1]
+                    if measured_dt_s > 0.0:
+                        enc_rate = (theta - snap.last_theta_enc_rad) / measured_dt_s
                 tick = self.controller.inner_step(
-                    snap, now_inner, theta, dt, locked=locked, safe_latched=safe
+                    snap,
+                    now_inner,
+                    theta,
+                    dt,
+                    encoder_timestamp_s=encoder_timestamp_s,
+                    locked=locked,
+                    safe_latched=safe,
                 )
                 stamped, integrity_fault = self._apply_integrity(
                     snap, tick.state, tick.tau_nm, theta, now_inner, enc_rate, locked
@@ -644,10 +852,10 @@ class PayloadApp:
                 if integrity_fault is not None:
                     self._publish_fault(integrity_fault, "pointing integrity trip")
                     self.safe_latch.commanded = True
-                tau = 0.0 if locked else tick.tau_nm
-                send = self.gimbal.set_torque(tau)
-                if isinstance(send, Err):
-                    self._publish_fault(send.error, "gimbal torque failed")
+                if integrity_fault is not None:
+                    self._inhibit_motion("pointing integrity trip")
+                else:
+                    self._write_torque(tick.tau_nm, now_inner, locked)
                 with self.inner_lock:
                     latest = holder["state"]
                     merged_r = (
@@ -658,12 +866,13 @@ class PayloadApp:
                     holder["state"] = replace(
                         latest,
                         encoder_ring=stamped.encoder_ring,
+                        encoder_timestamp_ring=stamped.encoder_timestamp_ring,
                         integrator=stamped.integrator,
                         y_m=stamped.y_m,
                         r_rad_s=merged_r,
                         last_inner_s=now_inner,
                         last_theta_enc_rad=theta,
-                        last_tau_nm=tau,
+                        last_tau_nm=tick.tau_nm,
                         integrity_freeze_strikes=stamped.integrity_freeze_strikes,
                         integrity_lock_strikes=stamped.integrity_lock_strikes,
                         lock_theta_ref_rad=stamped.lock_theta_ref_rad,
@@ -693,7 +902,7 @@ class PayloadApp:
                 acq = self.sensor.acquire_frame()
                 if isinstance(acq, Ok):
                     slew_rate = 0.0
-                    pos_res = self.gimbal.read_position()
+                    pos_res = self._read_position()
                     pos: GimbalPosition | None = None
                     if isinstance(pos_res, Ok):
                         pos = pos_res.value
@@ -710,7 +919,15 @@ class PayloadApp:
                 else:
                     self._publish_fault(acq.error, "imaging sensor stall")
                     if safe_commanded and not self.lock_gate.engaged:
-                        self.gimbal.stow()
+                        self._actuate_pose(
+                            GimbalRequest(
+                                mode=GimbalCommandMode.STOW,
+                                el_deg=self.controller.gimbal.stow_el_deg,
+                                reason="safe_sensor_fault",
+                            ),
+                            current,
+                            frame_id=0,
+                        )
                 with self.inner_lock:
                     current = holder["state"]
                 current, _outer = self.advance_outer(current, now, safe_commanded, safe_cleared)
@@ -719,6 +936,7 @@ class PayloadApp:
                     holder["state"] = replace(
                         current,
                         encoder_ring=latest.encoder_ring,
+                        encoder_timestamp_ring=latest.encoder_timestamp_ring,
                         integrator=latest.integrator,
                         y_m=latest.y_m,
                         last_inner_s=latest.last_inner_s,

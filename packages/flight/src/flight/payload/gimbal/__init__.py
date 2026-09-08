@@ -25,7 +25,7 @@ from flight.payload.gimbal.pointing import (
 )
 from flight.payload.gimbal.position import position_rate
 from flight.payload.gimbal.predictor import predict_los
-from flight.payload.gimbal.rate_fit import fit_rate
+from flight.payload.gimbal.rate_fit import fit_rate, fit_rate_timed
 from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.gimbal.safety import apply_confidence_gate, apply_min_area_gate
 
@@ -42,6 +42,7 @@ __all__ = [
     "check_integrity",
     "clip_rate",
     "fit_rate",
+    "fit_rate_timed",
     "inner_step",
     "intersect_cog",
     "lock_hold_rate",

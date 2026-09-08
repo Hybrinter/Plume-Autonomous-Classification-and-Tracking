@@ -120,6 +120,7 @@ class InferenceResultMsg:
     model_version: str  # model checkpoint identifier string
     inference_ms: float  # wall-clock inference duration in ms
     mode_flags: int  # uint8 bitmask; semantics defined in config
+    quality_flags: frozenset[FrameUsabilityTag] = frozenset()
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 

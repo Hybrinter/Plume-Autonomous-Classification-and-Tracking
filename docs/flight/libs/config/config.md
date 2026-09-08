@@ -78,13 +78,15 @@ Nested tables under `[controller]`:
 
 - `vision`: `confidence_gate`, `blob_iou_match_threshold`, `min_blob_area_px`,
   `queue_depth`
-- `arbiter`: `release_persistence_frames`, `limb_arrival_deg`
+- `arbiter`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
 - `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
 - `outer`: `dt_s`, `Kp`
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`
 - `integrity`: `catchup_max_s`, `freeze_strikes`, `r_min_rad_s`,
-  `encoder_rate_ratio`, `lock_fight_rad_s`, `lock_fight_strikes`
+  `encoder_rate_ratio`, `lock_fight_rad_s`, `lock_fight_strikes`,
+  `command_authority_s`, `feedback_max_age_s`, `recovery_max_attempts`,
+  `recovery_window_s`, `science_boundary_guard_deg`
 
 ### InferenceConfig
 

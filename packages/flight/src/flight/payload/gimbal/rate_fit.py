@@ -49,3 +49,36 @@ def fit_rate(
     except np.linalg.LinAlgError:
         return 0.0
     return float(coeffs[1])
+
+
+def fit_rate_timed(
+    theta_rad: tuple[float, ...],
+    timestamp_s: tuple[float, ...],
+    n_omega: int = 7,
+    degree: int = 2,
+) -> float:
+    """Estimate newest angular rate from timestamped encoder samples.
+
+    The fitted coordinate is each sample's actual encoder timestamp relative to
+    the newest sample.  Duplicate, reversed, or non-finite times provide no
+    trustworthy derivative and therefore fail closed to zero.
+    """
+    if len(theta_rad) != len(timestamp_s) or len(theta_rad) < 2:
+        return 0.0
+    count = min(len(theta_rad), n_omega)
+    theta = theta_rad[-count:]
+    times = timestamp_s[-count:]
+    if not all(np.isfinite(value) for value in (*theta, *times)):
+        return 0.0
+    if any(later <= earlier for earlier, later in zip(times, times[1:])):
+        return 0.0
+    deg = min(degree, count - 1)
+    if deg < 1:
+        return 0.0
+    tau = np.asarray(times, dtype=np.float64) - times[-1]
+    vandermonde = np.vander(tau, N=deg + 1, increasing=True)
+    try:
+        coeffs, _, _, _ = np.linalg.lstsq(vandermonde, np.asarray(theta), rcond=None)
+    except np.linalg.LinAlgError:
+        return 0.0
+    return float(coeffs[1])

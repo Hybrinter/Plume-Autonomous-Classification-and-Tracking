@@ -2,7 +2,7 @@
 
 import math
 
-from flight.payload.gimbal.rate_fit import fit_rate
+from flight.payload.gimbal.rate_fit import fit_rate, fit_rate_timed
 
 
 def test_short_ring_is_zero() -> None:
@@ -32,3 +32,16 @@ def test_quadratic_matches_instantaneous_not_two_point() -> None:
     two_point = (ring[-1] - ring[0]) / ((n - 1) * dt)
     assert abs(y_m - true_rate) < 1e-6
     assert abs(y_m - two_point) > abs(y_m - true_rate)
+
+
+def test_timestamped_fit_uses_actual_irregular_encoder_times() -> None:
+    """The rate fit follows encoder times instead of assuming an inner-loop period."""
+    times = (0.0, 0.001, 0.003, 0.006, 0.010, 0.015, 0.021)
+    rate = 0.7
+    theta = tuple(0.2 + rate * t for t in times)
+    assert abs(fit_rate_timed(theta, times, n_omega=7, degree=2) - rate) < 1.0e-12
+
+
+def test_timestamped_fit_rejects_duplicate_or_reversed_samples() -> None:
+    """Duplicate timestamps cannot produce a fabricated rate estimate."""
+    assert fit_rate_timed((0.0, 0.1, 0.2), (0.0, 0.001, 0.001)) == 0.0

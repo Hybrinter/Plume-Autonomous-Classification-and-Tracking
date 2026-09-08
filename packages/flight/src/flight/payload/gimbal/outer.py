@@ -1,8 +1,7 @@
-"""Outer elevation rate law: feedforward + residual + smear / hardware clips (pure, SI).
+"""Outer elevation rate law: feedforward + residual with hardware clips (pure, SI).
 
-r = sat(omega_t_nom + omega_t_res + K_p * e_hat; r_max(mode)). TRACKING (live) and
-REWIND clip to the live smear cap and the hardware slew. SAFE / STOW / HOME use the
-position loop and are not smear-capped.
+r = sat(omega_t_nom + omega_t_res + K_p * e_hat; omega_hw). Image-smear
+estimates qualify science frames separately and do not reduce control authority.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001, REQ-GIMB-HIGH-003.
 """
@@ -70,6 +69,8 @@ def outer_rate(
     max_motion_smear_px: float,
     ifov_band_deg_per_px: float,
     theta_sci_min_rad: float = 0.0,
+    max_decel_rad_s2: float = math.inf,
+    rate_loop_bandwidth_s: float = math.inf,
 ) -> float:
     """Compute the outer rate reference r in rad/s.
 
@@ -91,22 +92,38 @@ def outer_rate(
     Outputs:
         float: Rate reference r, rad/s.
     """
-    r_smear = smear_cap_rad_s(exposure_us, max_motion_smear_px, ifov_band_deg_per_px)
-    img_cap = min(r_smear, omega_hw_rad_s)
+    # Retain the optical arguments while callers migrate to an explicit science
+    # qualification result. They must not silently change control authority.
+    del exposure_us, max_motion_smear_px, ifov_band_deg_per_px
+    rate_cap = omega_hw_rad_s
+
+    def boundary_limited(rate_rad_s: float) -> float:
+        """Limit commanded speed to the stopping distance inside the science window."""
+        if rate_rad_s > 0.0:
+            remaining = max(0.0, theta_sci_max_rad - theta_g_rad)
+            stopping_cap = math.sqrt(2.0 * max_decel_rad_s2 * remaining)
+            stopping_cap = min(stopping_cap, rate_loop_bandwidth_s * remaining)
+            return min(rate_rad_s, stopping_cap)
+        if rate_rad_s < 0.0:
+            remaining = max(0.0, theta_g_rad - theta_sci_min_rad)
+            stopping_cap = math.sqrt(2.0 * max_decel_rad_s2 * remaining)
+            stopping_cap = min(stopping_cap, rate_loop_bandwidth_s * remaining)
+            return max(rate_rad_s, -stopping_cap)
+        return 0.0
 
     if mode is GimbalState.REWIND:
         if theta_g_rad >= theta_sci_max_rad - 1e-9:
             return 0.0
         direction = 1.0 if (theta_sci_max_rad - theta_g_rad) >= 0.0 else -1.0
-        return clip_rate(direction * img_cap, img_cap)
+        return boundary_limited(clip_rate(direction * rate_cap, rate_cap))
 
     if mode is GimbalState.TRACKING and live:
         r = omega_t_nom + omega_t_res + k_p * e_hat
-        r = clip_rate(r, img_cap)
+        r = clip_rate(r, rate_cap)
         if theta_g_rad <= theta_sci_min_rad + 1e-9 and r < 0.0:
             return 0.0
         if theta_g_rad >= theta_sci_max_rad - 1e-9 and r > 0.0:
             return 0.0
-        return r
+        return boundary_limited(r)
 
     return 0.0

@@ -35,7 +35,7 @@ def make_blob(
 def test_plume_enters_tracking(
     arbiter_tracking_state: ArbiterState, default_config: PactConfig
 ) -> None:
-    """A plume on a TRACKING start stays TRACKING and records the blob id."""
+    """An accepted aggregate enters TRACKING immediately without selecting a blob."""
     arbiter = _arbiter(default_config)
     new_state, request, events = arbiter.step(
         arbiter_tracking_state,
@@ -46,7 +46,9 @@ def test_plume_enters_tracking(
         el_deg=10.0,
     )
     assert new_state.gimbal_state is GimbalState.TRACKING
-    assert new_state.current_target_id == 1
+    assert new_state.aggregate_live is True
+    assert new_state.current_target_id is None
+    assert new_state.last_observation_s == 1.0
     assert new_state.miss_count == 0
     assert request is None
     assert events == []
@@ -120,7 +122,62 @@ def test_coast_does_not_increment_miss(
     )
     assert coast.gimbal_state is GimbalState.TRACKING
     assert coast.miss_count == 0
-    assert coast.current_target_id == 1
+    assert coast.aggregate_live is True
+    assert coast.current_target_id is None
+
+
+def test_silent_vision_stall_expires_coast(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """No arriving empty packets cannot preserve a live aggregate indefinitely."""
+    arbiter = _arbiter(default_config)
+    seeded, _request, _events = arbiter.step(
+        arbiter_tracking_state,
+        (make_blob(),),
+        now=1.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+    )
+    expired, _request, events = arbiter.step(
+        seeded,
+        (),
+        now=1.0 + default_config.controller.arbiter.max_observation_age_s + 0.001,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+        vision_updated=False,
+    )
+    assert expired.gimbal_state is GimbalState.REWIND
+    assert expired.aggregate_live is False
+    assert events[-1].payload["to"] == GimbalState.REWIND.value
+
+
+def test_uncertainty_gate_can_revoke_prediction_only_coast(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """The estimator can later terminate a coast before its age ceiling."""
+    arbiter = _arbiter(default_config)
+    seeded, _request, _events = arbiter.step(
+        arbiter_tracking_state,
+        (make_blob(),),
+        now=1.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+    )
+    revoked, _request, _events = arbiter.step(
+        seeded,
+        (),
+        now=1.01,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+        vision_updated=False,
+        coast_permitted=False,
+    )
+    assert revoked.gimbal_state is GimbalState.REWIND
+    assert revoked.aggregate_live is False
 
 
 def test_rewind_plume_returns_to_tracking(default_config: PactConfig) -> None:
@@ -141,7 +198,8 @@ def test_rewind_plume_returns_to_tracking(default_config: PactConfig) -> None:
         el_deg=10.0,
     )
     assert new_state.gimbal_state is GimbalState.TRACKING
-    assert new_state.current_target_id == 7
+    assert new_state.aggregate_live is True
+    assert new_state.current_target_id is None
     assert request is None
     assert events[-1].payload["to"] == GimbalState.TRACKING.value
 

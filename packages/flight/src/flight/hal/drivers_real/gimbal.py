@@ -1,9 +1,11 @@
 """Real gimbal driver stub. The PTU ASCII path is removed.
 
 `set_torque` is a no-op `Ok` until the motor-amp interface exists. Pose methods
-latch a commanded elevation for stub encoder reads and stow-switch arming. They
-do not close a position or rate loop. Encoder reads return the last latched pose
-(0 until a pose command). This stub does not import a vendor SDK.
+latch a commanded elevation for stow-switch arming. They do not close a position
+or rate loop and they do not teleport the encoder. Encoder reads stay at the last
+physical pose (0 until a future amp moves the axis). The stow switch is True only
+when stow was commanded and the encoder is near stow — False on this stub until
+hardware exists.
 
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-004.
 """
@@ -38,6 +40,7 @@ class RealGimbal:
         self._cfg = cfg if cfg is not None else GimbalConfig()
         self._clock = clock
         self._el_deg = 0.0
+        self._target_el_deg = 0.0
         self._stow_commanded = False
 
     def set_torque(self, tau_nm: float) -> Result[None, FaultCode]:
@@ -53,10 +56,7 @@ class RealGimbal:
         return Ok(None)
 
     def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
-        """Latch a travel-clamped pose. No hardware motion.
-
-        The stub stores the commanded elevation as the encoder reading. A real
-        amp will leave encoder reads to `read_position` and motion to `set_torque`.
+        """Latch a travel-clamped pose target. Encoder is unchanged.
 
         Inputs:
             el_deg (float): Target elevation in degrees.
@@ -65,12 +65,12 @@ class RealGimbal:
             Ok(None).
         """
         cfg = self._cfg
-        self._el_deg = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
+        self._target_el_deg = min(max(el_deg, cfg.el_hw_min_deg), cfg.el_hw_max_deg)
         self._stow_commanded = False
         return Ok(None)
 
     def home(self) -> Result[None, FaultCode]:
-        """Record the configured home pose.
+        """Latch the configured home pose. Encoder is unchanged.
 
         Outputs:
             Ok(None).
@@ -78,7 +78,7 @@ class RealGimbal:
         return self.goto_angle(self._cfg.home_el_deg)
 
     def stow(self) -> Result[None, FaultCode]:
-        """Record the configured stow pose.
+        """Latch the configured stow pose. Encoder is unchanged.
 
         Outputs:
             Ok(None).
@@ -88,7 +88,7 @@ class RealGimbal:
         return result
 
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
-        """Return the last recorded pose (0 until a pose command), timestamped.
+        """Return the encoder pose (0 until a future amp moves it), timestamped.
 
         Outputs:
             Ok(GimbalPosition).
@@ -96,10 +96,10 @@ class RealGimbal:
         return Ok(GimbalPosition(el_deg=self._el_deg, timestamp_s=self._clock.monotonic_s()))
 
     def read_stow_switch(self) -> Result[bool, FaultCode]:
-        """True when stow was commanded and the recorded pose is near stow.
+        """True when stow was commanded and the encoder is near stow.
 
         Outputs:
-            Ok(bool).
+            Ok(bool). False on this stub because the encoder does not teleport.
         """
         at_pose = abs(self._el_deg - self._cfg.stow_el_deg) < 0.5
         return Ok(self._stow_commanded and at_pose)

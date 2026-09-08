@@ -69,5 +69,56 @@ def test_rewind_update_replays_to_now() -> None:
     rewound = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.residual.rewind_horizon_s)
     naive = update(filt, state, z_v)
     assert rewound.has_measurement is True
-    # Lagged update must not equal treating z_v as a measurement at `now`.
     assert abs(float(rewound.x[0]) - float(naive.x[0])) > 1e-12
+
+    snap = next(s for s in snaps if abs(s.t_s - t_s) < 1e-12)
+    posterior = update(filt, snap.state, z_v)
+    replay_from = t_s
+    for later in snaps:
+        if later.t_s <= t_s + 1e-12:
+            continue
+        step = later.t_s - replay_from
+        posterior = predict(filt, posterior, step, later.omega_t_nom, later.y_m)
+        replay_from = later.t_s
+    tail = now - replay_from
+    if tail > 1e-12:
+        last = snaps[-1]
+        posterior = predict(filt, posterior, tail, last.omega_t_nom, last.y_m)
+    assert np.allclose(rewound.x, posterior.x)
+    assert not np.allclose(rewound.x, state.x)
+
+
+def test_rewind_before_oldest_snap_uses_inverse() -> None:
+    """A shutter time before the oldest snapshot rolls back with F^{-1}."""
+    cfg, filt = _filter()
+    dt = cfg.outer.dt_s
+    state = update(filt, filt.initial_state(), 0.0)
+    snaps: tuple[ResidualSnapshot, ...] = ()
+    now = 0.0
+    omega = 0.05
+    y_m = 0.01
+    for _ in range(3):
+        now += dt
+        state = predict(filt, state, dt, omega, y_m)
+        snaps = push_snapshot(
+            snaps,
+            ResidualSnapshot(t_s=now, state=state, dt_s=dt, omega_t_nom=omega, y_m=y_m),
+            cfg.residual.rewind_snapshots,
+        )
+    t_s = snaps[0].t_s - 0.5 * dt
+    z_v = 0.03
+    rewound = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.residual.rewind_horizon_s)
+    pred = predict(filt, snaps[0].state, t_s - snaps[0].t_s, omega, y_m, add_q=False)
+    posterior = update(filt, pred, z_v)
+    replay_from = t_s
+    for later in snaps:
+        step = later.t_s - replay_from
+        if step > 1e-12:
+            posterior = predict(filt, posterior, step, later.omega_t_nom, later.y_m)
+        replay_from = later.t_s
+    tail = now - replay_from
+    if tail > 1e-12:
+        posterior = predict(filt, posterior, tail, snaps[-1].omega_t_nom, snaps[-1].y_m)
+    assert np.allclose(rewound.x, posterior.x)
+    noop = update(filt, snaps[0].state, z_v)
+    assert abs(float(rewound.x[0]) - float(noop.x[0])) > 1e-8

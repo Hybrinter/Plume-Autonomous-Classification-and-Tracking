@@ -12,7 +12,7 @@ and embedded structs.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SCHEMA_VERSION` | constant | Bus envelope schema version (`1`) |
+| `SCHEMA_VERSION` | constant | Bus envelope schema version (`2`) |
 | `utc_now_iso` | function | Current UTC ISO string with millisecond precision |
 | `BlobMeta` | class | Embedded blob metadata struct |
 | Message classes | class | One frozen dataclass per `MessageType` |

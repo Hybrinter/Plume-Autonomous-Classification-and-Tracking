@@ -65,6 +65,8 @@ class VisionSample:
         exposure_us: Live frame exposure.
         blobs: Gated, matched blobs (empty on a miss).
         mode_flags: Inference mode_flags for SAFE latching.
+        theta_g_rad: Encoder elevation at shutter, radians.
+        iss: ISS state at shutter, or None when ephemeris is dead.
     """
 
     t_s: float
@@ -73,6 +75,8 @@ class VisionSample:
     exposure_us: float
     blobs: tuple[BlobMeta, ...]
     mode_flags: int
+    theta_g_rad: float
+    iss: IssSample | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,8 +107,11 @@ class ControlState:
         r_rad_s: Last rate reference.
         y_m: Last encoder-rate estimate, rad/s.
         snapshots: Residual rewind ring, oldest first.
-        last_inner_s: Monotonic time of the last inner step.
-        last_outer_s: Monotonic time of the last outer step.
+        last_inner_s: Monotonic time of the last inner step, or None if not started.
+        last_outer_s: Monotonic time of the last outer step, or None if not started.
+        last_theta_enc_rad: Last encoder sample, radians, or None.
+        integrity_freeze_strikes: Consecutive encoder-freeze inner ticks.
+        integrity_lock_strikes: Consecutive lock-fight inner ticks.
         last_exposure_us: Last live exposure (REWIND smear cap).
         pose_mode: STOW/HOME/ABSOLUTE while the position loop is active.
         pose_el_deg: Position-loop target elevation, degrees.
@@ -122,8 +129,11 @@ class ControlState:
     r_rad_s: float
     y_m: float
     snapshots: tuple[ResidualSnapshot, ...]
-    last_inner_s: float
-    last_outer_s: float
+    last_inner_s: float | None
+    last_outer_s: float | None
+    last_theta_enc_rad: float | None
+    integrity_freeze_strikes: int
+    integrity_lock_strikes: int
     last_exposure_us: float
     pose_mode: GimbalCommandMode | None
     pose_el_deg: float
@@ -154,7 +164,7 @@ class OuterTick:
         state: Updated ControlState.
         request: Pose request (STOW on SAFE entry), or None.
         telemetry: Compact pointing plus arbiter transition events.
-        fault: Unused (no runaway); always None.
+        fault: Integrity trip from the inner path is published by the shell.
     """
 
     state: ControlState
@@ -231,7 +241,7 @@ class PayloadController:
         """Cold TRACKING arbiter, zero residual, empty encoder ring, r=0.
 
         Outputs:
-            ControlState: Starting state. last_inner_s and last_outer_s are 0.0.
+            ControlState: Starting state. last_inner_s and last_outer_s are None.
         """
         return ControlState(
             arbiter=ArbiterState(
@@ -247,8 +257,11 @@ class PayloadController:
             r_rad_s=0.0,
             y_m=0.0,
             snapshots=(),
-            last_inner_s=0.0,
-            last_outer_s=0.0,
+            last_inner_s=None,
+            last_outer_s=None,
+            last_theta_enc_rad=None,
+            integrity_freeze_strikes=0,
+            integrity_lock_strikes=0,
             last_exposure_us=0.0,
             pose_mode=None,
             pose_el_deg=0.0,
@@ -264,6 +277,8 @@ class PayloadController:
         result: InferenceResultMsg,
         t_s: float,
         exposure_us: float,
+        theta_g_rad: float = 0.0,
+        iss: IssSample | None = None,
     ) -> tuple[ControlState, VisionSample]:
         """Gate and match blobs; build a vision sample. Does not step the loops.
 
@@ -272,6 +287,8 @@ class PayloadController:
             result: Detector output.
             t_s: Monotonic shutter time.
             exposure_us: Live exposure.
+            theta_g_rad: Encoder elevation at shutter, radians.
+            iss: ISS state at shutter, or None.
 
         Outputs:
             tuple[ControlState, VisionSample]: State with updated tracked-blob
@@ -301,6 +318,8 @@ class PayloadController:
             exposure_us=exposure_us,
             blobs=matched,
             mode_flags=result.mode_flags,
+            theta_g_rad=theta_g_rad,
+            iss=iss,
         )
         return replace(state, last_e_az=e_az), sample
 
@@ -310,6 +329,8 @@ class PayloadController:
         now: float,
         theta_enc_rad: float,
         dt_s: float | None = None,
+        locked: bool = False,
+        safe_latched: bool = False,
     ) -> InnerTick:
         """One inner tick: push encoder, fit y_m, PI + computed torque.
 
@@ -318,6 +339,8 @@ class PayloadController:
             now: Monotonic seconds of this tick.
             theta_enc_rad: Encoder elevation, radians.
             dt_s: Inner period; defaults to cfg.inner.dt_s.
+            locked: Launch lock engaged (freeze I; caller writes τ=0).
+            safe_latched: Use the stow position loop instead of tracking r.
 
         Outputs:
             InnerTick: Updated state and torque.
@@ -329,11 +352,35 @@ class PayloadController:
             ring = ring[-max_n:]
         y_m = fit_rate(ring, dt, self.cfg.inner.rate_fit_n, self.cfg.inner.rate_fit_degree)
         el_deg = math.degrees(theta_enc_rad)
+        at_sci_min = el_deg <= self.gimbal.el_science_min_deg + 1e-9
+        at_sci_max = el_deg >= self.gimbal.el_science_max_deg - 1e-9
         stopped = (
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
         )
+        if safe_latched or state.pose_mode is not None:
+            pose_el = (
+                state.pose_el_deg if state.pose_mode is not None else self.gimbal.stow_el_deg
+            )
+            r = position_rate(
+                math.radians(pose_el),
+                theta_enc_rad,
+                self.cfg.position.K_pos,
+                math.radians(self.cfg.position.r_max_deg_per_s),
+            )
+            if safe_latched:
+                r = position_rate(
+                    math.radians(self.gimbal.stow_el_deg),
+                    theta_enc_rad,
+                    self.cfg.position.K_pos,
+                    math.radians(self.cfg.position.r_max_deg_per_s),
+                )
+        else:
+            r = state.r_rad_s
+        if locked:
+            r = 0.0
+        at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
         result = inner_step(
-            state.r_rad_s,
+            r,
             y_m,
             state.integrator,
             dt,
@@ -342,17 +389,20 @@ class PayloadController:
             self.cfg.inner.kp,
             self.cfg.inner.ki,
             self.gimbal.tau_max_nm,
-            stopped,
+            stopped or at_bound,
+            locked=locked,
         )
         new_state = replace(
             state,
             encoder_ring=ring,
             integrator=result.integrator,
+            r_rad_s=r,
             y_m=y_m,
             last_inner_s=now,
+            last_theta_enc_rad=theta_enc_rad,
             last_tau_nm=result.tau_nm,
         )
-        return InnerTick(state=new_state, tau_nm=result.tau_nm)
+        return InnerTick(state=new_state, tau_nm=0.0 if locked else result.tau_nm)
 
     def outer_step(
         self,
@@ -394,78 +444,106 @@ class PayloadController:
             el_deg,
             mode_flags,
             vision_updated=vision is not None,
+            timestamp_utc=timestamp_utc,
         )
 
         pose_mode = state.pose_mode
         pose_el = state.pose_el_deg
-        if request is not None and request.mode is GimbalCommandMode.STOW:
-            pose_mode = GimbalCommandMode.STOW
-            pose_el = self.gimbal.stow_el_deg
+        if request is not None:
+            pose_mode = request.mode
+            if request.mode is GimbalCommandMode.STOW:
+                pose_el = self.gimbal.stow_el_deg
+            elif request.mode is GimbalCommandMode.HOME:
+                pose_el = self.gimbal.home_el_deg
+            else:
+                pose_el = request.el_deg
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             pose_mode = GimbalCommandMode.STOW
             pose_el = self.gimbal.stow_el_deg
-        elif pose_mode is GimbalCommandMode.STOW and safe_cleared:
+        elif pose_mode is not None and safe_cleared:
             pose_mode = None
 
-        if vision is not None and vision.exposure_us > 0.0:
-            exposure_us = vision.exposure_us
+        residual = state.residual
+        snapshots = state.snapshots
+        if new_arbiter.gimbal_state is GimbalState.SAFE:
+            if vision is not None and vision.exposure_us > 0.0:
+                exposure_us = vision.exposure_us
+            else:
+                exposure_us = state.last_exposure_us
+            r_cog = state.r_cog_ecef_m
+            omega_t_nom = 0.0
+            theta_los = state.last_theta_los
         else:
-            exposure_us = state.last_exposure_us
-        r_cog = state.r_cog_ecef_m
-        if vision is not None and vision.p_cog is not None and iss is not None:
-            inter = intersect_cog(
-                vision.p_cog,
-                theta_g_rad,
-                iss.r_m,
-                iss.v_m_s,
-                iss.utc_s,
-                self.eph.epoch_utc_s,
-                self.eph.omega_earth_rad_s,
-                self.eph.wgs84_a_m,
-                self.eph.wgs84_f,
-                self.plane_width_px,
-                self.plane_height_px,
-                self.pixel_pitch_m,
-                self.focal_m,
-                r_cog,
+            if safe_cleared:
+                residual = self.residual_filt.initial_state()
+                snapshots = ()
+            if vision is not None and vision.exposure_us > 0.0:
+                exposure_us = vision.exposure_us
+            else:
+                exposure_us = state.last_exposure_us
+            r_cog = state.r_cog_ecef_m
+            shutter_iss = vision.iss if vision is not None else None
+            shutter_theta = vision.theta_g_rad if vision is not None else theta_g_rad
+            if (
+                vision is not None
+                and vision.p_cog is not None
+                and shutter_iss is not None
+            ):
+                inter = intersect_cog(
+                    vision.p_cog,
+                    shutter_theta,
+                    shutter_iss.r_m,
+                    shutter_iss.v_m_s,
+                    shutter_iss.utc_s,
+                    self.eph.epoch_utc_s,
+                    self.eph.omega_earth_rad_s,
+                    self.eph.wgs84_a_m,
+                    self.eph.wgs84_f,
+                    self.plane_width_px,
+                    self.plane_height_px,
+                    self.pixel_pitch_m,
+                    self.focal_m,
+                    r_cog,
+                )
+                if inter.hit and inter.r_cog_ecef_m is not None:
+                    r_cog = inter.r_cog_ecef_m
+
+            omega_t_nom = 0.0
+            theta_los = 0.0
+            if r_cog is not None and iss is not None:
+                theta_los, omega_t_nom = predict_los(
+                    iss.utc_s,
+                    iss.r_m,
+                    iss.v_m_s,
+                    r_cog,
+                    self.eph.omega_earth_rad_s,
+                    self.eph.epoch_utc_s,
+                )
+
+            residual = residual_predict(
+                self.residual_filt, residual, dt, omega_t_nom, state.y_m
             )
-            if inter.hit and inter.r_cog_ecef_m is not None:
-                r_cog = inter.r_cog_ecef_m
-
-        omega_t_nom = 0.0
-        theta_los = 0.0
-        if r_cog is not None and iss is not None:
-            theta_los, omega_t_nom = predict_los(
-                iss.utc_s,
-                iss.r_m,
-                iss.v_m_s,
-                r_cog,
-                self.eph.omega_earth_rad_s,
-                self.eph.epoch_utc_s,
+            snap = ResidualSnapshot(
+                t_s=now,
+                state=residual,
+                dt_s=dt,
+                omega_t_nom=omega_t_nom,
+                y_m=state.y_m,
             )
+            snapshots = push_snapshot(snapshots, snap, self.cfg.residual.rewind_snapshots)
 
-        residual = residual_predict(self.residual_filt, state.residual, dt, omega_t_nom, state.y_m)
-        snap = ResidualSnapshot(
-            t_s=now,
-            state=residual,
-            dt_s=dt,
-            omega_t_nom=omega_t_nom,
-            y_m=state.y_m,
-        )
-        snapshots = push_snapshot(state.snapshots, snap, self.cfg.residual.rewind_snapshots)
+            if vision is not None and vision.z_v is not None:
+                residual = rewind_update(
+                    self.residual_filt,
+                    snapshots,
+                    residual,
+                    now,
+                    vision.t_s,
+                    vision.z_v,
+                    self.cfg.residual.rewind_horizon_s,
+                )
 
-        if vision is not None and vision.z_v is not None:
-            residual = rewind_update(
-                self.residual_filt,
-                snapshots,
-                residual,
-                now,
-                vision.t_s,
-                vision.z_v,
-                self.cfg.residual.rewind_horizon_s,
-            )
-
-        live = bool(residual.has_measurement)
+        live = new_arbiter.current_target_id is not None and iss is not None
         e_hat = float(residual.x[0])
         omega_res = float(residual.x[1])
 
@@ -490,6 +568,7 @@ class PayloadController:
                 exposure_us,
                 self.preprocessing.max_motion_smear_px,
                 self.ifov_band_deg_per_px,
+                math.radians(self.gimbal.el_science_min_deg),
             )
 
         new_state = replace(

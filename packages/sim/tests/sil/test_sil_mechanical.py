@@ -4,7 +4,7 @@ from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
 from flight.libs.messages import CommandAckMsg, LaunchLockStateMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import AckStatus, LaunchLockState, MessageType, Ok
+from flight.libs.types import AckStatus, LaunchLockState, Ok
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilHarness, build_sil_system
 
@@ -26,15 +26,6 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     harness = SilHarness(system)
     acks = system.bus.subscribe(CommandAckMsg)
     lock_states = system.bus.subscribe(LaunchLockStateMsg)
-
-    # Make the payload's first poll see ENGAGED so motion is inhibited from frame one.
-    system.bus.publish(
-        LaunchLockStateMsg(
-            msg_type=MessageType.LAUNCH_LOCK_STATE,
-            timestamp_utc="t",
-            state=LaunchLockState.ENGAGED,
-        )
-    )
 
     now = 0.0
 
@@ -74,6 +65,38 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     freed_pos = system.gimbal.read_position()
     assert isinstance(freed_pos, Ok)
     assert abs(freed_pos.value.el_deg) > 0.5
+
+
+def test_lock_mid_run_and_clock_jump_hold_zero_torque() -> None:
+    """Engaging the lock mid-run writes tau=0; a clock jump while locked stays at 0."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(16),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+        launch_lock_engaged=False,
+    )
+    harness = SilHarness(system)
+    now = 0.0
+    for _ in range(4):
+        now += 1.0
+        harness.step(now)
+        system.clock.advance(1.0)
+    mid = system.gimbal.read_position()
+    assert isinstance(mid, Ok)
+    assert abs(mid.value.el_deg) > 0.05
+    system.apps.mechanical.lock.engage()
+    now += 1.0
+    harness.step(now)
+    system.clock.advance(1.0)
+    assert system.gimbal._tau_nm == 0.0
+    now += 3.0
+    harness.step(now)
+    system.clock.advance(3.0)
+    assert system.gimbal._tau_nm == 0.0
 
 
 def _drain(subscription: object) -> list:  # type: ignore[type-arg]

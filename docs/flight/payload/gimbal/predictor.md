@@ -23,7 +23,7 @@ rate, and the ECI/ECEF alignment epoch. Outputs are elevation and elevation rate
 ## Behavior
 
 1. Rotate the frozen ECEF CoG into ECI at the current UTC.
-2. Project the look vector onto LVLH `+y` and `+z` and form `atan2`.
+2. Project the look vector onto LVLH `+x` and `+z` and form `atan2`.
 3. Differentiate that elevation with Earth rotation and ISS motion through an
    analytic Jacobian.
 

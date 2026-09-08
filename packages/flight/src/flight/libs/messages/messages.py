@@ -44,7 +44,7 @@ from flight.libs.types import (
 # field layout changes incompatibly, so a consumer (or a downlinked record) can detect a
 # version skew rather than silently mis-parsing. Every message dataclass carries it as a
 # defaulted trailing field, so existing keyword constructions are unaffected.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # Shared timestamp utility

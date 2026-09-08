@@ -6,7 +6,8 @@
 ## Purpose
 
 The gimbal package holds pure elevation control logic: the pointing FSM, inner and
-outer laws, CoG geometry, pose requests, and pre-arbiter safety gates.
+outer laws, CoG geometry, pose requests, pre-arbiter safety gates, and the light
+integrity detector.
 
 ## Contents
 
@@ -23,13 +24,14 @@ outer laws, CoG geometry, pose requests, and pre-arbiter safety gates.
 | [`pointing`](gimbal/pointing.md) | pure module | Pinhole boresight error |
 | [`request`](gimbal/request.md) | pure module | Typed pose command from the pure core |
 | [`safety`](gimbal/safety.md) | pure module | Confidence and area gates |
+| [`integrity`](gimbal/integrity.md) | pure module | NaN, encoder-freeze, and lock-fight detector |
 
 ## Package interface
 
 Re-exports: `ArbiterState`, `GimbalArbiter`, `GimbalRequest`, `InnerResult`,
-`IntersectResult`, `apply_confidence_gate`, `apply_min_area_gate`,
-`boresight_error_deg`, `clip_rate`, `fit_rate`, `inner_step`, `intersect_cog`,
-`outer_rate`, `pinhole_error_rad`, `position_rate`, `predict_los`,
+`IntegrityResult`, `IntersectResult`, `apply_confidence_gate`, `apply_min_area_gate`,
+`boresight_error_deg`, `check_integrity`, `clip_rate`, `fit_rate`, `inner_step`,
+`intersect_cog`, `outer_rate`, `pinhole_error_rad`, `position_rate`, `predict_los`,
 `smear_cap_rad_s`, `target_displacement_px`.
 
 ## Interactions
@@ -41,9 +43,9 @@ accesses the bus or HAL directly.
 
 ## Constraints
 
-All modules are pure except that `GimbalArbiter._transition_event` stamps telemetry
-with `utc_now_iso()` for event records returned to the caller. `GimbalRequest` never
-travels on the bus. There is no gimbal azimuth command.
+All modules are pure. `GimbalArbiter._transition_event` uses an injected
+`timestamp_utc`. `GimbalRequest` never travels on the bus. There is no gimbal
+azimuth command.
 
 ## Related documents
 

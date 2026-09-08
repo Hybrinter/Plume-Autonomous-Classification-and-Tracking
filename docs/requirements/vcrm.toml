@@ -82,13 +82,13 @@ status = "verified"
 
 [[requirement]]
 id = "REQ-GIMB-HIGH-003"
-statement = "Runaway / unsafe gimbal motion is detected and forces a stow."
+statement = "Envelope clips and the light integrity detector (NaN, encoder freeze, lock-fight) force a stow."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-GIMB-HIGH-003"]
 evidence = [
+    "packages/flight/tests/payload/gimbal/test_integrity.py",
     "packages/sim/tests/sil/test_sil_closed_loop.py",
-    "packages/flight/tests/hal/drivers_sim/test_sim_gimbal.py",
 ]
 status = "verified"
 

@@ -65,18 +65,29 @@ def test_cold_outer_holds_r_zero_without_vision() -> None:
     assert tick.fault is None
 
 
-def test_blob_below_boresight_commands_negative_r() -> None:
-    """A below-boresight blob snaps e and produces a negative elevation rate."""
+def _iss() -> IssSample:
+    """Circular-LEO IssSample at the ephemeris epoch."""
+    eph = EphemerisConfig()
+    radius = 6_378_137.0 + 400_000.0
+    speed = math.sqrt(eph.mu_m3_s2 / radius)
+    return IssSample(r_m=(radius, 0.0, 0.0), v_m_s=(0.0, speed, 0.0), utc_s=eph.epoch_utc_s)
+
+
+def test_blob_above_boresight_commands_positive_r() -> None:
+    """An above-boresight blob snaps e and produces a positive elevation rate."""
     controller = _controller()
     state = controller.initial_state()
-    centroid = (_BORESIGHT_X, _BORESIGHT_Y + 70.0)
-    state, sample = controller.ingest_inference(state, _result(1, centroid=centroid), 0.0, 1000.0)
+    centroid = (_BORESIGHT_X, _BORESIGHT_Y - 70.0)
+    iss = _iss()
+    state, sample = controller.ingest_inference(
+        state, _result(1, centroid=centroid), 0.0, 1000.0, 0.0, iss
+    )
     assert sample.z_v is not None
-    assert sample.z_v < 0.0
-    tick = controller.outer_step(state, 0.02, 0.0, sample, None, False, False)
+    assert sample.z_v > 0.0
+    tick = controller.outer_step(state, 0.02, 0.0, sample, iss, False, False)
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.residual.has_measurement is True
-    assert tick.state.r_rad_s < 0.0
+    assert tick.state.r_rad_s > 0.0
     assert tick.request is None
 
 
@@ -120,6 +131,55 @@ def test_iss_sample_feeds_predictor() -> None:
         exposure_us=1000.0,
         blobs=(),
         mode_flags=0,
+        theta_g_rad=0.0,
+        iss=iss,
     )
     tick = controller.outer_step(state, 0.02, 0.0, sample, iss, False, False)
     assert math.isfinite(tick.state.last_omega_t_nom)
+
+
+def test_home_request_sets_pose_mode() -> None:
+    """HOME pose_mode writes a position-loop rate toward home."""
+    from dataclasses import replace
+
+    from flight.payload.gimbal.request import GimbalRequest
+
+    controller = _controller()
+    state = replace(
+        controller.initial_state(),
+        pose_mode=GimbalCommandMode.HOME,
+        pose_el_deg=controller.gimbal.home_el_deg,
+    )
+    tick = controller.outer_step(state, 0.02, 0.0, None, None, False, False)
+    assert tick.state.pose_mode is GimbalCommandMode.HOME
+    assert tick.state.r_rad_s > 0.0
+    del GimbalRequest
+
+
+def test_science_window_zeros_negative_r_at_min() -> None:
+    """TRACKING live does not command r that would leave the science window."""
+    controller = _controller()
+    state = controller.initial_state()
+    iss = _iss()
+    centroid = (_BORESIGHT_X, _BORESIGHT_Y + 70.0)
+    state, sample = controller.ingest_inference(
+        state, _result(1, centroid=centroid), 0.0, 1000.0, 0.0, iss
+    )
+    tick = controller.outer_step(state, 0.02, 0.0, sample, iss, False, False)
+    assert tick.state.r_rad_s == 0.0
+
+
+def test_exit_safe_resets_residual() -> None:
+    """EXIT_SAFE cold-starts the residual filter."""
+    from dataclasses import replace
+
+    controller = _controller()
+    state = controller.initial_state()
+    safe = controller.outer_step(state, 0.02, 0.0, None, None, True, False)
+    residual = replace(safe.state.residual, has_measurement=True)
+    hot = replace(safe.state, residual=residual)
+    cleared = controller.outer_step(hot, 0.04, 0.0, None, None, False, True)
+    assert cleared.state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert cleared.state.residual.has_measurement is False
+    assert float(cleared.state.residual.x[0]) == 0.0
+    assert float(cleared.state.residual.x[1]) == 0.0

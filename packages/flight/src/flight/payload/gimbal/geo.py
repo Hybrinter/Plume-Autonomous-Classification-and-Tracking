@@ -19,25 +19,25 @@ import numpy as np
 _MIN_RANGE_M = 1.0
 
 
-def rx_neg(theta_rad: float) -> np.ndarray:
-    """Rotation matrix R_x(-theta). Maps mount-nadir boresight to signed elevation.
+def ry(theta_rad: float) -> np.ndarray:
+    """Rotation matrix R_y(theta). Maps mount-nadir boresight to signed elevation.
 
     Inputs:
         theta_rad: Signed off-nadir elevation (positive along-track).
 
     Outputs:
-        np.ndarray[float64, (3, 3)]: Right-handed rotation about mount +x.
+        np.ndarray[float64, (3, 3)]: Right-handed rotation about mount +y (starboard).
     """
     cos_t = math.cos(theta_rad)
     sin_t = math.sin(theta_rad)
     return np.array(
-        [[1.0, 0.0, 0.0], [0.0, cos_t, sin_t], [0.0, -sin_t, cos_t]],
+        [[cos_t, 0.0, sin_t], [0.0, 1.0, 0.0], [-sin_t, 0.0, cos_t]],
         dtype=np.float64,
     )
 
 
 def boresight_mount(theta_rad: float) -> np.ndarray:
-    """Unit boresight in mount coordinates: (0, sin theta, cos theta).
+    """Unit boresight in mount coordinates: (sin theta, 0, cos theta).
 
     Inputs:
         theta_rad: Signed off-nadir elevation.
@@ -45,7 +45,7 @@ def boresight_mount(theta_rad: float) -> np.ndarray:
     Outputs:
         np.ndarray[float64, (3,)]: Mount-frame unit look vector.
     """
-    return np.array([0.0, math.sin(theta_rad), math.cos(theta_rad)], dtype=np.float64)
+    return np.array([math.sin(theta_rad), 0.0, math.cos(theta_rad)], dtype=np.float64)
 
 
 def rz(phi_rad: float) -> np.ndarray:
@@ -108,7 +108,9 @@ def ecef_from_eci(
 def lvlh_axes(
     r_eci_m: np.ndarray, v_eci_m_s: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """ISS body axes in ECI: +x starboard (orbit normal), +y along-track, +z nadir.
+    """ISS body axes in ECI: +x along-track, +y starboard (-h-hat), +z nadir.
+
+    Matches analysis.lib.look.body_axes. Elevation hinge is +y.
 
     Inputs:
         r_eci_m: ISS position ECI meters, shape (3,).
@@ -126,14 +128,14 @@ def lvlh_axes(
             np.array([0.0, 1.0, 0.0], dtype=np.float64),
             np.array([0.0, 0.0, 1.0], dtype=np.float64),
         )
-    x_hat = h / h_norm
     z_hat = -r_eci_m / r_norm
-    y_hat = np.cross(z_hat, x_hat)
-    y_norm = float(np.linalg.norm(y_hat))
-    if y_norm < 1e-12:
-        y_hat = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+    y_hat = -h / h_norm
+    x_hat = np.cross(y_hat, z_hat)
+    x_norm = float(np.linalg.norm(x_hat))
+    if x_norm < 1e-12:
+        x_hat = np.array([1.0, 0.0, 0.0], dtype=np.float64)
     else:
-        y_hat = y_hat / y_norm
+        x_hat = x_hat / x_norm
     return x_hat, y_hat, z_hat
 
 
@@ -173,7 +175,8 @@ def pinhole_cam_ray(
 def cam_ray_to_mount(d_cam: np.ndarray, theta_g_rad: float) -> np.ndarray:
     """Rotate a camera-frame ray into the mount frame at elevation theta_g.
 
-    At nadir, camera +X is mount +x and camera +Y is mount -y.
+    At nadir, camera +X (image right) is mount +y (starboard) and camera +Y
+    (image down) is mount -x (look-back).
 
     Inputs:
         d_cam: Unit camera-frame ray, shape (3,).
@@ -182,13 +185,13 @@ def cam_ray_to_mount(d_cam: np.ndarray, theta_g_rad: float) -> np.ndarray:
     Outputs:
         np.ndarray[float64, (3,)]: Unit mount-frame look vector.
     """
-    d_nadir = np.array([float(d_cam[0]), -float(d_cam[1]), float(d_cam[2])], dtype=np.float64)
+    d_nadir = np.array([-float(d_cam[1]), float(d_cam[0]), float(d_cam[2])], dtype=np.float64)
     nrm = float(np.linalg.norm(d_nadir))
     if nrm < 1e-18:
         d_nadir = np.array([0.0, 0.0, 1.0], dtype=np.float64)
     else:
         d_nadir = d_nadir / nrm
-    return rx_neg(theta_g_rad) @ d_nadir
+    return ry(theta_g_rad) @ d_nadir
 
 
 def mount_to_eci(d_mount: np.ndarray, r_eci_m: np.ndarray, v_eci_m_s: np.ndarray) -> np.ndarray:

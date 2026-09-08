@@ -30,18 +30,18 @@ The plume scene module renders radiometrically plausible raw mosaic frames. It a
 
 **`plume_detector() -> ScriptedDetector`**
 
-- Output: detector with mask region `[875:925, 587:637]` at tensor resolution, confidence
+- Output: detector with mask region `[99:149, 587:637]` at tensor resolution, confidence
   gate 0.55, minimum blob area 15 px.
 
 ## Behavior
 
-1. `build_frames` builds a 1024x1224 Gaussian plume in band-plane space at (x=612, y=900)
-   with sigma 40 px.
+1. `build_frames` builds a 1024x1224 Gaussian plume in band-plane space at (x=612, y=124)
+   with sigma 40 px, above boresight so elevation stays in the science window.
 2. It composites background and per-band plume amplitudes, adds Gaussian read noise (sigma
    2 DN), and quantizes to 12-bit.
 3. It interleaves four band planes into the 2x2 CFA mosaic via `interleave_bands`.
 4. It assigns `frame_id` values 1 through `num_frames` with fixed timestamp metadata.
-5. `plume_detector` fills a 1024x1224 float mask with a square at unit probability below
+5. `plume_detector` fills a 1024x1224 float mask with a square at unit probability above
    boresight.
 
 ## Errors and faults
@@ -59,8 +59,8 @@ None.
 ## Constraints
 
 - NIR band amplitude is highest inside the plume region.
-- The centroid sits ~388 px below the 1024x1224-plane boresight (612, 512).
-- TRACKING commands negative elevation. Drivers pin azimuth at 0.
+- The centroid sits ~388 px above the 1024x1224-plane boresight (612, 512).
+- TRACKING commands positive elevation inside the science window.
 
 ## Related documents
 

@@ -34,9 +34,13 @@ horizon.
 
 1. Cold state is `e = 0`, `omega_t_res = 0`, `has_measurement = False`.
 2. The first update may snap `e` to `z_v`.
-3. Predict runs every outer tick. Update runs when a vision sample arrives.
+3. Predict runs every outer tick. Negative `dt` rolls kinematics backward and
+   skips process noise.
 4. A lagged `z_v` restores the snapshot at shutter time, updates, and replays to
-   `now`. Samples older than the rewind horizon are dropped.
+   `now`. If `t_s` is before the oldest snapshot, the filter rolls back with
+   `F^{-1}`. An empty ring does not treat the current state as `t_s` when
+   `now - t_s` is a full outer period. Samples older than the rewind horizon are
+   dropped.
 
 ## Errors and faults
 

@@ -103,6 +103,18 @@ class PositionLoopConfig:
 
 
 @dataclass(frozen=True, config=_SCHEMA)
+class IntegrityConfig:
+    """Light pointing-integrity detector and catch-up cap."""
+
+    catchup_max_s: float = Field(default=2.0, gt=0.0)
+    freeze_strikes: int = Field(default=50, ge=1)
+    r_min_rad_s: float = Field(default=0.01745, gt=0.0)
+    encoder_rate_ratio: float = Field(default=0.2, gt=0.0)
+    lock_fight_rad_s: float = Field(default=0.005, gt=0.0)
+    lock_fight_strikes: int = Field(default=50, ge=1)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
 class ControllerConfig:
     """Nested configuration for vision gates, arbiter, and cascaded loops."""
 
@@ -112,6 +124,7 @@ class ControllerConfig:
     outer: OuterLoopConfig = field(default_factory=OuterLoopConfig)
     residual: ResidualConfig = field(default_factory=ResidualConfig)
     position: PositionLoopConfig = field(default_factory=PositionLoopConfig)
+    integrity: IntegrityConfig = field(default_factory=IntegrityConfig)
 
 
 @dataclass(frozen=True, config=_SCHEMA)

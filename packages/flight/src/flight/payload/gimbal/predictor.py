@@ -45,9 +45,9 @@ def predict_los(
     r_cog_eci = eci_from_ecef(r_cog_ecef, omega_earth_rad_s, utc_s, epoch_utc_s)
     look = r_cog_eci - r_iss
     x_hat, y_hat, z_hat = lvlh_axes(r_iss, v_iss)
-    ly = float(look @ y_hat)
+    lx = float(look @ x_hat)
     lz = float(look @ z_hat)
-    theta = math.atan2(ly, lz)
+    theta = math.atan2(lx, lz)
 
     omega_e = np.array([0.0, 0.0, omega_earth_rad_s], dtype=np.float64)
     r_cog_dot = np.cross(omega_e, r_cog_eci)
@@ -58,11 +58,11 @@ def predict_los(
         return theta, 0.0
     r_dot_v = float(r_iss @ v_iss)
     z_dot = -(v_iss / r_norm - r_iss * (r_dot_v / r_norm**3))
-    x_dot = np.zeros(3, dtype=np.float64)
-    y_dot = np.cross(z_dot, x_hat) + np.cross(z_hat, x_dot)
+    y_dot = np.zeros(3, dtype=np.float64)
+    x_dot = np.cross(y_dot, z_hat) + np.cross(y_hat, z_dot)
 
-    dly = float(look_dot @ y_hat + look @ y_dot)
+    dlx = float(look_dot @ x_hat + look @ x_dot)
     dlz = float(look_dot @ z_hat + look @ z_dot)
-    denom = ly * ly + lz * lz
-    omega_nom = (lz * dly - ly * dlz) / denom if denom > 1e-12 else 0.0
+    denom = lx * lx + lz * lz
+    omega_nom = (lz * dlx - lx * dlz) / denom if denom > 1e-12 else 0.0
     return theta, float(omega_nom)

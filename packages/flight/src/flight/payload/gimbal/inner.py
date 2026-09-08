@@ -10,6 +10,7 @@ Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 from __future__ import annotations
 
 # stdlib
+import math
 from dataclasses import dataclass
 
 
@@ -41,6 +42,7 @@ def inner_step(
     ki: float,
     tau_max_nm: float,
     stopped: bool,
+    locked: bool = False,
 ) -> InnerResult:
     """Advance the inner PI by one inner period.
 
@@ -53,13 +55,18 @@ def inner_step(
         kp, ki: PI gains (1/s and 1/s² on rad/s).
         tau_max_nm: Torque clip, N·m.
         stopped: True when the encoder is on a hardware travel stop.
+        locked: True when the launch lock freezes I and the caller will write τ=0.
 
     Outputs:
         InnerResult: Clipped torque, updated integrator, acceleration, clip flag.
     """
+    if not (math.isfinite(r_rad_s) and math.isfinite(y_m) and math.isfinite(integrator)):
+        return InnerResult(tau_nm=0.0, integrator=integrator, v_rad_s2=0.0, clipped=True)
     err = r_rad_s - y_m
     v = kp * err + ki * integrator
     tau_unsat = j_hat * v + b_hat * y_m
+    if not math.isfinite(tau_unsat):
+        return InnerResult(tau_nm=0.0, integrator=integrator, v_rad_s2=v, clipped=True)
     if tau_unsat > tau_max_nm:
         tau = tau_max_nm
     elif tau_unsat < -tau_max_nm:
@@ -68,6 +75,6 @@ def inner_step(
         tau = tau_unsat
     clipped = abs(tau_unsat) > tau_max_nm + 1e-15
     new_i = integrator
-    if (not clipped) and (not stopped) and dt_s > 0.0:
+    if (not clipped) and (not stopped) and (not locked) and dt_s > 0.0:
         new_i = integrator + err * dt_s
     return InnerResult(tau_nm=tau, integrator=new_i, v_rad_s2=v, clipped=clipped)

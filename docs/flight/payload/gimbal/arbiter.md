@@ -21,7 +21,7 @@ torque. SAFE latches until ground clears it.
 `GimbalArbiter(cfg, gimbal)` stores arbiter thresholds and science-limb elevation.
 
 `step(state, blobs, now, safe_commanded, safe_cleared, el_deg, mode_flags=0,
-vision_updated=True)` returns
+vision_updated=True, timestamp_utc="")` returns
 `(ArbiterState, GimbalRequest | None, list[TelemetryEventMsg])`.
 
 The request is STOW on SAFE entry. Otherwise it is `None`. The outer law owns `r`.
@@ -54,7 +54,7 @@ Reads `ArbiterConfig.release_persistence_frames` and `limb_arrival_deg`. Reads
 
 ## Constraints
 
-`step` is a pure function aside from timestamp strings on returned telemetry events.
+`step` is a pure function. Transition telemetry uses the injected `timestamp_utc`.
 `GimbalArbiter` holds no mutable instance state; `ArbiterState` threads externally.
 
 ## Related documents

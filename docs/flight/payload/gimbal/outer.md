@@ -20,16 +20,18 @@ smear cap and the hardware slew.
 ## Inputs and outputs
 
 `outer_rate` takes predictor and residual rates, `e_hat`, `K_p`, arbiter mode, a
-live-vision flag, elevation, science limb, hardware slew, live exposure, smear
-budget, and band IFOV. It returns `r` in rad/s.
+live-target flag, elevation, science max, hardware slew, live exposure, smear
+budget, band IFOV, and science min. It returns `r` in rad/s.
 
 ## Behavior
 
 1. Compute the smear cap from live `exposure_us` and the smear pixel budget.
-2. In REWIND, drive toward the science limb at the smear/hardware cap.
-3. In TRACKING with a live filter, form `omega_t_nom + omega_t_res + K_p * e_hat`
-   and clip.
-4. Otherwise return `0.0` (cold TRACKING or unused SAFE path).
+2. In REWIND, drive toward the science limb at the smear/hardware cap. At the limb,
+   `r` is 0.
+3. In TRACKING with a live target and ISS, form
+   `omega_t_nom + omega_t_res + K_p * e_hat` and clip. Zero `r` that would leave
+   `[theta_sci_min, theta_sci_max]`.
+4. Otherwise return `0.0` (limb wait, cold TRACKING, or unused SAFE path).
 
 ## Errors and faults
 

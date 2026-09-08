@@ -19,7 +19,8 @@ object is constructed.
 | `OuterLoopConfig` | class | Outer period and proportional error gain |
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
-| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, and position configs |
+| `IntegrityConfig` | class | Catch-up cap and light GIMBAL_RUNAWAY detector |
+| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, position, and integrity configs |
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
@@ -82,6 +83,8 @@ Nested tables under `[controller]`:
 - `outer`: `dt_s`, `Kp`
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`
+- `integrity`: `catchup_max_s`, `freeze_strikes`, `r_min_rad_s`,
+  `encoder_rate_ratio`, `lock_fight_rad_s`, `lock_fight_strikes`
 
 ### InferenceConfig
 

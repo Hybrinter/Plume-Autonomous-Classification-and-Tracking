@@ -7,10 +7,13 @@ from flight.hal.drivers_sim import SimGimbal, SimIssEphemeris, SimSensor
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
+    FaultEventMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
+    LaunchLockStateMsg,
     ModeChangeMsg,
     ProcessedFrameMsg,
+    RoutedCommandMsg,
     TelemetryEventMsg,
 )
 from flight.libs.time import ManualClock
@@ -19,6 +22,7 @@ from flight.libs.types import (
     FaultCode,
     GimbalCommandMode,
     GimbalState,
+    LaunchLockState,
     MessageType,
     MosaicFrame,
     Ok,
@@ -62,9 +66,9 @@ def _mosaic_frame(frame_id: int) -> MosaicFrame:
 
 
 def _plume_detector() -> ScriptedDetector:
-    """Scripted detector whose mask yields one strong below-boresight blob each frame."""
+    """Scripted detector whose mask yields one strong above-boresight blob each frame."""
     mask = np.zeros((1024, 1224), dtype=np.float32)
-    mask[875:925, 587:637] = 1.0
+    mask[99:149, 587:637] = 1.0
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 
@@ -80,6 +84,7 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage()
     )
+    app.lock_gate.engaged = False
     return app, bus, gimbal, clock
 
 
@@ -131,7 +136,8 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
 
     position = gimbal.read_position()
     assert isinstance(position, Ok)
-    assert position.value.el_deg < -0.1
+    assert position.value.el_deg > 0.1
+    assert position.value.el_deg <= app.controller.gimbal.el_science_max_deg
     assert not hasattr(position.value, "az_deg")
 
     inference_count = 0
@@ -206,6 +212,63 @@ def test_run_loop_starts_and_stops_cleanly() -> None:
     app.run(stop)
 
     assert cmd_sub.empty()
+
+
+def test_clock_origin_does_not_replay_from_zero() -> None:
+    """A late monotonic origin stamps last_inner_s and does not catch up from 0."""
+    app, bus, _gimbal, clock = _build_app(_plume_detector())
+    clock.advance(3600.0)
+    fault_sub = bus.subscribe(FaultEventMsg)
+    state = app.advance_inner(app.controller.initial_state(), now=3600.0)
+    assert state.last_inner_s == 3600.0
+    faults = []
+    while not fault_sub.empty():
+        faults.append(fault_sub.get_nowait())
+    assert not any("catch-up" in f.detail for f in faults)
+
+
+def test_lock_engaged_writes_zero_torque() -> None:
+    """Fail-closed lock writes tau=0 and freezes the commanded rate."""
+    app, bus, gimbal, _clock = _build_app(_plume_detector())
+    app.lock_gate.engaged = True
+    bus.publish(
+        LaunchLockStateMsg(
+            msg_type=MessageType.LAUNCH_LOCK_STATE,
+            timestamp_utc="t",
+            state=LaunchLockState.ENGAGED,
+        )
+    )
+    from dataclasses import replace
+
+    state = replace(app.controller.initial_state(), r_rad_s=0.1)
+    state = app.advance_inner(state, now=1.0)
+    assert gimbal._tau_nm == 0.0
+    assert state.r_rad_s == 0.0
+
+
+def test_ground_goto_latches_pose_mode() -> None:
+    """A routed GIMBAL_GOTO sets pose_mode and publishes a pose command."""
+    app, bus, _gimbal, _clock = _build_app(_plume_detector())
+    cmd_sub = bus.subscribe(GimbalCommandMsg)
+    bus.publish(
+        RoutedCommandMsg(
+            msg_type=MessageType.ROUTED_COMMAND,
+            timestamp_utc="t",
+            target="payload",
+            command_id="GIMBAL_GOTO",
+            params={"el_deg": 20.0},
+            source="ground",
+            seq=1,
+        )
+    )
+    app.handle_commands()
+    state, outcome = app.advance_outer(app.controller.initial_state(), now=1.0)
+    assert outcome.command_issued is True
+    assert state.pose_mode is GimbalCommandMode.ABSOLUTE
+    assert state.pose_el_deg == 20.0
+    published = cmd_sub.get_nowait()
+    assert published.mode is GimbalCommandMode.ABSOLUTE
+    assert published.el_value_deg == 20.0
 
 
 def _drain_telem(subscription: object) -> list[TelemetryEventMsg]:

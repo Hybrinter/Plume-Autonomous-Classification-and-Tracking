@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from flight.libs.config import ArbiterConfig, GimbalConfig
-from flight.libs.messages import BlobMeta, TelemetryEventMsg, utc_now_iso
+from flight.libs.messages import BlobMeta, TelemetryEventMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
 
@@ -67,6 +67,7 @@ class GimbalArbiter:
         el_deg: float | None,
         mode_flags: int = 0,
         vision_updated: bool = True,
+        timestamp_utc: str = "",
     ) -> tuple[ArbiterState, GimbalRequest | None, list[TelemetryEventMsg]]:
         """Advance the mode machine by one outer tick.
 
@@ -86,9 +87,11 @@ class GimbalArbiter:
             Current elevation in signed off-nadir degrees, or None.
         mode_flags:
             Inference mode_flags; any nonzero value latches SAFE.
-        vision_updated:
+            vision_updated:
             True when this tick consumed a vision sample. False on outer coast:
             miss_count is unchanged.
+        timestamp_utc:
+            Injected ISO stamp for transition telemetry. Empty uses a blank stamp.
 
         Returns
         -------
@@ -112,7 +115,7 @@ class GimbalArbiter:
                 miss_count=0,
                 current_target_id=None,
             )
-            events.append(self._transition_event(old_gs, GimbalState.SAFE))
+            events.append(self._transition_event(old_gs, GimbalState.SAFE, timestamp_utc))
             stow_request = GimbalRequest(
                 mode=GimbalCommandMode.STOW,
                 el_deg=gimbal.stow_el_deg,
@@ -128,7 +131,9 @@ class GimbalArbiter:
                     current_target_id=None,
                     miss_count=0,
                 )
-                events.append(self._transition_event(GimbalState.SAFE, GimbalState.TRACKING))
+                events.append(
+                    self._transition_event(GimbalState.SAFE, GimbalState.TRACKING, timestamp_utc)
+                )
                 return new_state, None, events
             return replace(state, tracked_blobs=blobs_now), None, events
 
@@ -164,7 +169,7 @@ class GimbalArbiter:
                 target_id = None
 
         if new_gs != old_gs:
-            events.append(self._transition_event(old_gs, new_gs))
+            events.append(self._transition_event(old_gs, new_gs, timestamp_utc))
 
         new_state = ArbiterState(
             gimbal_state=new_gs,
@@ -175,19 +180,22 @@ class GimbalArbiter:
         return new_state, None, events
 
     @staticmethod
-    def _transition_event(from_state: GimbalState, to_state: GimbalState) -> TelemetryEventMsg:
+    def _transition_event(
+        from_state: GimbalState, to_state: GimbalState, timestamp_utc: str
+    ) -> TelemetryEventMsg:
         """Build the state_transition telemetry event for one arbiter transition.
 
         Args:
             from_state: The GimbalState before the transition.
             to_state: The GimbalState after the transition.
+            timestamp_utc: Injected ISO timestamp (not wall clock).
 
         Returns:
             A TelemetryEventMsg recording the from/to states for the controller subsystem.
         """
         return TelemetryEventMsg(
             msg_type=MessageType.TELEMETRY_EVENT,
-            timestamp_utc=utc_now_iso(),
+            timestamp_utc=timestamp_utc,
             subsystem="controller",
             event_name="state_transition",
             payload={"from": from_state.value, "to": to_state.value},

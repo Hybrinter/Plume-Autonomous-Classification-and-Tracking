@@ -67,6 +67,8 @@ class SimGimbal:
         self._catchup_debt_s = 0.0
         self._inner_dt_s = inner_dt_s
         self._rng = np.random.default_rng(self._cfg.sim_seed)
+        self._encoder_frozen = False
+        self._frozen_el_deg = math.degrees(self._theta_rad)
 
     def _clip_tau(self, tau_nm: float) -> float:
         """Clip torque to +-tau_max_nm."""
@@ -193,16 +195,23 @@ class SimGimbal:
         noise = float(self._rng.normal(0.0, self._cfg.sim_encoder_noise_deg))
         return quantized + noise
 
+    def freeze_encoder(self) -> None:
+        """Hold encoder reads at the current quantized pose (integrity injection)."""
+        self._integrate_clock()
+        self._encoder_frozen = True
+        self._frozen_el_deg = self._quantize_deg(self._theta_rad)
+
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
         """Return the quantized, noisy, timestamped encoder elevation.
 
         Returns:
-            Ok(GimbalPosition) with the clock timestamp.
+            Ok(GimbalPosition) with the clock timestamp. Frozen when freeze_encoder ran.
         """
         self._integrate_clock()
+        el_deg = self._frozen_el_deg if self._encoder_frozen else self._quantize_deg(self._theta_rad)
         return Ok(
             GimbalPosition(
-                el_deg=self._quantize_deg(self._theta_rad),
+                el_deg=el_deg,
                 timestamp_s=self._last_t,
             )
         )

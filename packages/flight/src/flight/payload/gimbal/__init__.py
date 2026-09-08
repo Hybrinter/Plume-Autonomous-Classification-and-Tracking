@@ -15,6 +15,7 @@ safety -- confidence and area gates.
 
 from flight.payload.gimbal.arbiter import ArbiterState, GimbalArbiter
 from flight.payload.gimbal.inner import InnerResult, inner_step
+from flight.payload.gimbal.integrity import IntegrityResult, check_integrity
 from flight.payload.gimbal.intersect import IntersectResult, intersect_cog
 from flight.payload.gimbal.outer import clip_rate, outer_rate, smear_cap_rad_s
 from flight.payload.gimbal.pointing import (
@@ -33,10 +34,12 @@ __all__ = [
     "GimbalArbiter",
     "GimbalRequest",
     "InnerResult",
+    "IntegrityResult",
     "IntersectResult",
     "apply_confidence_gate",
     "apply_min_area_gate",
     "boresight_error_deg",
+    "check_integrity",
     "clip_rate",
     "fit_rate",
     "inner_step",

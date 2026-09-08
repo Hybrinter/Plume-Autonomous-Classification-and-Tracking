@@ -219,6 +219,9 @@ class CommandId(enum.Enum):
     RELEASE_LAUNCH_LOCK = "RELEASE_LAUNCH_LOCK"  # hazardous; target mechanical; param phase: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
+    GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop
+    GIMBAL_HOME = "GIMBAL_HOME"  # non-hazardous; target payload; home via position loop
+    GIMBAL_GOTO = "GIMBAL_GOTO"  # non-hazardous; target payload; param el_deg: float
 
 
 class ParamKind(enum.Enum):

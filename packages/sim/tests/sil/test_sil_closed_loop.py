@@ -1,5 +1,7 @@
 """SIL closed-loop integration: the real flight apps over sim drivers via build_apps."""
 
+import math
+
 from flight.libs.bus import Subscription
 from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
@@ -40,15 +42,17 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
     telem_sub = system.bus.subscribe(TelemetryEventMsg)
     mode_sub = system.bus.subscribe(ModeChangeMsg)
 
-    SilHarness(system).run_steps(8, dt=1.0)
+    harness = SilHarness(system)
+    harness.run_steps(8, dt=1.0)
 
-    # Payload tracked the plume and moved elevation off the origin.
+    # Payload tracked the plume and moved elevation inside the science window.
     telem = _drain(telem_sub)
     pointing = [m for m in telem if m.subsystem == "payload" and m.event_name == "pointing"]
     assert pointing
     position = system.gimbal.read_position()
     assert isinstance(position, Ok)
-    assert position.value.el_deg != 0.0
+    assert 0.0 < position.value.el_deg <= 45.0
+    assert harness.payload_gimbal_state() is GimbalState.TRACKING
 
     # Inference ran once per frame.
     inference_count = 0
@@ -157,8 +161,8 @@ def test_safe_recovery_returns_to_operations() -> None:
 def test_tracking_commands_point_toward_the_plume() -> None:
     """Outer rate during TRACKING has the sign of the boresight error and moves that way.
 
-    The plume sits at band-plane (612, 900): on-boresight in x, +y (down) ->
-    -el error, so the gimbal must end at negative elevation.
+    The plume sits at band-plane (612, 124): on-boresight in x, image-up ->
+    +el error, so the gimbal must end inside the science window.
     """
     system = build_sil_system(
         PactConfig(),
@@ -169,12 +173,13 @@ def test_tracking_commands_point_toward_the_plume() -> None:
         thermal_readings=[25.0],
         power_readings=[30.0],
     )
-
-    SilHarness(system).run_steps(8, dt=1.0)
+    harness = SilHarness(system)
+    harness.run_steps(8, dt=1.0)
 
     pos = system.gimbal.read_position()
     assert isinstance(pos, Ok)
-    assert pos.value.el_deg < -0.5  # plume below boresight (image +y)
+    assert 0.0 < pos.value.el_deg <= 45.0
+    assert harness.payload_gimbal_state() is GimbalState.TRACKING
     assert not hasattr(pos.value, "az_deg")
 
 
@@ -218,3 +223,43 @@ def test_tampered_command_is_rejected_not_routed() -> None:
     assert not [c for c in _drain(commands) if c.source == "ground"]
     rejects = [a for a in _drain(acks) if a.status is AckStatus.REJECTED]
     assert rejects and rejects[0].fault_code is FaultCode.COMMAND_AUTH_FAIL
+
+
+def test_sil_non_grid_now_interleaves() -> None:
+    """A now that is not a multiple of T_out still runs inner-then-outer slices."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(4),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    harness = SilHarness(system)
+    harness.step(1.005)
+    system.clock.advance(1.005)
+    pos = system.gimbal.read_position()
+    assert isinstance(pos, Ok)
+    assert math.isfinite(pos.value.el_deg)
+
+
+def test_encoder_freeze_trips_runaway_and_safe() -> None:
+    """A frozen encoder under nonzero r publishes GIMBAL_RUNAWAY and SAFEs."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(10),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    fault_sub = system.bus.subscribe(FaultEventMsg)
+    harness = SilHarness(system)
+    harness.run_steps(4, dt=1.0)
+    system.gimbal.freeze_encoder()
+    harness.run_steps(3, dt=1.0)
+    faults = _drain(fault_sub)
+    assert any(f.fault_code is FaultCode.GIMBAL_RUNAWAY for f in faults)
+    assert harness.payload_gimbal_state() is GimbalState.SAFE

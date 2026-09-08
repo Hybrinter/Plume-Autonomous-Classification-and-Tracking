@@ -28,6 +28,7 @@ and the inner period used for frozen-clock catch-up.
 | `stow()` | None | `Ok(None)` |
 | `read_position()` | None | `Result[GimbalPosition, FaultCode]` |
 | `read_stow_switch()` | None | `Result[bool, FaultCode]` |
+| `freeze_encoder()` | None | Hold encoder reads at the current pose |
 
 Observability properties: `true_el_deg`, `true_omega_rad_s`.
 

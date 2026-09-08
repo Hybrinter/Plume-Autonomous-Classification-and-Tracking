@@ -7,8 +7,8 @@
 
 `RealGimbal` is a torque-command stub. The PTU ASCII path is removed. Commands
 return `Ok` and do not move hardware. Pose methods latch a commanded elevation
-for stub encoder reads. They do not close a position or rate loop. The driver
-does not import a vendor SDK.
+in `_target_el_deg`. They do not close a position or rate loop and they do not
+teleport the encoder. The driver does not import a vendor SDK.
 
 ## Public interface
 
@@ -32,12 +32,12 @@ Construction takes a `Clock` and optional `GimbalConfig`.
 ## Behavior
 
 1. `set_torque` is a no-op `Ok`. Amp current mapping is not implemented.
-2. `goto_angle` latches a travel-clamped elevation used as the stub encoder
-   reading. It does not command torque or close a loop.
+2. `goto_angle` latches a travel-clamped target. The encoder stays at the last
+   physical pose (0 until a future amp moves it).
 3. `home` and `stow` latch the configured poses. `stow` also arms the switch.
-4. `read_position` returns the last latched pose (0 until a pose command).
-5. `read_stow_switch` is true when stow was commanded and the latched pose is near
-   stow.
+4. `read_position` returns the encoder pose, not the latched target.
+5. `read_stow_switch` is true only when stow was commanded and the encoder is near
+   stow. On this stub that stays False.
 
 ## Errors and faults
 

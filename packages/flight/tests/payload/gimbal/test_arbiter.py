@@ -240,6 +240,23 @@ def test_safe_clear_returns_to_tracking(default_config: PactConfig) -> None:
     assert events[-1].payload["from"] == GimbalState.SAFE.value
 
 
+def test_transition_uses_injected_timestamp(
+    arbiter_tracking_state: ArbiterState, default_config: PactConfig
+) -> None:
+    """Arbiter transition telemetry uses the injected timestamp, not wall clock."""
+    arbiter = _arbiter(default_config)
+    _state, _request, events = arbiter.step(
+        arbiter_tracking_state,
+        (make_blob(),),
+        now=1.0,
+        safe_commanded=True,
+        safe_cleared=False,
+        el_deg=10.0,
+        timestamp_utc="2026-09-08T00:00:00.000Z",
+    )
+    assert events[-1].timestamp_utc == "2026-09-08T00:00:00.000Z"
+
+
 def test_legal_transitions(default_config: PactConfig) -> None:
     """Allowed mode edges are TRACKING↔REWIND and either↔SAFE."""
     allowed = {

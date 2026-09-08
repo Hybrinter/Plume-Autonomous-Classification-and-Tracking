@@ -24,7 +24,7 @@ def test_tracking_live_clips_to_smear() -> None:
         k_p=8.0,
         mode=GimbalState.TRACKING,
         live=True,
-        theta_g_rad=0.0,
+        theta_g_rad=math.radians(10.0),
         theta_sci_max_rad=math.radians(45.0),
         omega_hw_rad_s=math.radians(10.0),
         exposure_us=1000.0,
@@ -73,3 +73,40 @@ def test_rewind_uses_smear_toward_limb() -> None:
     )
     cap = min(smear_cap_rad_s(1000.0, 1.0, ifov), math.radians(10.0))
     assert abs(r - cap) < 1e-12
+
+
+def test_science_window_zeros_outward_r() -> None:
+    """TRACKING live zeros r that would leave [sci_min, sci_max]."""
+    ifov = 0.002636
+    at_min = outer_rate(
+        0.0,
+        0.0,
+        math.radians(-4.0),
+        8.0,
+        GimbalState.TRACKING,
+        True,
+        0.0,
+        math.radians(45.0),
+        math.radians(10.0),
+        1000.0,
+        1.0,
+        ifov,
+        0.0,
+    )
+    assert at_min == 0.0
+    at_max = outer_rate(
+        0.0,
+        0.0,
+        math.radians(4.0),
+        8.0,
+        GimbalState.TRACKING,
+        True,
+        math.radians(45.0),
+        math.radians(45.0),
+        math.radians(10.0),
+        1000.0,
+        1.0,
+        ifov,
+        0.0,
+    )
+    assert at_max == 0.0

@@ -14,9 +14,9 @@ arbiter, and rate reference.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `VisionSample` | dataclass | Queued vision packet: `z_v`, centroid, exposure, blobs |
+| `VisionSample` | dataclass | Queued vision packet: `z_v`, centroid, exposure, blobs, shutter `theta_g`, ISS |
 | `IssSample` | dataclass | ISS ECI state for the predictor |
-| `ControlState` | dataclass | Bundled arbiter, residual, encoder ring, integrator, CoG |
+| `ControlState` | dataclass | Bundled arbiter, residual, encoder ring, integrator, CoG, clock origins |
 | `InnerTick` | dataclass | Updated state and torque |
 | `OuterTick` | dataclass | Updated state, optional STOW request, telemetry |
 | `PayloadController` | dataclass | Immutable control core |
@@ -35,17 +35,21 @@ elevation, optional `VisionSample`, optional `IssSample`, and SAFE flags.
 ## Behavior
 
 1. `ingest_inference` applies confidence and area gates, matches blobs, and forms
-   pinhole `z_v`.
+   pinhole `z_v`. It stamps shutter elevation and ISS onto the sample.
 2. `inner_step` pushes the encoder sample, fits `y_m`, and runs the inner PI.
-3. `outer_step` runs the arbiter, intersects CoG when vision and ISS are present,
-   predicts `omega_t_nom`, predicts/updates the residual filter, and writes `r`.
-4. STOW / HOME / ABSOLUTE override `r` through the position loop.
-5. Cold TRACKING holds `r = 0` until the first accepted `z_v`. REWIND and SAFE
-   still command.
+   Locked or SAFE/pose ticks freeze or replace `r` before the PI.
+3. `outer_step` runs the arbiter, intersects CoG with shutter-stamped pose, predicts
+   `omega_t_nom`, predicts/updates the residual filter, and writes `r`. SAFE skips
+   rewind and CoG replace. EXIT_SAFE cold-starts the residual.
+4. Live TRACKING is `current_target_id is not None` and ISS present, not
+   `has_measurement`. Science-window clips zero `r` that would leave
+   `[el_science_min, el_science_max]`.
+5. STOW / HOME / ABSOLUTE override `r` through the position loop.
+6. `last_inner_s` and `last_outer_s` start as `None`.
 
 ## Errors and faults
 
-`OuterTick.fault` is always `None`. There is no encoder-runaway monitor.
+`OuterTick.fault` is always `None`. Integrity trips are published by the app shell.
 
 ## Messages
 
@@ -55,7 +59,7 @@ shell publishes them.
 ## Configuration
 
 Reads nested `ControllerConfig` tables (vision, arbiter, inner, outer, residual,
-position), plant copies, encoder counts, WGS-84 scalars, and smear budget.
+position, integrity), plant copies, encoder counts, WGS-84 scalars, and smear budget.
 
 ## Constraints
 

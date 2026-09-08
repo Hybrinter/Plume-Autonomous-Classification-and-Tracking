@@ -76,7 +76,7 @@ Profile TOML selects `EnvironmentConfig` axes. Default SIL uplink key is
 
 - This module is a stub backend holder for `SocketBackend`. PIL/HIL transport is not run.
 - Sim-link `inject_command` is intentionally a no-op. All pre-baked packets drain on step 1.
-- Gimbal-moved uses 0.1 deg tolerance to ignore encoder noise.
+- Gimbal-moved is true only when elevation left the origin and is not at stow.
 - Imports are limited to `flight.libs` and `sim`.
 
 ## Related documents

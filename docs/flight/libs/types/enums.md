@@ -161,6 +161,9 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `RELEASE_LAUNCH_LOCK` | Hazardous lock release (`phase: str`) |
 | `UPLOAD_MODEL_CHUNK` | Chunked classifier+segmentor pair upload params |
 | `ACTIVATE_MODEL` | Activate staged inference pair (`version: str`) |
+| `GIMBAL_STOW` | Payload stow via the position loop |
+| `GIMBAL_HOME` | Payload home via the position loop |
+| `GIMBAL_GOTO` | Payload absolute pose (`el_deg: float`) |
 
 ### ParamKind
 

@@ -13,8 +13,8 @@ the station TLE HTTP API. Do not run a formal gain or plant-identification study
 ## 1. How to use this document
 
 1. Treat this file as the source of truth for *what to build*.
-2. The modules under `flight.payload.control`, `flight.payload.gimbal.lqr`, and
-   `flight.payload.tracking.kalman` are a stand-in. Do not preserve that stand-in.
+2. The as-built cores are the cascaded elevation PI, residual KF, and light
+   integrity detector. Do not restore the deleted LQR / dual-axis Kalman stand-in.
 3. There is **no azimuth motor**. Elevation is the only actuated axis. Remove
    gimbal azimuth from control state, HAL readback, commands, and tools datapoints.
    Optical azimuth in the FOV still enters the CoG ray. The dual-axis analysis
@@ -44,7 +44,7 @@ the station TLE HTTP API. Do not run a formal gain or plant-identification study
 | Outer estimator | Two-state residual Kalman filter on boresight elevation error and residual rate. |
 | Vision to outer | In-process shell queue of \((t_s, z_v, \mathbf{p}_{\mathrm{cog}})\). Not the MessageBus. |
 | Smear cap | Live camera `exposure_us` in (19), also clipped to \(\omega_{\mathrm{hw}}\). |
-| Runaway monitor | Removed. Travel, torque, slew, and smear clips plus SAFE stow are the envelope. |
+| Runaway monitor | Light detector: NaN, encoder freeze, lock-fight → `GIMBAL_RUNAWAY`. Plus envelope clips and SAFE stow. |
 | Hardware | Raw motor + amp. The FLIR PTU rate/position ASCII driver is dead. Real `set_torque` is a stub until the amp interface exists. |
 | Validation | Analysis-package block tests with simulated I/O. SIL harness architecture is out of this pass. |
 | Placeholders | Numeric \(J,B,\tau_{\max},k_p,k_i,K_p,Q,R_v\) in config until later studies retune them. |
@@ -92,7 +92,7 @@ same inner PI. That loop is not smear-capped.
 - Estimating process noise \(w\). \(w\) exists only in the filter covariance \(Q\).
 - An inner-loop Kalman filter or any inner state besides the PI integrator and the
   encoder-rate ring.
-- Encoder runaway / commanded-vs-measured rate FDIR.
+- Coulomb friction, ISS jitter, and a gain campaign. Light integrity (NaN / freeze / lock-fight) is in scope.
 - Changing FDIR SAFE latching: SAFE still stows and latches until ground clears it.
 - Mount misalignment relative to ISS. Identity mount until a later placement map.
 - \(K_t\) current mapping in the real driver.
@@ -106,27 +106,26 @@ along-track (ISS velocity), \(-\) look-back. One actuated axis.
 
 ### 5.1 Mount and camera frames
 
-Right-handed mount frame:
+Right-handed mount frame, matching `analysis.lib.look.body_axes`:
 
 - \(\hat z\): geocentric nadir (boresight at \(\theta_g=0\))
-- \(\hat y\): along-track (ISS velocity)
-- \(\hat x\): starboard; elevation **rotation axis** (\(\hat x\times\hat y=\hat z\))
+- \(\hat x\): along-track (ISS velocity)
+- \(\hat y\): starboard (\(-\hat h\)); elevation **hinge** (\(\hat x\times\hat y=\hat z\))
 
-Right-hand \(R_x(+\alpha)\) sends the nadir boresight toward look-back. Signed
-elevation is still \(+\) along-track, so the boresight in mount coordinates is
+Elevation rotates about \(+\hat y\). The boresight in mount coordinates is
 
 \[
-\hat{\mathbf{u}}_b(\theta_g)=\big(0,\ \sin\theta_g,\ \cos\theta_g\big),
+\hat{\mathbf{u}}_b(\theta_g)=\big(\sin\theta_g,\ 0,\ \cos\theta_g\big),
 \]
 
-i.e. \(R_x(-\theta_g)\) applied to \(\hat z\). A unit test must show that
-\(+\theta_g\) increases \(\hat{\mathbf{u}}_b\cdot\hat y\).
+i.e. \(R_y(\theta_g)\) applied to \(\hat z\). A unit test must show that
+\(+\theta_g\) increases \(\hat{\mathbf{u}}_b\cdot\hat x\).
 
 Camera at nadir (identity mount vs ISS):
 
 - \(+\mathrm{Z}\): boresight
-- \(+\mathrm{X}\): image right = mount \(\hat x\) (unactuated optical azimuth)
-- \(+\mathrm{Y}\): image down = mount \(-\hat y\) (look-back; image \(+y\) is \(-e\))
+- \(+\mathrm{X}\): image right = mount \(\hat y\) (starboard; unactuated optical azimuth)
+- \(+\mathrm{Y}\): image down = mount \(-\hat x\) (look-back; image \(+y\) is \(-e\))
 
 Pinhole, not \(\mathrm{px}\times\mathrm{IFOV}\). Band-plane pitch
 \(p=2\times 3.45\,\mu\mathrm{m}\), \(f=150\,\mathrm{mm}\), principal point at the
@@ -137,7 +136,7 @@ plane center:
 =\mathrm{normalize}\big((u-u_0)p/f,\ (v-v_0)p/f,\ 1\big).
 \]
 
-Rotate into mount with \(R_x(-\theta_g)\). Distortion stays off until a map exists.
+Rotate into mount with \(R_y(\theta_g)\). Distortion stays off until a map exists.
 
 ### 5.2 Gimbal and motor
 
@@ -288,12 +287,26 @@ outer filter. \(T_{\mathrm{out}}\gg\tau_{cl}\) is **not** required; enforce
 separation with \(K_p\).
 
 **Threading:** the app shell owns threads, HAL, and the bus. Pure cores stay
-side-effect free. The inner loop has its own time base (`stop_event.wait` style),
-encoder reads, and torque writes. The outer loop is independent of vision. Vision
-enqueues measurements. `PayloadApp.advance_inner(now)` and `advance_outer(now)`
-catch up in \(T_{\mathrm{in}}\) / \(T_{\mathrm{out}}\) steps so a ManualClock jump
-still integrates the plant. SIL `step_once` calls those methods. It does not become
-a 1 kHz harness.
+side-effect free. Production inner: one `inner_step` plus `set_torque` per
+`stop_event.wait(T_in)` after origin init. `inner_lock` covers only a short copy
+of `ControlState` fields and the merge. Do not hold it across detect.
+
+`last_inner_s` / `last_outer_s` start as `None`. The first `advance_*` stamps
+`min(clock.monotonic_s(), now)` and does not catch up from 0. Catch-up longer
+than `catchup_max_s` publishes `GIMBAL_FAULT`.
+
+SIL `step_once` is per-\(T_{\mathrm{out}}\) slice: `advance_inner` to tick \(t\),
+then one outer tick at \(t\), then trailing inner to `now`. Tick UTC is
+`clock.utc_s() + (t - clock.monotonic_s())` while ManualClock is frozen. It does
+not become a 1 kHz harness.
+
+**Lock (fail-closed):** `LockGate.engaged` defaults True. `UNKNOWN` is engaged.
+While engaged: `set_torque(0)`, freeze \(I\), `r=0`. Re-issue STOW after RELEASE
+if still SAFE.
+
+**Encoder / eph:** encoder `Err` holds last \(\theta\); if none, \(r=0\), \(\tau=0\),
+`GIMBAL_FAULT`. Eph `Err` sets \(\omega_{t,\mathrm{nom}}=0\), `live=False`, and
+publishes `EPHEMERIS_FAULT` (log-and-continue).
 
 ---
 
@@ -467,8 +480,8 @@ model is \(\omega_{t,\mathrm{res}}\).
 2. Build \(\mathbf{d}_{\mathrm{cam}}\) with the pinhole in §5.1. Include the
    unactuated optical azimuth so \(\mathbf{r}_{\mathrm{cog}}\) is the ground point
    under the CoG, not under the optical axis.
-3. Rotate into mount with \(R_x(-\theta_g)\). Transform into ECI using ISS nadir
-   and along-track from \(\mathbf{r}_s,\mathbf{v}_s\).
+3. Rotate into mount with \(R_y(\theta_g)\). Transform into ECI using ISS
+   along-track, starboard, and nadir from \(\mathbf{r}_s,\mathbf{v}_s\).
 4. Intersect \(\mathbf{r}_s + \rho\hat{\mathbf{u}}_{\mathrm{cog}}\) with the WGS-84
    ellipsoid (\(a=6378137\,\mathrm{m}\), \(f=1/298.257223563\)). Store
    \(\mathbf{r}_{\mathrm{cog}}\) in ECEF meters. Discard \(\rho\).
@@ -488,11 +501,11 @@ rotate the CoG into ECI with \(R_z(\Omega_E(t-t_0))\) (epoch of the ECEF vector)
 \[
 \mathbf{l}=\mathbf{r}_t-\mathbf{r}_s,
 \qquad
-\theta_{\mathrm{los}}=\operatorname{atan2}(\mathbf{l}\cdot\hat y,\ \mathbf{l}\cdot\hat z).
+\theta_{\mathrm{los}}=\operatorname{atan2}(\mathbf{l}\cdot\hat x,\ \mathbf{l}\cdot\hat z).
 \tag{11}
 \]
 
-\(\hat y\) is along-track and \(\hat z\) is nadir, matching §5.1. Do not use the
+\(\hat x\) is along-track and \(\hat z\) is nadir, matching §5.1. Do not use the
 analysis-package 90°-at-nadir elevation convention.
 
 \[
@@ -651,8 +664,8 @@ There is no RATE command mode. `GimbalCommandMode` is ABSOLUTE / STOW / HOME.
 
 | State | Rate reference \(r\) | Notes |
 | --- | --- | --- |
-| TRACKING (cold / limb wait) | \(0\) | No first accepted \(z_v\), or arrived at the science limb with no plume. Wait on orbital motion. |
-| TRACKING (live) | (18) with live smear cap | Blob → TRACKING immediately (no ACQUIRING). Re-intersect CoG every accepted frame. |
+| TRACKING (cold / limb wait) | \(0\) | No `current_target_id` or no ISS this tick, or arrived at the science limb with no plume. |
+| TRACKING (live) | (18) with live smear cap and science-window clip | Live = arbiter has `current_target_id` and ISS is present. Re-intersect CoG at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). |
 | Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Until `release_persistence_frames`. |
 | REWIND | \(r=\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,r_{\max,\mathrm{img}}\) toward the science limb | Hunt after loss below the limb. Not an azimuth raster. |
 | REWIND at limb | → TRACKING with \(r=0\) | Wait. Blob → TRACKING live. |
@@ -738,6 +751,12 @@ Defaults must match `config/default.toml`. Do not hide numbers in source.
 | `controller.vision.queue_depth` | 4 | |
 | `controller.position.K_pos` | 4.0 | 1/s |
 | `controller.position.r_max_deg_per_s` | 8.0 | not smear-capped |
+| `controller.integrity.catchup_max_s` | 2.0 | |
+| `controller.integrity.freeze_strikes` | 50 | |
+| `controller.integrity.r_min_rad_s` | 0.01745 | |
+| `controller.integrity.encoder_rate_ratio` | 0.2 | |
+| `controller.integrity.lock_fight_rad_s` | 0.005 | |
+| `controller.integrity.lock_fight_strikes` | 50 | |
 | WGS-84 `a_m`, `f` | 6378137, 1/298.257223563 | |
 | `omega_earth_rad_s` | 7.2921159e-5 | |
 
@@ -776,25 +795,15 @@ These proofs live under `packages/analysis/` as tests with simulated I/O. They
 are not a substitute for later plant-ID or gain studies. They are not a SIL
 harness.
 
-1. **Inner:** simulated (1) at \(T_{\mathrm{in}}\); a constant \(r\) is tracked with
-   bounded \(\varepsilon\); torque clips without integrator windup; travel stop does
-   not chatter unbounded \(\tau\); \(y_m\) comes from the polynomial fit, not a
-   two-point slope.
-2. **Predictor:** with a fixed ECEF point, \(\omega_{t,\mathrm{nom}}\) matches a
-   finite-difference of \(\theta_{\mathrm{los}}\); Earth rotation changes elevation
-   rate; no azimuth command exists.
-3. **CoG update:** two successive intersects that walk along-track change
-   \(\mathbf{r}_{\mathrm{cog}}\) but \(\omega_{t,\mathrm{nom}}\) is still the
-   co-rotating rate at the *current* point, not the walk slope between intersects.
-4. **Residual:** true rate \(=\omega_{t,\mathrm{nom}}+0.1^\circ/\mathrm{s}\); after
-   vision updates, \(\hat\omega_{t,\mathrm{res}}\to 0.1\); \(e\) stops ramping.
-5. **Delay:** \(z_v\) lagged by inference time; rewind does not apply a stale
-   error as if it were current.
-6. **Smear:** TRACKING and REWIND \(|r|\) respect (19) from live \(\Delta t_{\mathrm{exp}}\).
-7. **SAFE:** still stows via the position loop and ignores blobs until cleared.
-8. **Cold start:** no tracking torque before the first accepted blob except
-   REWIND/SAFE.
-9. **Single axis:** no azimuth tracking command.
+1. **Walking CoG:** `predict_los(..., p1)` versus `predict_los(..., p2)` at the
+   same ISS time; \(\omega_{t,\mathrm{nom}}\) is not the walk slope.
+2. **Smear:** inlined \(\sigma_{\mathrm{smear}}\cdot\mathrm{IFOV}/\Delta t_{\mathrm{exp}}\);
+   13 µs exposure is hardware-capped.
+3. **Residual extra rate:** closed-loop through `rewind_update`; \(e\) stops ramping.
+4. **Earth rate:** \(\omega_{t,\mathrm{nom}}(\Omega_E)\) versus 0.
+5. **Inner track:** mismatched \(\hat J,\hat B\) still tracks.
+6. **Rewind:** posterior versus discrete \(F,u\) oracle; a no-op fails.
+7. **No azimuth:** inspect `GimbalRequest` / `GimbalCommandMsg` fields.
 
 ---
 

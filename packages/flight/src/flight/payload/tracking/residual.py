@@ -127,25 +127,31 @@ def predict(
     dt_s: float,
     omega_t_nom: float,
     y_m: float,
+    add_q: bool = True,
 ) -> ResidualState:
     """Kalman predict: x- = F x + u, P- = F P F' + Q.
+
+    Negative dt_s rolls the discrete kinematics backward and never adds Q.
 
     Inputs:
         filt: Configured filter.
         state: Prior state.
-        dt_s: Outer period for this step.
+        dt_s: Outer period for this step (negative = rollback).
         omega_t_nom: Predictor rate, rad/s.
         y_m: Encoder rate, rad/s.
+        add_q: When False, skip process noise (used for rewind rollback).
 
     Outputs:
         ResidualState: Predicted state (has_measurement unchanged).
     """
-    if dt_s <= 0.0:
+    if abs(dt_s) <= 1e-15:
         return state
     f = np.array([[1.0, dt_s], [0.0, 1.0]], dtype=np.float64)
     u = np.array([dt_s * (omega_t_nom - y_m), 0.0], dtype=np.float64)
     x_pred = f @ state.x + u
-    p_pred = f @ state.P @ f.T + _q(filt, dt_s)
+    p_pred = f @ state.P @ f.T
+    if add_q and dt_s > 0.0:
+        p_pred = p_pred + _q(filt, dt_s)
     return ResidualState(x=x_pred, P=p_pred, has_measurement=state.has_measurement)
 
 
@@ -208,24 +214,31 @@ def rewind_update(
         return current
     if not snapshots:
         pred = current
-        if t_s < now:
-            # No history: update as if current is already at t_s.
-            return update(filt, pred, z_v)
+        if t_s < now - 1e-12:
+            pred = predict(filt, current, t_s - now, 0.0, 0.0, add_q=False)
+            posterior = update(filt, pred, z_v)
+            return predict(filt, posterior, now - t_s, 0.0, 0.0)
         return update(filt, pred, z_v)
 
     usable = tuple(s for s in snapshots if now - s.t_s <= horizon_s + 1e-12)
     if not usable:
-        return update(filt, current, z_v)
+        pred = predict(filt, current, t_s - now, 0.0, 0.0, add_q=False)
+        posterior = update(filt, pred, z_v)
+        return predict(filt, posterior, now - t_s, 0.0, 0.0)
 
     idx = 0
+    found = False
     for i, snap in enumerate(usable):
         if snap.t_s <= t_s + 1e-12:
             idx = i
+            found = True
+    if not found:
+        idx = 0
     snap = usable[idx]
     dt_to_meas = t_s - snap.t_s
     pred = snap.state
-    if dt_to_meas > 1e-12:
-        pred = predict(filt, pred, dt_to_meas, snap.omega_t_nom, snap.y_m)
+    if abs(dt_to_meas) > 1e-12:
+        pred = predict(filt, pred, dt_to_meas, snap.omega_t_nom, snap.y_m, add_q=dt_to_meas > 0.0)
     posterior = update(filt, pred, z_v)
     replay_from = t_s
     for later in usable[idx + 1 :]:

@@ -16,7 +16,7 @@ arbiter, and rate reference.
 | --- | --- | --- |
 | `VisionSample` | dataclass | Queued vision packet: `z_v`, centroid, exposure, blobs, shutter `theta_g`, ISS |
 | `IssSample` | dataclass | ISS ECI state for the predictor |
-| `ControlState` | dataclass | Bundled arbiter, residual, encoder ring, integrator, CoG, clock origins |
+| `ControlState` | dataclass | Bundled arbiter, residual, encoder ring, integrator, CoG, clock origins, lock-hold pose |
 | `InnerTick` | dataclass | Updated state and torque |
 | `OuterTick` | dataclass | Updated state, optional STOW request, telemetry |
 | `PayloadController` | dataclass | Immutable control core |

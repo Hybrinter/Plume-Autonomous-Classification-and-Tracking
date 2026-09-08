@@ -52,12 +52,14 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     )
     advance(1)
 
-    release_acks = [
+    execute_acks = [
         a
         for a in _drain(acks)
-        if a.command_id == "RELEASE_LAUNCH_LOCK" and a.status is AckStatus.ACCEPTED
+        if a.command_id == "RELEASE_LAUNCH_LOCK"
+        and a.status is AckStatus.ACCEPTED
+        and a.detail == "launch lock released"
     ]
-    assert release_acks  # the mechanical app accepted the release (gimbal was idle/inhibited)
+    assert execute_acks  # mechanical EXECUTE, not the router ARM ack
     latest_lock = [m.state for m in _drain(lock_states)]
     assert latest_lock and latest_lock[-1] is LaunchLockState.RELEASED
 

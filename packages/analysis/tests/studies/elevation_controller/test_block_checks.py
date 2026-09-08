@@ -177,25 +177,30 @@ def test_residual_recovers_extra_rate_through_rewind() -> None:
     filt = ResidualFilter.from_config(cfg.residual, cfg.outer.dt_s)
     dt = cfg.outer.dt_s
     extra = math.radians(0.1)
+    kp = cfg.outer.Kp
     state = filt.initial_state()
     snaps: tuple[ResidualSnapshot, ...] = ()
     e_true = 0.0
     now = 0.0
+    y_m = 0.0
     for k in range(160):
+        e_shutter = e_true
         now += dt
-        e_true += dt * extra
-        state = predict(filt, state, dt, 0.0, 0.0)
+        e_true += dt * (extra - y_m)
+        state = predict(filt, state, dt, 0.0, y_m)
         snaps = push_snapshot(
             snaps,
-            ResidualSnapshot(t_s=now, state=state, dt_s=dt, omega_t_nom=0.0, y_m=0.0),
+            ResidualSnapshot(t_s=now, state=state, dt_s=dt, omega_t_nom=0.0, y_m=y_m),
             cfg.residual.rewind_snapshots,
         )
-        t_s = now - dt
-        z_v = e_true - extra * dt
         if k > 0:
-            state = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.residual.rewind_horizon_s)
+            state = rewind_update(
+                filt, snaps, state, now, now - dt, e_shutter, cfg.residual.rewind_horizon_s
+            )
+        y_m = kp * float(state.x[0]) + float(state.x[1])
     assert abs(float(state.x[1]) - extra) < math.radians(0.05)
-    assert abs(float(state.x[0])) < math.radians(0.5)
+    assert abs(float(state.x[0])) < math.radians(0.05)
+    assert abs(e_true) < math.radians(0.05)
 
 
 def test_rewind_posterior_matches_discrete_oracle() -> None:

@@ -64,7 +64,7 @@ from flight.libs.types import (
     SystemMode,
 )
 from flight.payload.control import ControlState, IssSample, PayloadController, VisionSample
-from flight.payload.gimbal.integrity import check_integrity
+from flight.payload.gimbal.integrity import check_integrity, lock_hold_rate
 from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
@@ -502,30 +502,51 @@ class PayloadApp:
             tick = self.controller.inner_step(
                 current, t, theta, dt, locked=locked, safe_latched=self.safe_latch.commanded
             )
-            current = tick.state
-            integrity = check_integrity(
-                self.controller.cfg.integrity,
-                current.r_rad_s,
-                current.y_m,
-                tick.tau_nm,
-                enc_rate,
-                locked,
-                current.integrity_freeze_strikes,
-                current.integrity_lock_strikes,
+            current, integrity_fault = self._apply_integrity(
+                current, tick.state, tick.tau_nm, theta, t, enc_rate, locked
             )
-            current = replace(
-                current,
-                integrity_freeze_strikes=integrity.freeze_strikes,
-                integrity_lock_strikes=integrity.lock_fight_strikes,
-            )
-            if integrity.fault is not None:
-                self._publish_fault(integrity.fault, "pointing integrity trip")
+            if integrity_fault is not None:
+                self._publish_fault(integrity_fault, "pointing integrity trip")
                 self.safe_latch.commanded = True
             tau = 0.0 if locked else tick.tau_nm
             send = self.gimbal.set_torque(tau)
             if isinstance(send, Err):
                 self._publish_fault(send.error, "gimbal torque failed")
         return current
+
+    def _apply_integrity(
+        self,
+        prior: ControlState,
+        tick_state: ControlState,
+        tau_nm: float,
+        theta: float,
+        now: float,
+        enc_rate: float,
+        locked: bool,
+    ) -> tuple[ControlState, FaultCode | None]:
+        """Latch lock-hold pose, run the detector, and stamp strikes onto tick state."""
+        motion, ref_th, ref_t = lock_hold_rate(
+            locked, theta, now, prior.lock_theta_ref_rad, prior.lock_ref_s
+        )
+        integrity = check_integrity(
+            self.controller.cfg.integrity,
+            tick_state.r_rad_s,
+            tick_state.y_m,
+            tau_nm,
+            enc_rate,
+            locked,
+            prior.integrity_freeze_strikes,
+            prior.integrity_lock_strikes,
+            motion,
+        )
+        updated = replace(
+            tick_state,
+            integrity_freeze_strikes=integrity.freeze_strikes,
+            integrity_lock_strikes=integrity.lock_fight_strikes,
+            lock_theta_ref_rad=ref_th,
+            lock_ref_s=ref_t,
+        )
+        return updated, integrity.fault
 
     def _read_iss_at(self, monotonic_t: float) -> tuple[IssSample | None, FaultCode | None]:
         """Read ISS ECI at the UTC corresponding to monotonic_t. Err is published by caller."""
@@ -617,18 +638,11 @@ class PayloadApp:
                 tick = self.controller.inner_step(
                     snap, now_inner, theta, dt, locked=locked, safe_latched=safe
                 )
-                integrity = check_integrity(
-                    self.controller.cfg.integrity,
-                    tick.state.r_rad_s,
-                    tick.state.y_m,
-                    tick.tau_nm,
-                    enc_rate,
-                    locked,
-                    snap.integrity_freeze_strikes,
-                    snap.integrity_lock_strikes,
+                stamped, integrity_fault = self._apply_integrity(
+                    snap, tick.state, tick.tau_nm, theta, now_inner, enc_rate, locked
                 )
-                if integrity.fault is not None:
-                    self._publish_fault(integrity.fault, "pointing integrity trip")
+                if integrity_fault is not None:
+                    self._publish_fault(integrity_fault, "pointing integrity trip")
                     self.safe_latch.commanded = True
                 tau = 0.0 if locked else tick.tau_nm
                 send = self.gimbal.set_torque(tau)
@@ -637,21 +651,23 @@ class PayloadApp:
                 with self.inner_lock:
                     latest = holder["state"]
                     merged_r = (
-                        tick.state.r_rad_s
+                        stamped.r_rad_s
                         if (locked or safe or latest.pose_mode is not None)
                         else latest.r_rad_s
                     )
                     holder["state"] = replace(
                         latest,
-                        encoder_ring=tick.state.encoder_ring,
-                        integrator=tick.state.integrator,
-                        y_m=tick.state.y_m,
+                        encoder_ring=stamped.encoder_ring,
+                        integrator=stamped.integrator,
+                        y_m=stamped.y_m,
                         r_rad_s=merged_r,
                         last_inner_s=now_inner,
                         last_theta_enc_rad=theta,
                         last_tau_nm=tau,
-                        integrity_freeze_strikes=integrity.freeze_strikes,
-                        integrity_lock_strikes=integrity.lock_fight_strikes,
+                        integrity_freeze_strikes=stamped.integrity_freeze_strikes,
+                        integrity_lock_strikes=stamped.integrity_lock_strikes,
+                        lock_theta_ref_rad=stamped.lock_theta_ref_rad,
+                        lock_ref_s=stamped.lock_ref_s,
                     )
                 stop_event.wait(timeout=dt)
 
@@ -710,6 +726,8 @@ class PayloadApp:
                         last_tau_nm=latest.last_tau_nm,
                         integrity_freeze_strikes=latest.integrity_freeze_strikes,
                         integrity_lock_strikes=latest.integrity_lock_strikes,
+                        lock_theta_ref_rad=latest.lock_theta_ref_rad,
+                        lock_ref_s=latest.lock_ref_s,
                     )
                 stop_event.wait(timeout=self.controller.cfg.outer.dt_s)
         finally:

@@ -31,8 +31,8 @@ integrity detector.
 Re-exports: `ArbiterState`, `GimbalArbiter`, `GimbalRequest`, `InnerResult`,
 `IntegrityResult`, `IntersectResult`, `apply_confidence_gate`, `apply_min_area_gate`,
 `boresight_error_deg`, `check_integrity`, `clip_rate`, `fit_rate`, `inner_step`,
-`intersect_cog`, `outer_rate`, `pinhole_error_rad`, `position_rate`, `predict_los`,
-`smear_cap_rad_s`, `target_displacement_px`.
+`intersect_cog`, `lock_hold_rate`, `outer_rate`, `pinhole_error_rad`, `position_rate`,
+`predict_los`, `smear_cap_rad_s`, `target_displacement_px`.
 
 ## Interactions
 

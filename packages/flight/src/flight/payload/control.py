@@ -112,6 +112,8 @@ class ControlState:
         last_theta_enc_rad: Last encoder sample, radians, or None.
         integrity_freeze_strikes: Consecutive encoder-freeze inner ticks.
         integrity_lock_strikes: Consecutive lock-fight inner ticks.
+        lock_theta_ref_rad: Encoder elevation latched at lock engage, or None.
+        lock_ref_s: Monotonic seconds of that latch, or None.
         last_exposure_us: Last live exposure (REWIND smear cap).
         pose_mode: STOW/HOME/ABSOLUTE while the position loop is active.
         pose_el_deg: Position-loop target elevation, degrees.
@@ -134,6 +136,8 @@ class ControlState:
     last_theta_enc_rad: float | None
     integrity_freeze_strikes: int
     integrity_lock_strikes: int
+    lock_theta_ref_rad: float | None
+    lock_ref_s: float | None
     last_exposure_us: float
     pose_mode: GimbalCommandMode | None
     pose_el_deg: float
@@ -262,6 +266,8 @@ class PayloadController:
             last_theta_enc_rad=None,
             integrity_freeze_strikes=0,
             integrity_lock_strikes=0,
+            lock_theta_ref_rad=None,
+            lock_ref_s=None,
             last_exposure_us=0.0,
             pose_mode=None,
             pose_el_deg=0.0,

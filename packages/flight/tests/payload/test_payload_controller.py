@@ -142,8 +142,6 @@ def test_home_request_sets_pose_mode() -> None:
     """HOME pose_mode writes a position-loop rate toward home."""
     from dataclasses import replace
 
-    from flight.payload.gimbal.request import GimbalRequest
-
     controller = _controller()
     state = replace(
         controller.initial_state(),
@@ -153,7 +151,6 @@ def test_home_request_sets_pose_mode() -> None:
     tick = controller.outer_step(state, 0.02, 0.0, None, None, False, False)
     assert tick.state.pose_mode is GimbalCommandMode.HOME
     assert tick.state.r_rad_s > 0.0
-    del GimbalRequest
 
 
 def test_science_window_zeros_negative_r_at_min() -> None:

@@ -27,8 +27,8 @@ It returns an `IntegrityResult`.
 1. A non-finite `r`, `y_m`, or `tau` trips immediately.
 2. Encoder freeze: `|r|` above `r_min_rad_s` and `|encoder_rate|` below
    `encoder_rate_ratio * |r|` for `freeze_strikes` inner ticks.
-3. Lock-fight: lock engaged and `|y_m|` above `lock_fight_rad_s` for
-   `lock_fight_strikes` inner ticks.
+3. Lock-fight: lock engaged, `|y_m|` above `lock_fight_rad_s`, and nonzero
+   torque for `lock_fight_strikes` inner ticks.
 4. A healthy sample resets the matching counter.
 
 ## Errors and faults

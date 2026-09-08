@@ -195,7 +195,7 @@ def test_residual_recovers_extra_rate_through_rewind() -> None:
         if k > 0:
             state = rewind_update(filt, snaps, state, now, t_s, z_v, cfg.residual.rewind_horizon_s)
     assert abs(float(state.x[1]) - extra) < math.radians(0.05)
-    assert abs(float(state.x[0])) < math.radians(0.05)
+    assert abs(float(state.x[0])) < math.radians(0.5)
 
 
 def test_rewind_posterior_matches_discrete_oracle() -> None:

@@ -3,7 +3,8 @@
 Not the deleted RATE-mode runaway monitor. Strikes accumulate across inner ticks.
 NaN torque or rate is immediate. Encoder freeze: commanded |r| above r_min while
 the measured encoder rate is a small fraction of |r|. Lock-fight: lock engaged
-and |y_m| above the pin threshold (axis moving against the pin).
+and |y_m| above the pin threshold while torque is nonzero (axis moving against
+the pin).
 
 Satisfies: REQ-GIMB-HIGH-003.
 """
@@ -74,7 +75,7 @@ def check_integrity(
         freeze = 0
 
     fight = lock_fight_strikes
-    if lock_engaged and abs(y_m) > cfg.lock_fight_rad_s:
+    if lock_engaged and abs(y_m) > cfg.lock_fight_rad_s and abs(tau_nm) > 1e-9:
         fight += 1
     else:
         fight = 0

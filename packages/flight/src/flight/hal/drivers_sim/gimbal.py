@@ -208,7 +208,10 @@ class SimGimbal:
             Ok(GimbalPosition) with the clock timestamp. Frozen when freeze_encoder ran.
         """
         self._integrate_clock()
-        el_deg = self._frozen_el_deg if self._encoder_frozen else self._quantize_deg(self._theta_rad)
+        if self._encoder_frozen:
+            el_deg = self._frozen_el_deg
+        else:
+            el_deg = self._quantize_deg(self._theta_rad)
         return Ok(
             GimbalPosition(
                 el_deg=el_deg,

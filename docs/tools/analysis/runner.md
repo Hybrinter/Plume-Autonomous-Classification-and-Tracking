@@ -73,8 +73,8 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 
 - The `gimbal_runaway` suite freezes the sim encoder under a nonzero rate reference
   so the light integrity detector trips `GIMBAL_RUNAWAY`.
-- A watchdog miss still arrives as an injected `FaultEventMsg` because `step_once`
-  synthesizes heartbeats.
+- A watchdog miss still arrives as an injected `FaultEventMsg`. `step_once`
+  synthesizes heartbeats each cycle.
 - File scenarios prefix names with `file_` and category `scenario-file`.
 
 ## Related documents

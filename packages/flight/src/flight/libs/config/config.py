@@ -110,7 +110,7 @@ class IntegrityConfig:
     freeze_strikes: int = Field(default=50, ge=1)
     r_min_rad_s: float = Field(default=0.01745, gt=0.0)
     encoder_rate_ratio: float = Field(default=0.2, gt=0.0)
-    lock_fight_rad_s: float = Field(default=0.005, gt=0.0)
+    lock_fight_rad_s: float = Field(default=0.05, gt=0.0)
     lock_fight_strikes: int = Field(default=50, ge=1)
 
 

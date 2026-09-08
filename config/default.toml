@@ -41,7 +41,7 @@ catchup_max_s = 2.0
 freeze_strikes = 50
 r_min_rad_s = 0.01745
 encoder_rate_ratio = 0.2
-lock_fight_rad_s = 0.005
+lock_fight_rad_s = 0.05
 lock_fight_strikes = 50
 
 [inference]

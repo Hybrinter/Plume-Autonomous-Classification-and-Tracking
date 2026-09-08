@@ -36,7 +36,7 @@ def test_lock_fight_trips_after_strikes() -> None:
     fight = 0
     fault = None
     for _ in range(2):
-        out = check_integrity(cfg, 0.0, 0.02, 0.0, 0.02, True, freeze, fight)
+        out = check_integrity(cfg, 0.0, 0.02, 0.1, 0.02, True, freeze, fight)
         freeze = out.freeze_strikes
         fight = out.lock_fight_strikes
         fault = out.fault

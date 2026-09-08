@@ -755,7 +755,7 @@ Defaults must match `config/default.toml`. Do not hide numbers in source.
 | `controller.integrity.freeze_strikes` | 50 | |
 | `controller.integrity.r_min_rad_s` | 0.01745 | |
 | `controller.integrity.encoder_rate_ratio` | 0.2 | |
-| `controller.integrity.lock_fight_rad_s` | 0.005 | |
+| `controller.integrity.lock_fight_rad_s` | 0.05 | |
 | `controller.integrity.lock_fight_strikes` | 50 | |
 | WGS-84 `a_m`, `f` | 6378137, 1/298.257223563 | |
 | `omega_earth_rad_s` | 7.2921159e-5 | |

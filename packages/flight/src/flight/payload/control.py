@@ -358,9 +358,7 @@ class PayloadController:
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
         )
         if safe_latched or state.pose_mode is not None:
-            pose_el = (
-                state.pose_el_deg if state.pose_mode is not None else self.gimbal.stow_el_deg
-            )
+            pose_el = state.pose_el_deg if state.pose_mode is not None else self.gimbal.stow_el_deg
             r = position_rate(
                 math.radians(pose_el),
                 theta_enc_rad,
@@ -484,11 +482,7 @@ class PayloadController:
             r_cog = state.r_cog_ecef_m
             shutter_iss = vision.iss if vision is not None else None
             shutter_theta = vision.theta_g_rad if vision is not None else theta_g_rad
-            if (
-                vision is not None
-                and vision.p_cog is not None
-                and shutter_iss is not None
-            ):
+            if vision is not None and vision.p_cog is not None and shutter_iss is not None:
                 inter = intersect_cog(
                     vision.p_cog,
                     shutter_theta,
@@ -520,9 +514,7 @@ class PayloadController:
                     self.eph.epoch_utc_s,
                 )
 
-            residual = residual_predict(
-                self.residual_filt, residual, dt, omega_t_nom, state.y_m
-            )
+            residual = residual_predict(self.residual_filt, residual, dt, omega_t_nom, state.y_m)
             snap = ResidualSnapshot(
                 t_s=now,
                 state=residual,

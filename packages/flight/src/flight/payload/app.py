@@ -687,9 +687,7 @@ class PayloadApp:
                         prev_pos_now = now
                     with self.inner_lock:
                         current = holder["state"]
-                    current, _outcome = self.process_frame(
-                        acq.value, current, now, slew_rate, pos
-                    )
+                    current, _outcome = self.process_frame(acq.value, current, now, slew_rate, pos)
                     with self.inner_lock:
                         latest = holder["state"]
                         holder["state"] = replace(latest, last_e_az=current.last_e_az)

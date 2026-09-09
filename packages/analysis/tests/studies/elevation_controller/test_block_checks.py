@@ -19,6 +19,7 @@ from flight.payload.gimbal.predictor import predict_los
 from flight.payload.gimbal.rate_fit import fit_rate
 from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.tracking.residual import (
+    EncoderSample,
     ResidualFilter,
     ResidualSnapshot,
     predict,
@@ -309,11 +310,12 @@ def test_safe_position_loop_and_cold_start() -> None:
         ControllerConfig(), SensorConfig(), GimbalConfig(), EphemerisConfig()
     )
     cold = controller.initial_state()
-    coast = controller.outer_step(cold, 0.02, 0.0, None, None, False, False)
+    encoder = EncoderSample(sample_id="encoder:0", t_s=0.02, angle_rad=0.0)
+    coast = controller.outer_step(cold, 0.02, encoder, None, None, False, False)
     assert coast.state.r_rad_s == 0.0
     assert coast.state.arbiter.gimbal_state is GimbalState.TRACKING
 
-    safe = controller.outer_step(cold, 0.02, 0.0, None, None, True, False)
+    safe = controller.outer_step(cold, 0.02, encoder, None, None, True, False)
     assert safe.state.arbiter.gimbal_state is GimbalState.SAFE
     assert safe.request is not None
     assert safe.request.mode is GimbalCommandMode.STOW
@@ -329,15 +331,23 @@ def test_safe_position_loop_and_cold_start() -> None:
     )
     vision = VisionSample(
         t_s=0.0,
+        frame_id="frame:0",
         z_v=0.01,
         p_cog=(612.0, 124.0),
         exposure_us=1000.0,
         blobs=(blob,),
         mode_flags=0,
-        theta_g_rad=0.0,
         iss=None,
     )
-    ignored = controller.outer_step(safe.state, 0.04, 0.0, vision, None, False, False)
+    ignored = controller.outer_step(
+        safe.state,
+        0.04,
+        EncoderSample(sample_id="encoder:1", t_s=0.04, angle_rad=0.0),
+        vision,
+        None,
+        False,
+        False,
+    )
     assert ignored.state.arbiter.gimbal_state is GimbalState.SAFE
     assert ignored.state.pose_mode is GimbalCommandMode.STOW
 
@@ -370,6 +380,14 @@ def test_no_azimuth_on_request_or_command() -> None:
         mode_flags=0,
     )
     state, sample = controller.ingest_inference(state, result, 0.0, 1000.0)
-    tick = controller.outer_step(state, 0.02, 0.0, sample, None, False, False)
+    tick = controller.outer_step(
+        state,
+        0.02,
+        EncoderSample(sample_id="encoder:0", t_s=0.02, angle_rad=0.0),
+        sample,
+        None,
+        False,
+        False,
+    )
     assert tick.request is None
     assert not hasattr(tick.state, "commanded_az_rate_deg_per_s")

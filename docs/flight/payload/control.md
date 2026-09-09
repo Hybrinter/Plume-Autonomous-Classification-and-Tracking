@@ -1,73 +1,91 @@
 # flight.payload.control
 
 **Source:** `packages/flight/src/flight/payload/control.py`
+
 **Kind:** pure module
 
 ## Purpose
 
 `PayloadController` is the pure cascaded elevation controller. It exposes
-`inner_step` and `outer_step`. Inner: encoder ring, polynomial `y_m`, PI plus
-computed torque. Outer: CoG intersect, co-rotating predictor, residual filter,
-arbiter, and rate reference.
+`inner_step` and `outer_step`. The inner path keeps the detailed-plant encoder
+rate fit and PI state. The outer path uses timestamped encoder increments,
+predictor events, vision replay, and the rate law.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `VisionSample` | dataclass | Queued vision packet: `z_v`, centroid, exposure, blobs, shutter `theta_g`, ISS |
+| `VisionSample` | dataclass | Frame ID, shutter time, error, centroid, exposure, blobs, and ISS |
 | `IssSample` | dataclass | ISS ECI state for the predictor |
-| `ControlState` | dataclass | Bundled arbiter, residual, encoder ring, integrator, CoG, clock origins, lock-hold pose |
-| `InnerTick` | dataclass | Updated state and torque |
-| `OuterTick` | dataclass | Updated state, optional STOW request, telemetry |
-| `PayloadController` | dataclass | Immutable control core |
-| `PayloadController.from_config` | static method | Builds arbiter, residual filter, and pinhole geometry |
-| `PayloadController.initial_state` | method | Cold TRACKING, `r = 0`, empty encoder ring |
-| `PayloadController.ingest_inference` | method | Gate and match blobs; build a vision sample |
-| `PayloadController.inner_step` | method | One inner tick |
-| `PayloadController.outer_step` | method | One outer tick |
+| `ControlState` | dataclass | Arbiter, residual history, inner state, and command state |
+| `InnerTick` | dataclass | Updated state and detailed-plant torque |
+| `OuterTick` | dataclass | Updated state, optional pose request, telemetry, and fault |
+| `PayloadController` | dataclass | Immutable cascaded control core |
+| `PayloadController.from_config` | static method | Builds the control core from typed config |
+| `PayloadController.initial_state` | method | Cold TRACKING state and empty residual history |
+| `PayloadController.ingest_inference` | method | Gates blobs and creates a vision sample |
+| `PayloadController.inner_step` | method | Updates the detailed-plant PI path |
+| `PayloadController.outer_step` | method | Submits events and computes the outer rate |
 
 ## Inputs and outputs
 
 `from_config` takes controller, sensor, gimbal, ephemeris, and preprocessing
-slices. `inner_step` takes encoder elevation in radians. `outer_step` takes
-elevation, optional `VisionSample`, optional `IssSample`, and SAFE flags.
+slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
+`outer_step` takes an `EncoderSample`, optional `VisionSample`, optional
+`IssSample`, SAFE flags, and an optional explicit
+`PredictorReferenceChange`.
+
+`OuterTick.state.residual_history` contains the bounded event history.
+`OuterTick.state.residual` contains the latest replayed estimate.
 
 ## Behavior
 
-1. `ingest_inference` applies confidence and area gates, matches blobs, and forms
-   the area-weighted centroid of every accepted component. That centroid is the
-   visible-plume aggregate used for pinhole `z_v`; component IDs remain association
-   metadata. It stamps shutter elevation and ISS onto the sample.
-2. `inner_step` pushes the encoder sample, fits `y_m`, and runs the inner PI.
-   Locked or SAFE/pose ticks freeze or replace `r` before the PI.
-3. `outer_step` runs the arbiter, intersects CoG with shutter-stamped pose, predicts
-   `omega_t_nom`, predicts/updates the residual filter, and writes `r`. SAFE skips
-   rewind and CoG replace. EXIT_SAFE cold-starts the residual.
-4. Live TRACKING follows arbiter aggregate liveness, so visual feedback works
-   without an ISS sample. An ISS sample only supplies optional nominal motion.
-   Science-window clips zero `r` that would leave `[el_science_min,
-   el_science_max]`.
-5. STOW / HOME / ABSOLUTE override `r` through the position loop.
-6. `last_inner_s` and `last_outer_s` start as `None`.
+1. `ingest_inference` applies confidence and area gates, matches blobs, and
+   forms the area-weighted centroid of every accepted component. It stores the
+   frame ID and shutter time in the queued sample.
+2. `inner_step` keeps the timestamped encoder ring, fits `y_m`, and runs the
+   detailed-plant PI. `y_m` remains available for inner integrity checks and
+   simulation. It is not an outer residual-estimator input.
+3. `outer_step` submits the encoder sample and a nominal-rate sample. It submits
+   an explicit reference change when one is present. It submits a vision event
+   at its shutter time and requests replay at the current encoder sample time.
+4. Residual replay uses encoder angle displacement, encoder uncertainty, and
+   reversal uncertainty. A vision event is accepted only when its shutter time
+   has an exact encoder sample or a valid bracket.
+5. The predictor supplies nominal target rate. A smooth sampled change uses the
+   zero-order-hold rate history. An explicit reference replacement rebases the
+   residual rate and keeps total target rate continuous.
+6. The outer rate is `omega_t_nom + omega_t_res + Kp * e` before the existing
+   science, smear, and slew limits. Visual tracking can run without navigation.
+7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
+   SAFE entry and SAFE exit reset the residual checkpoint as required by the
+   state machine.
+8. The state starts with `last_inner_s` and `last_outer_s` set to `None`.
 
 ## Errors and faults
 
-`OuterTick.fault` is always `None`. Integrity trips are published by the app shell.
+`OuterTick.fault` is `None`; the app shell publishes integrity and HAL faults.
+Residual event dispositions are retained by the history API and are available
+to telemetry integration.
 
 ## Messages
 
-None. The pure core returns `GimbalRequest` and `TelemetryEventMsg` values; the app
-shell publishes them.
+None. The pure core returns `GimbalRequest` and `TelemetryEventMsg` values. The
+app shell publishes them.
 
 ## Configuration
 
-Reads nested `ControllerConfig` tables (vision, arbiter, inner, outer, residual,
-position, integrity), plant copies, encoder counts, WGS-84 scalars, and smear budget.
+The controller reads nested vision, arbiter, inner, outer, residual, position,
+and integrity config. The residual config supplies continuous acceleration
+density, encoder and reversal uncertainty, interpolation and timing limits, and
+history horizon. Gimbal geometry, plant values, WGS-84 values, and smear budget
+remain injected typed config.
 
 ## Constraints
 
-The module performs no I/O, bus access, or clock reads. Time arrives as `now` and
-`dt_s`. State is immutable. Inner units are SI.
+The module performs no I/O, bus access, or clock reads. State is immutable. The
+inner path remains available for the detailed simulation plant. Production
+hardware uses the rate-command HAL path selected by the app shell.
 
 ## Related documents
 

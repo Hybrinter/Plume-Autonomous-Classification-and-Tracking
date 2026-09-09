@@ -1,67 +1,77 @@
 # flight.payload.app
 
 **Source:** `packages/flight/src/flight/payload/app.py`
+
 **Kind:** app shell
 
 ## Purpose
 
-`PayloadApp` is the payload subsystem app shell. It binds HAL drivers, the detector,
-the cascaded `PayloadController`, and the message bus. Vision samples go to an
-in-process queue. The outer loop writes `r`. The inner loop writes torque.
+`PayloadApp` binds HAL drivers, the detector, the cascaded
+`PayloadController`, and the message bus. One timestamped encoder stream feeds
+frame association and the outer residual estimator.
+
+The app supports two actuator paths. The Xeryon production path sends signed
+rate commands, including the switch-referenced bounded stow step while SAFE.
+The detailed SIL plant path runs the existing inner PI and
+torque loop.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `TickOutcome` | dataclass | Per-cycle summary: frame id, fault, command flag, gimbal state |
-| `LockGate` | dataclass | Fail-closed launch-lock gate; `UNKNOWN` counts as engaged |
-| `SafeLatch` | dataclass | SAFE flag that replaces tracking rate with the stow loop |
-| `StowGate` | dataclass | Re-issue STOW after lock release if still SAFE |
-| `PoseIntent` | dataclass | Ground STOW / HOME / GOTO waiting for the next outer tick |
-| `PayloadApp` | dataclass | Frozen holder of injected services and config slices |
-| `PayloadApp.from_config` | static method | Builds the app from `PactConfig` and injected drivers |
-| `PayloadApp.poll_mode_changes` | method | Drains `ModeChangeMsg`; returns SAFE entry and exit flags |
-| `PayloadApp.poll_lock_state` | method | Drains `LaunchLockStateMsg` and updates the lock gate |
-| `PayloadApp.handle_commands` | method | Applies routed STOW / HOME / GOTO into `PoseIntent` |
-| `PayloadApp.process_frame` | method | Preprocess, detect, enqueue shutter-stamped vision |
-| `PayloadApp.advance_outer` | method | Catch up the outer loop in `T_out` steps |
-| `PayloadApp.advance_inner` | method | Catch up the inner loop in `T_in` steps and write torque |
-| `PayloadApp.run` | method | Outer loop plus concurrent inner thread until stop |
+| `TickOutcome` | dataclass | Per-cycle frame, fault, command, and gimbal summary |
+| `LockGate` | dataclass | Fail-closed launch-lock gate |
+| `SafeLatch` | dataclass | SAFE flag shared with the inner path |
+| `StowGate` | dataclass | Pending SAFE STOW request |
+| `PoseIntent` | dataclass | Ground STOW / HOME / GOTO request |
+| `EncoderStream` | dataclass | Timestamped samples shared across app paths |
+| `PayloadApp` | dataclass | Frozen holder of injected services and config |
+| `PayloadApp.from_config` | static method | Builds the app from typed config and drivers |
+| `PayloadApp.poll_mode_changes` | method | Drains mode messages |
+| `PayloadApp.poll_lock_state` | method | Drains launch-lock messages |
+| `PayloadApp.handle_commands` | method | Applies routed pose commands |
+| `PayloadApp.process_frame` | method | Preprocesses, detects, and queues vision |
+| `PayloadApp.advance_outer` | method | Consumes timestamped outer samples |
+| `PayloadApp.advance_inner` | method | Advances the detailed-plant inner path |
+| `PayloadApp.run` | method | Runs acquisition and the selected control path |
 
 ## Inputs and outputs
 
-`from_config` takes `PactConfig`, `ImagingSensor`, `GimbalActuator`, `IssEphemeris`,
-`DetectorBackend`, `MessageBus`, `Clock`, `MosaicCalibration`, and `StorageWriter`.
-It returns a `PayloadApp`. It raises `ValueError` on invalid sensor or inference
-geometry.
+`from_config` takes `PactConfig`, HAL drivers, `MessageBus`, `Clock`, calibration,
+and storage. It returns a `PayloadApp` and raises `ValueError` for invalid
+sensor or inference geometry.
 
-`process_frame` takes a `MosaicFrame` and `ControlState`. It enqueues a vision
-sample and does not write torque.
+`process_frame` takes a `MosaicFrame` and `ControlState`. It records valid
+encoder feedback, creates a frame-ID-bearing vision sample, and does not write
+a gimbal command.
 
 ## Behavior
 
 1. `from_config` validates mosaic dimensions, band layout, and inference input
-   geometry, then subscribes to mode, launch-lock, and routed-command messages.
-   The lock gate starts engaged.
-2. `run` starts sensor acquisition and an inner torque thread. All gimbal HAL calls
-   are serialized by the actuator I/O lock. Torque commands carry a monotonic
-   authority deadline that the driver must enforce independently.
-3. Each outer iteration publishes a heartbeat on the watchdog interval, drains mode,
-   lock, and pose commands, acquires a frame, and enqueues a shutter-stamped vision
-   sample (`theta_g` and ISS at ingest).
-4. `advance_outer` stamps a clock origin on the first call (`None` means not
-   started). It dequeues a vision sample only when `sample_t <= t`, reads
-   ephemeris, and publishes pointing telemetry. Pose `GimbalCommandMsg` is published
-   on STOW / HOME / ABSOLUTE after a successful HAL latch. HAL `Err` does not
-   publish command-success. Catch-up longer than `catchup_max_s` publishes
-   `GIMBAL_FAULT`.
-5. Any encoder `Err` immediately requests confirmed inhibit; cached position may
-   support outer-loop continuity but cannot authorize torque. Transient
-   `COMM_TIMEOUT` failures use a bounded retry budget and reset inner controller
-   memory before autonomous recovery. Integrity and unclassified faults latch SAFE.
-6. Healthy SAFE operation replaces tracking rate with the stow position loop.
-   Launch lock or a latched actuator-integrity fault inhibits torque instead.
-   After lock release, a pending SAFE STOW is re-issued.
+   geometry. The lock gate starts engaged.
+2. Each valid `GimbalPosition` becomes an `EncoderSample` with device timestamp,
+   unwrapped angle, variance, and stable sample ID. The sample is stored in the
+   shared encoder stream.
+3. `advance_outer` consumes the newest unconsumed sample whose device time
+   belongs to the historical tick. A current feedback value is not relabeled
+   with an older tick time. A missing sample leaves the tick uncommitted and
+   does not fabricate zero displacement.
+4. The controller receives the encoder sample, queued shutter-stamped vision,
+   navigation state, and any explicit predictor-reference replacement. It
+   replays the residual history at the encoder sample time.
+5. A feedback read failure invalidates the encoder baseline, clears motion
+   authority, and requests confirmed inhibition. Recovery starts a new
+   residual checkpoint at the first valid sample.
+6. The production rate path checks feedback health, creates a signed rate
+   command with an absolute validity deadline, and calls `set_rate`. A failed
+   command requests inhibition and latches the actuator fault.
+7. The detailed SIL path keeps the inner encoder-rate fit, PI, and torque
+   command. Its torque thread is not started when the injected actuator exposes
+   the production rate interface.
+8. SAFE and launch-lock states inhibit motion. SAFE operation commands the stow
+   position loop. A pending SAFE STOW is retried after lock release.
+9. Shutdown stops acquisition and joins the detailed-plant thread when one is
+   running. The Xeryon adapter shutdown path remains fail-closed.
 
 ## Errors and faults
 
@@ -69,9 +79,15 @@ sample and does not write torque.
 | --- | --- |
 | Preprocessing faults | Calibration, demosaic, or band-select failure |
 | Detection faults | Detector returns `Err` |
-| Gimbal actuation faults | HAL `Err`, stale feedback, or unconfirmed containment |
-| `ValueError` at startup | Invalid sensor mosaic or inference geometry in `from_config` |
+| Encoder fault | Feedback read error, stale timing, invalid sample, or clock reset |
+| Gimbal actuation fault | HAL error, stale feedback, or unconfirmed inhibition |
+| `ValueError` at startup | Invalid sensor mosaic or inference geometry |
 | Camera stall | `acquire_frame` returns `Err` |
+| Catch-up fault | Catch-up exceeds `catchup_max_s` |
+
+Encoder, controller, thermal, watchdog, and timing faults request local stop
+and drive inhibition. Serial acknowledgement does not establish physical
+inhibition without independent watchdog evidence.
 
 ## Messages
 
@@ -80,7 +96,8 @@ sample and does not write torque.
 | Subscribe | `ModeChangeMsg`, `LaunchLockStateMsg`, `RoutedCommandMsg` |
 | Publish | `HeartbeatMsg`, `InferenceResultMsg`, `GimbalCommandMsg`, `FaultEventMsg`, `TelemetryEventMsg`, `ProductRefMsg`, `CommandAckMsg` |
 
-Vision samples do not travel on the bus.
+Vision samples stay in the app queue. Residual event records stay in pure
+controller state and do not travel on the bus.
 
 ## Configuration
 
@@ -88,23 +105,30 @@ Vision samples do not travel on the bus.
 | --- | --- |
 | `SensorConfig` | Mosaic geometry, bit depth, IFOV, band layout |
 | `InferenceConfig` | Input bands and tensor size |
-| `PreprocessingConfig` | Quality-flag thresholds and smear budget |
+| `PreprocessingConfig` | Quality flags and smear budget |
 | `FaultConfig` | Heartbeat interval |
-| `ControllerConfig` | Nested vision, arbiter, inner, outer, residual, position, and integrity tables |
-| `GimbalConfig` | Plant, envelopes, encoder |
+| `ControllerConfig` | Vision, arbiter, inner, outer, residual, position, and integrity settings |
+| `GimbalConfig` | Travel envelope and simulation plant values |
+| `XeryonConfig` | Rate quantum, serial transport, timing, duty, feedback, and stow limits |
 | `EphemerisConfig` | WGS-84 and circular-orbit elements |
 
 ## Constraints
 
-Preprocessing runs as function calls inside `process_frame`; it never publishes
-`ProcessedFrameMsg`. The full selected band plane is passed to inference. Frame
-quality follows the inference result for science qualification and does not become
-a control safety flag. The app uses `Clock.monotonic_s()` for loops and
-`Clock.utc_s()` for ephemeris.
+Preprocessing runs inside `process_frame`; it does not publish
+`ProcessedFrameMsg`. The app uses `Clock.monotonic_s()` for loop control and
+the encoder contract uses mapped device sample time in the same domain.
+
+The Xeryon adapter remains motion-disabled until vendor-source and Python
+version audit, independent watchdog tests, bounded stow bench tests, measured
+feedback cadence, timing-uncertainty evidence, and thermal-duty verification
+complete. Qualification also requires the 32-seed chronological oracle tests,
+Monte Carlo innovation coverage, and SIL paired-seed results.
 
 ## Related documents
 
 - [`flight.payload.control`](control.md)
+- [`flight.payload.tracking`](tracking.md)
 - [`flight.payload.preprocess`](preprocess.md)
 - [`flight.payload.inference`](inference.md)
 - [`flight.payload.calibration_io`](calibration_io.md)
+- [`flight.hal.interfaces.gimbal`](../hal/interfaces/gimbal.md)

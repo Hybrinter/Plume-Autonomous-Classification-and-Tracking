@@ -82,11 +82,19 @@ class OuterLoopConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class ResidualConfig:
-    """Two-state residual Kalman process/measurement noise and rewind ring."""
+    """Two-state residual process, encoder, chronology, and history settings."""
 
+    # ``Q_diag`` is retained as a loader/source compatibility field while the
+    # estimator migrates to the continuous white-acceleration scalar below.
     Q_diag: tuple[float, ...] = Field(default=(1.0e-11, 3.0e-8))  # noqa: N815
+    q_accel_rad2_s3: float = Field(default=3.0e-8, ge=0.0)
     R_v: float = Field(default=2.12e-9, gt=0.0)  # noqa: N815
     P0_diag: tuple[float, ...] = Field(default=(1.0e-3, 1.2e-5))  # noqa: N815
+    encoder_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    reversal_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    reversal_threshold_rad: float = Field(default=1.0e-6, ge=0.0)
+    interpolation_span_max_s: float = Field(default=0.020, gt=0.0)
+    timing_uncertainty_max_s: float = Field(default=1.0e-4, gt=0.0)
     rewind_horizon_s: float = Field(default=0.10, gt=0.0)
     rewind_snapshots: int = Field(default=8, ge=1)
 
@@ -308,6 +316,96 @@ class ThermalConfig:
 
 
 @dataclass(frozen=True, config=_SCHEMA)
+class GimbalSimulationConfig:
+    """Simulation-only elevation-plant and encoder configuration.
+
+    The production Xeryon path does not use inertia, damping, torque limits, or
+    synthetic encoder noise.  They remain available in a separate typed section
+    so a SIL run cannot accidentally be mistaken for hardware characterization.
+    """
+
+    J_kg_m2: float = Field(default=0.008, gt=0.0)  # noqa: N815
+    B_nms_per_rad: float = Field(default=0.04, ge=0.0)  # noqa: N815
+    tau_max_nm: float = Field(default=1.0, gt=0.0)
+    encoder_counts_per_rev: int = Field(default=262144, ge=2)
+    encoder_noise_deg: float = Field(default=0.005, ge=0.0)
+    seed: int = 0
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class XeryonConfig:
+    """Typed, fail-closed configuration for the XRT-U-40-109-HV/XD-C path.
+
+    Values describing the controller protocol are intentionally explicit.  The
+    adapter remains motion-disabled until the audit and bench-validation flags
+    are all true; defaults are therefore safe for development and CI.
+    """
+
+    model: Literal["XRT-U-40-109-HV"] = "XRT-U-40-109-HV"
+    controller: Literal["XD-C"] = "XD-C"
+    controller_counts_per_rev: int = Field(default=86_400, ge=2)
+    effective_encoder_resolution_urad: float = Field(default=109.0, gt=0.0)
+    min_incremental_motion_urad: float = Field(default=109.0, gt=0.0)
+    repeatability_uni_urad: float = Field(default=109.0, ge=0.0)
+    repeatability_bi_urad: float = Field(default=109.0, ge=0.0)
+    wobble_urad: float = Field(default=0.0, ge=0.0)
+    command_quantum_deg_per_s: float = Field(default=0.01, gt=0.0)
+    rated_speed_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
+    software_tracking_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
+    encoder_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    reversal_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    feedback_max_age_s: float = Field(default=0.010, gt=0.0)
+    interpolation_span_max_s: float = Field(default=0.020, gt=0.0)
+    timing_uncertainty_max_s: float = Field(default=1.0e-4, gt=0.0)
+    hv_max_on_s: float = Field(default=120.0, gt=0.0)
+    hv_duty_fraction: float = Field(default=0.5, gt=0.0, le=1.0)
+    stow_reference_rate_deg_per_s: float = Field(default=1.0, gt=0.0)
+    stow_timeout_s: float = Field(default=30.0, gt=0.0)
+    serial_port: str = ""
+    settings_file_path: str = ""
+    transport: Literal["usb", "jetson_uart"] = "usb"
+    usb_baudrate: int = Field(default=115_200, ge=1)
+    jetson_uart_baudrate: int = Field(default=76_800, ge=1)
+    feedback_info_level: int = Field(default=4, ge=0)
+    feedback_poll_interval_ms: float = Field(default=2.0, gt=0.0)
+    vendor_module: str = "Xeryon"
+    vendor_stage: str = "XRTU_40_109"
+    axis_letter: str = Field(default="X", min_length=1, max_length=1)
+    motion_enabled: bool = False
+    vendor_license_audited: bool = False
+    python314_audited: bool = False
+    watchdog_validated: bool = False
+    stow_bench_validated: bool = False
+    external_watchdog_required: bool = True
+
+    @model_validator(mode="after")
+    def _speed_limits(self) -> Self:
+        """Require the software limit to stay inside the rated limit."""
+        if self.software_tracking_limit_deg_per_s > self.rated_speed_limit_deg_per_s:
+            raise ValueError(
+                "software_tracking_limit_deg_per_s must not exceed rated_speed_limit_deg_per_s"
+            )
+        return self
+
+    @property
+    def prerequisites_ready(self) -> bool:
+        """Whether production motion may be enabled by the adapter."""
+        return (
+            self.motion_enabled
+            and self.vendor_license_audited
+            and self.python314_audited
+            and self.watchdog_validated
+            and self.stow_bench_validated
+            and bool(self.settings_file_path)
+        )
+
+    @property
+    def baudrate(self) -> int:
+        """Selected transport baud (USB bench or Jetson UART)."""
+        return self.usb_baudrate if self.transport == "usb" else self.jetson_uart_baudrate
+
+
+@dataclass(frozen=True, config=_SCHEMA)
 class GimbalConfig:
     """Configuration for the single-axis gimbal envelope, plant, and encoder.
 
@@ -325,12 +423,38 @@ class GimbalConfig:
     max_hw_slew_rate_deg_per_s: float = Field(default=10.0, gt=0.0)
     stow_el_deg: float = -45.0
     home_el_deg: float = 45.0
-    J_kg_m2: float = Field(default=0.008, gt=0.0)  # noqa: N815
-    B_nms_per_rad: float = Field(default=0.04, ge=0.0)  # noqa: N815
-    tau_max_nm: float = Field(default=1.0, gt=0.0)
-    encoder_counts_per_rev: int = Field(default=262144, ge=2)
-    sim_encoder_noise_deg: float = 0.005
-    sim_seed: int = 0
+    simulation: GimbalSimulationConfig = field(default_factory=GimbalSimulationConfig)
+    xeryon: XeryonConfig = field(default_factory=XeryonConfig)
+
+    @property
+    def J_kg_m2(self) -> float:  # noqa: N802, N815
+        """Detailed-plant inertia; unavailable to the production Xeryon adapter."""
+        return self.simulation.J_kg_m2
+
+    @property
+    def B_nms_per_rad(self) -> float:  # noqa: N802, N815
+        """Detailed-plant damping; unavailable to the production Xeryon adapter."""
+        return self.simulation.B_nms_per_rad
+
+    @property
+    def tau_max_nm(self) -> float:
+        """Detailed-plant torque limit used only by simulation control."""
+        return self.simulation.tau_max_nm
+
+    @property
+    def encoder_counts_per_rev(self) -> int:
+        """Detailed-plant encoder count used only by simulation."""
+        return self.simulation.encoder_counts_per_rev
+
+    @property
+    def sim_encoder_noise_deg(self) -> float:
+        """Detailed-plant synthetic encoder noise."""
+        return self.simulation.encoder_noise_deg
+
+    @property
+    def sim_seed(self) -> int:
+        """Detailed-plant random seed."""
+        return self.simulation.seed
 
     @model_validator(mode="after")
     def _travel_envelope(self) -> Self:

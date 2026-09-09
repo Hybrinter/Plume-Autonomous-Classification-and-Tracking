@@ -28,8 +28,14 @@ Kp = 8.0
 
 [controller.residual]
 Q_diag = [1.0e-11, 3.0e-8]
+q_accel_rad2_s3 = 3.0e-8
 R_v = 2.12e-9
 P0_diag = [1.0e-3, 1.2e-5]
+encoder_variance_rad2 = 1.0e-10
+reversal_variance_rad2 = 1.0e-10
+reversal_threshold_rad = 1.0e-6
+interpolation_span_max_s = 0.020
+timing_uncertainty_max_s = 1.0e-4
 rewind_horizon_s = 0.10
 rewind_snapshots = 8
 
@@ -149,12 +155,51 @@ el_science_max_deg = 45.0
 max_hw_slew_rate_deg_per_s = 10.0
 stow_el_deg = -45.0
 home_el_deg = 45.0
+[gimbal.simulation]
 J_kg_m2 = 0.008
 B_nms_per_rad = 0.04
 tau_max_nm = 1.0
 encoder_counts_per_rev = 262144
-sim_encoder_noise_deg = 0.005
-sim_seed = 0
+encoder_noise_deg = 0.005
+seed = 0
+
+[gimbal.xeryon]
+model = "XRT-U-40-109-HV"
+controller = "XD-C"
+controller_counts_per_rev = 86400
+effective_encoder_resolution_urad = 109.0
+min_incremental_motion_urad = 109.0
+repeatability_uni_urad = 109.0
+repeatability_bi_urad = 109.0
+wobble_urad = 0.0
+command_quantum_deg_per_s = 0.01
+rated_speed_limit_deg_per_s = 10.0
+software_tracking_limit_deg_per_s = 10.0
+encoder_variance_rad2 = 1.0e-10
+reversal_variance_rad2 = 1.0e-10
+feedback_max_age_s = 0.010
+interpolation_span_max_s = 0.020
+timing_uncertainty_max_s = 1.0e-4
+hv_max_on_s = 120.0
+hv_duty_fraction = 0.5
+stow_reference_rate_deg_per_s = 1.0
+stow_timeout_s = 30.0
+serial_port = ""
+settings_file_path = ""
+transport = "usb"
+usb_baudrate = 115200
+jetson_uart_baudrate = 76800
+feedback_info_level = 4
+feedback_poll_interval_ms = 2.0
+vendor_module = "Xeryon"
+vendor_stage = "XRTU_40_109"
+axis_letter = "X"
+motion_enabled = false
+vendor_license_audited = false
+python314_audited = false
+watchdog_validated = false
+stow_bench_validated = false
+external_watchdog_required = true
 
 [ephemeris]
 # Circular Keplerian ECI stand-in (ISS GP TLE 25544 mean elements, epoch 2026-09-01).

@@ -7,9 +7,15 @@ from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, 
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import IssSample, PayloadController, VisionSample
+from flight.payload.tracking import EncoderSample
 
 _BORESIGHT_X = 612.0
 _BORESIGHT_Y = 512.0
+
+
+def _encoder(t_s: float, angle_rad: float = 0.0) -> EncoderSample:
+    """Build a valid timestamped encoder sample for one outer tick."""
+    return EncoderSample(f"encoder:{t_s:.6f}", t_s, angle_rad, 0.0)
 
 
 def _controller() -> PayloadController:
@@ -70,7 +76,7 @@ def test_cold_outer_holds_r_zero_without_vision() -> None:
     """Coast ticks before the first blob keep r = 0."""
     controller = _controller()
     state = controller.initial_state()
-    tick = controller.outer_step(state, 0.02, 0.0, None, None, False, False)
+    tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, False, False)
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.r_rad_s == 0.0
     assert tick.request is None
@@ -92,11 +98,11 @@ def test_blob_above_boresight_commands_positive_r() -> None:
     centroid = (_BORESIGHT_X, _BORESIGHT_Y - 70.0)
     iss = _iss()
     state, sample = controller.ingest_inference(
-        state, _result(1, centroid=centroid), 0.0, 1000.0, 0.0, iss
+        state, _result(1, centroid=centroid), 0.0, 1000.0, iss
     )
     assert sample.z_v is not None
     assert sample.z_v > 0.0
-    tick = controller.outer_step(state, 0.02, 0.0, sample, iss, False, False)
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.residual.has_measurement is True
     assert tick.state.r_rad_s > 0.0
@@ -135,7 +141,7 @@ def test_visual_tracking_does_not_require_navigation() -> None:
         1000.0,
     )
 
-    tick = controller.outer_step(state, 0.02, 0.0, sample, None, False, False)
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, None, False, False)
 
     assert tick.state.arbiter.aggregate_live is True
     assert tick.state.r_rad_s > 0.0
@@ -150,12 +156,12 @@ def test_aggregate_coast_expires_into_return() -> None:
         0.0,
         1000.0,
     )
-    live = controller.outer_step(state, 0.02, 0.0, sample, None, False, False).state
+    live = controller.outer_step(state, 0.02, _encoder(0.0), sample, None, False, False).state
 
     expired = controller.outer_step(
         live,
         controller.cfg.arbiter.max_observation_age_s + 0.04,
-        0.1,
+        _encoder(controller.cfg.arbiter.max_observation_age_s + 0.04, 0.0),
         None,
         None,
         False,
@@ -171,7 +177,7 @@ def test_safe_entry_produces_stow_request() -> None:
     """A commanded SAFE produces a STOW request and latched SAFE state."""
     controller = _controller()
     state = controller.initial_state()
-    tick = controller.outer_step(state, 0.02, 0.0, None, None, True, False)
+    tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, True, False)
     assert tick.request is not None
     assert tick.request.mode is GimbalCommandMode.STOW
     assert tick.state.arbiter.gimbal_state is GimbalState.SAFE
@@ -207,10 +213,10 @@ def test_iss_sample_feeds_predictor() -> None:
         exposure_us=1000.0,
         blobs=(),
         mode_flags=0,
-        theta_g_rad=0.0,
         iss=iss,
+        frame_id="1",
     )
-    tick = controller.outer_step(state, 0.02, 0.0, sample, iss, False, False)
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
     assert math.isfinite(tick.state.last_omega_t_nom)
 
 
@@ -224,7 +230,7 @@ def test_home_request_sets_pose_mode() -> None:
         pose_mode=GimbalCommandMode.HOME,
         pose_el_deg=controller.gimbal.home_el_deg,
     )
-    tick = controller.outer_step(state, 0.02, 0.0, None, None, False, False)
+    tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, False, False)
     assert tick.state.pose_mode is GimbalCommandMode.HOME
     assert tick.state.r_rad_s > 0.0
 
@@ -236,9 +242,9 @@ def test_science_window_zeros_negative_r_at_min() -> None:
     iss = _iss()
     centroid = (_BORESIGHT_X, _BORESIGHT_Y + 70.0)
     state, sample = controller.ingest_inference(
-        state, _result(1, centroid=centroid), 0.0, 1000.0, 0.0, iss
+        state, _result(1, centroid=centroid), 0.0, 1000.0, iss
     )
-    tick = controller.outer_step(state, 0.02, 0.0, sample, iss, False, False)
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
     assert tick.state.r_rad_s == 0.0
 
 
@@ -248,10 +254,10 @@ def test_exit_safe_resets_residual() -> None:
 
     controller = _controller()
     state = controller.initial_state()
-    safe = controller.outer_step(state, 0.02, 0.0, None, None, True, False)
+    safe = controller.outer_step(state, 0.02, _encoder(0.02), None, None, True, False)
     residual = replace(safe.state.residual, has_measurement=True)
     hot = replace(safe.state, residual=residual)
-    cleared = controller.outer_step(hot, 0.04, 0.0, None, None, False, True)
+    cleared = controller.outer_step(hot, 0.04, _encoder(0.04), None, None, False, True)
     assert cleared.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert cleared.state.residual.has_measurement is False
     assert float(cleared.state.residual.x[0]) == 0.0

@@ -57,6 +57,22 @@ def test_gimbal_fault_triggers_safe() -> None:
     assert FaultCode.GIMBAL_FAULT in SAFE_TRIGGERING_FAULTS
 
 
+def test_all_xeryon_containment_faults_trigger_safe() -> None:
+    """Every Xeryon feedback, controller, duty, and watchdog fault enters SAFE."""
+    xeryon_faults = {
+        FaultCode.GIMBAL_ENCODER_INVALID,
+        FaultCode.GIMBAL_CONTROLLER_ERROR,
+        FaultCode.GIMBAL_THERMAL,
+        FaultCode.GIMBAL_SAFETY_TIMEOUT,
+        FaultCode.GIMBAL_CLOSED_LOOP_LOSS,
+        FaultCode.GIMBAL_STALE_FEEDBACK,
+        FaultCode.GIMBAL_TIME_MAPPING,
+        FaultCode.GIMBAL_DUTY_EXHAUSTED,
+        FaultCode.GIMBAL_WATCHDOG_UNCONFIRMED,
+    }
+    assert xeryon_faults <= SAFE_TRIGGERING_FAULTS
+
+
 def test_command_ingress_faults_do_not_trigger_safe() -> None:
     """Command CRC/auth/seq/validation faults are annunciated, never SAFE the vehicle."""
     for code in (

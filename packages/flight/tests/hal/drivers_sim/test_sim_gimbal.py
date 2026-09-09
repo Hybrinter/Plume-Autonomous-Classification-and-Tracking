@@ -3,14 +3,19 @@
 import math
 
 from flight.hal.drivers_sim import SimGimbal
-from flight.libs.config import GimbalConfig
+from flight.libs.config import GimbalConfig, GimbalSimulationConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import Ok
 
 
 def _gimbal(clock: ManualClock, **cfg_overrides: float) -> SimGimbal:
     """Construct a noiseless SimGimbal with optional GimbalConfig overrides."""
-    cfg = GimbalConfig(sim_encoder_noise_deg=0.0, **cfg_overrides)  # type: ignore[arg-type]
+    tau_max = cfg_overrides.pop("tau_max_nm", 1.0)
+    cfg = GimbalConfig(
+        max_hw_slew_rate_deg_per_s=cfg_overrides.pop("max_hw_slew_rate_deg_per_s", 10.0),
+        simulation=GimbalSimulationConfig(tau_max_nm=tau_max, encoder_noise_deg=0.0),
+    )
+    assert not cfg_overrides
     return SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
 
 

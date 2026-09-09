@@ -24,6 +24,8 @@ from flight.hal.interfaces import (
     GimbalActuator,
     GimbalHealth,
     GimbalPosition,
+    GimbalRateActuator,
+    GimbalRateCommand,
     ImagingSensor,
     IssEphemeris,
     StorageWriter,
@@ -77,6 +79,7 @@ from flight.payload.preprocess import (
     select_bands,
     separate_bands,
 )
+from flight.payload.tracking import EncoderSample
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +144,14 @@ class ActuatorSafety:
     last_health_publish_s: float | None = None
 
 
+@dataclass(slots=True)
+class EncoderStream:
+    """Timestamped encoder samples shared by frame association and outer control."""
+
+    samples: deque[EncoderSample] = field(default_factory=lambda: deque(maxlen=4096))
+    consumed_ids: set[str] = field(default_factory=set)
+
+
 @dataclass(frozen=True)
 class PayloadApp:
     """Payload subsystem app: imperative shell around the cascaded pointing loops.
@@ -189,6 +200,7 @@ class PayloadApp:
     inner_lock: threading.Lock = field(default_factory=threading.Lock)
     actuator_io_lock: threading.Lock = field(default_factory=threading.Lock)
     actuator_safety: ActuatorSafety = field(default_factory=ActuatorSafety)
+    encoder_stream: EncoderStream = field(default_factory=EncoderStream)
 
     @staticmethod
     def from_config(
@@ -288,6 +300,83 @@ class PayloadApp:
                     command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "unsupported command"
                 )
 
+    def _rate_mode(self) -> bool:
+        """Return whether the injected actuator exposes the production rate path."""
+        return isinstance(self.gimbal, GimbalRateActuator)
+
+    def _record_encoder(self, position: GimbalPosition) -> EncoderSample:
+        """Record one valid feedback frame and return its estimator-domain sample."""
+        sample_id = (
+            f"encoder:{position.sequence}"
+            if position.sequence > 0
+            else f"encoder:t:{position.timestamp_s:.9f}"
+        )
+        sample = EncoderSample(
+            sample_id=sample_id,
+            t_s=position.timestamp_s,
+            angle_rad=math.radians(position.el_deg),
+            angle_variance_rad2=self.controller.cfg.residual.encoder_variance_rad2,
+        )
+        if all(existing.sample_id != sample.sample_id for existing in self.encoder_stream.samples):
+            self.encoder_stream.samples.append(sample)
+        return sample
+
+    def _encoder_for_tick(self, tick_s: float) -> EncoderSample | None:
+        """Return the newest unconsumed sample whose device time belongs to this tick."""
+        candidates = [
+            sample
+            for sample in self.encoder_stream.samples
+            if sample.sample_id not in self.encoder_stream.consumed_ids
+            and sample.t_s <= tick_s + 1.0e-12
+        ]
+        if not candidates:
+            return None
+        selected = max(candidates, key=lambda sample: (sample.t_s, sample.sample_id))
+        self.encoder_stream.consumed_ids.add(selected.sample_id)
+        return selected
+
+    def _encoder_angle_at(self, t_s: float) -> float | None:
+        """Interpolate a shutter angle only from a valid bounded sample bracket."""
+        ordered = sorted(self.encoder_stream.samples, key=lambda sample: sample.t_s)
+        exact = [sample for sample in ordered if abs(sample.t_s - t_s) <= 1.0e-12]
+        if exact:
+            return exact[0].angle_rad
+        before = [sample for sample in ordered if sample.t_s < t_s]
+        after = [sample for sample in ordered if sample.t_s > t_s]
+        if not before or not after:
+            return None
+        left = before[-1]
+        right = after[0]
+        span = right.t_s - left.t_s
+        if span <= 0.0 or span > self.controller.cfg.residual.interpolation_span_max_s:
+            return None
+        alpha = (t_s - left.t_s) / span
+        return left.angle_rad + alpha * (right.angle_rad - left.angle_rad)
+
+    @staticmethod
+    def _invalidate_encoder_state(state: ControlState) -> ControlState:
+        """Remove motion authority and detailed-plant encoder baseline after a read fault."""
+        return replace(
+            state,
+            encoder_ring=(),
+            encoder_timestamp_ring=(),
+            last_theta_enc_rad=None,
+            y_m=0.0,
+            r_rad_s=0.0,
+        )
+
+    def _fresh_recovery_state(self, state: ControlState, sample: EncoderSample) -> ControlState:
+        """Start a new residual checkpoint after encoder/actuator recovery."""
+        return replace(
+            self._fresh_inner_state(state),
+            residual=self.controller.residual_filt.initial_state(),
+            residual_history=self.controller.residual_filt.initial_history(
+                t_s=sample.t_s,
+                encoder_angle_rad=sample.angle_rad,
+                encoder_endpoint_variance_rad2=sample.angle_variance_rad2,
+            ),
+        )
+
     def process_frame(
         self,
         raw: MosaicFrame,
@@ -348,17 +437,24 @@ class PayloadApp:
         self.bus.publish(inference)
         self._store_mask_product(inference)
 
-        if gimbal_pos is not None:
-            theta_g = math.radians(gimbal_pos.el_deg)
-        elif state.last_theta_enc_rad is not None:
-            theta_g = state.last_theta_enc_rad
+        if gimbal_pos is None:
+            position = self._read_position()
+            if isinstance(position, Ok):
+                gimbal_pos = position.value
+            else:
+                state = self._invalidate_encoder_state(state)
         else:
-            theta_g = 0.0
+            self._record_encoder(gimbal_pos)
         iss, eph_err = self._read_iss_at(raw.timestamp_s if raw.timestamp_s else now)
         if eph_err is not None:
             self._publish_fault(eph_err, "ephemeris read failed")
         new_state, sample = self.controller.ingest_inference(
-            state, inference, raw.timestamp_s, raw.exposure_us, theta_g, iss
+            state,
+            inference,
+            raw.timestamp_s,
+            raw.exposure_us,
+            iss,
+            theta_g_rad=self._encoder_angle_at(raw.timestamp_s),
         )
         self.vision_queue.append(sample)
         outcome = TickOutcome(
@@ -411,6 +507,23 @@ class PayloadApp:
             current = replace(current, last_outer_s=t)
         while t + dt <= now + 1e-12:
             t = t + dt
+            encoder = self._encoder_for_tick(t)
+            if encoder is None:
+                # A catch-up tick may not consume a current encoder sample and
+                # relabel it with historical time. Keep the committed cursor at
+                # the last processed tick; a later call may then replay this
+                # historical interval when the physical sample arrives.
+                if safe_commanded or self.safe_latch.commanded:
+                    current = self._invalidate_encoder_state(current)
+                    current = replace(
+                        current,
+                        arbiter=replace(current.arbiter, gimbal_state=GimbalState.SAFE),
+                        pose_mode=GimbalCommandMode.STOW,
+                        pose_el_deg=self.controller.gimbal.stow_el_deg,
+                    )
+                safe_commanded = False
+                safe_cleared = False
+                continue
             vision: VisionSample | None = None
             if self.vision_queue:
                 sample_t = self.vision_queue[0].t_s
@@ -419,26 +532,21 @@ class PayloadApp:
             iss, eph_err = self._read_iss_at(t)
             if eph_err is not None:
                 self._publish_fault(eph_err, "ephemeris read failed")
-            pos = self._read_position()
-            if isinstance(pos, Ok):
-                theta = math.radians(pos.value.el_deg)
-                current = replace(current, last_theta_enc_rad=theta)
-            elif current.last_theta_enc_rad is not None:
-                theta = current.last_theta_enc_rad
-            else:
-                self._publish_fault(FaultCode.GIMBAL_FAULT, "encoder unavailable")
-                current = replace(current, r_rad_s=0.0)
-                break
+            theta = encoder.angle_rad
+            current = replace(current, last_theta_enc_rad=theta)
+            if self.actuator_safety.recovery_pending_reset:
+                current = self._fresh_recovery_state(current, encoder)
             tick = self.controller.outer_step(
                 current,
                 t,
-                theta,
+                encoder,
                 vision,
                 iss,
                 safe_commanded,
                 safe_cleared,
                 dt,
                 timestamp_utc=self.clock.wall_clock_iso(),
+                detailed_plant=not self._rate_mode(),
             )
             current = tick.state
             if self.lock_gate.engaged:
@@ -458,6 +566,21 @@ class PayloadApp:
                 command_issued = command_issued or issued
                 if not issued and self.lock_gate.engaged:
                     self.stow_gate.pending = True
+            if self._rate_mode():
+                assert isinstance(self.gimbal, GimbalRateActuator)
+                if (
+                    not self.lock_gate.engaged
+                    and current.arbiter.gimbal_state is GimbalState.SAFE
+                    and current.pose_mode is GimbalCommandMode.STOW
+                ):
+                    with self.actuator_io_lock:
+                        stow_result = self.gimbal.stow_reference_step(t)
+                    if isinstance(stow_result, Err):
+                        self._record_actuator_failure(stow_result.error, t)
+                        self._publish_fault(stow_result.error, "bounded gimbal stow failed")
+                        self._inhibit_motion("bounded stow failed")
+                else:
+                    self._write_rate(math.degrees(current.r_rad_s), t, self.lock_gate.engaged)
             safe_commanded = False
             safe_cleared = False
         if (
@@ -486,6 +609,10 @@ class PayloadApp:
 
     def advance_inner(self, state: ControlState, now: float) -> ControlState:
         """Catch up the inner loop to `now` in T_in steps and write torque."""
+        if self._rate_mode():
+            # Production Xeryon control is rate-commanded at outer cadence;
+            # never read/fit the detailed-plant inner loop on that path.
+            return state
         dt = self.controller.cfg.inner.dt_s
         current = state
         self.poll_lock_state()
@@ -584,6 +711,7 @@ class PayloadApp:
         with self.actuator_io_lock:
             result = self.gimbal.read_position()
         if isinstance(result, Ok):
+            self._record_encoder(result.value)
             self.actuator_safety.last_feedback_s = result.value.timestamp_s
         else:
             self._record_actuator_failure(result.error, self.clock.monotonic_s())
@@ -659,6 +787,52 @@ class PayloadApp:
             self._inhibit_motion("torque command failed")
             if self.actuator_safety.latched_fault:
                 self.safe_latch.commanded = True
+            return False
+        if self.actuator_safety.recovery_pending_reset:
+            self._publish_actuator_recovery("recovered")
+        self.actuator_safety.recovery_pending_reset = False
+        self.actuator_safety.recovery_attempts = 0
+        self.actuator_safety.recovery_window_start_s = None
+        return True
+
+    def _write_rate(self, rate_deg_per_s: float, now: float, locked: bool) -> bool:
+        """Write a leased production rate command after feedback/safety checks."""
+        if not self._rate_mode():
+            return False
+        if locked or self.actuator_safety.latched_fault:
+            return self._inhibit_motion("motion inhibited by lock or actuator fault")
+        with self.actuator_io_lock:
+            health = self.gimbal.read_health()
+        if isinstance(health, Err) or not health.value.feedback_valid:
+            self.actuator_safety.latched_fault = True
+            self.safe_latch.commanded = True
+            self._inhibit_motion("invalid actuator feedback")
+            self._publish_fault(FaultCode.GIMBAL_FAULT, "invalid actuator feedback")
+            return False
+        authority_now = self.clock.monotonic_s()
+        last_feedback_s = health.value.last_feedback_s
+        if (
+            last_feedback_s is None
+            or authority_now - last_feedback_s > self.controller.cfg.integrity.feedback_max_age_s
+        ):
+            self.actuator_safety.latched_fault = True
+            self.safe_latch.commanded = True
+            self._inhibit_motion("stale actuator feedback")
+            self._publish_fault(FaultCode.GIMBAL_STALE_FEEDBACK, "stale actuator feedback")
+            return False
+        self._publish_actuator_health(health.value)
+        command = GimbalRateCommand(
+            rate_deg_per_s=rate_deg_per_s,
+            valid_until_s=authority_now + self.controller.cfg.integrity.command_authority_s,
+        )
+        with self.actuator_io_lock:
+            if not isinstance(self.gimbal, GimbalRateActuator):
+                return False
+            send = self.gimbal.set_rate(command)
+        if isinstance(send, Err):
+            self._record_actuator_failure(send.error, now)
+            self._inhibit_motion("rate command failed")
+            self.safe_latch.commanded = self.actuator_safety.latched_fault
             return False
         if self.actuator_safety.recovery_pending_reset:
             self._publish_actuator_recovery("recovered")
@@ -744,6 +918,25 @@ class PayloadApp:
                     ),
                     "inhibited": health.inhibited,
                     "inhibit_confirmed": health.inhibit_confirmed,
+                    "controller_status_bits": health.controller_status_bits,
+                    "motor_on": health.motor_on,
+                    "closed_loop": health.closed_loop,
+                    "duty_credit_s": (
+                        -1.0 if health.duty_credit_s is None else health.duty_credit_s
+                    ),
+                    "duty_locked_out": health.duty_locked_out,
+                    "watchdog_gate_confirmed": health.watchdog_gate_confirmed,
+                    "time_mapping_valid": health.time_mapping_valid,
+                    "requested_rate_deg_per_s": (
+                        math.nan
+                        if health.requested_rate_deg_per_s is None
+                        else health.requested_rate_deg_per_s
+                    ),
+                    "quantized_rate_deg_per_s": (
+                        math.nan
+                        if health.quantized_rate_deg_per_s is None
+                        else health.quantized_rate_deg_per_s
+                    ),
                 },
             )
         )
@@ -880,8 +1073,10 @@ class PayloadApp:
                     )
                 stop_event.wait(timeout=dt)
 
-        inner_thread = threading.Thread(target=inner_loop, name="payload-inner", daemon=True)
-        inner_thread.start()
+        inner_thread: threading.Thread | None = None
+        if not self._rate_mode():
+            inner_thread = threading.Thread(target=inner_loop, name="payload-inner", daemon=True)
+            inner_thread.start()
         try:
             while not stop_event.is_set():
                 now = self.clock.monotonic_s()
@@ -950,7 +1145,14 @@ class PayloadApp:
                 stop_event.wait(timeout=self.controller.cfg.outer.dt_s)
         finally:
             stop_event.set()
-            inner_thread.join(timeout=1.0)
+            if inner_thread is not None:
+                inner_thread.join(timeout=1.0)
+            if isinstance(self.gimbal, GimbalRateActuator):
+                # The production adapter owns the vendor transport and must
+                # confirm inhibit before closing it.  Detailed-plant SIL has
+                # no shutdown surface and keeps its existing teardown path.
+                self._inhibit_motion("payload app stopping")
+                self.gimbal.shutdown()
             self.sensor.stop_acquisition()
 
     def _store_mask_product(self, inference: InferenceResultMsg) -> None:

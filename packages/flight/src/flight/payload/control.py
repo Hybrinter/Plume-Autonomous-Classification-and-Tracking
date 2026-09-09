@@ -42,15 +42,16 @@ from flight.payload.gimbal import (
     predict_los,
 )
 from flight.payload.tracking import (
+    EncoderSample,
+    NominalRateSample,
+    PredictorReferenceChange,
     ResidualFilter,
-    ResidualSnapshot,
+    ResidualHistory,
     ResidualState,
+    VisionObservation,
+    estimate_at,
     match_blobs,
-    push_snapshot,
-    rewind_update,
-)
-from flight.payload.tracking import (
-    predict as residual_predict,
+    submit_event,
 )
 
 
@@ -60,23 +61,26 @@ class VisionSample:
 
     Attributes:
         t_s: Monotonic shutter time.
+        frame_id: Stable frame identifier used to deduplicate delayed observations.
         z_v: Elevation boresight error in radians, or None when no blob.
         p_cog: Band-plane centroid, or None when no blob.
         exposure_us: Live frame exposure.
         blobs: Gated, matched blobs (empty on a miss).
         mode_flags: Inference mode_flags for SAFE latching.
-        theta_g_rad: Encoder elevation at shutter, radians.
         iss: ISS state at shutter, or None when ephemeris is dead.
+        theta_g_rad: Encoder angle interpolated at shutter time, or None when
+            the shared encoder stream does not bracket the shutter.
     """
 
     t_s: float
+    frame_id: str
     z_v: float | None
     p_cog: tuple[float, float] | None
     exposure_us: float
     blobs: tuple[BlobMeta, ...]
     mode_flags: int
-    theta_g_rad: float
     iss: IssSample | None
+    theta_g_rad: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,13 +104,13 @@ class ControlState:
 
     Attributes:
         arbiter: Gimbal FSM state.
-        residual: Two-state residual Kalman state.
+        residual: Latest two-state residual Kalman estimate.
+        residual_history: Timestamped residual events and stable posterior anchor.
         encoder_ring: Encoder elevations in radians, oldest to newest.
         integrator: Inner PI integrator.
         r_cog_ecef_m: Last good CoG Earth point, ECEF meters.
         r_rad_s: Last rate reference.
         y_m: Last encoder-rate estimate, rad/s.
-        snapshots: Residual rewind ring, oldest first.
         last_inner_s: Monotonic time of the last inner step, or None if not started.
         last_outer_s: Monotonic time of the last outer step, or None if not started.
         last_theta_enc_rad: Last encoder sample, radians, or None.
@@ -125,13 +129,13 @@ class ControlState:
 
     arbiter: ArbiterState
     residual: ResidualState
+    residual_history: ResidualHistory
     encoder_ring: tuple[float, ...]
     encoder_timestamp_ring: tuple[float, ...]
     integrator: float
     r_cog_ecef_m: tuple[float, float, float] | None
     r_rad_s: float
     y_m: float
-    snapshots: tuple[ResidualSnapshot, ...]
     last_inner_s: float | None
     last_outer_s: float | None
     last_theta_enc_rad: float | None
@@ -256,13 +260,13 @@ class PayloadController:
                 miss_count=0,
             ),
             residual=self.residual_filt.initial_state(),
+            residual_history=self.residual_filt.initial_history(),
             encoder_ring=(),
             encoder_timestamp_ring=(),
             integrator=0.0,
             r_cog_ecef_m=None,
             r_rad_s=0.0,
             y_m=0.0,
-            snapshots=(),
             last_inner_s=None,
             last_outer_s=None,
             last_theta_enc_rad=None,
@@ -285,8 +289,8 @@ class PayloadController:
         result: InferenceResultMsg,
         t_s: float,
         exposure_us: float,
-        theta_g_rad: float = 0.0,
         iss: IssSample | None = None,
+        theta_g_rad: float | None = None,
     ) -> tuple[ControlState, VisionSample]:
         """Gate and match blobs; build a vision sample. Does not step the loops.
 
@@ -295,7 +299,6 @@ class PayloadController:
             result: Detector output.
             t_s: Monotonic shutter time.
             exposure_us: Live exposure.
-            theta_g_rad: Encoder elevation at shutter, radians.
             iss: ISS state at shutter, or None.
 
         Outputs:
@@ -329,13 +332,14 @@ class PayloadController:
             )
         sample = VisionSample(
             t_s=t_s,
+            frame_id=str(result.frame_id),
             z_v=z_v,
             p_cog=p_cog,
             exposure_us=exposure_us,
             blobs=matched,
             mode_flags=result.mode_flags,
-            theta_g_rad=theta_g_rad,
             iss=iss,
+            theta_g_rad=theta_g_rad,
         )
         return replace(state, last_e_az=e_az), sample
 
@@ -451,30 +455,34 @@ class PayloadController:
         self,
         state: ControlState,
         now: float,
-        theta_g_rad: float,
+        encoder: EncoderSample,
         vision: VisionSample | None,
         iss: IssSample | None,
         safe_commanded: bool,
         safe_cleared: bool,
         dt_s: float | None = None,
         timestamp_utc: str = "",
+        reference_change: PredictorReferenceChange | None = None,
+        detailed_plant: bool = True,
     ) -> OuterTick:
-        """One outer tick: arbiter, predictor, residual KF, rate reference.
+        """One outer tick: timestamped encoder history, predictor, and rate reference.
 
         Inputs:
             state: Current control state.
             now: Monotonic seconds of this tick.
-            theta_g_rad: Current elevation, radians.
+            encoder: Valid timestamped, unwrapped encoder sample for this tick.
             vision: Dequeued vision sample, or None on coast.
             iss: ISS ECI state, or None (omega_t_nom = 0).
             safe_commanded, safe_cleared: FDIR SAFE flags.
             dt_s: Outer period; defaults to cfg.outer.dt_s.
             timestamp_utc: ISO stamp for pointing telemetry (empty skips the event).
+            reference_change: Explicit predictor-reference replacement, if any.
 
         Outputs:
             OuterTick: Updated state, optional STOW request, telemetry.
         """
-        dt = self.cfg.outer.dt_s if dt_s is None else dt_s
+        del dt_s  # Detailed-plant cadence is retained by inner_step only.
+        theta_g_rad = encoder.angle_rad
         el_deg = math.degrees(theta_g_rad)
         blobs = vision.blobs if vision is not None else ()
         mode_flags = vision.mode_flags if vision is not None else 0
@@ -508,7 +516,8 @@ class PayloadController:
             pose_mode = None
 
         residual = state.residual
-        snapshots = state.snapshots
+        history = state.residual_history
+        vision_disposition = "none"
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us
@@ -520,15 +529,24 @@ class PayloadController:
         else:
             if safe_cleared:
                 residual = self.residual_filt.initial_state()
-                snapshots = ()
+                history = self.residual_filt.initial_history(
+                    t_s=encoder.t_s,
+                    encoder_angle_rad=encoder.angle_rad,
+                    encoder_endpoint_variance_rad2=encoder.angle_variance_rad2,
+                )
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us
             else:
                 exposure_us = state.last_exposure_us
             r_cog = state.r_cog_ecef_m
             shutter_iss = vision.iss if vision is not None else None
-            shutter_theta = vision.theta_g_rad if vision is not None else theta_g_rad
-            if vision is not None and vision.p_cog is not None and shutter_iss is not None:
+            shutter_theta = vision.theta_g_rad if vision is not None else None
+            if (
+                vision is not None
+                and vision.p_cog is not None
+                and shutter_iss is not None
+                and shutter_theta is not None
+            ):
                 inter = intersect_cog(
                     vision.p_cog,
                     shutter_theta,
@@ -560,26 +578,34 @@ class PayloadController:
                     self.eph.epoch_utc_s,
                 )
 
-            residual = residual_predict(self.residual_filt, residual, dt, omega_t_nom, state.y_m)
-            snap = ResidualSnapshot(
-                t_s=now,
-                state=residual,
-                dt_s=dt,
-                omega_t_nom=omega_t_nom,
-                y_m=state.y_m,
+            history, _ = submit_event(history, encoder, now_s=now)
+            nominal = NominalRateSample(
+                sample_id=f"nominal:{encoder.sample_id}",
+                t_s=encoder.t_s,
+                rate_rad_s=omega_t_nom,
             )
-            snapshots = push_snapshot(snapshots, snap, self.cfg.residual.rewind_snapshots)
-
+            history, _ = submit_event(history, nominal, now_s=now)
+            if reference_change is not None:
+                history, _ = submit_event(history, reference_change, now_s=now)
             if vision is not None and vision.z_v is not None:
-                residual = rewind_update(
-                    self.residual_filt,
-                    snapshots,
-                    residual,
-                    now,
-                    vision.t_s,
-                    vision.z_v,
-                    self.cfg.residual.rewind_horizon_s,
+                observation = VisionObservation(
+                    frame_id=vision.frame_id,
+                    t_s=vision.t_s,
+                    error_rad=vision.z_v,
+                    measurement_variance_rad2=self.residual_filt.r_v,
                 )
+                history, _ = submit_event(history, observation, now_s=now)
+            estimate = estimate_at(history, self.residual_filt, encoder.t_s)
+            residual = estimate.state
+            history = estimate.history
+            if vision is not None:
+                matching = [
+                    item.disposition.value
+                    for item in estimate.dispositions
+                    if item.event_id == vision.frame_id
+                ]
+                if matching:
+                    vision_disposition = matching[-1]
 
         # Vision establishes aggregate liveness; navigation only contributes an
         # optional nominal-rate prediction. This permits startup and tracking
@@ -596,6 +622,8 @@ class PayloadController:
                 math.radians(self.cfg.position.r_max_deg_per_s),
             )
         else:
+            max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2 if detailed_plant else math.inf
+            rate_loop_bandwidth = self.cfg.inner.kp if detailed_plant else math.inf
             r = outer_rate(
                 omega_t_nom,
                 omega_res,
@@ -610,17 +638,17 @@ class PayloadController:
                 self.preprocessing.max_motion_smear_px,
                 self.ifov_band_deg_per_px,
                 math.radians(self.gimbal.el_science_min_deg),
-                self.gimbal.tau_max_nm / self.gimbal.J_kg_m2,
-                self.cfg.inner.kp,
+                max_decel,
+                rate_loop_bandwidth,
             )
 
         new_state = replace(
             state,
             arbiter=new_arbiter,
             residual=residual,
+            residual_history=history,
             r_cog_ecef_m=r_cog,
             r_rad_s=r,
-            snapshots=snapshots,
             last_outer_s=now,
             last_exposure_us=exposure_us,
             pose_mode=pose_mode,
@@ -629,6 +657,10 @@ class PayloadController:
             last_omega_t_nom=omega_t_nom,
         )
         if timestamp_utc:
+            checkpoint = history.checkpoint
+            span_s = max(0.0, encoder.t_s - checkpoint.t_s)
+            anchor_angle = checkpoint.encoder_angle_rad
+            net_displacement = 0.0 if anchor_angle is None else encoder.angle_rad - anchor_angle
             events.append(
                 TelemetryEventMsg(
                     msg_type=MessageType.TELEMETRY_EVENT,
@@ -641,7 +673,30 @@ class PayloadController:
                         "tau": state.last_tau_nm,
                         "omega_t_nom": omega_t_nom,
                         "omega_t_res": omega_res,
+                        "omega_t_total": omega_t_nom + omega_res,
                         "y_m": state.y_m,
+                        "P00": float(residual.P[0, 0]),
+                        "P01": float(residual.P[0, 1]),
+                        "P10": float(residual.P[1, 0]),
+                        "P11": float(residual.P[1, 1]),
+                        "encoder_anchor_t_s": checkpoint.t_s,
+                        "encoder_endpoint_id": encoder.sample_id,
+                        "encoder_endpoint_t_s": encoder.t_s,
+                        "encoder_net_displacement_rad": net_displacement,
+                        "encoder_sample_age_s": max(0.0, now - encoder.t_s),
+                        "encoder_span_s": span_s,
+                        "process_q_e_rad2": self.residual_filt.q_a * span_s**3 / 3.0,
+                        "process_q_rate_rad2_s2": self.residual_filt.q_a * span_s,
+                        "encoder_endpoint_covariance_rad2": (
+                            checkpoint.encoder_endpoint_variance_rad2 + encoder.angle_variance_rad2
+                        ),
+                        "reversal_covariance_per_event_rad2": (
+                            self.residual_filt.reversal_variance_rad2
+                        ),
+                        "vision_event_id": vision.frame_id if vision is not None else "",
+                        "vision_shutter_s": vision.t_s if vision is not None else -1.0,
+                        "vision_arrival_s": now if vision is not None else -1.0,
+                        "vision_disposition": vision_disposition,
                     },
                 )
             )

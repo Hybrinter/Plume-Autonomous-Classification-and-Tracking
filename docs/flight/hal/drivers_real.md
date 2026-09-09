@@ -13,7 +13,7 @@ constructs these drivers when the environment config selects a real axis.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`sensor`](drivers_real/sensor.md) | driver | `RealSensor` FLIR Blackfly S over PySpin |
-| [`gimbal`](drivers_real/gimbal.md) | stub | `RealGimbal` torque-command stub |
+| [`gimbal`](drivers_real/gimbal.md) | scaffold | `RealGimbal` fail-closed Xeryon rate adapter |
 | [`ephemeris`](drivers_real/ephemeris.md) | stub | `RealIssEphemeris` always `Err(EPHEMERIS_FAULT)` |
 | [`station`](drivers_real/station.md) | driver | `RealStationLink` TCP-in / UDP-out CCSDS link |
 | [`scalar`](drivers_real/scalar.md) | stub | `RealScalarSensor` placeholder (returns 0.0) |
@@ -31,8 +31,8 @@ Only `flight.core.main` and `flight.core.select_drivers` import this package. Ap
 the resulting Protocol implementations through `build_apps`.
 
 `RealSensor` passes `MosaicFrame` values by direct call to the payload app. `RealStationLink`
-carries raw CCSDS bytes to and from iss_iface. `RealGimbal` accepts torque and pose
-commands from the payload gimbal path. `RealIssEphemeris` is a stub.
+carries raw CCSDS bytes to and from iss_iface. `RealGimbal` accepts signed rate and pose
+latches from the payload gimbal path and rejects torque. `RealIssEphemeris` is a stub.
 
 ## Constraints
 
@@ -40,7 +40,8 @@ commands from the payload gimbal path. `RealIssEphemeris` is a stub.
   may raise `ImportError` when PySpin is absent.
 - Real and sim driver packages do not import each other.
 - `RealScalarSensor` is a stub. It always returns `Ok(0.0)`.
-- `RealGimbal` is a stub. Commands return `Ok` and do not move hardware.
+- `RealGimbal` remains motion-disabled until explicit Xeryon audit and watchdog/stow
+  validation flags pass. It never calls the vendor shutdown helper that may home.
 - `RealIssEphemeris` is a stub. `read_state` returns `Err(EPHEMERIS_FAULT)`.
 - Drivers return `Result` on runtime faults. Only startup misconfiguration raises.
 

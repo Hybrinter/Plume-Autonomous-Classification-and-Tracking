@@ -15,6 +15,7 @@ from flight.libs.config.config import (
     EphemerisConfig,
     FaultConfig,
     GimbalConfig,
+    GimbalSimulationConfig,
     InferenceConfig,
     InnerLoopConfig,
     IntegrityConfig,
@@ -28,6 +29,7 @@ from flight.libs.config.config import (
     StorageConfig,
     ThermalConfig,
     VisionConfig,
+    XeryonConfig,
 )
 
 __all__ = [
@@ -41,6 +43,7 @@ __all__ = [
     "EphemerisConfig",
     "FaultConfig",
     "GimbalConfig",
+    "GimbalSimulationConfig",
     "InferenceConfig",
     "InnerLoopConfig",
     "IntegrityConfig",
@@ -54,4 +57,5 @@ __all__ = [
     "StorageConfig",
     "ThermalConfig",
     "VisionConfig",
+    "XeryonConfig",
 ]

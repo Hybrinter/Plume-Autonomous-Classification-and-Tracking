@@ -1,14 +1,7 @@
-"""Gimbal-actuator hardware abstraction.
+"""Single-axis elevation gimbal hardware abstraction.
 
-Defines the GimbalActuator protocol that formalizes the closed-loop gimbal command
-set (absolute angle, rate, home, stow, encoder readback, stow switch), plus the
-GimbalPosition readback type carrying a monotonic encoder timestamp.
-
-The driver enforces the hardware envelope (travel/slew limits); the arbiter enforces
-the mission envelope (defense in depth). The legacy send_command delta path was removed
-by the pointing switchover -- actuation flows through the typed command methods.
-
-Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001, REQ-GIMB-HIGH-002.
+Image processing remains two-dimensional, but the physical actuator exposes only
+one elevation axis. Concrete Xeryon and simulation drivers implement this contract.
 """
 
 from __future__ import annotations
@@ -22,51 +15,49 @@ from flight.libs.types import FaultCode, Result
 
 
 @dataclass(frozen=True, slots=True)
-class GimbalPosition:
-    """Current gimbal pointing with encoder timestamp.
+class GimbalAxisState:
+    """Timestamped elevation readback and decoded controller status."""
 
-    Attributes:
-        az_deg: Azimuth in degrees (positive right of boresight).
-        el_deg: Elevation in degrees (positive above boresight).
-        timestamp_s: Monotonic seconds at the encoder read (from the injected Clock).
-    """
+    position_deg: float
+    velocity_deg_per_s: float | None = None
+    target_position_deg: float = 0.0
+    sample_timestamp_s: float = 0.0
+    controller_timestamp_s: float | None = None
+    motor_on: bool = False
+    closed_loop: bool = False
+    encoder_valid: bool = False
+    at_index: bool = False
+    position_reached: bool = False
+    scanning: bool = False
+    thermal_fault: bool = False
+    encoder_fault: bool = False
+    end_limit_fault: bool = False
+    safety_timeout_fault: bool = False
+    position_failure_fault: bool = False
+    feedback_stale: bool = False
+    rate_lease_expired: bool = False
 
-    az_deg: float
-    el_deg: float
-    timestamp_s: float
+    @property
+    def timestamp_s(self) -> float:
+        return self.sample_timestamp_s
+
+    @property
+    def controller_timestamp(self) -> float | None:
+        """Alias retaining the concise controller-clock spelling."""
+        return self.controller_timestamp_s
 
 
 @runtime_checkable
 class GimbalActuator(Protocol):
-    """Hardware abstraction for the payload pointing gimbal.
+    """Non-blocking, one-axis elevation actuator contract."""
 
-    The closed-loop surface covers absolute-angle, rate, home, and stow commands,
-    plus encoder position readback and stow-switch sensing. The driver enforces the
-    hardware envelope; the arbiter enforces the mission envelope (defense in depth).
-    """
-
-    def goto_angle(self, az_deg: float, el_deg: float) -> Result[None, FaultCode]:
-        """Command an absolute pointing; the driver clamps to travel limits."""
-        ...
-
-    def set_rate(
-        self, az_rate_deg_per_s: float, el_rate_deg_per_s: float
-    ) -> Result[None, FaultCode]:
-        """Command axis rates; the driver clamps to the hardware slew envelope."""
-        ...
-
-    def home(self) -> Result[None, FaultCode]:
-        """Drive to the configured home pose."""
-        ...
-
-    def stow(self) -> Result[None, FaultCode]:
-        """Drive to the configured stow pose (the SAFE-mode mechanical safing action)."""
-        ...
-
-    def read_position(self) -> Result[GimbalPosition, FaultCode]:
-        """Read timestamped encoder angles."""
-        ...
-
-    def read_stow_switch(self) -> Result[bool, FaultCode]:
-        """Read the stow switch: True when mechanically at the stow pose."""
-        ...
+    def initialize(self) -> Result[None, FaultCode]: ...
+    def shutdown(self) -> Result[None, FaultCode]: ...
+    def find_index(self) -> Result[None, FaultCode]: ...
+    def set_position(self, position_deg: float) -> Result[None, FaultCode]: ...
+    def set_velocity(self, velocity_deg_per_s: float) -> Result[None, FaultCode]: ...
+    def stop(self) -> Result[None, FaultCode]: ...
+    def home(self) -> Result[None, FaultCode]: ...
+    def stow(self) -> Result[None, FaultCode]: ...
+    def reset_faults(self) -> Result[None, FaultCode]: ...
+    def read_state(self) -> Result[GimbalAxisState, FaultCode]: ...

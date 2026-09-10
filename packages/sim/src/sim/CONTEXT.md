@@ -70,7 +70,8 @@ CFA mosaic via `interleave_bands`, quantized to 12-bit. The NIR plane is brighte
 region (smoke reflects strongly in NIR), matching the Sentinel-2-derived training domain. The
 scene is deterministic for a given `seed`. The plume sits **off-center** at band-plane (340, 340)
 -- ~119 px from the (256, 256) boresight, above the minimum deadband and below the maximum -- so
-TRACKING issues rate commands that point the gimbal toward it (the command-direction proof). In
+TRACKING issues elevation rate commands that point the gimbal toward it (the command-direction
+proof; horizontal image displacement must not move the physical axis). In
 decimated search mode (scale 0.5) it appears at tensor ~(170, 170), inside the scripted mask
 `[145:195, 145:195]`.
 
@@ -85,7 +86,7 @@ ingest path becomes visible in the SIL rather than only at HIL.
 `SilHarness.run_steps(count, dt)` advances the shared `ManualClock` by `dt` each step. This is
 load-bearing: `SimGimbal` integrates its first-order dynamics *lazily* on elapsed clock time, so
 without the per-step advance the gimbal never moves and the closed-loop assertions are vacuous.
-`step()` drains `payload.poll_mode_changes()` and passes the latest `read_position()` and the
+`step()` drains `payload.poll_mode_changes()` and passes the latest `read_state()` and the
 SAFE flags into `process_frame`. `payload_gimbal_state()` is a test/inspection accessor for the
 arbiter's current state. The closed-loop tests assert the *mechanism and direction* (thermal SAFE
 -> stow switch closes; ground `ModeChangeMsg(IDLE)` un-latches SAFE; TRACKING drives +az/-el

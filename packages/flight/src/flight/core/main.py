@@ -79,8 +79,8 @@ def build_flight_system(
         SystemExit: If the uplink key file is missing/unreadable, or if the
             real-sensor startup exposure/gain tuning fails (both unrecoverable at
             startup; the latter now lives inside select_drivers).
-        ValueError: If a 'real' gimbal is selected with an empty config.gimbal.serial_port
-            (RealGimbal cannot open its link -- an unrecoverable startup misconfig).
+        SystemExit: If a real gimbal cannot validate its serial/settings configuration,
+            index, or startup status. The composition root initializes it before app threads.
 
     Notes:
         Driver construction is delegated to flight.core.select_drivers, which lazily
@@ -92,7 +92,21 @@ def build_flight_system(
     """
     uplink_key = _load_uplink_key(config.command_ingress.hmac_key_path)
     drivers = select_drivers(config, clock, sim_inputs=None)
-    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    # RealGimbal owns a vendor communication thread.  Initialize it in the composition
+    # root, before any application thread can issue a command, and fail closed if indexing
+    # or status validation fails.
+    initialize = getattr(drivers.gimbal, "initialize", None)
+    if initialize is not None:
+        gimbal_result = initialize()
+        if not isinstance(gimbal_result, Ok):
+            raise SystemExit(f"gimbal initialization failed: {gimbal_result.error}")
+    try:
+        return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    except Exception:
+        shutdown = getattr(drivers.gimbal, "shutdown", None)
+        if shutdown is not None:
+            shutdown()
+        raise
 
 
 def _run_startup_health_gate(
@@ -208,3 +222,12 @@ def main(config_path: str = "config/default.toml") -> None:
         pass
     finally:
         scheduler.stop()  # ordered join: payload first, storage/downlink last
+        # Stop motion and close Xeryon's communication after application threads have
+        # drained.  This is deliberately best-effort during teardown: the process is
+        # already stopping, but the call must always be attempted.
+        try:
+            gimbal_shutdown = getattr(apps.gimbal, "shutdown", None)
+            if gimbal_shutdown is not None:
+                gimbal_shutdown()
+        except Exception:
+            pass

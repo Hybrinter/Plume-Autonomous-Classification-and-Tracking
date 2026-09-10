@@ -77,21 +77,30 @@ thermal_limit_c = 80.0
 power_limit_w = 55.0
 
 [gimbal]
-az_min_deg = -90.0
-az_max_deg = 90.0
-el_min_deg = -45.0
-el_max_deg = 45.0
+axis_name = "X"
+stage = "XRTU_40_109"
+hardware_min_deg = -45.0
+hardware_max_deg = 45.0
+operational_min_deg = 0.0
+operational_max_deg = 45.0
 max_hw_slew_rate_deg_per_s = 10.0
-stow_az_deg = 0.0
-stow_el_deg = -45.0
-home_az_deg = 0.0
-home_el_deg = 0.0
+home_deg = 0.0
+stow_deg = -45.0
+direction_sign = 1
+index_offset_deg = 0.0
+encoder_counts_per_rev = 86400
+settings_default_path = ""
+feedback_info = 4
+feedback_poll_interval_ms = 2.0
+velocity_lease_s = 3.0
+feedback_stale_s = 0.25
+motor_duty_limit_s = 120.0
+motor_duty_stow_reserve_s = 15.0
 sim_time_constant_s = 0.2
 sim_encoder_noise_deg = 0.005
 sim_seed = 0
 serial_port = ""
-serial_baud = 9600
-counts_per_deg = 77.6
+serial_baud = 115200
 
 [link]
 command_tcp_host = "127.0.0.1"

@@ -14,11 +14,10 @@ Satisfies: REQ-AIML-GIMB-007, REQ-GIMB-HIGH-003.
 from __future__ import annotations
 
 # stdlib
-import math
 from dataclasses import dataclass
 
 # internal
-from flight.hal.interfaces import GimbalPosition
+from flight.hal.interfaces import GimbalAxisState
 from flight.libs.types import FaultCode
 
 
@@ -31,7 +30,7 @@ class RunawayState:
         strike_count: Consecutive divergent checks so far.
     """
 
-    last_pos: GimbalPosition | None
+    last_pos: GimbalAxisState | None
     strike_count: int
 
 
@@ -40,9 +39,8 @@ INITIAL_RUNAWAY_STATE = RunawayState(last_pos=None, strike_count=0)
 
 def check_runaway(
     state: RunawayState,
-    pos: GimbalPosition | None,
-    commanded_az_rate_deg_per_s: float,
-    commanded_el_rate_deg_per_s: float,
+    pos: GimbalAxisState | None,
+    commanded_rate_deg_per_s: float,
     rate_mode_active: bool,
     tolerance_deg_per_s: float,
     strike_limit: int,
@@ -52,8 +50,7 @@ def check_runaway(
     Inputs:
         state: Previous monitor state (last encoder position and strike counter).
         pos: Current encoder read, or None if the read failed.
-        commanded_az_rate_deg_per_s: Azimuth rate most recently sent to the driver (deg/s).
-        commanded_el_rate_deg_per_s: Elevation rate most recently sent to the driver (deg/s).
+        commanded_rate_deg_per_s: Elevation rate most recently sent to the driver (deg/s).
         rate_mode_active: True when the controller is in RATE mode; False resets quietly.
         tolerance_deg_per_s: Maximum allowed divergence between commanded and measured rates.
         strike_limit: Number of consecutive divergent checks before GIMBAL_RUNAWAY is raised.
@@ -77,11 +74,8 @@ def check_runaway(
     ):
         return (RunawayState(last_pos=pos, strike_count=0), None)
     dt = pos.timestamp_s - state.last_pos.timestamp_s
-    actual_az = (pos.az_deg - state.last_pos.az_deg) / dt
-    actual_el = (pos.el_deg - state.last_pos.el_deg) / dt
-    divergence = math.hypot(
-        actual_az - commanded_az_rate_deg_per_s, actual_el - commanded_el_rate_deg_per_s
-    )
+    actual = (pos.position_deg - state.last_pos.position_deg) / dt
+    divergence = abs(actual - commanded_rate_deg_per_s)
     strikes = state.strike_count + 1 if divergence > tolerance_deg_per_s else 0
     fault = FaultCode.GIMBAL_RUNAWAY if strikes >= strike_limit else None
     return (RunawayState(last_pos=pos, strike_count=strikes), fault)

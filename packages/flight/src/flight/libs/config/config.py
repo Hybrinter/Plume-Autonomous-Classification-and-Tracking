@@ -135,29 +135,39 @@ class FaultConfig:
 
 @dataclass(frozen=True)
 class GimbalConfig:
-    """Configuration for the gimbal hardware envelope, poses, sim dynamics, and link.
+    """Single physical elevation-axis and Xeryon XD-C configuration.
 
-    Fields cover the travel limits, configured stow/home poses, SimGimbal first-order
-    dynamics parameters for SIL, and the serial link for the real PTU driver.
-
-    Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
+    The Xeryon controller reports encoder positions in counts while its command units
+    are selected explicitly by :class:`RealGimbal`. ``hardware_*`` is the complete
+    mechanical envelope; ``operational_*`` is the range in which tracking/scan commands
+    may operate. The negative hardware-only range is reserved for SAFE stow.
     """
 
-    az_min_deg: float = -90.0  # travel limit, azimuth minimum
-    az_max_deg: float = 90.0  # travel limit, azimuth maximum
-    el_min_deg: float = -45.0  # travel limit, elevation minimum
-    el_max_deg: float = 45.0  # travel limit, elevation maximum
+    axis_name: str = "X"
+    stage: str = "XRTU_40_109"
+    hardware_min_deg: float = -45.0
+    hardware_max_deg: float = 45.0
+    operational_min_deg: float = 0.0
+    operational_max_deg: float = 45.0
     max_hw_slew_rate_deg_per_s: float = 10.0  # hardware slew envelope (driver-enforced)
-    stow_az_deg: float = 0.0  # stow pose azimuth (inside travel limits)
-    stow_el_deg: float = -45.0  # stow pose elevation (inside travel limits)
-    home_az_deg: float = 0.0  # home pose azimuth
-    home_el_deg: float = 0.0  # home pose elevation
+    home_deg: float = 0.0
+    stow_deg: float = -45.0
+    direction_sign: int = 1
+    index_offset_deg: float = 0.0
+    encoder_counts_per_rev: int = 86400
+    settings_default_path: str = ""
+    feedback_info: int = 4
+    feedback_poll_interval_ms: float = 2.0
+    velocity_lease_s: float = 3.0
+    feedback_stale_s: float = 0.250
+    motor_duty_limit_s: float = 120.0
+    motor_duty_stow_reserve_s: float = 15.0
+    serial_port: str = ""  # deployment-managed Xeryon serial port
+    serial_baud: int = 115200
+    # SIL dynamics fields remain part of the shared config; SimGimbal consumes them.
     sim_time_constant_s: float = 0.2  # SimGimbal first-order response time constant
     sim_encoder_noise_deg: float = 0.005  # SimGimbal encoder read noise (1-sigma)
     sim_seed: int = 0  # SimGimbal noise RNG seed (SIL determinism)
-    serial_port: str = ""  # PTU serial port; "" -> RealGimbal unavailable (startup error)
-    serial_baud: int = 9600  # PTU serial baud rate
-    counts_per_deg: float = 77.6  # PTU encoder counts per degree (E46-class resolution)
 
 
 @dataclass(frozen=True)

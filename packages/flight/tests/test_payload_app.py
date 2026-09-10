@@ -160,9 +160,9 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
     assert any(o.command_issued for o in outcomes)
     assert not cmd_sub.empty()  # at least one gimbal command was published
 
-    position = gimbal.read_position()
+    position = gimbal.read_state()
     assert isinstance(position, Ok)
-    assert (position.value.az_deg, position.value.el_deg) != (0.0, 0.0)  # gimbal moved
+    assert position.value.position_deg != 0.0  # elevation axis moved
 
     inference_count = 0
     while not inf_sub.empty():
@@ -218,9 +218,9 @@ def test_mode_change_safe_issues_stow_actuation() -> None:
     assert published.mode is GimbalCommandMode.STOW
 
     clock.advance(60.0)  # let the gimbal reach the stow pose
-    switch = gimbal.read_stow_switch()
-    assert isinstance(switch, Ok)
-    assert switch.value is True
+    readback = gimbal.read_state()
+    assert isinstance(readback, Ok)
+    assert abs(readback.value.position_deg - (-45.0)) < 0.5
 
 
 def test_run_loop_starts_and_stops_cleanly() -> None:

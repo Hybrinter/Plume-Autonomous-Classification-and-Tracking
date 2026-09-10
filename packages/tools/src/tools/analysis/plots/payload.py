@@ -22,10 +22,8 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
         common.line_panel(
             wide,
             [
-                "payload.gimbal_az_true_deg",
-                "payload.gimbal_el_true_deg",
-                "payload.gimbal_az_meas_deg",
-                "payload.gimbal_el_meas_deg",
+                "payload.gimbal_true_deg",
+                "payload.gimbal_meas_deg",
             ],
             name="payload_pointing",
             title="Gimbal pointing (truth vs measured)",
@@ -34,10 +32,8 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
         common.line_panel(
             wide,
             [
-                "payload.commanded_az_rate_deg_s",
-                "payload.commanded_el_rate_deg_s",
-                "payload.gimbal_rate_az_deg_s",
-                "payload.gimbal_rate_el_deg_s",
+                "payload.commanded_rate_deg_s",
+                "payload.gimbal_rate_deg_s",
             ],
             name="payload_rates",
             title="Commanded vs driver gimbal rates",

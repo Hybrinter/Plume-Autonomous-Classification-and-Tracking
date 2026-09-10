@@ -49,12 +49,18 @@ def test_gimbal_section_loads() -> None:
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     g = result.value.gimbal
-    assert g.az_min_deg == -90.0
-    assert g.az_max_deg == 90.0
-    assert g.el_min_deg == -45.0
-    assert g.el_max_deg == 45.0
+    assert g.axis_name == "X"
+    assert g.stage == "XRTU_40_109"
+    assert g.hardware_min_deg == -45.0
+    assert g.hardware_max_deg == 45.0
+    assert g.operational_min_deg == 0.0
+    assert g.operational_max_deg == 45.0
     assert g.max_hw_slew_rate_deg_per_s == 10.0
-    assert g.stow_el_deg == -45.0
+    assert g.home_deg == 0.0
+    assert g.stow_deg == -45.0
+    assert g.encoder_counts_per_rev == 86400
+    assert g.feedback_info == 4
+    assert g.feedback_poll_interval_ms == 2
     assert g.serial_port == ""
 
 
@@ -153,17 +159,18 @@ def test_ema_alpha_out_of_unit_range_rejected(tmp_path: Path) -> None:
 
 
 def test_gimbal_inverted_travel_limits_rejected(tmp_path: Path) -> None:
-    """az_min_deg must be strictly less than az_max_deg (cross-field)."""
+    """hardware_min_deg must be strictly less than hardware_max_deg."""
     result = load_config(
-        _DEFAULT_TOML, _override(tmp_path, "[gimbal]\naz_min_deg = 90.0\naz_max_deg = -90.0\n")
+        _DEFAULT_TOML,
+        _override(tmp_path, "[gimbal]\nhardware_min_deg = 45.0\nhardware_max_deg = -45.0\n"),
     )
     assert isinstance(result, Err)
-    assert "az_" in result.error
+    assert "hardware_" in result.error
 
 
 def test_stow_pose_outside_travel_rejected(tmp_path: Path) -> None:
     """The stow pose must lie within the configured travel envelope (cross-field)."""
-    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[gimbal]\nstow_el_deg = -200.0\n"))
+    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[gimbal]\nstow_deg = -200.0\n"))
     assert isinstance(result, Err)
     assert "stow" in result.error
 

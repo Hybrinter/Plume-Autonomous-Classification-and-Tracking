@@ -67,7 +67,7 @@ from gse.station import StationEmulator
 
 _SIL_KEY = b"sil-test-key-0000000000000000000"
 
-# Off-origin tolerance (deg) for the gimbal-moved flag. SimGimbal.read_position() adds
+# Off-origin tolerance (deg) for the gimbal-moved flag. SimGimbal.read_state() adds
 # encoder noise at config.gimbal.sim_encoder_noise_deg (default 0.005 deg 1-sigma) on every
 # read, so a strict != (0.0, 0.0) test would spuriously report motion even when stationary.
 # 0.1 deg is 20x the noise 1-sigma, well below real tracked motion (degrees).
@@ -297,7 +297,7 @@ class InProcessBackend:
             StationEmulator received.
 
         Notes:
-            gimbal_moved compares the driver's authoritative read_position() against the
+            gimbal_moved compares the driver's authoritative read_state() against the
             origin with a tolerance (_GIMBAL_MOVED_TOLERANCE_DEG) that swamps SimGimbal's
             per-read encoder noise, so a stationary gimbal reliably reports False.
         """
@@ -314,10 +314,9 @@ class InProcessBackend:
 
         self._drain(self._gimbal_sub)
         gimbal_moved = False
-        read = self._system.gimbal.read_position()
+        read = self._system.gimbal.read_state()
         if not isinstance(read, Err):
-            worst = max(abs(read.value.az_deg), abs(read.value.el_deg))
-            gimbal_moved = worst > _GIMBAL_MOVED_TOLERANCE_DEG
+            gimbal_moved = abs(read.value.position_deg) > _GIMBAL_MOVED_TOLERANCE_DEG
 
         mode_changes = tuple(m.new_mode for m in self._drain(self._mode_sub))
         acks = tuple(a.status for a in self._drain(self._ack_sub))

@@ -38,7 +38,6 @@ Satisfies: REQ-AIML-COMP-001, REQ-AIML-COMP-002 (payload process orchestration),
 from __future__ import annotations
 
 # stdlib
-import math
 import threading
 from dataclasses import dataclass, field
 
@@ -46,7 +45,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 # internal
-from flight.hal.interfaces import GimbalActuator, GimbalPosition, ImagingSensor, StorageWriter
+from flight.hal.interfaces import GimbalActuator, GimbalAxisState, ImagingSensor, StorageWriter
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import (
     FaultConfig,
@@ -274,7 +273,7 @@ class PayloadApp:
         state: ControlState,
         now: float,
         slew_rate_deg_per_s: float = 0.0,
-        gimbal_pos: GimbalPosition | None = None,
+        gimbal_pos: GimbalAxisState | None = None,
         safe_commanded: bool = False,
         safe_cleared: bool = False,
     ) -> tuple[ControlState, TickOutcome]:
@@ -285,7 +284,7 @@ class PayloadApp:
         decimated full plane in search, full-resolution Kalman-centered crop in TRACKING),
         then the detector, then the pure PayloadController. Publishes InferenceResultMsg
         and each arbiter TelemetryEventMsg; when a request is issued it is mapped onto
-        the GimbalActuator HAL (set_rate/goto_angle/stow/home by mode) and a
+        the GimbalActuator HAL (set_velocity/set_position/stow/home by mode) and a
         GimbalCommandMsg telemetry record is published. A control fault (deadband strike
         or encoder runaway) publishes a FaultEventMsg. On a preprocessing or detection
         fault the state is returned unchanged, a FaultEventMsg is published, and
@@ -298,7 +297,7 @@ class PayloadApp:
             now (float): Monotonic seconds for the arbiter (interval/rate-limit deltas).
             slew_rate_deg_per_s (float): Gimbal slew rate over the exposure for the
                 MOTION_SMEAR gate; defaults to 0.0 (never-flag).
-            gimbal_pos (GimbalPosition | None): Latest encoder read for the runaway monitor.
+            gimbal_pos (GimbalAxisState | None): Latest encoder read for the runaway monitor.
             safe_commanded (bool): True to latch SAFE and stow this frame.
             safe_cleared (bool): True to exit SAFE to IDLE this frame.
 
@@ -342,7 +341,7 @@ class PayloadApp:
             est_az = float(state.kalman.x[0])
             est_el = float(state.kalman.x[1])
             center_x = int(plane_w / 2 + est_az / self.sensor_cfg.ifov_deg_per_px)
-            center_y = int(plane_h / 2 - est_el / self.sensor_cfg.ifov_deg_per_px)
+            center_y = int(plane_h / 2 + est_el / self.sensor_cfg.ifov_deg_per_px)
             tensor, crop_origin = crop_to_roi(
                 selected.value,
                 (center_x, center_y),
@@ -387,6 +386,8 @@ class PayloadApp:
             # Launch-lock interlock: the pin is ENGAGED, so gimbal motion is inhibited. The
             # request is suppressed (not actuated, no GimbalCommandMsg so the mechanical app
             # does not read it as motion); annunciate the inhibit via telemetry.
+            if state.commanded_rate_deg_per_s != 0.0:
+                self.gimbal.stop()
             self.bus.publish(
                 TelemetryEventMsg(
                     msg_type=MessageType.TELEMETRY_EVENT,
@@ -397,10 +398,14 @@ class PayloadApp:
                 )
             )
         elif request is not None:
+            # A RATE lease ends as soon as the controller emits a non-rate command.
+            # Stop first so a queued scan/home/stow cannot race a previous velocity.
+            if state.commanded_rate_deg_per_s != 0.0:
+                self.gimbal.stop()
             if request.mode is GimbalCommandMode.RATE:
-                send_result = self.gimbal.set_rate(request.az_deg, request.el_deg)
+                send_result = self.gimbal.set_velocity(request.elevation_deg)
             elif request.mode is GimbalCommandMode.ABSOLUTE:
-                send_result = self.gimbal.goto_angle(request.az_deg, request.el_deg)
+                send_result = self.gimbal.set_position(request.elevation_deg)
             elif request.mode is GimbalCommandMode.STOW:
                 send_result = self.gimbal.stow()
             else:
@@ -415,13 +420,20 @@ class PayloadApp:
                     timestamp_utc=self.clock.wall_clock_iso(),
                     frame_id=raw.frame_id,
                     mode=request.mode,
-                    az_value_deg=request.az_deg,
-                    el_value_deg=request.el_deg,
+                    elevation_value_deg=request.elevation_deg,
                     state=new_state.arbiter.gimbal_state,
                     reason=request.reason,
                 )
             )
             actuated = True
+        elif state.commanded_rate_deg_per_s != 0.0:
+            # No replacement request is also an explicit RATE-mode exit (for example
+            # deadband suppression or target loss).
+            stop_result = self.gimbal.stop()
+            if isinstance(stop_result, Err):
+                self._publish_fault(
+                    stop_result.error, f"gimbal stop failed frame_id={raw.frame_id}"
+                )
 
         outcome = TickOutcome(
             frame_id=raw.frame_id,
@@ -459,7 +471,7 @@ class PayloadApp:
         state = self.controller.initial_state()
         heartbeat_seq = 0
         last_heartbeat = self.clock.monotonic_s()
-        prev_pos: GimbalPosition | None = None
+        prev_pos: GimbalAxisState | None = None
         prev_pos_now = 0.0
         try:
             while not stop_event.is_set():
@@ -480,14 +492,13 @@ class PayloadApp:
                 acq = self.sensor.acquire_frame()
                 if isinstance(acq, Ok):
                     slew_rate = 0.0
-                    pos: GimbalPosition | None = None
-                    pos_res = self.gimbal.read_position()
+                    pos: GimbalAxisState | None = None
+                    pos_res = self.gimbal.read_state()
                     if isinstance(pos_res, Ok):
                         pos = pos_res.value
                         if prev_pos is not None and now > prev_pos_now:
-                            d_az = pos_res.value.az_deg - prev_pos.az_deg
-                            d_el = pos_res.value.el_deg - prev_pos.el_deg
-                            slew_rate = math.hypot(d_az, d_el) / (now - prev_pos_now)
+                            d_el = pos_res.value.position_deg - prev_pos.position_deg
+                            slew_rate = abs(d_el) / (now - prev_pos_now)
                         prev_pos = pos_res.value
                         prev_pos_now = now
                     state, _outcome = self.process_frame(

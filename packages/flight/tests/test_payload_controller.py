@@ -1,7 +1,7 @@
 """Tests for the PayloadController pure control composition (boresight-error space)."""
 
 import numpy as np
-from flight.hal.interfaces import GimbalPosition
+from flight.hal.interfaces import GimbalAxisState
 from flight.libs.config import ControllerConfig, SensorConfig
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import FaultCode, GimbalCommandMode, GimbalState, MessageType
@@ -88,9 +88,8 @@ def test_persistent_blob_progresses_to_tracking_and_commands() -> None:
             last_rate = request
     assert state.arbiter.gimbal_state is GimbalState.TRACKING
     assert last_rate is not None
-    # Target right (+x) and below (+y) of boresight -> slew toward it: +az and -el.
-    assert last_rate.az_deg > 0.0
-    assert last_rate.el_deg < 0.0
+    # The physical imaging sweep defines image-down (+y) as positive elevation.
+    assert last_rate.elevation_deg > 0.0
 
 
 def test_deadband_below_min_suppresses_rate_command() -> None:
@@ -111,8 +110,8 @@ def test_max_deadband_strikes_raise_runaway_fault() -> None:
     """Displacement above max_deadband_px for the strike count raises GIMBAL_RUNAWAY."""
     controller = _controller()
     state = controller.initial_state()
-    # 200 px off each axis -> ~283 px displacement > max_deadband_px=250.
-    centroid = (_BORESIGHT + 200.0, _BORESIGHT + 200.0)
+    # Only vertical displacement is actuated; exceed the 250 px safety threshold vertically.
+    centroid = (_BORESIGHT + 200.0, _BORESIGHT + 300.0)
     strike_limit = ControllerConfig().max_deadband_strike_count
     now = 0.0
     fault: FaultCode | None = None
@@ -128,7 +127,7 @@ def test_runaway_fault_from_stalled_encoder_while_commanding() -> None:
     """A stalled encoder while a RATE was commanded last frame raises GIMBAL_RUNAWAY."""
     cfg = ControllerConfig()
     controller = PayloadController.from_config(cfg, SensorConfig())
-    # Seed a state that commanded a 2 deg/s azimuth rate last frame.
+    # Seed a state that commanded a 2 deg/s elevation rate last frame.
     base = controller.initial_state()
     state = ControlState(
         arbiter=base.arbiter,
@@ -136,13 +135,12 @@ def test_runaway_fault_from_stalled_encoder_while_commanding() -> None:
         kalman=base.kalman,
         runaway=base.runaway,
         deadband_strikes=0,
-        commanded_az_rate_deg_per_s=2.0,
-        commanded_el_rate_deg_per_s=0.0,
+        commanded_rate_deg_per_s=2.0,
     )
     fault: FaultCode | None = None
     # Encoder reports no motion across consecutive timestamps -> divergence strikes.
     for i in range(0, cfg.runaway_strike_count + 1):
-        pos = GimbalPosition(az_deg=0.0, el_deg=0.0, timestamp_s=float(i))
+        pos = GimbalAxisState(position_deg=0.0, sample_timestamp_s=float(i))
         state, _request, _events, fault = controller.step(
             state, _result(i + 1, centroid=None), float(i), pos, False, False
         )
@@ -153,8 +151,7 @@ def test_runaway_fault_from_stalled_encoder_while_commanding() -> None:
             kalman=state.kalman,
             runaway=state.runaway,
             deadband_strikes=state.deadband_strikes,
-            commanded_az_rate_deg_per_s=2.0,
-            commanded_el_rate_deg_per_s=0.0,
+            commanded_rate_deg_per_s=2.0,
         )
     assert fault is FaultCode.GIMBAL_RUNAWAY
 

@@ -78,15 +78,14 @@ individual files or their docstrings.
   Carried by the pure-core `GimbalRequest` (`flight.payload.gimbal.request`, not a bus message)
   and echoed in `GimbalCommandMsg`. `GIMBAL_FAULT` (a driver-level gimbal failure) was added to
   `FaultCode` and is in `SAFE_TRIGGERING_FAULTS`.
-- **`GimbalCommandMsg` reshaped** (2026-06-11, ADR 0008): it is now a *telemetry record* of an
-  issued command, not a command carrier. Fields: `mode: GimbalCommandMode`, `az_value_deg`,
-  `el_value_deg` (rate for RATE, target angle for ABSOLUTE, 0 otherwise), `state`, `reason`. The
-  old `az_delta_deg`/`el_delta_deg` delta fields are gone.
+- **Gimbal telemetry is single-axis.** 2D image association metadata remains where needed,
+  but physical actuator commands and state carry elevation only; obsolete azimuth actuator
+  fields and delta commands are removed.
 - **`InferenceResultMsg` crop fields** (2026-06-11, ADR 0008): gains `crop_origin_px: tuple[int,
   int]` and `scale_factor: float`, copied from the `ProcessedFrameMsg`, so the controller can
   back-project a tensor centroid to full-plane pixels for boresight-error math.
-- **`GimbalPosition.timestamp_s`** (2026-06-11, ADR 0008): `read_position` now returns a
-  monotonic-stamped pose; the encoder-runaway monitor needs the timestamp to compute measured rate.
+- **`GimbalAxisState` timestamps** (ADR 0008): state readback carries host monotonic and
+  controller timestamps; measured elevation velocity is derived from EPOS/TIME samples.
 - **New enums (2026-06-13, ADR 0009):**
   - `LinkState`: `AOS` / `LOS` -- station link acquisition state; used by `StationLink.link_state()`
     and carried in `LinkStateMsg`. Published by iss_iface each tick.

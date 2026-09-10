@@ -119,13 +119,13 @@ class DeviceSample:
     """One-shot read of the sim HAL drivers for a single step (taken once, after step_once).
 
     Reading each driver once per step keeps the per-step values self-consistent and the run
-    deterministic: ``read_position`` redraws seeded encoder noise on every call, so the recorder
+    deterministic: ``read_state`` redraws seeded encoder noise on every call, so the recorder
     samples it exactly once and every gimbal extractor reads the same cached numbers.
 
     Fields:
-        gimbal_az_meas_deg / gimbal_el_meas_deg: ``read_position`` angles (with encoder noise).
-        gimbal_az_true_deg / gimbal_el_true_deg: the clean integrated pose (driver truth).
-        gimbal_rate_az_deg_s / gimbal_rate_el_deg_s: the commanded RATE-mode rates (clamped).
+        gimbal_meas_deg: ``read_state`` elevation angle (with encoder noise).
+        gimbal_true_deg: the clean integrated elevation pose (driver truth).
+        gimbal_rate_deg_s: the commanded RATE-mode elevation rate (clamped).
         gimbal_mode: the active GimbalCommandMode name, or "NONE" before the first command.
         stow_switch: True once stow is commanded and the pose is within stow tolerance.
         launch_lock_state: the LaunchLockState name read from the launch-lock driver.
@@ -134,12 +134,9 @@ class DeviceSample:
         sensor_index / thermal_index / power_index: replay cursors of the sim sources.
     """
 
-    gimbal_az_meas_deg: float
-    gimbal_el_meas_deg: float
-    gimbal_az_true_deg: float
-    gimbal_el_true_deg: float
-    gimbal_rate_az_deg_s: float
-    gimbal_rate_el_deg_s: float
+    gimbal_meas_deg: float
+    gimbal_true_deg: float
+    gimbal_rate_deg_s: float
     gimbal_mode: str
     stow_switch: bool
     launch_lock_state: str
@@ -488,11 +485,11 @@ def _payload_signals() -> list[Signal]:
             lambda ctx: float(len(ctx.payload_state.arbiter.tracked_blobs)),
         ),
         _num(
-            "payload.scan_pan_deg",
+            "payload.scan_elevation_deg",
             "payload",
-            "SCAN raster pan",
+            "SCAN elevation sweep",
             "deg",
-            lambda ctx: float(ctx.payload_state.arbiter.scan_pan_deg),
+            lambda ctx: float(ctx.payload_state.arbiter.scan_elevation_deg),
         ),
         _num(
             "payload.scan_direction",
@@ -516,18 +513,11 @@ def _payload_signals() -> list[Signal]:
             lambda ctx: float(ctx.payload_state.deadband_strikes),
         ),
         _num(
-            "payload.commanded_az_rate_deg_s",
-            "payload",
-            "Commanded azimuth rate",
-            "deg/s",
-            lambda ctx: float(ctx.payload_state.commanded_az_rate_deg_per_s),
-        ),
-        _num(
-            "payload.commanded_el_rate_deg_s",
+            "payload.commanded_rate_deg_s",
             "payload",
             "Commanded elevation rate",
             "deg/s",
-            lambda ctx: float(ctx.payload_state.commanded_el_rate_deg_per_s),
+            lambda ctx: float(ctx.payload_state.commanded_rate_deg_per_s),
         ),
         _num(
             "payload.ema_centroid_x",
@@ -600,46 +590,25 @@ def _payload_signals() -> list[Signal]:
             _bool(lambda ctx: ctx.system.apps.payload.lock_gate.engaged),
         ),
         _num(
-            "payload.gimbal_az_meas_deg",
-            "payload",
-            "Gimbal azimuth (measured)",
-            "deg",
-            lambda ctx: ctx.devices.gimbal_az_meas_deg,
-        ),
-        _num(
-            "payload.gimbal_el_meas_deg",
+            "payload.gimbal_meas_deg",
             "payload",
             "Gimbal elevation (measured)",
             "deg",
-            lambda ctx: ctx.devices.gimbal_el_meas_deg,
+            lambda ctx: ctx.devices.gimbal_meas_deg,
         ),
         _num(
-            "payload.gimbal_az_true_deg",
-            "payload",
-            "Gimbal azimuth (truth)",
-            "deg",
-            lambda ctx: ctx.devices.gimbal_az_true_deg,
-        ),
-        _num(
-            "payload.gimbal_el_true_deg",
+            "payload.gimbal_true_deg",
             "payload",
             "Gimbal elevation (truth)",
             "deg",
-            lambda ctx: ctx.devices.gimbal_el_true_deg,
+            lambda ctx: ctx.devices.gimbal_true_deg,
         ),
         _num(
-            "payload.gimbal_rate_az_deg_s",
-            "payload",
-            "Gimbal azimuth rate (driver)",
-            "deg/s",
-            lambda ctx: ctx.devices.gimbal_rate_az_deg_s,
-        ),
-        _num(
-            "payload.gimbal_rate_el_deg_s",
+            "payload.gimbal_rate_deg_s",
             "payload",
             "Gimbal elevation rate (driver)",
             "deg/s",
-            lambda ctx: ctx.devices.gimbal_rate_el_deg_s,
+            lambda ctx: ctx.devices.gimbal_rate_deg_s,
         ),
         _cat(
             "payload.gimbal_driver_mode",
@@ -696,18 +665,11 @@ def _payload_signals() -> list[Signal]:
             _last_cat(GimbalCommandMsg, lambda m: m.mode.value),
         ),
         _num(
-            "payload.gimbal_command_az",
+            "payload.gimbal_command_elevation",
             "payload",
-            "Last gimbal command az value",
+            "Last gimbal command elevation value",
             "deg",
-            _last_num(GimbalCommandMsg, lambda m: m.az_value_deg),
-        ),
-        _num(
-            "payload.gimbal_command_el",
-            "payload",
-            "Last gimbal command el value",
-            "deg",
-            _last_num(GimbalCommandMsg, lambda m: m.el_value_deg),
+            _last_num(GimbalCommandMsg, lambda m: m.elevation_value_deg),
         ),
         _num(
             "payload.product_ref_count",
@@ -1361,11 +1323,11 @@ def _enrichment_signals() -> list[Signal]:
             ),
         ),
         _num(
-            "payload.gimbal_az_noise_deg",
+            "payload.gimbal_noise_deg",
             "payload",
-            "Gimbal az measure-minus-truth",
+            "Gimbal elevation measure-minus-truth",
             "deg",
-            lambda ctx: ctx.devices.gimbal_az_meas_deg - ctx.devices.gimbal_az_true_deg,
+            lambda ctx: ctx.devices.gimbal_meas_deg - ctx.devices.gimbal_true_deg,
         ),
         _num(
             "payload.is_tracking",

@@ -70,7 +70,7 @@ def step_once(
     apps.payload.poll_lock_state()
     acquired = sensor.acquire_frame()
     if isinstance(acquired, Ok):
-        pos = gimbal.read_position()
+        pos = gimbal.read_state()
         payload_state, _ = apps.payload.process_frame(
             acquired.value,
             payload_state,

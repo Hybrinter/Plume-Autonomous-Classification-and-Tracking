@@ -29,7 +29,8 @@ from flight.libs.messages import (
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
 
-_SCAN_LIMIT_DEG: float = 30.0  # azimuth raster half-span before the scan reverses direction
+_SCAN_MIN_DEG: float = 0.0
+_SCAN_MAX_DEG: float = 45.0
 
 
 @dataclass(frozen=True)
@@ -51,8 +52,8 @@ class ArbiterState:
         Unix timestamp of the most recent command issued. Used by the rate limiter.
     current_target_id:
         blob_id of the blob currently being tracked, or None if not in TRACKING.
-    scan_pan_deg:
-        Current azimuth pan position during SCAN mode (absolute degrees).
+    scan_elevation_deg:
+        Current elevation position during SCAN mode (absolute degrees).
     scan_direction:
         Sign (+1.0 / -1.0) of the SCAN raster sweep; flips at the +-_SCAN_LIMIT_DEG edge.
     miss_count:
@@ -66,7 +67,7 @@ class ArbiterState:
     idle_duration_s: float
     last_command_time: float  # Unix timestamp; 0.0 if no command has been issued yet
     current_target_id: int | None
-    scan_pan_deg: float = 0.0  # current pan position during SCAN mode
+    scan_elevation_deg: float = 0.0
     scan_direction: float = 1.0  # SCAN raster sweep sign; flips at the travel edges
     miss_count: int = 0  # TRACKING release-hysteresis counter
 
@@ -171,8 +172,7 @@ class GimbalArbiter:
             events.append(self._transition_event(old_gs, GimbalState.SAFE))
             stow_request = GimbalRequest(
                 mode=GimbalCommandMode.STOW,
-                az_deg=0.0,
-                el_deg=0.0,
+                elevation_deg=0.0,
                 reason="safe_entry_stow",
             )
             return new_state, stow_request, events
@@ -186,7 +186,7 @@ class GimbalArbiter:
                     idle_duration_s=0.0,
                     last_command_time=state.last_command_time,
                     current_target_id=None,
-                    scan_pan_deg=state.scan_pan_deg,
+                    scan_elevation_deg=state.scan_elevation_deg,
                     scan_direction=state.scan_direction,
                     miss_count=0,
                 )
@@ -197,7 +197,7 @@ class GimbalArbiter:
         new_gs = old_gs
         idle_dur = state.idle_duration_s
         target_id = state.current_target_id
-        scan_pan = state.scan_pan_deg
+        scan_elevation = state.scan_elevation_deg
         scan_direction = state.scan_direction
         miss_count = state.miss_count
         last_cmd_time = state.last_command_time
@@ -212,7 +212,7 @@ class GimbalArbiter:
                 idle_dur = state.idle_duration_s + cfg.kalman_dt_s
                 if idle_dur >= cfg.scan_entry_idle_seconds:
                     new_gs = GimbalState.SCAN
-                    scan_pan = 0.0
+                    scan_elevation = _SCAN_MIN_DEG
 
         elif old_gs == GimbalState.ACQUIRING:
             if not has_blobs:
@@ -250,32 +250,29 @@ class GimbalArbiter:
             target_id = best.blob_id
             if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
                 limit = cfg.max_slew_rate_deg_per_s
-                az_rate = min(max(error_deg[0] * 1.0, -limit), limit)
                 el_rate = min(max(error_deg[1] * 1.0, -limit), limit)
                 request = GimbalRequest(
                     mode=GimbalCommandMode.RATE,
-                    az_deg=az_rate,
-                    el_deg=el_rate,
+                    elevation_deg=el_rate,
                     reason="tracking_target",
                 )
                 last_cmd_time = now
 
         elif new_gs == GimbalState.SCAN:
             if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                scan_pan = scan_pan + scan_direction * cfg.scan_slew_rate_deg_per_s * (
+                scan_elevation = scan_elevation + scan_direction * cfg.scan_slew_rate_deg_per_s * (
                     1.0 / cfg.retarget_rate_limit_hz
                 )
-                if scan_pan > _SCAN_LIMIT_DEG:
-                    scan_pan = _SCAN_LIMIT_DEG
+                if scan_elevation > _SCAN_MAX_DEG:
+                    scan_elevation = _SCAN_MAX_DEG
                     scan_direction = -1.0
-                elif scan_pan < -_SCAN_LIMIT_DEG:
-                    scan_pan = -_SCAN_LIMIT_DEG
+                elif scan_elevation < _SCAN_MIN_DEG:
+                    scan_elevation = _SCAN_MIN_DEG
                     scan_direction = 1.0
                 request = GimbalRequest(
                     mode=GimbalCommandMode.ABSOLUTE,
-                    az_deg=scan_pan,
-                    el_deg=0.0,
-                    reason="nadir_scan",
+                    elevation_deg=scan_elevation,
+                    reason="elevation_scan",
                 )
                 last_cmd_time = now
 
@@ -285,7 +282,7 @@ class GimbalArbiter:
             idle_duration_s=idle_dur,
             last_command_time=last_cmd_time,
             current_target_id=target_id,
-            scan_pan_deg=scan_pan,
+            scan_elevation_deg=scan_elevation,
             scan_direction=scan_direction,
             miss_count=miss_count,
         )

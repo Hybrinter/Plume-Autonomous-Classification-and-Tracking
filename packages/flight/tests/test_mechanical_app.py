@@ -47,8 +47,7 @@ def _motion() -> GimbalCommandMsg:
         timestamp_utc="t",
         frame_id=1,
         mode=GimbalCommandMode.RATE,
-        az_value_deg=1.5,
-        el_value_deg=0.0,
+        elevation_value_deg=1.5,
         state=GimbalState.TRACKING,
         reason="track",
     )

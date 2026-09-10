@@ -12,8 +12,10 @@ invariants that are not derivable from the individual files or their docstrings.
   concrete driver. This is the load-bearing design decision: the same wiring serves both
   the flight entry and the SIL. The SIL constructs a `Drivers` bundle of sim drivers and
   calls the identical `build_apps`; nothing about the wiring is duplicated.
-- Only `main.py` imports `flight.hal.drivers_real` and `OnnxDetector`. Keep concrete-driver
-  imports out of `composition.py` or the SIL reuse breaks.
+- Only the composition-root path imports/constructs concrete real drivers and `OnnxDetector`.
+  `build_flight_system` initializes the real gimbal (settings, index, and status validation)
+  before scheduler threads start, aborting closed on failure. Ordered teardown stops the
+  scheduler first and then stops/shuts down the gimbal, including startup-failure cleanup.
 
 ## What is actually unit-tested
 

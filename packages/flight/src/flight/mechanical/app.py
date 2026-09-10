@@ -122,9 +122,7 @@ class MechanicalApp:
                 GimbalCommandMode.HOME,
             ):
                 moving = True
-            elif cmd.mode is GimbalCommandMode.RATE and (
-                cmd.az_value_deg != 0.0 or cmd.el_value_deg != 0.0
-            ):
+            elif cmd.mode is GimbalCommandMode.RATE and cmd.elevation_value_deg != 0.0:
                 moving = True
         return moving
 

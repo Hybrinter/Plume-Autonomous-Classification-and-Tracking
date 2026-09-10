@@ -26,7 +26,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 # internal
-from flight.hal.interfaces import GimbalPosition
+from flight.hal.interfaces import GimbalAxisState
 from flight.libs.config import ControllerConfig, SensorConfig
 from flight.libs.messages import InferenceResultMsg, TelemetryEventMsg
 from flight.libs.types import Err, FaultCode, GimbalCommandMode, GimbalState, Ok
@@ -66,8 +66,7 @@ class ControlState:
         kalman: The Kalman estimator state (in boresight-error degrees).
         runaway: The encoder-divergence runaway monitor state.
         deadband_strikes: Consecutive max-deadband violations not yet escalated.
-        commanded_az_rate_deg_per_s: Azimuth rate commanded last frame (runaway input).
-        commanded_el_rate_deg_per_s: Elevation rate commanded last frame (runaway input).
+        commanded_rate_deg_per_s: Elevation rate commanded last frame (runaway input).
     """
 
     arbiter: ArbiterState
@@ -75,8 +74,7 @@ class ControlState:
     kalman: KalmanState
     runaway: RunawayState
     deadband_strikes: int
-    commanded_az_rate_deg_per_s: float
-    commanded_el_rate_deg_per_s: float
+    commanded_rate_deg_per_s: float
 
 
 @dataclass(frozen=True)
@@ -142,8 +140,7 @@ class PayloadController:
             kalman=KalmanFilter.initial_state(0.0, 0.0),
             runaway=INITIAL_RUNAWAY_STATE,
             deadband_strikes=0,
-            commanded_az_rate_deg_per_s=0.0,
-            commanded_el_rate_deg_per_s=0.0,
+            commanded_rate_deg_per_s=0.0,
         )
 
     def step(
@@ -151,7 +148,7 @@ class PayloadController:
         state: ControlState,
         result: InferenceResultMsg,
         now: float,
-        gimbal_pos: GimbalPosition | None,
+        gimbal_pos: GimbalAxisState | None,
         safe_commanded: bool,
         safe_cleared: bool,
     ) -> tuple[ControlState, GimbalRequest | None, list[TelemetryEventMsg], FaultCode | None]:
@@ -162,7 +159,7 @@ class PayloadController:
             result (InferenceResultMsg): The detection result (carries crop_origin_px and
                 scale_factor for boresight back-projection).
             now (float): Monotonic seconds, supplied by the caller (never read here).
-            gimbal_pos (GimbalPosition | None): Latest encoder read for the runaway monitor,
+            gimbal_pos (GimbalAxisState | None): Latest encoder read for the runaway monitor,
                 or None when unavailable.
             safe_commanded (bool): True to latch SAFE and stow this frame.
             safe_cleared (bool): True to exit SAFE to IDLE this frame.
@@ -244,19 +241,17 @@ class PayloadController:
             # velocity), so the physical slew rate is -u = K @ x: slew toward the target.
             request = replace(
                 request,
-                az_deg=float(min(max(-u[0], -limit), limit)),
-                el_deg=float(min(max(-u[1], -limit), limit)),
+                elevation_deg=float(min(max(-u[1], -limit), limit)),
             )
         if request is not None and request.mode is GimbalCommandMode.RATE and suppress_rate_command:
             request = None
 
-        cmd_az, cmd_el = state.commanded_az_rate_deg_per_s, state.commanded_el_rate_deg_per_s
-        rate_mode_active = cmd_az != 0.0 or cmd_el != 0.0
+        cmd_rate = state.commanded_rate_deg_per_s
+        rate_mode_active = cmd_rate != 0.0
         new_runaway, runaway_fault = check_runaway(
             state.runaway,
             gimbal_pos,
-            cmd_az,
-            cmd_el,
+            cmd_rate,
             rate_mode_active,
             cfg.runaway_rate_tolerance_deg_per_s,
             cfg.runaway_strike_count,
@@ -265,15 +260,13 @@ class PayloadController:
             fault = runaway_fault
 
         is_rate_request = request is not None and request.mode is GimbalCommandMode.RATE
-        next_cmd_az = request.az_deg if is_rate_request and request is not None else 0.0
-        next_cmd_el = request.el_deg if is_rate_request and request is not None else 0.0
+        next_cmd_rate = request.elevation_deg if is_rate_request and request is not None else 0.0
         new_state = ControlState(
             arbiter=new_arbiter,
             ema=ema,
             kalman=kalman,
             runaway=new_runaway,
             deadband_strikes=deadband_strikes,
-            commanded_az_rate_deg_per_s=next_cmd_az,
-            commanded_el_rate_deg_per_s=next_cmd_el,
+            commanded_rate_deg_per_s=next_cmd_rate,
         )
         return new_state, request, telemetry, fault

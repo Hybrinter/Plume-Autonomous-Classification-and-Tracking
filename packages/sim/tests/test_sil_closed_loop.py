@@ -46,9 +46,9 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
 
     # Payload tracked the plume and commanded the gimbal off the origin.
     assert not cmd_sub.empty()
-    position = system.gimbal.read_position()
+    position = system.gimbal.read_state()
     assert isinstance(position, Ok)
-    assert (position.value.az_deg, position.value.el_deg) != (0.0, 0.0)
+    assert position.value.position_deg != 0.0
 
     # Inference ran once per frame.
     inference_count = 0
@@ -99,9 +99,9 @@ def test_thermal_safe_stows_the_gimbal() -> None:
     # Enough steps for FDIR to route SAFE and the slew-limited dynamics to settle.
     SilHarness(system).run_steps(15, dt=1.0)
 
-    switch = system.gimbal.read_stow_switch()
-    assert isinstance(switch, Ok)
-    assert switch.value is True
+    state = system.gimbal.read_state()
+    assert isinstance(state, Ok)
+    assert abs(state.value.position_deg - (-45.0)) < 0.5
 
 
 def test_safe_recovery_returns_to_operations() -> None:
@@ -136,8 +136,7 @@ def test_safe_recovery_returns_to_operations() -> None:
 def test_tracking_commands_point_toward_the_plume() -> None:
     """RATE commands during TRACKING have the sign of the boresight error and move that way.
 
-    The plume sits at band-plane (340, 340): +x of boresight -> +az error, +y (down) ->
-    -el error, so the gimbal must end up at positive azimuth and negative elevation.
+    The plume sits below boresight; image +y maps to the positive physical elevation sweep.
     """
     system = build_sil_system(
         PactConfig(),
@@ -151,10 +150,9 @@ def test_tracking_commands_point_toward_the_plume() -> None:
 
     SilHarness(system).run_steps(8, dt=1.0)
 
-    pos = system.gimbal.read_position()
+    pos = system.gimbal.read_state()
     assert isinstance(pos, Ok)
-    assert pos.value.az_deg > 0.5  # plume to the right of boresight
-    assert pos.value.el_deg < -0.5  # plume below boresight (image +y)
+    assert pos.value.position_deg > 0.5  # image +y follows the positive imaging sweep
 
 
 def test_valid_command_flows_through_to_bus_and_acks() -> None:

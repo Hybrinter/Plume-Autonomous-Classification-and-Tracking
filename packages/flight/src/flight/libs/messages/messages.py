@@ -142,8 +142,7 @@ class GimbalCommandMsg:
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # frame that triggered this command
     mode: GimbalCommandMode  # RATE / ABSOLUTE / STOW / HOME
-    az_value_deg: float  # rate (deg/s) for RATE; target angle (deg) for ABSOLUTE; 0 otherwise
-    el_value_deg: float  # rate (deg/s) for RATE; target angle (deg) for ABSOLUTE; 0 otherwise
+    elevation_value_deg: float  # rate for RATE; target angle for ABSOLUTE; 0 otherwise
     state: GimbalState  # arbiter state at time of command
     reason: str  # human-readable reason code for logging
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version

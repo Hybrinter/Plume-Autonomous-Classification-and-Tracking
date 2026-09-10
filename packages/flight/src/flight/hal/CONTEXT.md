@@ -18,19 +18,19 @@ from the individual files or their docstrings.
   `hal.interfaces` / `hal.drivers_*` explicitly, which keeps the layer boundary legible
   and lets the import-linter contracts target sub-packages precisely.
 
-## Lazy-SDK pattern (PySpin, pyserial)
+## Lazy-SDK pattern (PySpin, Xeryon)
 
-- Two real drivers touch a vendor SDK, each imported *inside* `__init__`, never at module top:
-  `RealSensor` imports `PySpin` (FLIR Spinnaker, the `camera` extra) and `RealGimbal` imports
-  `serial` (pyserial). Importing `flight.hal.drivers_real` from a sim-selecting composition root
-  requires neither SDK; construction is the only place either can raise `ImportError`.
+- Two real drivers touch vendor SDKs lazily. `RealSensor` imports `PySpin` (FLIR Spinnaker,
+  the `camera` extra), while `RealGimbal` imports the vendored Xeryon v1.88 module only during
+  `initialize()`. Importing flight or simulation modules never starts hardware communication.
 
-## Closed-loop GimbalActuator surface (ADR 0008)
+## Single-axis GimbalActuator surface (ADR 0008)
 
-- `GimbalActuator` is `goto_angle` / `set_rate` / `home` / `stow` / `read_position` (returns a
-  *timestamped* `GimbalPosition`) / `read_stow_switch`. The old `send_command(GimbalCommandMsg)`
-  delta path is deleted. Drivers clamp the *hardware* envelope (travel +-90/+-45, max hardware
-  slew); the arbiter clamps the *mission* envelope -- defense in depth, two independent limits.
+- `GimbalActuator` exposes one elevation axis: initialize/shutdown/index, set_position,
+  set_velocity, stop/home/stow/reset_faults, and read_state. The old two-axis PTU verbs,
+  azimuth fields, and `counts_per_deg` configuration are removed. RealGimbal targets one
+  XD-C `Stage.XRTU_40_109` axis X, clamps hardware travel to −45°..+45° and operational
+  imaging commands to 0°..+45°, and reserves −45° stow for SAFE.
 - **`SimGimbal` has real first-order dynamics.** Position integrates *lazily*: every public call
   first advances the pose by the clock time elapsed since the previous call, so the one driver is
   honest under both the threaded flight loop (`RealClock`) and the stepped SIL (`ManualClock`).
@@ -67,15 +67,13 @@ from the individual files or their docstrings.
 - `RawFrameMsg` and `MessageType.RAW_FRAME` were removed in 2026-06-09 as part of the mosaic
   contract switchover (ADR 0007). There is no bus message for raw or separated band stacks.
 
-## Fake-SDK test pattern (PySpin and pyserial)
+## Fake-SDK test pattern (PySpin and Xeryon)
 
-- Real drivers with an SDK are tested in CI by injecting a fake module via
-  `monkeypatch.setitem(sys.modules, "<sdk>", fake)` before construction. `RealSensor` uses a fake
-  `PySpin` (`test_real_sensor_pyspin.py`); `RealGimbal` uses a scriptable fake `serial` whose
-  port records writes and replays queued response lines (`test_real_gimbal_serial.py`). This
-  exercises the lazy-import contract and the full driver logic (count conversion, envelope clamps,
-  `*`/`!` response handling) without the physical SDK or hardware. The verb set (PP/TP/PS/TS) is a
-  documented reference assumption, not a validated wire protocol -- HIL bring-up confirms it.
+- Real drivers with an SDK are tested in CI by injecting a fake module or factory. `RealSensor`
+  uses a fake `PySpin`; `RealGimbal` injects fake controller/axis protocols. Tests cover startup
+  ordering, index/status failure, command quantization/reversal, EPOS/TIME velocity, stale
+  feedback, lease expiry, limits, and duty reserve without physical hardware. HIL remains the
+  venue for wiring, settings, sign/offset, and cooldown verification.
 
 ## `StationLink` -- byte-level transport (ADR 0009)
 
@@ -102,8 +100,8 @@ from the individual files or their docstrings.
 
 ## Real driver implementation status
 
-- `RealSensor` (PySpin) and `RealGimbal` (serial PTU, ADR 0008) are fully implemented, with the
-  fake-SDK CI tests above; constructing either raises `ImportError` if its SDK is absent, and
-  `RealGimbal` raises `ValueError` on an empty `serial_port`. `RealScalarSensor` is a safe-default
-  stub pending hardware integration. `RealStationLink` is fully implemented (TCP/UDP, daemon
-  deframer thread, AOS/LOS detection) with loopback-socket CI tests (`test_real_station_link.py`).
+- `RealSensor` (PySpin) and `RealGimbal` (Xeryon XD-C, ADR 0008) are fully implemented. The
+  gimbal requires an external settings file and is initialized by the composition root before
+  app threads start; teardown always stops motion and calls the vendor controller shutdown.
+  `RealScalarSensor` remains a safe-default stub pending hardware integration. `RealStationLink`
+  is fully implemented (TCP/UDP, daemon deframer thread, AOS/LOS detection).

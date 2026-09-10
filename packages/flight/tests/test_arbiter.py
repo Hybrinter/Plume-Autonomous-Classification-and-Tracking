@@ -260,13 +260,12 @@ def test_tracking_emits_rate_request_with_proportional_clip(default_config: Pact
     state, request, _ = arbiter.step(state, result, (100.0, -100.0), 100.0, False, False)
     assert request is not None
     assert request.mode is GimbalCommandMode.RATE
-    assert request.az_deg == limit
-    assert request.el_deg == -limit
+    assert request.elevation_deg == -limit
     assert request.reason == "tracking_target"
 
 
 def test_scan_reverses_direction_at_boundary(default_config: PactConfig) -> None:
-    """The SCAN raster is ABSOLUTE and reverses at the +30/-30 azimuth boundary."""
+    """The elevation scan reverses at the upper imaging boundary."""
     arbiter = GimbalArbiter(cfg=default_config.controller)
     scan_state = ArbiterState(
         gimbal_state=GimbalState.SCAN,
@@ -274,16 +273,16 @@ def test_scan_reverses_direction_at_boundary(default_config: PactConfig) -> None
         idle_duration_s=65.0,
         last_command_time=0.0,
         current_target_id=None,
-        scan_pan_deg=29.9,
+        scan_elevation_deg=44.9,
         scan_direction=1.0,
     )
     empty = make_inference_result(blobs=())
     state, request, _ = arbiter.step(scan_state, empty, None, 100.0, False, False)
     assert request is not None
     assert request.mode is GimbalCommandMode.ABSOLUTE
-    assert request.az_deg == 30.0
+    assert request.elevation_deg == 45.0
     assert state.scan_direction == -1.0
-    assert state.scan_pan_deg == 30.0
+    assert state.scan_elevation_deg == 45.0
 
 
 def test_valid_transitions_exhaustive() -> None:

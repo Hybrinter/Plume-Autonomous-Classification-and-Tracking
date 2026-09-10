@@ -47,9 +47,9 @@ composition root from `calibration_io.load_calibration` on flight, or
 `calibration_io.build_identity_calibration` for SIL). Identity calibration is SIL-only. A
 bad `calibration_dir` raises `SystemExit` in `main()` before the scheduler starts.
 
-**Slew-rate smear input:** `run()` derives the slew rate from consecutive
-`gimbal.read_position()` diffs over the elapsed time since the previous frame. The first
-frame and any failed encoder read use 0.0 (smear gate degrades gracefully). `ifov_deg_per_px`
+**Slew-rate smear input:** `run()` derives elevation slew from consecutive gimbal state
+samples (or the driver's measured velocity when available). The first frame and any failed
+encoder read use 0.0 (smear gate degrades gracefully). `ifov_deg_per_px`
 comes from `SensorConfig` (0.02 deg/px at the 1024 geometry; see ADR 0008).
 
 ## `PayloadController.step` is the pure composition root (error-space, as of ADR 0008)
@@ -101,7 +101,8 @@ an already-decided TRACKING command. Keep the arbiter free of I/O and estimator 
   `now` against a wall-clock value or persist it as an absolute time.
 - **Pointing error is boresight-relative (ADR 0008).** `pointing.boresight_error_deg` inverts the
   preprocess crop/decimation transform, measures the offset *from the plane center*, and scales by
-  `SensorConfig.ifov_deg_per_px`. Sign convention: image +x -> +az, image +y (down) -> -el. The
+  `SensorConfig.ifov_deg_per_px`. Sign convention: image +x -> +az, image +y (down) -> +el so
+  the single physical axis follows its 0°..45° imaging sweep. The
   old `PIXEL_TO_DEG` constant and absolute-centroid math are deleted -- a live reference to
   `PIXEL_TO_DEG`, `az_delta_deg`, or `send_command` is a bug.
 - **ROI crop is live now.** `crop_to_roi`/`backproject_pixel` are used in `process_frame` (see the

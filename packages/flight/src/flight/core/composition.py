@@ -160,6 +160,9 @@ class SystemApps:
     downlink: DownlinkManager
     mechanical: MechanicalApp
     model_deploy: ModelDeployService
+    # Retain the actuator for ordered composition-root teardown.  Apps only receive the
+    # protocol through PayloadApp; this reference is not part of the application graph.
+    gimbal: GimbalActuator
 
 
 def build_apps(
@@ -205,4 +208,5 @@ def build_apps(
         downlink=DownlinkManager.from_config(config, bus, clock),
         mechanical=MechanicalApp.from_config(config, bus, clock, drivers.launch_lock),
         model_deploy=ModelDeployService.from_config(config, bus, clock, storage),
+        gimbal=drivers.gimbal,
     )

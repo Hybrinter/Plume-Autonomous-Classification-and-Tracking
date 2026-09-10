@@ -23,7 +23,9 @@ it there (the `flight.iss_iface.ingress` path is a back-compat re-export only). 
 The validation venues are selected by `flight.libs.config.config.EnvironmentConfig` (five
 `AxisMode` axes -- `sensor`/`gimbal`/`compute`/`link`/`clock` -- plus `host`), applied as
 `profiles/*.toml` overrides. Running venues: `sil` (all sim) and `sil-link-real` (link real).
-DEFINED-NOT-RUN venues: `pil`, `hil` (see `docs/validation/`). `gse.orchestrator.run_scenario`
+DEFINED-NOT-RUN venues: `pil`, `hil` (see `docs/validation/`). HIL's gimbal checklist covers
+the single Xeryon elevation axis, settings/index/sign validation, feedback freshness, rate lease,
+and HV/UHV duty reserve. `gse.orchestrator.run_scenario`
 scores **frame-portable** assertions and records **realtime-only** assertions as `skip` under the
 deterministic in-process backend.
 

@@ -87,7 +87,7 @@ def sample_devices(system: SilSystem) -> DeviceSample:
         system: The wired SilSystem whose sim drivers + mechanical app state to read.
 
     Returns:
-        A DeviceSample snapshot. ``read_position`` is called exactly once (it redraws seeded
+        A DeviceSample snapshot. ``read_state`` is called exactly once (it redraws seeded
         encoder noise per call); the clean integrated pose is read from the gimbal driver truth,
         and the launch-lock state is taken from the mechanical app's last cached read.
 
@@ -95,23 +95,23 @@ def sample_devices(system: SilSystem) -> DeviceSample:
         All reads are read-only and side-effect-free with respect to flight behavior.
     """
     gimbal = system.gimbal
-    position = gimbal.read_position()
+    position = gimbal.read_state()
     if isinstance(position, Ok):
-        az_meas, el_meas = position.value.az_deg, position.value.el_deg
+        elevation_meas = position.value.position_deg
     else:
-        az_meas = el_meas = float("nan")
-    stow = gimbal.read_stow_switch()
-    stow_engaged = isinstance(stow, Ok) and stow.value is True
+        elevation_meas = float("nan")
+    stow_engaged = (
+        isinstance(position, Ok)
+        and position.value.position_reached
+        and position.value.target_position_deg <= -44.5
+    )
     # Private sim-driver fields are read read-only for observability (truth pose, commanded rate,
     # mode, replay cursors); none are mutated and flight behavior is untouched.
     mode = gimbal._mode
     return DeviceSample(
-        gimbal_az_meas_deg=az_meas,
-        gimbal_el_meas_deg=el_meas,
-        gimbal_az_true_deg=gimbal._az,
-        gimbal_el_true_deg=gimbal._el,
-        gimbal_rate_az_deg_s=gimbal._rate_az,
-        gimbal_rate_el_deg_s=gimbal._rate_el,
+        gimbal_meas_deg=elevation_meas,
+        gimbal_true_deg=gimbal._position,
+        gimbal_rate_deg_s=gimbal._velocity,
         gimbal_mode=mode.value if mode is not None else "NONE",
         stow_switch=stow_engaged,
         launch_lock_state=system.apps.mechanical.state.last_state.value,

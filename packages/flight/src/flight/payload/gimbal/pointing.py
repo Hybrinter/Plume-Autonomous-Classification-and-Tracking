@@ -3,7 +3,7 @@
 Replaces the absolute-centroid * PIXEL_TO_DEG bug (baseline Section 4.4 of the parity
 baseline): error is measured FROM THE PLANE CENTER (boresight), after inverting the
 preprocess crop/decimation transform, and converted to degrees via the sensor IFOV.
-Sign convention: image +x (column) -> +azimuth; image +y (row, downward) -> -elevation.
+Sign convention: image +x (column) -> +azimuth; image +y (row, downward) -> +elevation.
 The returned error is the target's angular offset from boresight -- the slew needed to
 center it has the same sign.
 
@@ -13,7 +13,6 @@ Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 from __future__ import annotations
 
 # stdlib
-import math
 
 
 def _full_frame_px(
@@ -56,7 +55,7 @@ def boresight_error_deg(
 
     The boresight corresponds to the center of the full band plane
     (plane_width_px / 2, plane_height_px / 2). Positive azimuth is to the right
-    (image +x); positive elevation is upward (image -y).
+    (image +x); positive elevation follows the physical imaging sweep (image +y).
 
     Inputs:
         centroid_px: (x, y) centroid in tensor/model-input pixel coordinates.
@@ -79,7 +78,7 @@ def boresight_error_deg(
     """
     full_x, full_y = _full_frame_px(centroid_px, crop_origin_px, scale_factor)
     az_err = (full_x - plane_width_px / 2.0) * ifov_deg_per_px
-    el_err = -(full_y - plane_height_px / 2.0) * ifov_deg_per_px
+    el_err = (full_y - plane_height_px / 2.0) * ifov_deg_per_px
     return (az_err, el_err)
 
 
@@ -90,7 +89,7 @@ def target_displacement_px(
     plane_width_px: int,
     plane_height_px: int,
 ) -> float:
-    """Euclidean full-plane pixel distance of the centroid from boresight (deadband input).
+    """Absolute vertical full-plane pixel displacement (deadband input).
 
     Inputs:
         centroid_px: (x, y) centroid in tensor/model-input pixel coordinates.
@@ -100,13 +99,14 @@ def target_displacement_px(
         plane_height_px: Height of the full band plane in pixels.
 
     Outputs:
-        float: Euclidean distance in full-plane pixels from boresight to the centroid.
-            Used as input to the deadband gate (check_deadband) in the control pipeline.
+        float: Absolute vertical distance in full-plane pixels from the boresight. The
+            horizontal component is intentionally ignored because the physical gimbal
+            has no azimuth actuator.
 
     Notes:
         The displacement is in full-plane pixels regardless of whether the frame was
         cropped or decimated, because the deadband thresholds are defined in full-plane
         pixel units for consistency across modes.
     """
-    full_x, full_y = _full_frame_px(centroid_px, crop_origin_px, scale_factor)
-    return math.hypot(full_x - plane_width_px / 2.0, full_y - plane_height_px / 2.0)
+    _, full_y = _full_frame_px(centroid_px, crop_origin_px, scale_factor)
+    return abs(full_y - plane_height_px / 2.0)

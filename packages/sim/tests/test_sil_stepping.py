@@ -44,6 +44,6 @@ def test_step_once_processes_one_frame_per_call() -> None:
         inference_count += 1
     assert inference_count == 3
 
-    position = system.gimbal.read_position()
+    position = system.gimbal.read_state()
     assert isinstance(position, Ok)
-    assert (position.value.az_deg, position.value.el_deg) != (0.0, 0.0)
+    assert position.value.position_deg != 0.0

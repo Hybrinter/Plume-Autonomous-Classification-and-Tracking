@@ -28,7 +28,7 @@ message types and drains its own subscriptions each step -- this steals nothing 
 
 ## One DeviceSample per step (seeded noise)
 
-`SimGimbal.read_position()` redraws seeded encoder noise on **every** call, so the recorder reads
+`SimGimbal.read_state()` redraws seeded encoder noise on **every** call, so the recorder reads
 each driver exactly once per step into a frozen `DeviceSample` and every gimbal signal reads those
 cached numbers (self-consistent + deterministic). The clean integrated pose / commanded rate / mode
 / replay cursors are read from the sim drivers' private fields **read-only** (observability only --

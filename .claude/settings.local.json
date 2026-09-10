@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(\"/c/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking/src/pact/storage/CLAUDE.md\":*)",
@@ -47,10 +50,10 @@
       "Bash(done)",
       "Bash(uv run:*)",
       "Bash(python -m pytest tests/unit/comms/test_downlink.py -v)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(git -C \"C:/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking\" diff HEAD~1 HEAD -- src/pact/controller/arbiter.py src/pact/fault/detector.py tests/integration/e2e/test_full_pipeline_smoke.py tests/integration/test_controller_pipeline.py tests/unit/controller/test_arbiter.py tests/unit/fault/test_watchdog.py tests/unit/model/test_dataset.py tests/unit/preprocessing/test_quality.py)",
+      "Bash(git -C \"C:/Users/kampw/PycharmProjects/Plume-Autonomous-Classification-and-Tracking\" diff HEAD -- tests/integration/e2e/test_full_pipeline_smoke.py tests/integration/test_controller_pipeline.py tests/conftest.py)",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\" /FO CSV)"
     ]
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }

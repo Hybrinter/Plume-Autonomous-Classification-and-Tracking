@@ -270,23 +270,49 @@ def _range_violation(data: dict[str, Any]) -> str | None:
 
 def _cross_field_violation(data: dict[str, Any]) -> str | None:
     """Cross-field consistency checks (gimbal envelope + mosaic/band agreement)."""
-    az_min = _num(data, "gimbal", "az_min_deg", -90.0)
-    az_max = _num(data, "gimbal", "az_max_deg", 90.0)
-    el_min = _num(data, "gimbal", "el_min_deg", -45.0)
-    el_max = _num(data, "gimbal", "el_max_deg", 45.0)
-    if az_min >= az_max:
-        return "gimbal.az_min_deg must be < az_max_deg"
-    if el_min >= el_max:
-        return "gimbal.el_min_deg must be < el_max_deg"
+    hw_min = _num(data, "gimbal", "hardware_min_deg", -45.0)
+    hw_max = _num(data, "gimbal", "hardware_max_deg", 45.0)
+    op_min = _num(data, "gimbal", "operational_min_deg", 0.0)
+    op_max = _num(data, "gimbal", "operational_max_deg", 45.0)
+    if hw_min >= hw_max:
+        return "gimbal.hardware_min_deg must be < hardware_max_deg"
+    if op_min >= op_max:
+        return "gimbal.operational_min_deg must be < operational_max_deg"
+    if not (hw_min <= op_min <= op_max <= hw_max):
+        return "gimbal operational envelope must be within hardware envelope"
+    gimbal = data.get("gimbal", {})
+    if int(gimbal.get("direction_sign", 1)) not in (-1, 1):
+        return "gimbal.direction_sign must be -1 or 1"
+    if int(gimbal.get("encoder_counts_per_rev", 86400)) != 86400:
+        return "gimbal.encoder_counts_per_rev must be 86400 for XRTU_40_109"
+    if int(gimbal.get("serial_baud", 115200)) != 115200:
+        return "gimbal.serial_baud must be 115200 for XD-C"
+    if str(gimbal.get("axis_name", "X")) != "X":
+        return "gimbal.axis_name must be X"
+    if str(gimbal.get("stage", "XRTU_40_109")) != "XRTU_40_109":
+        return "gimbal.stage must be XRTU_40_109"
+    if int(gimbal.get("feedback_info", 4)) < 0:
+        return "gimbal.feedback_info must be >= 0"
+    if _num(data, "gimbal", "feedback_poll_interval_ms", 2.0) <= 0.0:
+        return "gimbal.feedback_poll_interval_ms must be > 0"
     if _num(data, "gimbal", "max_hw_slew_rate_deg_per_s", 10.0) <= 0.0:
         return "gimbal.max_hw_slew_rate_deg_per_s must be > 0"
+    if _num(data, "gimbal", "feedback_stale_s", 0.25) <= 0.0:
+        return "gimbal.feedback_stale_s must be > 0"
+    if _num(data, "gimbal", "velocity_lease_s", 3.0) <= 0.0:
+        return "gimbal.velocity_lease_s must be > 0"
+    if _num(data, "gimbal", "motor_duty_limit_s", 120.0) <= 0.0:
+        return "gimbal.motor_duty_limit_s must be > 0"
+    reserve = _num(data, "gimbal", "motor_duty_stow_reserve_s", 15.0)
+    duty_limit = _num(data, "gimbal", "motor_duty_limit_s", 120.0)
+    if not (0.0 <= reserve < duty_limit):
+        return "gimbal.motor_duty_stow_reserve_s must be in [0, motor_duty_limit_s)"
     for pose in ("stow", "home"):
-        pose_az = _num(data, "gimbal", f"{pose}_az_deg", 0.0)
-        pose_el = _num(data, "gimbal", f"{pose}_el_deg", 0.0)
-        if not (az_min <= pose_az <= az_max):
-            return f"gimbal.{pose}_az_deg must be within [az_min_deg, az_max_deg]"
-        if not (el_min <= pose_el <= el_max):
-            return f"gimbal.{pose}_el_deg must be within [el_min_deg, el_max_deg]"
+        pose_deg = _num(data, "gimbal", f"{pose}_deg", 0.0 if pose == "home" else -45.0)
+        if not (hw_min <= pose_deg <= hw_max):
+            return f"gimbal.{pose}_deg must be within [hardware_min_deg, hardware_max_deg]"
+    if not (op_min <= _num(data, "gimbal", "home_deg", 0.0) <= op_max):
+        return "gimbal.home_deg must be within the operational envelope"
 
     band_names = {b.value for b in Band}
     mosaic = [str(v) for v in data.get("sensor", {}).get("mosaic_layout", sorted(band_names))]
@@ -485,17 +511,39 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
 
     gimb = data.get("gimbal", {})
     gimbal_config = GimbalConfig(
-        az_min_deg=float(gimb.get("az_min_deg", GimbalConfig.az_min_deg)),
-        az_max_deg=float(gimb.get("az_max_deg", GimbalConfig.az_max_deg)),
-        el_min_deg=float(gimb.get("el_min_deg", GimbalConfig.el_min_deg)),
-        el_max_deg=float(gimb.get("el_max_deg", GimbalConfig.el_max_deg)),
+        axis_name=str(gimb.get("axis_name", GimbalConfig.axis_name)),
+        stage=str(gimb.get("stage", GimbalConfig.stage)),
+        hardware_min_deg=float(gimb.get("hardware_min_deg", GimbalConfig.hardware_min_deg)),
+        hardware_max_deg=float(gimb.get("hardware_max_deg", GimbalConfig.hardware_max_deg)),
+        operational_min_deg=float(
+            gimb.get("operational_min_deg", GimbalConfig.operational_min_deg)
+        ),
+        operational_max_deg=float(
+            gimb.get("operational_max_deg", GimbalConfig.operational_max_deg)
+        ),
         max_hw_slew_rate_deg_per_s=float(
             gimb.get("max_hw_slew_rate_deg_per_s", GimbalConfig.max_hw_slew_rate_deg_per_s)
         ),
-        stow_az_deg=float(gimb.get("stow_az_deg", GimbalConfig.stow_az_deg)),
-        stow_el_deg=float(gimb.get("stow_el_deg", GimbalConfig.stow_el_deg)),
-        home_az_deg=float(gimb.get("home_az_deg", GimbalConfig.home_az_deg)),
-        home_el_deg=float(gimb.get("home_el_deg", GimbalConfig.home_el_deg)),
+        home_deg=float(gimb.get("home_deg", GimbalConfig.home_deg)),
+        stow_deg=float(gimb.get("stow_deg", GimbalConfig.stow_deg)),
+        direction_sign=int(gimb.get("direction_sign", GimbalConfig.direction_sign)),
+        index_offset_deg=float(gimb.get("index_offset_deg", GimbalConfig.index_offset_deg)),
+        encoder_counts_per_rev=int(
+            gimb.get("encoder_counts_per_rev", GimbalConfig.encoder_counts_per_rev)
+        ),
+        settings_default_path=str(
+            gimb.get("settings_default_path", GimbalConfig.settings_default_path)
+        ),
+        feedback_info=int(gimb.get("feedback_info", GimbalConfig.feedback_info)),
+        feedback_poll_interval_ms=float(
+            gimb.get("feedback_poll_interval_ms", GimbalConfig.feedback_poll_interval_ms)
+        ),
+        velocity_lease_s=float(gimb.get("velocity_lease_s", GimbalConfig.velocity_lease_s)),
+        feedback_stale_s=float(gimb.get("feedback_stale_s", GimbalConfig.feedback_stale_s)),
+        motor_duty_limit_s=float(gimb.get("motor_duty_limit_s", GimbalConfig.motor_duty_limit_s)),
+        motor_duty_stow_reserve_s=float(
+            gimb.get("motor_duty_stow_reserve_s", GimbalConfig.motor_duty_stow_reserve_s)
+        ),
         sim_time_constant_s=float(
             gimb.get("sim_time_constant_s", GimbalConfig.sim_time_constant_s)
         ),
@@ -505,7 +553,6 @@ def _build_pact_config(data: dict[str, Any]) -> PactConfig:
         sim_seed=int(gimb.get("sim_seed", GimbalConfig.sim_seed)),
         serial_port=str(gimb.get("serial_port", GimbalConfig.serial_port)),
         serial_baud=int(gimb.get("serial_baud", GimbalConfig.serial_baud)),
-        counts_per_deg=float(gimb.get("counts_per_deg", GimbalConfig.counts_per_deg)),
     )
 
     link_sect = data.get("link", {})

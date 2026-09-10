@@ -2,7 +2,7 @@
 concrete drivers; the composition root injects the implementation.
 """
 
-from flight.hal.interfaces.gimbal import GimbalActuator, GimbalPosition
+from flight.hal.interfaces.gimbal import GimbalActuator, GimbalAxisState
 from flight.hal.interfaces.launch_lock import LaunchLock
 from flight.hal.interfaces.scalar import ScalarSensor
 from flight.hal.interfaces.sensor import ImagingSensor
@@ -11,7 +11,7 @@ from flight.hal.interfaces.storage import StorageReader, StorageWriter
 
 __all__ = [
     "GimbalActuator",
-    "GimbalPosition",
+    "GimbalAxisState",
     "ImagingSensor",
     "LaunchLock",
     "ScalarSensor",

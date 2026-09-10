@@ -72,7 +72,7 @@ class SimGimbal:
         self._integrate()
         self._target = self._cfg.home_deg
         self._position = self._target
-        self._mode = GimbalCommandMode.HOME
+        self._mode = GimbalCommandMode.ABSOLUTE
         return Ok(None)
 
     def set_position(self, position_deg: float) -> Result[None, FaultCode]:
@@ -106,13 +106,6 @@ class SimGimbal:
         self._mode = None
         return Ok(None)
 
-    def home(self) -> Result[None, FaultCode]:
-        self._integrate()
-        self._target = self._cfg.home_deg
-        self._velocity = 0.0
-        self._mode = GimbalCommandMode.HOME
-        return Ok(None)
-
     def stow(self) -> Result[None, FaultCode]:
         self._integrate()
         self._target = self._cfg.stow_deg
@@ -133,7 +126,7 @@ class SimGimbal:
                 target_position_deg=self._target,
                 sample_timestamp_s=self._last_t,
                 controller_timestamp_s=self._last_t,
-                motor_on=self._mode is not None,
+                motor_on=True,
                 closed_loop=True,
                 encoder_valid=True,
                 at_index=abs(self._position - self._cfg.home_deg) < _STOW_TOLERANCE_DEG,

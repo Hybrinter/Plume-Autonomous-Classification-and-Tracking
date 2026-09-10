@@ -2,8 +2,9 @@
 
 """Narrow type-only boundary for the untyped Xeryon v1.88 module.
 
-``Xeryon.py`` is supplied by the manufacturer and is kept byte-for-byte
-unchanged.  The protocols below describe only the calls made by PACT flight
+``Xeryon.py`` is supplied by the manufacturer. PACT applies one local rotary
+``setSpeed`` encoding fix (SSPD uses 0.01 deg/s). The protocols below describe
+only the calls made by PACT flight
 software; they avoid leaking the vendor module's large untyped API into the
 rest of the workspace.  Importing this module never imports the vendor module
 or opens a serial port.

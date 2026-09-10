@@ -6,7 +6,7 @@ software. The Ok/Err/Result types live in flight.libs.types.result.
 Includes:
 - SystemMode: top-level operational mode transitions.
 - GimbalState: four-state arbiter for gimbal control.
-- GimbalCommandMode: interpretation of gimbal command axis values (RATE/ABSOLUTE/STOW/HOME).
+- GimbalCommandMode: interpretation of gimbal command axis values (RATE/ABSOLUTE/STOW).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
   (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
   command-ingress integrity codes (COMMAND_CRC_FAIL, COMMAND_AUTH_FAIL, COMMAND_SEQ_ERROR,
@@ -60,9 +60,8 @@ class GimbalState(enum.Enum):
 class GimbalCommandMode(enum.Enum):
     """How a gimbal command's axis values are interpreted.
 
-    RATE: az/el are rates in deg/s (TRACKING). ABSOLUTE: az/el are target angles in
-    degrees (SCAN, acquisition repositioning). STOW/HOME: axis values are ignored;
-    the driver resolves the configured stow/home pose.
+    RATE: elevation is a rate in deg/s (TRACKING). ABSOLUTE: elevation is a target
+    angle in degrees. STOW: the driver resolves the configured stow pose.
 
     String values mirror member names (log readability convention).
     Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
@@ -71,7 +70,6 @@ class GimbalCommandMode(enum.Enum):
     RATE = "RATE"
     ABSOLUTE = "ABSOLUTE"
     STOW = "STOW"
-    HOME = "HOME"
 
 
 class FaultCode(enum.Enum):

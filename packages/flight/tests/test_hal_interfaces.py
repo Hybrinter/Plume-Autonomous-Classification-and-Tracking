@@ -7,7 +7,7 @@ import types
 import pytest
 from flight.hal.drivers_real import RealGimbal, RealStationLink
 from flight.hal.drivers_sim import SimGimbal, SimSensor, SimStationLink
-from flight.hal.interfaces import GimbalActuator, ImagingSensor, StationLink
+from flight.hal.interfaces import GimbalActuator, GimbalAxisState, ImagingSensor, StationLink
 from flight.libs.config import GimbalConfig, LinkConfig
 from flight.libs.time import ManualClock
 
@@ -28,6 +28,21 @@ def test_sim_gimbal_satisfies_gimbal_actuator() -> None:
     """SimGimbal conforms to GimbalActuator."""
     gimbal: GimbalActuator = SimGimbal(clock=ManualClock())
     assert isinstance(gimbal, GimbalActuator)
+
+
+def test_gimbal_axis_state_unhealthy_reasons() -> None:
+    """Decoded snapshots expose local safety indicators without collapsing the type."""
+    healthy = GimbalAxisState(position_deg=0.0, motor_on=True, closed_loop=True, encoder_valid=True)
+    assert healthy.unhealthy_reasons() == ()
+    flagged = GimbalAxisState(
+        position_deg=0.0,
+        motor_on=True,
+        closed_loop=True,
+        encoder_valid=True,
+        thermal_fault=True,
+        rate_lease_expired=True,
+    )
+    assert flagged.unhealthy_reasons() == ("thermal_fault", "rate_lease_expired")
 
 
 def test_sim_station_link_satisfies_station_link() -> None:

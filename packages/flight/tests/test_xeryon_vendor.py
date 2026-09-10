@@ -12,7 +12,7 @@ from flight.libs.config import GimbalConfig
 from xeryon_vendor import Xeryon
 
 _VENDOR_ROOT = Path(__file__).parents[2] / "xeryon-vendor"
-_SOURCE_SHA256 = "6b231f91a57ea60bde1dcf0910155ba5e09e2a30b84bc218a87d2ce703b8ffdb"
+_SOURCE_SHA256 = "bff3338ecff97c2cb01c18a3d07dafdd1b86a19f2e5ce2a8ac8c21a9825bce77"
 _ZIP_SHA256 = "7f3c8a373e66b2fd2cb915035bc2c29f860b59ff76ec4ea1531824b3ca7b8c57"
 
 
@@ -23,6 +23,7 @@ def test_vendor_source_and_archive_provenance_are_pinned() -> None:
     assert "version v1.88" in notice
     assert _ZIP_SHA256 in notice
     assert "https://xeryon.com/software/xeryon-python-library/" in notice
+    assert _SOURCE_SHA256 in notice
 
 
 def test_selected_stage_and_pyserial_dependency() -> None:

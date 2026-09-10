@@ -674,7 +674,7 @@ class Axis:
         else:
             speed = self.convertEncoderUnitsToUnits(self.convertUnitsToEncoder(speed, self.units),
                                                     Units.deg)  # Convert to degrees
-            speed = int(speed) * 100  # *100 conversion factor.
+            speed = int(round(speed * 100))  # *100 conversion factor (0.01 deg/s).
         self.setSetting("SSPD", str(speed))
 
     def getSetting(self, tag):

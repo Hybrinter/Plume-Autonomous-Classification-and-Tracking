@@ -1,10 +1,12 @@
 # ruff: noqa: N802, N803, N999
 
-"""Typed subset of the adjacent, unmodified Xeryon.py implementation."""
+"""Typed subset of the adjacent Xeryon.py implementation (plus module flags)."""
 
 from enum import Enum
 
 LIBRARY_VERSION: str
+DISABLE_WAITING: bool
+OUTPUT_TO_CONSOLE: bool
 
 class Units(Enum):
     deg: Units

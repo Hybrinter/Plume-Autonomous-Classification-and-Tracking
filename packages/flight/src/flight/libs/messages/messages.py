@@ -133,7 +133,7 @@ class GimbalCommandMsg:
 
     Reshaped from the legacy delta command into a typed telemetry record of the
     GimbalRequest the payload app issued onto the GimbalActuator HAL: mode plus the
-    two axis values (interpreted per the mode), the arbiter state at the time, and a
+    elevation value (interpreted per the mode), the arbiter state at the time, and a
     human-readable reason. This is a downlink/log record -- it is no longer the
     actuation vehicle (actuation flows through the HAL methods directly).
     """
@@ -141,7 +141,7 @@ class GimbalCommandMsg:
     msg_type: MessageType  # must be MessageType.GIMBAL_COMMAND
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # frame that triggered this command
-    mode: GimbalCommandMode  # RATE / ABSOLUTE / STOW / HOME
+    mode: GimbalCommandMode  # RATE / ABSOLUTE / STOW
     elevation_value_deg: float  # rate for RATE; target angle for ABSOLUTE; 0 otherwise
     state: GimbalState  # arbiter state at time of command
     reason: str  # human-readable reason code for logging

@@ -22,10 +22,10 @@ class GimbalRequest:
     """One gimbal command decided by the pure control core.
 
     Attributes:
-        mode: Interpretation of elevation_deg (RATE deg/s, ABSOLUTE deg, STOW/HOME
-            ignore it).
+        mode: Interpretation of elevation_deg (RATE deg/s, ABSOLUTE deg, STOW
+            ignores it).
         elevation_deg: Elevation rate (RATE) or target elevation (ABSOLUTE); 0.0 for
-            STOW/HOME.
+            STOW.
         reason: Human-readable reason code for telemetry/logging.
 
     Notes:

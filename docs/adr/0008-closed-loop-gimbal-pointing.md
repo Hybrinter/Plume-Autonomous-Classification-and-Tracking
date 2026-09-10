@@ -31,15 +31,16 @@ pointing math (the crop transform must be inverted to compute boresight error), 
 
 **`GimbalRequest` pure-core command value.** The decision cores (arbiter, controller) emit a typed
 `GimbalRequest(mode, elevation_deg, reason)` -- a pure value, not a bus message. `GimbalCommandMode`
-is `RATE` / `ABSOLUTE` / `STOW` / `HOME`. The app shell maps the request onto the HAL
-(`set_velocity` / `set_position` / `stow` / `home`) and publishes a `GimbalCommandMsg` telemetry
+is `RATE` / `ABSOLUTE` / `STOW`. The app shell maps the request onto the HAL
+(`set_velocity` / `set_position` / `stow`) and publishes a `GimbalCommandMsg` telemetry
 record of what it issued (`mode`, `elevation_value_deg`, `state`, `reason`). Image association and
 ROI estimation remain two-dimensional, but only vertical displacement drives the actuator.
 
 **Closed-loop HAL surface.** `GimbalActuator` is `initialize` / `shutdown` / `find_index` /
-`set_position` / `set_velocity` / `stop` / `home` / `stow` / `reset_faults` / `read_state`.
+`set_position` / `set_velocity` / `stop` / `stow` / `reset_faults` / `read_state`.
 `read_state` returns a timestamped `GimbalAxisState` with position, derived velocity, target,
-controller status, and local safety indicators. `SimGimbal`
+controller status, and local safety indicators. Decoded snapshots stay `Ok` so those
+indicators are visible; communication failures stay `Err(GIMBAL_FAULT)`. `SimGimbal`
 implements first-order dynamics with lazy clock integration (every call advances the pose by the
 elapsed clock time, so the one driver is honest under both the threaded `RealClock` flight loop and
 the stepped `ManualClock` SIL), travel/slew clamps, seeded encoder noise, and a stow switch.
@@ -70,7 +71,7 @@ escalates to `GIMBAL_RUNAWAY` above `max_deadband_px` after `max_deadband_strike
 **Encoder-based runaway.** `check_runaway` compares the measured encoder rate between consecutive
 reads against the commanded rate (RATE mode only); sustained divergence over `runaway_strike_count`
 checks raises `GIMBAL_RUNAWAY`. Outside RATE mode -- or when a read is missing or time does not
-advance -- it resets rather than guessing (ABSOLUTE/STOW/HOME approach profiles are driver-internal).
+advance -- it resets rather than guessing (ABSOLUTE/STOW approach profiles are driver-internal).
 
 **Latched SAFE with arbiter-issued stow.** `GIMBAL_FAULT` joins `SAFE_TRIGGERING_FAULTS`. On a
 drained `ModeChangeMsg(SAFE)` (or any non-zero `mode_flags`), the arbiter transitions to SAFE and
@@ -112,10 +113,12 @@ with an initialized estimator a full-resolution ROI is cropped around the Kalman
 - **Recovery is explicit.** Leaving SAFE requires a ground `ModeChangeMsg` with a non-SAFE mode;
   there is no automatic recovery, consistent with the single-latched-SAFE posture (ADR 0006).
 
-- **Xeryon vendor provenance is explicit.** The v1.88 `Xeryon.py` source is vendored unchanged
-  from Xeryon's website ZIP for private repository use; its archive digest and retrieval metadata
-  are recorded with the vendor package. Public redistribution remains unresolved. HIL must verify
-  the XD-C wiring, settings path, index/sign convention, and the manufacturer's cooldown rule.
+- **Xeryon vendor provenance is explicit.** The v1.88 `Xeryon.py` source is vendored from
+  Xeryon's website ZIP for private repository use, with one local rotary `setSpeed` patch so
+  SSPD encodes 0.01 deg/s (`int(round(speed * 100))`). The ZIP digest, patched source digest,
+  and retrieval metadata are recorded with the vendor package. Public redistribution remains
+  unresolved. HIL must verify the XD-C wiring, settings path, index/sign convention, and the
+  manufacturer's cooldown rule.
 
 - **`GimbalConfig` added to `PactConfig`.** XD-C axis/stage identity, hardware and operational
   envelopes, 86,400 counts/revolution, direction/index offset, settings path, lease/stale

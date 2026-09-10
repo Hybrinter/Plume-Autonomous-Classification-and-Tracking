@@ -20,21 +20,28 @@ from the individual files or their docstrings.
 
 ## Lazy-SDK pattern (PySpin, Xeryon)
 
-- Two real drivers touch vendor SDKs lazily. `RealSensor` imports `PySpin` (FLIR Spinnaker,
-  the `camera` extra), while `RealGimbal` imports the vendored Xeryon v1.88 module only during
-  `initialize()`. Importing flight or simulation modules never starts hardware communication.
+- Two real drivers touch vendor SDKs. `RealSensor` imports `PySpin` (FLIR Spinnaker,
+  the `camera` extra) only during construction, while `RealGimbal` imports the vendored
+  Xeryon v1.88 module at driver-module import (the `drivers_real` package is
+  composition-root-only). Opening the serial port still waits until `initialize()`.
+  Importing flight or simulation modules never starts hardware communication.
 
 ## Single-axis GimbalActuator surface (ADR 0008)
 
 - `GimbalActuator` exposes one elevation axis: initialize/shutdown/index, set_position,
-  set_velocity, stop/home/stow/reset_faults, and read_state. The old two-axis PTU verbs,
+  set_velocity, stop/stow/reset_faults, and read_state. The old two-axis PTU verbs,
   azimuth fields, and `counts_per_deg` configuration are removed. RealGimbal targets one
   XD-C `Stage.XRTU_40_109` axis X, clamps hardware travel to −45°..+45° and operational
-  imaging commands to 0°..+45°, and reserves −45° stow for SAFE.
+  imaging commands to 0°..+45°, and reserves −45° stow for SAFE. Rotary `setSpeed` is
+  patched in the vendored library so SSPD encodes 0.01 deg/s. `read_state` returns `Ok`
+  with local safety indicators when the snapshot decodes; `Err` is reserved for
+  communication and not-ready failures. LLIM/HLIM are programmed as min/max encoder
+  counts after the direction-sign transform. Watchdog and explicit stop both send
+  `SCAN=0` then `STOP=0`.
 - **`SimGimbal` has real first-order dynamics.** Position integrates *lazily*: every public call
   first advances the pose by the clock time elapsed since the previous call, so the one driver is
   honest under both the threaded flight loop (`RealClock`) and the stepped SIL (`ManualClock`).
-  RATE integrates the clamped commanded rate; ABSOLUTE/STOW/HOME approach the target with a
+  RATE integrates the clamped commanded rate; ABSOLUTE/STOW approach the target with a
   first-order exponential clamped to the slew envelope. The SIL **must advance the clock** between
   steps or the pose never moves. Encoder reads add seeded Gaussian noise; the stow switch closes
   once stow was commanded and the pose is within 0.5 deg of the stow pose.
@@ -42,7 +49,7 @@ from the individual files or their docstrings.
 ## Structural (duck) satisfaction -- on purpose
 
 - Drivers satisfy the Protocols structurally; they do NOT subclass or import the Protocol
-  classes. (`SimGimbal` imports `GimbalPosition`, but that is a data type, not the
+  classes. (`SimGimbal` imports `GimbalAxisState`, a data type, not the
   `GimbalActuator` Protocol.) The `@runtime_checkable` decorator exists so the composition
   root / tests can `isinstance`-check an injected driver.
 
@@ -72,7 +79,7 @@ from the individual files or their docstrings.
 - Real drivers with an SDK are tested in CI by injecting a fake module or factory. `RealSensor`
   uses a fake `PySpin`; `RealGimbal` injects fake controller/axis protocols. Tests cover startup
   ordering, index/status failure, command quantization/reversal, EPOS/TIME velocity, stale
-  feedback, lease expiry, limits, and duty reserve without physical hardware. HIL remains the
+  feedback flags, lease expiry, limits, and duty reserve without physical hardware. HIL remains the
   venue for wiring, settings, sign/offset, and cooldown verification.
 
 ## `StationLink` -- byte-level transport (ADR 0009)

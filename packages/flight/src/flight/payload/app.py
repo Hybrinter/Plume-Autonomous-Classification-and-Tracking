@@ -40,6 +40,7 @@ from __future__ import annotations
 # stdlib
 import threading
 from dataclasses import dataclass, field
+from typing import assert_never
 
 # third-party
 import numpy as np
@@ -284,7 +285,7 @@ class PayloadApp:
         decimated full plane in search, full-resolution Kalman-centered crop in TRACKING),
         then the detector, then the pure PayloadController. Publishes InferenceResultMsg
         and each arbiter TelemetryEventMsg; when a request is issued it is mapped onto
-        the GimbalActuator HAL (set_velocity/set_position/stow/home by mode) and a
+        the GimbalActuator HAL (set_velocity/set_position/stow by mode) and a
         GimbalCommandMsg telemetry record is published. A control fault (deadband strike
         or encoder runaway) publishes a FaultEventMsg. On a preprocessing or detection
         fault the state is returned unchanged, a FaultEventMsg is published, and
@@ -297,7 +298,8 @@ class PayloadApp:
             now (float): Monotonic seconds for the arbiter (interval/rate-limit deltas).
             slew_rate_deg_per_s (float): Gimbal slew rate over the exposure for the
                 MOTION_SMEAR gate; defaults to 0.0 (never-flag).
-            gimbal_pos (GimbalAxisState | None): Latest encoder read for the runaway monitor.
+            gimbal_pos (GimbalAxisState | None): Latest encoder read for the runaway monitor
+                and local safety indicators.
             safe_commanded (bool): True to latch SAFE and stow this frame.
             safe_cleared (bool): True to exit SAFE to IDLE this frame.
 
@@ -306,6 +308,14 @@ class PayloadApp:
             on a fault before control.
         """
         mosaic = np.asarray(raw.mosaic, dtype=np.float32)  # np.ndarray[float32, (H, W)]
+
+        if gimbal_pos is not None:
+            reasons = gimbal_pos.unhealthy_reasons()
+            if reasons:
+                self._publish_fault(
+                    FaultCode.GIMBAL_FAULT,
+                    f"gimbal status frame_id={raw.frame_id}: {', '.join(reasons)}",
+                )
 
         calibrated = calibrate_mosaic(mosaic, self.calib)
         if isinstance(calibrated, Err):
@@ -399,7 +409,7 @@ class PayloadApp:
             )
         elif request is not None:
             # A RATE lease ends as soon as the controller emits a non-rate command.
-            # Stop first so a queued scan/home/stow cannot race a previous velocity.
+            # Stop first so a queued stow cannot race a previous velocity.
             if state.commanded_rate_deg_per_s != 0.0:
                 self.gimbal.stop()
             if request.mode is GimbalCommandMode.RATE:
@@ -409,23 +419,24 @@ class PayloadApp:
             elif request.mode is GimbalCommandMode.STOW:
                 send_result = self.gimbal.stow()
             else:
-                send_result = self.gimbal.home()
+                assert_never(request.mode)
             if isinstance(send_result, Err):
                 self._publish_fault(
                     send_result.error, f"gimbal actuation failed frame_id={raw.frame_id}"
                 )
-            self.bus.publish(
-                GimbalCommandMsg(
-                    msg_type=MessageType.GIMBAL_COMMAND,
-                    timestamp_utc=self.clock.wall_clock_iso(),
-                    frame_id=raw.frame_id,
-                    mode=request.mode,
-                    elevation_value_deg=request.elevation_deg,
-                    state=new_state.arbiter.gimbal_state,
-                    reason=request.reason,
+            else:
+                self.bus.publish(
+                    GimbalCommandMsg(
+                        msg_type=MessageType.GIMBAL_COMMAND,
+                        timestamp_utc=self.clock.wall_clock_iso(),
+                        frame_id=raw.frame_id,
+                        mode=request.mode,
+                        elevation_value_deg=request.elevation_deg,
+                        state=new_state.arbiter.gimbal_state,
+                        reason=request.reason,
+                    )
                 )
-            )
-            actuated = True
+                actuated = True
         elif state.commanded_rate_deg_per_s != 0.0:
             # No replacement request is also an explicit RATE-mode exit (for example
             # deadband suppression or target loss).
@@ -501,6 +512,8 @@ class PayloadApp:
                             slew_rate = abs(d_el) / (now - prev_pos_now)
                         prev_pos = pos_res.value
                         prev_pos_now = now
+                    else:
+                        self._publish_fault(pos_res.error, "gimbal read failed")
                     state, _outcome = self.process_frame(
                         acq.value, state, now, slew_rate, pos, safe_commanded, safe_cleared
                     )

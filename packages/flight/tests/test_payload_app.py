@@ -4,9 +4,11 @@ import threading
 
 import numpy as np
 from flight.hal.drivers_sim import SimGimbal, SimSensor
+from flight.hal.interfaces import GimbalAxisState
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
+    FaultEventMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
     ModeChangeMsg,
@@ -15,6 +17,7 @@ from flight.libs.messages import (
 from flight.libs.time import ManualClock
 from flight.libs.types import (
     DownlinkPriority,
+    Err,
     FaultCode,
     GimbalCommandMode,
     GimbalState,
@@ -233,3 +236,55 @@ def test_run_loop_starts_and_stops_cleanly() -> None:
     app.run(stop)  # start + stop acquisition, no frame processed
 
     assert cmd_sub.empty()
+
+
+def test_unhealthy_read_state_publishes_gimbal_fault() -> None:
+    """Local safety indicators on a decoded snapshot publish GIMBAL_FAULT and keep the pose."""
+    app, bus, _gimbal, _clock = _build_app(_plume_detector())
+    faults = bus.subscribe(FaultEventMsg)
+    pos = GimbalAxisState(
+        position_deg=1.0,
+        motor_on=True,
+        closed_loop=True,
+        encoder_valid=True,
+        thermal_fault=True,
+    )
+    app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0, gimbal_pos=pos)
+    event = faults.get_nowait()
+    assert event.fault_code is FaultCode.GIMBAL_FAULT
+    assert "thermal_fault" in event.detail
+
+
+class _RejectingGimbal(SimGimbal):
+    """Sim gimbal that refuses velocity commands."""
+
+    def set_velocity(self, velocity_deg_per_s: float) -> Result[None, FaultCode]:
+        return Err(FaultCode.GIMBAL_FAULT)
+
+
+def test_failed_actuation_does_not_publish_gimbal_command() -> None:
+    """A rejected HAL set_velocity publishes a fault and no GimbalCommandMsg."""
+    cfg = PactConfig()
+    bus = MessageBus()
+    clock = ManualClock()
+    gimbal = _RejectingGimbal(clock=clock)
+    sensor = SimSensor([])
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    cmd_sub = bus.subscribe(GimbalCommandMsg)
+    fault_sub = bus.subscribe(FaultEventMsg)
+    state = app.controller.initial_state()
+    now = 0.0
+    issued = False
+    for frame_id in range(1, 9):
+        now += 1.0
+        clock.advance(1.0)
+        state, outcome = app.process_frame(_mosaic_frame(frame_id), state, now)
+        issued = issued or outcome.command_issued
+    assert state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert issued is False
+    assert cmd_sub.empty()
+    assert not fault_sub.empty()
+    assert fault_sub.get_nowait().fault_code is FaultCode.GIMBAL_FAULT

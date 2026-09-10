@@ -46,6 +46,35 @@ class GimbalAxisState:
         """Alias retaining the concise controller-clock spelling."""
         return self.controller_timestamp_s
 
+    def unhealthy_reasons(self) -> tuple[str, ...]:
+        """Return the active local safety indicators, if any.
+
+        Motor-off, open-loop, and invalid-encoder join the explicit fault flags so a
+        decoded snapshot can be published without collapsing to Err(GIMBAL_FAULT).
+        """
+        reasons: list[str] = []
+        if not self.motor_on:
+            reasons.append("motor_off")
+        if not self.closed_loop:
+            reasons.append("open_loop")
+        if not self.encoder_valid:
+            reasons.append("encoder_invalid")
+        if self.thermal_fault:
+            reasons.append("thermal_fault")
+        if self.encoder_fault:
+            reasons.append("encoder_fault")
+        if self.end_limit_fault:
+            reasons.append("end_limit_fault")
+        if self.safety_timeout_fault:
+            reasons.append("safety_timeout_fault")
+        if self.position_failure_fault:
+            reasons.append("position_failure_fault")
+        if self.feedback_stale:
+            reasons.append("feedback_stale")
+        if self.rate_lease_expired:
+            reasons.append("rate_lease_expired")
+        return tuple(reasons)
+
 
 @runtime_checkable
 class GimbalActuator(Protocol):
@@ -57,7 +86,6 @@ class GimbalActuator(Protocol):
     def set_position(self, position_deg: float) -> Result[None, FaultCode]: ...
     def set_velocity(self, velocity_deg_per_s: float) -> Result[None, FaultCode]: ...
     def stop(self) -> Result[None, FaultCode]: ...
-    def home(self) -> Result[None, FaultCode]: ...
     def stow(self) -> Result[None, FaultCode]: ...
     def reset_faults(self) -> Result[None, FaultCode]: ...
     def read_state(self) -> Result[GimbalAxisState, FaultCode]: ...

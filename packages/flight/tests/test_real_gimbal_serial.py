@@ -174,7 +174,7 @@ def test_initialize_loads_settings_overrides_feedback_indexes_and_shutdown(tmp_p
     assert controller.calls[:3] == [
         ("start", False, str(tmp_path / "settings_default.txt")),
         ("setMasterSetting", "INFO", 4, False),
-        ("setMasterSetting", "POLI", 2, False),
+        ("setMasterSetting", "POLI", 2.0, False),
     ]
     assert ("setSetting", "LLIM", -10800) in axis.calls
     assert ("setSetting", "HLIM", 10800) in axis.calls
@@ -203,6 +203,14 @@ def test_position_conversion_offset_sign_and_operational_clamp(tmp_path: Path) -
     _initialize(gimbal)
     assert isinstance(gimbal.set_position(80.0), Ok)
     assert axis.calls[-1] == ("setDPOS", -40.0, False, False)
+    gimbal.shutdown()
+
+
+def test_soft_limits_use_encoder_min_max_when_sign_flips(tmp_path: Path) -> None:
+    gimbal, _, axis, _ = _rig(tmp_path, direction_sign=-1)
+    _initialize(gimbal)
+    assert ("setSetting", "LLIM", -10800) in axis.calls
+    assert ("setSetting", "HLIM", 10800) in axis.calls
     gimbal.shutdown()
 
 
@@ -248,11 +256,17 @@ def test_stale_feedback_and_invalid_status_stop_safely(tmp_path: Path) -> None:
     _initialize(gimbal)
     assert isinstance(gimbal.read_state(), Ok)
     clock.advance(0.251)
-    assert gimbal.read_state() == Err(FaultCode.GIMBAL_FAULT)
+    stale = gimbal.read_state()
+    assert isinstance(stale, Ok)
+    assert stale.value.feedback_stale
+    assert "feedback_stale" in stale.value.unhealthy_reasons()
     assert ("stopMovements",) in controller.calls
+    assert ("stopScan",) in axis.calls
     axis.data["TIME"] = 1
     axis.flags["encoder"] = False
-    assert gimbal.read_state() == Err(FaultCode.GIMBAL_FAULT)
+    invalid = gimbal.read_state()
+    assert isinstance(invalid, Ok)
+    assert "encoder_invalid" in invalid.value.unhealthy_reasons()
     gimbal.shutdown()
 
 
@@ -276,8 +290,11 @@ def test_each_invalid_status_maps_to_safe_fault(tmp_path: Path, flag: str, value
     gimbal, controller, axis, _ = _rig(tmp_path)
     _initialize(gimbal)
     axis.flags[flag] = value
-    assert gimbal.read_state() == Err(FaultCode.GIMBAL_FAULT)
+    state = gimbal.read_state()
+    assert isinstance(state, Ok)
+    assert state.value.unhealthy_reasons()
     assert ("stopMovements",) in controller.calls
+    assert ("stopScan",) in axis.calls
     gimbal.shutdown()
 
 

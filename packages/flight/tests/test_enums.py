@@ -42,7 +42,7 @@ def test_gimbal_command_mode_values_mirror_names() -> None:
     """GimbalCommandMode string values must mirror member names."""
     for member in GimbalCommandMode:
         assert member.value == member.name
-    assert {m.name for m in GimbalCommandMode} == {"RATE", "ABSOLUTE", "STOW", "HOME"}
+    assert {m.name for m in GimbalCommandMode} == {"RATE", "ABSOLUTE", "STOW"}
 
 
 def test_gimbal_fault_code_exists() -> None:

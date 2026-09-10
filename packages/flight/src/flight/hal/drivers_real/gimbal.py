@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
 import math
 import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
+from xeryon_vendor import Xeryon
 from xeryon_vendor.facade import XeryonAxis as _Axis
 from xeryon_vendor.facade import XeryonController as _Controller
 
@@ -24,12 +23,11 @@ AxisFactory = Callable[[str, int, str, str], tuple[_Controller, _Axis]]
 def _vendor_factory(
     port: str, baud: int, axis_name: str, stage_name: str
 ) -> tuple[_Controller, _Axis]:
-    """Lazily import and configure the pristine vendored module."""
-    module = importlib.import_module("xeryon_vendor.Xeryon")
-    setattr(module, "DISABLE_WAITING", True)
-    setattr(module, "OUTPUT_TO_CONSOLE", False)
-    controller: _Controller = module.Xeryon(port, baud)
-    axis = controller.addAxis(getattr(module.Stage, stage_name), axis_name)
+    """Configure the vendored module without opening a port until start()."""
+    Xeryon.DISABLE_WAITING = True
+    Xeryon.OUTPUT_TO_CONSOLE = False
+    controller = cast(_Controller, Xeryon.Xeryon(port, baud))
+    axis = controller.addAxis(getattr(Xeryon.Stage, stage_name), axis_name)
     return controller, axis
 
 
@@ -86,8 +84,10 @@ class RealGimbal:
                 axis.setUnits(units)
             controller.setMasterSetting("INFO", cfg.feedback_info)
             controller.setMasterSetting("POLI", cfg.feedback_poll_interval_ms)
-            axis.setSetting("LLIM", self._position_to_counts(cfg.hardware_min_deg))
-            axis.setSetting("HLIM", self._position_to_counts(cfg.hardware_max_deg))
+            lo = self._position_to_counts(cfg.hardware_min_deg)
+            hi = self._position_to_counts(cfg.hardware_max_deg)
+            axis.setSetting("LLIM", min(lo, hi))
+            axis.setSetting("HLIM", max(lo, hi))
             indexed = axis.findIndex(forceWaiting=True)
             if indexed is False or not all(
                 (
@@ -186,8 +186,6 @@ class RealGimbal:
                 previous = self._commanded_rate_deg_per_s
                 if previous != 0.0 and (previous > 0.0) != (rate > 0.0):
                     self._axis.stopScan()
-                    if not self._wait_until_not_scanning():
-                        return Err(FaultCode.GIMBAL_FAULT)
                 controller_rate = rate * self._cfg.direction_sign
                 self._axis.setSpeed(abs(controller_rate))
                 if previous == 0.0 or (previous > 0.0) != (rate > 0.0):
@@ -215,9 +213,6 @@ class RealGimbal:
                 return Ok(None)
             except Exception:  # noqa: BLE001 -- normalize every vendor failure at the HAL
                 return Err(FaultCode.GIMBAL_FAULT)
-
-    def home(self) -> Result[None, FaultCode]:
-        return self._set_position(self._cfg.home_deg, stow=False)
 
     def stow(self) -> Result[None, FaultCode]:
         return self._set_position(self._cfg.stow_deg, stow=True)
@@ -291,17 +286,8 @@ class RealGimbal:
                     feedback_stale=stale,
                     rate_lease_expired=self._rate_lease_expired,
                 )
-                invalid_status = (
-                    not motor_on
-                    or not state.closed_loop
-                    or not encoder_valid
-                    or state.encoder_fault
-                    or state.safety_timeout_fault
-                    or state.position_failure_fault
-                )
-                if stale or thermal_fault or end_limit_fault or invalid_status:
+                if state.unhealthy_reasons():
                     self._safe_stop_motion()
-                    return Err(FaultCode.GIMBAL_FAULT)
                 return Ok(state)
             except Exception:  # noqa: BLE001 -- normalize every vendor failure at the HAL
                 return Err(FaultCode.GIMBAL_FAULT)
@@ -384,6 +370,8 @@ class RealGimbal:
 
     def _safe_stop_motion(self) -> None:
         try:
+            if self._axis is not None:
+                self._axis.stopScan()
             if self._controller is not None:
                 self._controller.stopMovements()
         except Exception:  # noqa: BLE001 -- best-effort safety stop
@@ -398,14 +386,6 @@ class RealGimbal:
                 self._controller.stop()
         except Exception:  # noqa: BLE001 -- best-effort controller teardown
             pass
-
-    def _wait_until_not_scanning(self) -> bool:
-        deadline = time.monotonic() + self._cfg.feedback_stale_s
-        while self._status("isScanning"):
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(0.005)
-        return True
 
     def _required_data(self, tag: str) -> float | int | str:
         assert self._axis is not None
@@ -458,10 +438,7 @@ class RealGimbal:
     def _vendor_units_deg(self) -> object | None:
         if self._factory is not _vendor_factory:
             return None
-        try:
-            return cast(object, importlib.import_module("xeryon_vendor.Xeryon").Units.deg)
-        except AttributeError, ImportError:
-            return None
+        return Xeryon.Units.deg
 
     def _ready(self) -> bool:
         return self._initialized and self._axis is not None and self._controller is not None

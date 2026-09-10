@@ -74,7 +74,7 @@ individual files or their docstrings.
   separated band stacks. `MessageType.RAW_FRAME` is likewise removed. A live reference to either
   name -- an import, construction, or `MessageType` lookup -- is a bug; the only remaining
   mentions are the removal test (`tests/test_messages.py`), this ADR, and these CONTEXT notes.
-- **`GimbalCommandMode` enum** (added 2026-06-11, ADR 0008): `RATE` / `ABSOLUTE` / `STOW` / `HOME`.
+- **`GimbalCommandMode` enum** (added 2026-06-11, ADR 0008): `RATE` / `ABSOLUTE` / `STOW`.
   Carried by the pure-core `GimbalRequest` (`flight.payload.gimbal.request`, not a bus message)
   and echoed in `GimbalCommandMsg`. `GIMBAL_FAULT` (a driver-level gimbal failure) was added to
   `FaultCode` and is in `SAFE_TRIGGERING_FAULTS`.

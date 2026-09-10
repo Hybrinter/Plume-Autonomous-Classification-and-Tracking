@@ -5,7 +5,7 @@ rates (RATE mode), the measured encoder rate between consecutive reads must agre
 with the commanded rate within a tolerance. Sustained divergence over strike_limit
 consecutive checks raises GIMBAL_RUNAWAY (motor stall, encoder fault, or actuation
 without authority). Outside RATE mode -- or when either read is missing or time does
-not advance -- the monitor resets rather than guessing (ABSOLUTE/STOW/HOME approach
+not advance -- the monitor resets rather than guessing (ABSOLUTE/STOW approach
 profiles are driver-internal, so the expected rate is unknown).
 
 Satisfies: REQ-AIML-GIMB-007, REQ-GIMB-HIGH-003.
@@ -62,7 +62,7 @@ def check_runaway(
     Notes:
         When pos is None, rate_mode_active is False, no previous read exists, or the
         timestamps do not advance, the monitor resets the strike counter to 0 and stores the
-        new position. This avoids false positives during ABSOLUTE/STOW/HOME approach profiles
+        new position. This avoids false positives during ABSOLUTE/STOW approach profiles
         whose driver-internal velocity is unknown.
     """
     if pos is None:

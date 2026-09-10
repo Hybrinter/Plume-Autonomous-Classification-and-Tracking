@@ -4,7 +4,7 @@ from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
 from flight.libs.messages import CommandAckMsg, LaunchLockStateMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import AckStatus, LaunchLockState, MessageType, Ok
+from flight.libs.types import AckStatus, LaunchLockState, Ok
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilHarness, build_sil_system
 
@@ -27,29 +27,20 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     acks = system.bus.subscribe(CommandAckMsg)
     lock_states = system.bus.subscribe(LaunchLockStateMsg)
 
-    # Make the payload's first poll see ENGAGED so motion is inhibited from frame one.
-    system.bus.publish(
-        LaunchLockStateMsg(
-            msg_type=MessageType.LAUNCH_LOCK_STATE,
-            timestamp_utc="t",
-            state=LaunchLockState.ENGAGED,
-        )
-    )
-
     now = 0.0
 
     def advance(steps: int) -> None:
         nonlocal now
         for _ in range(steps):
             now += 1.0
-            system.clock.advance(1.0)
             harness.step(now)
+            system.clock.advance(1.0)
 
     advance(6)  # plume present, but the lock inhibits all gimbal motion
     locked_pos = system.gimbal.read_position()
     assert isinstance(locked_pos, Ok)
-    assert abs(locked_pos.value.az_deg) < 0.1  # gimbal held at the origin while ENGAGED
     assert abs(locked_pos.value.el_deg) < 0.1
+    assert not hasattr(locked_pos.value, "az_deg")
 
     # Hazardous release: ARM then EXECUTE over the link.
     system.station.enqueue(
@@ -61,19 +52,53 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     )
     advance(1)
 
-    release_acks = [
+    execute_acks = [
         a
         for a in _drain(acks)
-        if a.command_id == "RELEASE_LAUNCH_LOCK" and a.status is AckStatus.ACCEPTED
+        if a.command_id == "RELEASE_LAUNCH_LOCK"
+        and a.status is AckStatus.ACCEPTED
+        and a.detail == "launch lock released"
     ]
-    assert release_acks  # the mechanical app accepted the release (gimbal was idle/inhibited)
+    assert execute_acks  # mechanical EXECUTE, not the router ARM ack
     latest_lock = [m.state for m in _drain(lock_states)]
     assert latest_lock and latest_lock[-1] is LaunchLockState.RELEASED
 
     advance(10)  # with the lock released the payload now tracks the plume
     freed_pos = system.gimbal.read_position()
     assert isinstance(freed_pos, Ok)
-    assert abs(freed_pos.value.az_deg) > 0.5 or abs(freed_pos.value.el_deg) > 0.5
+    assert abs(freed_pos.value.el_deg) > 0.5
+
+
+def test_lock_mid_run_and_clock_jump_hold_zero_torque() -> None:
+    """Engaging the lock mid-run writes tau=0; a clock jump while locked stays at 0."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(16),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+        launch_lock_engaged=False,
+    )
+    harness = SilHarness(system)
+    now = 0.0
+    for _ in range(4):
+        now += 1.0
+        harness.step(now)
+        system.clock.advance(1.0)
+    mid = system.gimbal.read_position()
+    assert isinstance(mid, Ok)
+    assert abs(mid.value.el_deg) > 0.05
+    system.apps.mechanical.lock.engage()
+    now += 1.0
+    harness.step(now)
+    system.clock.advance(1.0)
+    assert system.gimbal._tau_nm == 0.0
+    now += 3.0
+    harness.step(now)
+    system.clock.advance(3.0)
+    assert system.gimbal._tau_nm == 0.0
 
 
 def _drain(subscription: object) -> list:  # type: ignore[type-arg]

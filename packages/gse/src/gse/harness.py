@@ -44,7 +44,7 @@ from typing import Protocol, TypeVar, runtime_checkable
 # internal
 from flight.libs.bus import Subscription
 from flight.libs.commands import build_tc_packet
-from flight.libs.config import LinkConfig
+from flight.libs.config import GimbalConfig, LinkConfig
 from flight.libs.messages import (
     CommandAckMsg,
     GimbalCommandMsg,
@@ -82,8 +82,7 @@ class TelemetryCapture:
 
     Fields:
         inference_count: Number of InferenceResultMsg published over the run.
-        gimbal_moved: True if the payload moved the gimbal off the (0, 0) origin by more
-            than the encoder-noise tolerance (_GIMBAL_MOVED_TOLERANCE_DEG).
+        gimbal_moved: True if elevation left the origin and is not sitting at stow.
         mode_changes: The SystemMode of every ModeChangeMsg, in publication order.
         acks: The AckStatus of every CommandAckMsg observed on the bus, in order.
         downlink_packets: Raw CCSDS TM datagrams the StationEmulator received over UDP
@@ -256,21 +255,21 @@ class InProcessBackend:
         self._harness = ValidationHarness(system)
 
     def step(self, now: float) -> None:
-        """Advance every subsystem one cycle via the harness, advancing the ManualClock first.
+        """Advance every subsystem one cycle via the harness, then step the ManualClock.
 
         Args:
             now: Monotonic seconds for the arbiter/watchdog (caller-advanced per step).
 
         Notes:
-            The shared ManualClock is advanced to now so SimGimbal first-order dynamics
-            integrate between steps (the closed loop only moves the gimbal across steps).
+            The payload catch-up methods step the plant at frozen clock time. The
+            ManualClock advances after the step so a later integrate does not double-count.
         """
         if self._harness is None:
             raise RuntimeError("build() must be called before step()")
+        self._harness.step(now)
         delta = now - self._clock.monotonic_s()
         if delta > 0.0:
             self._clock.advance(delta)
-        self._harness.step(now)
 
     def inject_command(self, step: CommandStep) -> None:
         """Send one command live for a real link; a no-op (pre-baked) for a sim link.
@@ -297,9 +296,8 @@ class InProcessBackend:
             StationEmulator received.
 
         Notes:
-            gimbal_moved compares the driver's authoritative read_position() against the
-            origin with a tolerance (_GIMBAL_MOVED_TOLERANCE_DEG) that swamps SimGimbal's
-            per-read encoder noise, so a stationary gimbal reliably reports False.
+            gimbal_moved is True only when elevation left the origin and is not at the
+            stow pose. SAFE-only stow to -45 deg does not count as tracking motion.
         """
         if (
             self._system is None
@@ -316,8 +314,11 @@ class InProcessBackend:
         gimbal_moved = False
         read = self._system.gimbal.read_position()
         if not isinstance(read, Err):
-            worst = max(abs(read.value.az_deg), abs(read.value.el_deg))
-            gimbal_moved = worst > _GIMBAL_MOVED_TOLERANCE_DEG
+            el_deg = read.value.el_deg
+            stow_el = GimbalConfig().stow_el_deg
+            off_origin = abs(el_deg) > _GIMBAL_MOVED_TOLERANCE_DEG
+            not_stow = abs(el_deg - stow_el) > _GIMBAL_MOVED_TOLERANCE_DEG
+            gimbal_moved = off_origin and not_stow
 
         mode_changes = tuple(m.new_mode for m in self._drain(self._mode_sub))
         acks = tuple(a.status for a in self._drain(self._ack_sub))

@@ -6,7 +6,13 @@ import socket
 import pytest
 from flight.core.select_drivers import SimDriverInputs, select_drivers
 from flight.hal.drivers_real import RealStationLink
-from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
+from flight.hal.drivers_sim import (
+    SimGimbal,
+    SimIssEphemeris,
+    SimScalarSensor,
+    SimSensor,
+    SimStationLink,
+)
 from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
 from flight.payload.inference import ScriptedDetector
@@ -23,6 +29,7 @@ def _all_sim_config() -> PactConfig:
         compute="sim",
         link="sim",
         clock="sim",
+        ephemeris="sim",
     )
     return dataclasses.replace(base, environment=env)
 
@@ -44,6 +51,7 @@ def test_all_sim_returns_sim_drivers_and_passed_detector() -> None:
     drivers = select_drivers(_all_sim_config(), ManualClock(), inputs)
     assert isinstance(drivers.sensor, SimSensor)
     assert isinstance(drivers.gimbal, SimGimbal)
+    assert isinstance(drivers.ephemeris, SimIssEphemeris)
     assert isinstance(drivers.station, SimStationLink)
     assert isinstance(drivers.thermal_sensor, SimScalarSensor)
     assert isinstance(drivers.power_sensor, SimScalarSensor)

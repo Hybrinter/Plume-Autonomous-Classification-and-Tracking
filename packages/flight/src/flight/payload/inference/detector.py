@@ -128,6 +128,7 @@ class Detector:
                 model_version=self._model_version,
                 inference_ms=inference_ms,
                 mode_flags=0,
+                quality_flags=frame.quality_flags,
             )
         )
 

@@ -69,6 +69,7 @@ class MechanicalApp:
     lock: LaunchLock
     commands: Subscription[RoutedCommandMsg]
     gimbal_cmds: Subscription[GimbalCommandMsg]
+    pointing: Subscription[TelemetryEventMsg]
     state: MechanicalState = field(default_factory=MechanicalState)
 
     @staticmethod
@@ -93,6 +94,7 @@ class MechanicalApp:
             lock=lock,
             commands=bus.subscribe(RoutedCommandMsg),
             gimbal_cmds=bus.subscribe(GimbalCommandMsg),
+            pointing=bus.subscribe(TelemetryEventMsg),
             state=MechanicalState(),
         )
 
@@ -112,7 +114,7 @@ class MechanicalApp:
         self._publish_lock_state()
 
     def _drain_gimbal_motion(self) -> bool:
-        """Drain gimbal-command telemetry this cycle; return True if any commanded motion seen."""
+        """Drain gimbal-command and pointing telemetry; True if commanded motion seen."""
         moving = False
         while not self.gimbal_cmds.empty():
             cmd = self.gimbal_cmds.get_nowait()
@@ -122,10 +124,12 @@ class MechanicalApp:
                 GimbalCommandMode.HOME,
             ):
                 moving = True
-            elif cmd.mode is GimbalCommandMode.RATE and (
-                cmd.az_value_deg != 0.0 or cmd.el_value_deg != 0.0
-            ):
-                moving = True
+        while not self.pointing.empty():
+            event = self.pointing.get_nowait()
+            if event.subsystem == "payload" and event.event_name == "pointing":
+                r_val = event.payload.get("r", 0.0)
+                if isinstance(r_val, (int, float)) and abs(float(r_val)) > 1.0e-6:
+                    moving = True
         return moving
 
     def _handle_release(self, command: RoutedCommandMsg, moving: bool) -> None:

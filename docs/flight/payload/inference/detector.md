@@ -57,7 +57,7 @@ None directly. The app publishes the returned `InferenceResultMsg`.
 
 ## Configuration
 
-Uses `ControllerConfig` (`confidence_gate`, `min_blob_area_px`) and `InferenceConfig`
+Uses `VisionConfig` (`confidence_gate`, `min_blob_area_px`) and `InferenceConfig`
 (artifact paths, `classifier_logit_threshold`, `latency_budget_ms`) via the
 composition root.
 

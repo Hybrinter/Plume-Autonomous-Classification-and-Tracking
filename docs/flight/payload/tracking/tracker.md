@@ -42,7 +42,7 @@ None.
 
 ## Configuration
 
-Uses `ControllerConfig.blob_iou_match_threshold` (default 0.25).
+Uses `VisionConfig.blob_iou_match_threshold` (default 0.25).
 
 ## Constraints
 

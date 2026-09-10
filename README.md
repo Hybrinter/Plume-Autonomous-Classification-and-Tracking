@@ -2,7 +2,7 @@
 
 PACT is an **ISS-attached external payload** for autonomous detection, segmentation, and tracking
 of industrial plumes in multispectral VNIR imagery from orbit. It runs a neural detector on each
-frame, drives a two-axis gimbal to keep detected plumes boresighted, persists science products
+frame, drives a single-axis elevation gimbal to keep detected plumes boresighted, persists science products
 with integrity checksums, and exchanges authenticated commands and downlink products with the
 station over a CCSDS link — with no real-time ground-in-the-loop control.
 
@@ -17,7 +17,7 @@ The flight software is a **Python-only `uv` workspace** under `packages/`, built
 | Capability | Description |
 |-----------|-------------|
 | **Plume detection** | A binary ONNX classifier gates a U-Net-class ONNX segmentor. The classifier skips segmentation on empty frames. The segmentor produces a plume probability mask; blobs are extracted for tracking. Raw 2×2 mosaic frames are demosaiced into BLUE/GREEN/RED/NIR bands (≈ Sentinel-2 B2/B3/B4/B8) in pure preprocessing. |
-| **Closed-loop pointing** | Boresight-relative error → EMA / Kalman tracking → LQR rate commands drive the gimbal; a pure FSM arbiter resolves IDLE / ACQUIRING / TRACKING / REWIND / SAFE behind safety gates. |
+| **Closed-loop pointing** | Cascaded elevation torque loop: inner PI + computed torque at ~1 ms, outer residual filter + co-rotating predictor at ~20 ms. Arbiter modes are TRACKING / REWIND / SAFE. |
 | **ISS command path** | Authenticated CCSDS command ingress (CRC + per-source sequence dedup + HMAC-SHA256 + command-dictionary validation); every command yields an ACCEPTED or REJECTED ack. |
 | **FDIR / SAFE** | Heartbeat watchdog + fault-to-mode policy; SAFE-triggering faults latch the system into a single SAFE mode (stow + quiesce), exited only by ground command. |
 | **Validation** | A configuration matrix of driver / compute profiles with a requirement → venue VCRM. A deterministic in-process SIL and a `sil-link-real` x86 partial run in CI, driven by declarative scenarios through the GSE harness. |

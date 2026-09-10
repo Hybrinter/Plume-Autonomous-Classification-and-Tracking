@@ -24,14 +24,19 @@ threads payload and FDIR state in and out.
 
 ## Behavior
 
-1. Poll payload mode changes and launch-lock state.
+1. Publish the current launch-lock driver state so fail-closed payload sees it
+   on step 1. Poll mode changes and lock. Apply payload pose commands from the
+   prior cycle.
 2. Acquire one frame from the sensor. On success, read gimbal position and call
    `process_frame`.
-3. Run iss_iface, command_router, and mechanical ticks.
-4. Run thermal and electrical handle-commands and sample.
-5. Run model_deploy, storage, and downlink ticks.
-6. Publish one `HeartbeatMsg` per name in `MONITORED_SUBSYSTEMS`.
-7. Run the fault app tick and return updated state.
+3. For each `T_out` slice: `advance_inner` up to tick `t`, then one `outer_step`
+   at `t`. Then trailing inner to `now`. A first step with `last_outer_s is None`
+   runs outer then inner once so origins stamp.
+4. Run iss_iface, command_router, and mechanical ticks.
+5. Run thermal and electrical handle-commands and sample.
+6. Run model_deploy, storage, and downlink ticks.
+7. Publish one `HeartbeatMsg` per name in `MONITORED_SUBSYSTEMS`.
+8. Run the fault app tick and return updated state.
 
 Ingress, routing, and command execution occur in the same cycle. Downlink items emitted this
 cycle transmit on the next iss_iface tick.

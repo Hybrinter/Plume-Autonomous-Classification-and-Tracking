@@ -80,8 +80,8 @@ def test_model_upload_activate_then_rollback() -> None:
         nonlocal now
         for _ in range(steps):
             now += 1.0
-            system.clock.advance(1.0)
             harness.step(now)
+            system.clock.advance(1.0)
 
     def activate(seq: int) -> None:
         system.station.enqueue(

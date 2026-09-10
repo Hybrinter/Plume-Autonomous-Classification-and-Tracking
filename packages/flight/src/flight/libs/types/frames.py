@@ -32,6 +32,7 @@ class MosaicFrame:
     Inputs:
         timestamp_utc (str): ISO 8601 capture time, millisecond precision,
             e.g. "2026-06-09T12:00:00.000Z".
+        timestamp_s (float): Monotonic shutter time in seconds (vehicle clock).
         frame_id (int): Monotonic uint32 frame counter assigned by the driver.
         mosaic (object): np.ndarray[uint16, (H, W)] raw 2x2-CFA mosaic plane.
             Typed as object to avoid a numpy import at the flight.libs level.
@@ -48,6 +49,7 @@ class MosaicFrame:
     """
 
     timestamp_utc: str
+    timestamp_s: float
     frame_id: int
     mosaic: object  # np.ndarray[uint16, (H, W)]
     exposure_us: float

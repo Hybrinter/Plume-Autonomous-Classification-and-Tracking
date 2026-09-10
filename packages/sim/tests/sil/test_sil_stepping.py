@@ -26,7 +26,6 @@ def test_step_once_processes_one_frame_per_call() -> None:
     now = 0.0
     for _ in range(3):
         now += 1.0
-        system.clock.advance(1.0)
         payload_state, fault_entries = step_once(
             system.apps,
             system.sensor,
@@ -37,6 +36,7 @@ def test_step_once_processes_one_frame_per_call() -> None:
             payload_state,
             fault_entries,
         )
+        system.clock.advance(1.0)
 
     inference_count = 0
     while not inf_sub.empty():
@@ -46,4 +46,5 @@ def test_step_once_processes_one_frame_per_call() -> None:
 
     position = system.gimbal.read_position()
     assert isinstance(position, Ok)
-    assert (position.value.az_deg, position.value.el_deg) != (0.0, 0.0)
+    assert position.value.el_deg != 0.0
+    assert not hasattr(position.value, "az_deg")

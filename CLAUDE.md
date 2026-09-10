@@ -10,8 +10,9 @@ Descriptive documentation lives under `docs/flight`, `docs/sim`, `docs/gse`, and
 do not cite decision identifiers in descriptive docs or code. Architecture that is
 not yet as-built lives under [`docs/design/`](docs/design.md). The pointing
 controller specification is
-[`docs/design/single-axis-elevation-controller.md`](docs/design/single-axis-elevation-controller.md);
-do not treat the current Kalman/LQR stand-in as that specification.
+[`docs/design/single-axis-elevation-controller.md`](docs/design/single-axis-elevation-controller.md).
+The as-built cores are the cascaded elevation PI, residual KF, and light integrity
+detector.
 
 ---
 
@@ -98,9 +99,10 @@ bus; only compact records do.
 
 The decision cores are **pure functions**: no I/O, no bus access, no clock reads, no logging. They
 map inputs (including `now` and current state) to outputs (new state + messages) deterministically.
-This holds for `PayloadController.step`, `GimbalArbiter.step`, the tracking estimators
-(`ema_update`, Kalman `predict`/`update`, `match_blobs`), the LQR law, and the FDIR
-`check_heartbeats` / `decide_mode_change`.
+This holds for `PayloadController.inner_step` / `outer_step`, `GimbalArbiter.step`,
+the residual filter (`predict` / `update` / `rewind_update`), `inner_step`,
+`outer_rate`, `check_integrity`, and the FDIR `check_heartbeats` /
+`decide_mode_change`.
 
 **Invariant:** never add I/O, bus access, side effects, or a clock source inside a pure core. Time
 is passed in as a `now: float` argument (monotonic seconds). Any new core logic must be expressible

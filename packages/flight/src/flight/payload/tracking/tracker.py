@@ -2,8 +2,7 @@
 Blob tracker for PACT controller subsystem.
 
 Associates blobs across consecutive inference frames using Intersection-over-Union (IoU)
-matching. Persistent blob IDs allow the arbiter and EMA filter to track individual targets
-across frames.
+matching. Persistent blob IDs allow the arbiter to track individual targets across frames.
 
 Satisfies: REQ-AIML-DATA-006
 """

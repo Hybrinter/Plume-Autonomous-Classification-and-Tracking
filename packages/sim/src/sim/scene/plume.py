@@ -12,8 +12,9 @@ frame -- exactly what drives the gimbal arbiter to TRACKING.
 
 Contains:
   - build_frames: N radiometrically-plausible (2048, 2448) uint16 MosaicFrame frames with
-    monotonic frame_ids, deterministic for a given seed. The plume sits below boresight
-    at band-plane (612, 900) so TRACKING commands negative elevation on the single axis.
+    monotonic frame_ids, deterministic for a given seed. The plume sits above boresight
+    at band-plane (612, 124) so TRACKING commands positive elevation inside the science
+    window.
   - plume_detector: a ScriptedDetector whose 1024x1224 mask yields one persistent blob at
     the full band-plane / inference tensor size (no crop, no scale).
 
@@ -42,9 +43,9 @@ _FULL_SCALE = float(2**_BIT_DEPTH - 1)
 # row-major cell order (BLUE, GREEN, RED, NIR). Smoke reflects strongest in NIR.
 _BACKGROUND = (0.15, 0.15, 0.15, 0.18)
 _PLUME_AMPLITUDE = (0.05, 0.08, 0.12, 0.25)
-# Band-plane (x, y). Boresight is (612, 512); y=900 is below boresight -> -el.
+# Band-plane (x, y). Boresight is (612, 512); y=124 is above boresight -> +el.
 _PLUME_X = 612.0
-_PLUME_Y = 900.0
+_PLUME_Y = 124.0
 _PLUME_SIGMA = 40.0  # band-plane px
 _NOISE_SIGMA_DN = 2.0
 
@@ -67,9 +68,9 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
         enabling the plume-brightness test.
 
     Notes:
-        The Gaussian plume is centered at band-plane pixel (x=612, y=900) with sigma
-        40 px: 388 px below the 1024x1224-plane boresight (612, 512). TRACKING issues
-        a negative elevation RATE. Drivers pin azimuth at 0. Noise is i.i.d. Gaussian
+        The Gaussian plume is centered at band-plane pixel (x=612, y=124) with sigma
+        40 px: 388 px above the 1024x1224-plane boresight (612, 512). TRACKING issues
+        a positive elevation rate inside the science window. Noise is i.i.d. Gaussian
         with sigma 2 DN, per-frame from the seeded RNG.
     """
     rng = np.random.default_rng(seed)
@@ -95,6 +96,7 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
         frames.append(
             MosaicFrame(
                 timestamp_utc="2026-06-01T00:00:00.000Z",
+                timestamp_s=float(frame_id),
                 frame_id=frame_id,
                 mosaic=mosaic,
                 exposure_us=1000.0,
@@ -109,15 +111,15 @@ def plume_detector() -> ScriptedDetector:
 
     Returns:
         ScriptedDetector: With a 50x50 unit-probability square (area 2500 px, confidence
-        1.0) at tensor [875:925, 587:637] -- above the default gates. The mask is at
+        1.0) at tensor [99:149, 587:637] -- above the default gates. The mask is at
         full band-plane / inference resolution (1024 x 1224).
 
     Notes:
-        The centroid (~611.5, ~899.5) sits ~388 px below boresight (612, 512). TRACKING
-        issues a negative elevation RATE. Azimuth stays pinned at 0 in the drivers.
+        The centroid (~611.5, ~123.5) sits ~388 px above boresight (612, 512). TRACKING
+        issues a positive elevation rate inside the science window.
     """
     mask = np.zeros(
         (DETECTOR_HEIGHT_PX, DETECTOR_WIDTH_PX), dtype=np.float32
     )  # np.ndarray[float32, (H, W)]
-    mask[875:925, 587:637] = 1.0  # centroid ~ (611.5, 899.5) in tensor / band-plane space
+    mask[99:149, 587:637] = 1.0  # centroid ~ (611.5, 123.5) in tensor / band-plane space
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)

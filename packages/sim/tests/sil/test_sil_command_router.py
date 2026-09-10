@@ -60,8 +60,8 @@ def test_safe_entered_then_exited_via_arm_execute() -> None:
         nonlocal now
         for _ in range(steps):
             now += 1.0
-            system.clock.advance(1.0)
             harness.step(now)
+            system.clock.advance(1.0)
 
     advance(4)  # by step 3-4 power is over-limit -> SAFE latched
     assert harness.payload_gimbal_state() is GimbalState.SAFE

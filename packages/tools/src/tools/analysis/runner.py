@@ -13,9 +13,9 @@ sample (telemetry only), power over-limit -> SAFE -> stow, gimbal runaway, watch
 EXIT_SAFE recovery via the ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the
 launch-lock interlock, the model upload -> activate -> rollback lifecycle, storage eviction,
 and downlink AOS/budget backpressure.
-Faults that the deterministic ``step_once`` cannot raise organically (a gimbal encoder runaway, or
-a watchdog miss when ``step_once`` synthesizes every app's heartbeat each step) are injected as the
-FDIR input FaultEventMsg, which is documented per scenario.
+The gimbal-runaway scenario freezes the sim encoder under a nonzero rate reference so
+the light integrity detector trips ``GIMBAL_RUNAWAY``. A watchdog miss is still injected
+as a FaultEventMsg because ``step_once`` synthesizes every app heartbeat each step.
 
 Contains:
   - Injection / Action / ScenarioSpec / ScenarioRun: the declarative run + its captured result.
@@ -302,9 +302,8 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="nominal_tracking",
             title="Nominal plume tracking",
             description=(
-                "Detect the scripted plume, transition IDLE -> ACQUIRING -> TRACKING, and slew "
-                "elevation toward the target (negative elevation, azimuth pinned at 0). No faults; "
-                "the system stays nominal the whole run."
+                "Detect the scripted plume, enter TRACKING, and slew elevation toward "
+                "the target. No faults; the system stays nominal the whole run."
             ),
             category="nominal",
             steps=14,
@@ -338,19 +337,14 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="gimbal_runaway",
             title="Gimbal runaway -> SAFE",
             description=(
-                "Models an encoder runaway: the deterministic sim gimbal tracks commands "
-                "faithfully, so a GIMBAL_RUNAWAY FaultEventMsg (the FDIR input the "
-                "controller's runaway monitor would raise) is injected at step 3; FDIR "
-                "routes it to SAFE."
+                "Freezes the sim encoder at step 3 while the outer loop still commands a "
+                "nonzero r. The light integrity detector trips GIMBAL_RUNAWAY; FDIR routes "
+                "it to SAFE."
             ),
             category="gimbal",
             steps=12,
             num_frames=12,
-            injections=(
-                Injection(
-                    3, _fault(FaultCode.GIMBAL_RUNAWAY, "payload", "encoder rate divergence")
-                ),
-            ),
+            actions=(Action(3, lambda system: system.gimbal.freeze_encoder()),),
         ),
         ScenarioSpec(
             name="watchdog_process_died",

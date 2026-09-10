@@ -41,8 +41,10 @@ of what it issued (`mode`, `az_value_deg`, `el_value_deg`, `state`, `reason`). T
 implements first-order dynamics with lazy clock integration (every call advances the pose by the
 elapsed clock time, so the one driver is honest under both the threaded `RealClock` flight loop and
 the stepped `ManualClock` SIL), travel/slew clamps, seeded encoder noise, and a stow switch.
-`RealGimbal` is a serial PTU ASCII driver (lazy `pyserial`); its verb set is a documented reference
-assumption pending HIL bring-up.
+`RealGimbal` is the fail-closed Xeryon XD-C rate adapter. It vendors Xeryon
+Python library v1.88 (`pact-xeryon-vendor`), commands signed rate through
+`setSpeed`/`startScan`, and never calls the vendor `stop()` helper, which may
+home the stage.
 
 **Boresight-relative pointing error via IFOV.** `boresight_error_deg` inverts the preprocess
 crop/decimation transform (tensor pixel -> full-plane pixel via `crop_origin_px` and
@@ -100,10 +102,10 @@ with an initialized estimator a full-resolution ROI is cropped around the Kalman
 - **Recovery is explicit.** Leaving SAFE requires a ground `ModeChangeMsg` with a non-SAFE mode;
   there is no automatic recovery, consistent with the single-latched-SAFE posture (ADR 0006).
 
-- **PTU verb set is unvalidated.** `RealGimbal`'s PP/TP/PS/TS ASCII protocol is a reference
-  assumption (FLIR PTU E46-class) to be checked against the actual unit's manual at HIL bring-up;
-  the fake-`pyserial` CI tests verify the lazy-import contract and the driver logic, not the wire
-  protocol.
+- **Xeryon rate adapter is vendored.** `RealGimbal` uses the local `pact-xeryon-vendor`
+  package (Xeryon v1.88 plus a rotary `setSpeed` encoding patch so SSPD is 0.01 deg/s).
+  Fake-controller CI tests cover quantization, duty credit, inhibit, and halt
+  sequencing (`SCAN=0` then `STOP=0`); they do not replace HIL bring-up.
 
 - **`GimbalConfig` added to `PactConfig`.** Travel/slew envelope, stow/home poses, sim dynamics
   constants (time constant, encoder noise, seed), and the serial link (port, baud, counts/deg) are

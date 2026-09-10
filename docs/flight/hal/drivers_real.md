@@ -13,7 +13,7 @@ constructs these drivers when the environment config selects a real axis.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`sensor`](drivers_real/sensor.md) | driver | `RealSensor` FLIR Blackfly S over PySpin |
-| [`gimbal`](drivers_real/gimbal.md) | scaffold | `RealGimbal` fail-closed Xeryon rate adapter |
+| [`gimbal`](drivers_real/gimbal.md) | driver | `RealGimbal` fail-closed Xeryon rate adapter |
 | [`ephemeris`](drivers_real/ephemeris.md) | stub | `RealIssEphemeris` always `Err(EPHEMERIS_FAULT)` |
 | [`station`](drivers_real/station.md) | driver | `RealStationLink` TCP-in / UDP-out CCSDS link |
 | [`scalar`](drivers_real/scalar.md) | stub | `RealScalarSensor` placeholder (returns 0.0) |
@@ -36,8 +36,8 @@ latches from the payload gimbal path and rejects torque. `RealIssEphemeris` is a
 
 ## Constraints
 
-- Importing this module does not require vendor SDKs. Construction of `RealSensor`
-  may raise `ImportError` when PySpin is absent.
+- Importing this module does not require PySpin. `RealGimbal` imports the vendored
+  Xeryon module at driver import; serial I/O still waits until connect.
 - Real and sim driver packages do not import each other.
 - `RealScalarSensor` is a stub. It always returns `Ok(0.0)`.
 - `RealGimbal` remains motion-disabled until explicit Xeryon audit and watchdog/stow

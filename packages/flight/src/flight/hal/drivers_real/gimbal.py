@@ -1,10 +1,11 @@
-"""Fail-closed Xeryon/XD-C gimbal adapter scaffold.
+"""Fail-closed Xeryon/XD-C gimbal adapter.
 
-The vendor archive is intentionally not a runtime dependency. It is imported
-only when all production prerequisites are enabled and a rate command needs a
-live controller. The adapter uses ``stopScan`` for a direction change or
-inhibit; it never calls the vendor library's ``stop()`` helper because that
-helper also performs controller shutdown actions that may home the stage.
+The vendored Xeryon v1.88 module is imported with this driver. Serial I/O still
+waits until a rate command connects with audited production prerequisites. The
+adapter uses ``setSpeed`` plus ``startScan`` for motion, and ``stopScan`` then
+``stopMovements`` to halt; it never calls the vendor library's ``stop()`` helper
+because that helper also performs controller shutdown actions that may home the
+stage.
 
 The legacy torque methods remain an explicit rejected compatibility surface
 for detailed-plant SIL. Production hardware is driven through ``set_rate``.
@@ -12,12 +13,13 @@ for detailed-plant SIL. Production hardware is driven through ``set_rate``.
 
 from __future__ import annotations
 
-import importlib
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol, cast
+
+from xeryon_vendor import Xeryon
 
 from flight.hal.interfaces.gimbal import (
     ExternalWatchdogGate,
@@ -29,11 +31,17 @@ from flight.libs.config import GimbalConfig, XeryonConfig
 from flight.libs.time import Clock
 from flight.libs.types import Err, FaultCode, Ok, Result
 
+_VENDOR_ERRORS = (AttributeError, OSError, RuntimeError, TypeError, ValueError)
+
 
 class _VendorAxis(Protocol):
     """Small subset of the vendor axis API used by the adapter."""
 
+    def setUnits(self, units: object) -> object: ...  # noqa: N802
+
     def setSetting(self, tag: str, value: str) -> object: ...  # noqa: N802
+
+    def setSpeed(self, speed: float) -> object: ...  # noqa: N802
 
     def startScan(self, direction: int) -> object: ...  # noqa: N802
 
@@ -68,6 +76,8 @@ class _VendorController(Protocol):
         external_communication_thread: bool = False,
         external_settings_default: str | None = None,
     ) -> object: ...
+
+    def stopMovements(self) -> object: ...  # noqa: N802
 
     def getCommunication(self) -> _VendorCommunication: ...  # noqa: N802
 
@@ -140,7 +150,7 @@ class RealGimbal:
         time_mapper: TimeMapper | None = None,
         stow_switch_reader: Callable[[], bool] | None = None,
     ) -> None:
-        """Construct without importing the vendor SDK or opening serial."""
+        """Construct without opening a serial port."""
         self._cfg = cfg if cfg is not None else GimbalConfig()
         self._xcfg = self._cfg.xeryon
         self._clock = clock
@@ -179,6 +189,10 @@ class RealGimbal:
         magnitude = math.floor(abs(rate_deg_per_s) / quantum_deg_per_s + 0.5)
         return math.copysign(magnitude * quantum_deg_per_s, rate_deg_per_s)
 
+    def _position_to_counts(self, position_deg: float) -> int:
+        """Convert signed degrees to controller encoder counts."""
+        return int(round(position_deg / 360.0 * self._xcfg.controller_counts_per_rev))
+
     def _connect(self) -> Result[None, FaultCode]:
         """Lazily construct the vendor controller and configure polling."""
         if self._axis is not None:
@@ -191,23 +205,28 @@ class RealGimbal:
             if self._vendor_factory is not None:
                 self._controller, self._axis = self._vendor_factory(self._xcfg)
             else:
-                module = importlib.import_module(self._xcfg.vendor_module)
-                controller_type = cast(
-                    Callable[[str, int], _VendorController], getattr(module, "Xeryon")
+                Xeryon.DISABLE_WAITING = True
+                Xeryon.OUTPUT_TO_CONSOLE = False
+                controller = cast(
+                    _VendorController,
+                    Xeryon.Xeryon(self._xcfg.serial_port, self._xcfg.baudrate),
                 )
-                stage_type = getattr(module, "Stage")
-                stage = getattr(stage_type, self._xcfg.vendor_stage)
-                self._controller = controller_type(self._xcfg.serial_port, self._xcfg.baudrate)
-                assert self._controller is not None
-                self._axis = self._controller.addAxis(stage, self._xcfg.axis_letter)
+                stage = getattr(Xeryon.Stage, self._xcfg.vendor_stage)
+                self._controller = controller
+                self._axis = controller.addAxis(stage, self._xcfg.axis_letter)
                 self._controller.start(
                     external_settings_default=self._xcfg.settings_file_path,
                 )
             assert self._axis is not None
             # INFO/POLI are initial settings; measured cadence must still be
             # qualified before these values are treated as final.
+            self._axis.setUnits(Xeryon.Units.deg)
             self._axis.setSetting("INFO", str(self._xcfg.feedback_info_level))
             self._axis.setSetting("POLI", str(int(self._xcfg.feedback_poll_interval_ms)))
+            lo = self._position_to_counts(self._cfg.el_hw_min_deg)
+            hi = self._position_to_counts(self._cfg.el_hw_max_deg)
+            self._axis.setSetting("LLIM", str(min(lo, hi)))
+            self._axis.setSetting("HLIM", str(max(lo, hi)))
             return Ok(None)
         except AttributeError, ImportError, OSError, RuntimeError, TypeError, ValueError:
             self._controller = None
@@ -246,14 +265,24 @@ class RealGimbal:
         """Update duty credit from status without granting credit on errors."""
         self._duty = self._duty.advance(self._clock.monotonic_s(), motor_on)
 
-    def _stop_local(self) -> None:
-        """Issue non-homing stop and request independent drive inhibition."""
+    def _halt_motion(self) -> None:
+        """Stop scan velocity and finite moves without vendor ``stop()``."""
         axis = self._axis
         if axis is not None:
             try:
                 axis.stopScan()
-            except OSError, RuntimeError, TypeError:
+            except _VENDOR_ERRORS:
                 pass
+        controller = self._controller
+        if controller is not None:
+            try:
+                controller.stopMovements()
+            except _VENDOR_ERRORS:
+                pass
+
+    def _stop_local(self) -> None:
+        """Issue non-homing stop and request independent drive inhibition."""
+        self._halt_motion()
         self._last_direction = 0
         self._last_speed_quantized = 0.0
         self._inhibited = True
@@ -314,7 +343,7 @@ class RealGimbal:
         direction = 0 if quantized == 0.0 else (1 if quantized > 0.0 else -1)
         try:
             if direction == 0:
-                axis.stopScan()
+                self._halt_motion()
                 self._last_direction = 0
                 self._last_speed_quantized = 0.0
                 self._inhibited = True
@@ -324,9 +353,8 @@ class RealGimbal:
                     if axis.isMotorOn():
                         self._stop_local()
                         return Err(FaultCode.GIMBAL_CONTROLLER_ERROR)
-                speed_setting = int(round(abs(quantized) * 100.0))
                 if self._last_direction != direction or self._last_speed_quantized != quantized:
-                    axis.setSetting("SSPD", str(speed_setting))
+                    axis.setSpeed(abs(quantized))
                 if self._last_direction != direction:
                     axis.startScan(direction)
                 self._last_direction = direction
@@ -340,10 +368,8 @@ class RealGimbal:
 
     def inhibit(self, reason: str) -> Result[GimbalHealth, FaultCode]:
         """Stop scanning and require independent watchdog confirmation."""
-        axis = self._axis
         try:
-            if axis is not None:
-                axis.stopScan()
+            self._halt_motion()
             if self._watchdog_gate is None:
                 return Err(FaultCode.GIMBAL_WATCHDOG_UNCONFIRMED)
             requested = self._watchdog_gate.request_inhibit(reason)

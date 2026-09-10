@@ -5,7 +5,6 @@ root_packages =
     tools
     gse
     analysis
-    xeryon_vendor
 
 [importlinter:contract:flight-isolation]
 name = Flight must not import sim or tools
@@ -133,25 +132,4 @@ source_modules =
     tools
 forbidden_modules =
     analysis
-
-[importlinter:contract:xeryon-vendor-from-real-driver-only]
-name = Vendored Xeryon is reachable only from the real gimbal driver
-type = forbidden
-source_modules =
-    flight.core
-    flight.payload
-    flight.thermal
-    flight.electrical
-    flight.mechanical
-    flight.iss_iface
-    flight.fault
-    flight.hal.interfaces
-    flight.hal.drivers_sim
-    flight.libs
-    sim
-    tools
-    gse
-    analysis
-forbidden_modules =
-    xeryon_vendor
 

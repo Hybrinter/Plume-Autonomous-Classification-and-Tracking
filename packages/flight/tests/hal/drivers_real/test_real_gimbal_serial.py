@@ -38,8 +38,14 @@ class _FakeAxis:
         self.encoder_valid = True
         self.data: dict[str, object] = {"EPOS": 43_200, "TIME": 42, "STAT": 0x1234}
 
+    def setUnits(self, units: object) -> None:  # noqa: N802
+        self.calls.append(("setUnits", units))
+
     def setSetting(self, tag: str, value: str) -> None:  # noqa: N802
         self.calls.append(("setSetting", (tag, value)))
+
+    def setSpeed(self, speed: float) -> None:  # noqa: N802
+        self.calls.append(("setSpeed", speed))
 
     def startScan(self, direction: int) -> None:  # noqa: N802
         self.calls.append(("startScan", direction))
@@ -87,9 +93,14 @@ class _FakeController:
         self.axis = axis
         self.communication = _FakeCommunication()
         self.stop_called = False
+        self.stop_movements_called = False
 
     def getCommunication(self) -> _FakeCommunication:  # noqa: N802
         return self.communication
+
+    def stopMovements(self) -> None:  # noqa: N802
+        self.stop_movements_called = True
+        self.axis.calls.append(("stopMovements", None))
 
     def stop(self) -> None:
         self.stop_called = True
@@ -230,11 +241,11 @@ def test_fake_vendor_rate_sequence_feedback_mapping_and_safe_shutdown() -> None:
         time_mapper=lambda raw: (float(raw) * 0.01, 1.0e-5),
     )
     assert isinstance(gimbal.set_rate(GimbalRateCommand(1.234, 1.0)), Ok)
-    assert axis.calls[-2:] == [("setSetting", ("SSPD", "123")), ("startScan", 1)]
+    assert axis.calls[-2:] == [("setSpeed", 1.23), ("startScan", 1)]
     assert isinstance(gimbal.set_rate(GimbalRateCommand(-1.23, 2.0)), Ok)
     assert axis.calls[-3:] == [
         ("stopScan", None),
-        ("setSetting", ("SSPD", "123")),
+        ("setSpeed", 1.23),
         ("startScan", -1),
     ]
     position = gimbal.read_position()
@@ -248,5 +259,40 @@ def test_fake_vendor_rate_sequence_feedback_mapping_and_safe_shutdown() -> None:
     assert health.value.quantized_rate_deg_per_s == -1.23
     assert isinstance(gimbal.shutdown(), Ok)
     assert controller.stop_called is False
+    assert controller.stop_movements_called is True
     assert controller.communication.closed is True
     assert gate.requests == ["shutdown"]
+
+
+def test_connect_programs_soft_limits_as_encoder_min_max() -> None:
+    """LLIM/HLIM are controller counts, ordered min then max."""
+    axis = _FakeAxis()
+    controller = _FakeController(axis)
+    gate = _FakeGate()
+    gimbal = RealGimbal(
+        clock=ManualClock(),
+        cfg=_enabled_cfg(),
+        watchdog_gate=gate,
+        vendor_factory=cast(VendorFactory, lambda _cfg: (controller, axis)),
+    )
+    assert isinstance(gimbal.set_rate(GimbalRateCommand(0.9, 1.0)), Ok)
+    assert ("setSetting", ("LLIM", "-10800")) in axis.calls
+    assert ("setSetting", ("HLIM", "21600")) in axis.calls
+    assert ("setSpeed", 0.9) in axis.calls
+
+
+def test_zero_rate_stops_scan_and_movements() -> None:
+    """A zero rate command must halt both SCAN and DPOS motion."""
+    axis = _FakeAxis()
+    controller = _FakeController(axis)
+    gate = _FakeGate()
+    gimbal = RealGimbal(
+        clock=ManualClock(),
+        cfg=_enabled_cfg(),
+        watchdog_gate=gate,
+        vendor_factory=cast(VendorFactory, lambda _cfg: (controller, axis)),
+    )
+    assert isinstance(gimbal.set_rate(GimbalRateCommand(1.0, 1.0)), Ok)
+    assert isinstance(gimbal.set_rate(GimbalRateCommand(0.0, 2.0)), Ok)
+    assert ("stopScan", None) in axis.calls
+    assert ("stopMovements", None) in axis.calls

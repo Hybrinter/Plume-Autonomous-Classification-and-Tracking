@@ -5,10 +5,11 @@
 
 ## Purpose
 
-`RealGimbal` is a fail-closed XRT-U-40-109-HV/XD-C adapter scaffold. The vendor
-module is lazy-imported only when audited production prerequisites are enabled and
-a rate command needs a live connection. Initial feedback settings are `INFO=4`
-and `POLI=2 ms`; achieved cadence must be measured before freezing them for flight.
+`RealGimbal` is a fail-closed XRT-U-40-109-HV/XD-C rate adapter. The vendored
+Xeryon v1.88 module is imported with the driver; serial I/O waits until a rate
+command connects with audited production prerequisites. Initial feedback
+settings are `INFO=4` and `POLI=2 ms`; achieved cadence must be measured before
+freezing them for flight.
 
 ## Public interface
 
@@ -34,12 +35,16 @@ vendor-factory, and controller-time mapper test seams.
 
 ## Behavior
 
-1. `set_rate` quantizes to 0.01 deg/s with a half-step deadband. Direction changes
-   are ordered stop, motor-off confirmation, speed setting, and scan.
-2. `goto_angle` latches a travel-clamped target without changing encoder feedback.
-3. `home` and `stow` latch the configured poses. `stow` also arms the switch.
-4. `read_position` returns mapped controller feedback, not the latched target.
-5. `read_stow_switch` is true only when stow was commanded and the encoder is near
+1. `set_rate` quantizes to 0.01 deg/s with a half-step deadband and commands that
+   rate through vendored `setSpeed`. Direction changes are ordered stop, motor-off
+   confirmation, `setSpeed`, and `startScan`. A zero rate, inhibit, or local fault
+   sends `stopScan` then `stopMovements`.
+2. On connect, the adapter selects degree units and programs `LLIM`/`HLIM` as
+   min/max encoder counts from the hardware travel envelope.
+3. `goto_angle` latches a travel-clamped target without changing encoder feedback.
+4. `home` and `stow` latch the configured poses. `stow` also arms the switch.
+5. `read_position` returns mapped controller feedback, not the latched target.
+6. `read_stow_switch` is true only when stow was commanded and the encoder is near
    stow. On this stub that stays False.
 
 ## Errors and faults

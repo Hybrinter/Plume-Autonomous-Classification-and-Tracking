@@ -22,8 +22,9 @@ highest-fidelity venue short of flight.
 
 ## Procedure (when hardware exists)
 
-1. Provision the bench and verify each SDK loads (PySpin, onnxruntime) -- these imports
-   are lazy and only resolve when the real drivers are constructed.
+1. Provision the bench and verify each SDK loads (PySpin, onnxruntime, vendored
+   Xeryon). PySpin resolves when `RealSensor` is constructed; the Xeryon module
+   loads with `RealGimbal` import, and serial I/O waits until connect.
 2. Load config: `load_config("config/default.toml", "profiles/hil.toml")`.
 3. Construct drivers with `select_drivers(config, RealClock())` (no `sim_inputs` needed -- every
    axis selects a real branch). The real sensor branch also applies

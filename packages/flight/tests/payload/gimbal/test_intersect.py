@@ -4,6 +4,7 @@ import math
 
 from flight.libs.config import EphemerisConfig, SensorConfig
 from flight.payload.gimbal.intersect import IntersectResult, intersect_boresight, intersect_cog
+from flight.payload.gimbal.predictor import predict_los
 
 
 def _iss_at_epoch() -> tuple[tuple[float, float, float], tuple[float, float, float]]:
@@ -111,6 +112,36 @@ def test_intersect_boresight_nadir_hits() -> None:
     assert result.hit is True
     assert result.r_cog_ecef_m is not None
     assert result.slant_m > 1.0e5
+
+
+def test_height_proxy_changes_omega_el_at_large_look() -> None:
+    """Surface vs 2 km lock changes omega_el at a large elevation."""
+    eph = EphemerisConfig()
+    sensor = SensorConfig()
+    r_iss, v_iss = _iss_at_epoch()
+    p_cog = (sensor.width_px / 4.0, sensor.height_px / 4.0)
+    theta = math.radians(35.0)
+    surface = _cog(p_cog, theta, None, 0.0)
+    raised = _cog(p_cog, theta, None, 2000.0)
+    assert surface.hit is True and raised.hit is True
+    assert surface.r_cog_ecef_m is not None and raised.r_cog_ecef_m is not None
+    _th0, w0, _az0 = predict_los(
+        eph.epoch_utc_s,
+        r_iss,
+        v_iss,
+        surface.r_cog_ecef_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    _th2, w2, _az2 = predict_los(
+        eph.epoch_utc_s,
+        r_iss,
+        v_iss,
+        raised.r_cog_ecef_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert abs(w0 - w2) > 1e-8
 
 
 def test_intersect_boresight_miss_keeps_last() -> None:

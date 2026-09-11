@@ -53,6 +53,9 @@ class ScriptedSegmentor:
 
         Args:
             prob_mask: (H, W) float32 probabilities in [0, 1]. Copied on store.
+
+        Notes:
+            Callers must not overlap load_mask with segment. The slot has no lock.
         """
         self._prob_mask = np.array(prob_mask, dtype=np.float32, copy=True)
 

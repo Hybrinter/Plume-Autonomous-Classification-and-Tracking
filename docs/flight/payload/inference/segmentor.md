@@ -62,7 +62,8 @@ root.
 ## Constraints
 
 onnxruntime loads only when `OnnxSegmentor` is constructed. The module never imports
-real or sim HAL drivers.
+real or sim HAL drivers. Callers must not overlap `load_mask` with `segment`. The
+slot has no lock.
 
 ## Related documents
 

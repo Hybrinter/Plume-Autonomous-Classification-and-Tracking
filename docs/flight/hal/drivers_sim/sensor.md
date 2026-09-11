@@ -57,6 +57,7 @@ None. Frames are supplied at construction by the SIL or test harness.
 - End-of-script behavior matches a stalled camera, not a hold-last frame.
 - Frames are typically rendered by `sim.scene`.
 - `load_next` is a sim-only mutator. Real drivers have no counterpart.
+- Callers must not overlap `load_next` with `acquire_frame`. The slot has no lock.
 
 ## Related documents
 

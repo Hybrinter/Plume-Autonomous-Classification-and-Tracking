@@ -69,7 +69,8 @@ composition root.
 ## Constraints
 
 onnxruntime loads only when an ONNX backend is constructed. The module never imports
-real or sim HAL drivers. Scripted and ONNX paths share `extract_blobs`.
+real or sim HAL drivers. Scripted and ONNX paths share `extract_blobs`. Callers must
+not overlap `load_mask` with `detect`. The slot has no lock.
 
 ## Related documents
 

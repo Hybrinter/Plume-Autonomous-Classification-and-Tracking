@@ -39,6 +39,7 @@ class SimSensor:
 
         Not on ImagingSensor. An unread slot is discarded when this is called
         again. acquire_frame prefers the slot over remaining constructor frames.
+        Callers must not overlap load_next with acquire_frame. The slot has no lock.
 
         Args:
             frame: Mosaic to return on the next acquire_frame.

@@ -177,6 +177,9 @@ class ScriptedDetector(Detector):
 
         Args:
             prob_mask: (H, W) float32 probabilities used on the next detect().
+
+        Notes:
+            Callers must not overlap load_mask with detect. The slot has no lock.
         """
         self._scripted_segmentor.load_mask(prob_mask)
 

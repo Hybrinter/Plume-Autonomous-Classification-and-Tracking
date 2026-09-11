@@ -5,13 +5,20 @@ from __future__ import annotations
 import dataclasses
 import math
 
+import numpy as np
 import pytest
 from flight.core.select_drivers import SimDriverInputs
 from flight.hal.drivers_sim import SimGimbal, SimSensor
 from flight.libs.config import DriverConfig, PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import Ok
-from sim.environment import EnvironmentConfig, build_environment, camera_from_sensor
+from sim.environment import (
+    Environment,
+    EnvironmentConfig,
+    build_environment,
+    camera_from_sensor,
+)
+from sim.environment.records import DriverFeed, EnvSample, EnvTime, PlumeState, ShutterPose
 from sim.scene import build_frames, plume_detector
 from sim.sil import (
     SilEnvironmentBind,
@@ -35,6 +42,25 @@ def _all_sim_config() -> PactConfig:
         host="x86_64",
     )
     return dataclasses.replace(PactConfig(), drivers=sim_drivers)
+
+
+def _inject_appearance_mosaic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force evaluate to emit a dummy mosaic so mix guards can be exercised."""
+    orig = Environment.evaluate
+
+    def evaluate(
+        self: Environment,
+        time: EnvTime,
+        shutter: ShutterPose,
+        rng: np.random.Generator,
+        prior_plume: PlumeState | None = None,
+    ) -> EnvSample:
+        sample = orig(self, time, shutter, rng, prior_plume)
+        mosaic = np.zeros((8, 8), dtype=np.uint16)
+        feed = DriverFeed(mosaic=mosaic, mask=sample.feed.mask)
+        return EnvSample(truth=sample.truth, feed=feed)
+
+    monkeypatch.setattr(Environment, "evaluate", evaluate)
 
 
 def test_bind_rejects_empty_frames_without_mosaic() -> None:
@@ -64,8 +90,11 @@ def test_bind_rejects_empty_frames_without_mosaic() -> None:
         )
 
 
-def test_bind_rejects_constructor_frames_with_appearance_mosaic() -> None:
-    """ECEF appearance emits mosaics, so leftover scripted frames are rejected."""
+def test_bind_rejects_constructor_frames_with_appearance_mosaic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mosaic-emitting evaluate plus leftover scripted frames is rejected."""
+    _inject_appearance_mosaic(monkeypatch)
     config = PactConfig()
     clock = ManualClock()
     frames = build_frames(2)
@@ -92,8 +121,11 @@ def test_bind_rejects_constructor_frames_with_appearance_mosaic() -> None:
         )
 
 
-def test_pre_step_rejects_live_mosaic_over_unread_scripted() -> None:
+def test_pre_step_rejects_live_mosaic_over_unread_scripted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Bypassing the constructor check still refuses interleaved frame_id sources."""
+    _inject_appearance_mosaic(monkeypatch)
     config = PactConfig()
     clock = ManualClock()
     frames = build_frames(2)
@@ -170,6 +202,7 @@ def test_true_elevation_moves_ecef_projected_centroid() -> None:
     """Gimbal motion under plume tracking shifts the ECEF pinhole centroid."""
     config = PactConfig()
     clock = ManualClock()
+    frames = build_frames(8)
     detector = plume_detector()
     camera = camera_from_sensor(config.sensor)
     built = build_environment(EnvironmentConfig(plume="ecef_column"), camera)
@@ -177,7 +210,7 @@ def test_true_elevation_moves_ecef_projected_centroid() -> None:
     system = build_sil_system(
         config,
         clock,
-        [],
+        frames,
         detector,
         inbound_packets=[],
         thermal_readings=[25.0],
@@ -189,7 +222,7 @@ def test_true_elevation_moves_ecef_projected_centroid() -> None:
         system.gimbal,
         clock,
         config.sensor,
-        frames=[],
+        frames=frames,
         detector=None,
         ephemeris=system.apps.payload.ephemeris,
     )
@@ -218,12 +251,13 @@ def test_validation_harness_pre_step_records_sample() -> None:
     """ValidationHarness.step runs the same bind pre_step as SilHarness."""
     config = _all_sim_config()
     clock = ManualClock()
+    frames = build_frames(2)
     detector = plume_detector()
     camera = camera_from_sensor(config.sensor)
     built = build_environment(EnvironmentConfig(plume="ecef_column"), camera)
     assert isinstance(built, Ok)
     inputs = SimDriverInputs(
-        frames=[],
+        frames=frames,
         detector=detector,
         inbound_packets=[],
         thermal_readings=[25.0],
@@ -238,7 +272,7 @@ def test_validation_harness_pre_step_records_sample() -> None:
         system.gimbal,
         clock,
         config.sensor,
-        frames=[],
+        frames=frames,
         detector=None,
         ephemeris=system.apps.payload.ephemeris,
     )

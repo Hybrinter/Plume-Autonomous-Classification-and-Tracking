@@ -5,33 +5,29 @@
 
 ## Purpose
 
-This module converts blob centroids in model-input pixel space to boresight-relative
-angular error in degrees and to full-plane pixel displacement for deadband checks.
+This module converts blob centroids in band-plane pixel space to pinhole boresight
+error. Image `+x` is unactuated optical azimuth. Image `+y` (down) is `-elevation`.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `boresight_error_deg` | function | Returns (az_error_deg, el_error_deg) from boresight |
-| `target_displacement_px` | function | Returns Euclidean full-plane distance from boresight |
+| `pinhole_error_rad` | function | Returns `(e_az_rad, e_el_rad)` from boresight |
+| `boresight_error_deg` | function | Same error in degrees |
+| `target_displacement_px` | function | Euclidean band-plane distance from boresight |
 
 ## Inputs and outputs
 
-Both functions take `centroid_px`, `crop_origin_px`, `scale_factor`, and band-plane
-width and height. `boresight_error_deg` also takes `ifov_deg_per_px`.
-
-`boresight_error_deg` returns `(az, el)` degree offsets. Positive azimuth is image +x;
-positive elevation is image -y (upward).
-
-`target_displacement_px` returns a float distance in full-plane pixels.
+Functions take `centroid_px`, band-plane width and height, band pixel pitch in
+meters, and focal length in meters. `target_displacement_px` does not use optics
+scalars.
 
 ## Behavior
 
-1. Invert the crop and scale transform to full band-plane pixel coordinates.
-2. Subtract the plane center `(width/2, height/2)` for boresight reference.
-3. Multiply horizontal and vertical offsets by IFOV for angular error; negate vertical
-   for elevation sign convention.
-4. For displacement, compute `hypot(dx, dy)` in full-plane pixels.
+1. Build a pinhole camera ray through the centroid.
+2. Elevation error is `-atan2(d_cam_y, d_cam_z)`. Azimuth error is
+   `atan2(d_cam_x, d_cam_z)` and is unactuated.
+3. Displacement is `hypot(dx, dy)` in band-plane pixels.
 
 ## Errors and faults
 
@@ -43,15 +39,16 @@ None.
 
 ## Configuration
 
-Uses band-plane dimensions from `SensorConfig` (`width_px // 2`, `height_px // 2`) and
-`ifov_deg_per_px`. Crop origin and scale come from the inference result.
+Band-plane size is `SensorConfig` mosaic size divided by two. Band pitch is
+`2 * pixel_um`. Focal length is `focal_length_mm`.
 
 ## Constraints
 
-Deadband thresholds are defined in full-plane pixels for consistency across search
-(decimated) and tracking (cropped) modes.
+The functions assume the inference tensor is the full band plane with no crop and no
+scale. Error is pinhole geometry, not `px * IFOV`.
 
 ## Related documents
 
-- [`flight.payload.preprocess.crop`](../preprocess/crop.md)
+- [`flight.payload.gimbal.geo`](geo.md)
 - [`flight.payload.gimbal.safety`](safety.md)
+- [`flight.payload.control`](../control.md)

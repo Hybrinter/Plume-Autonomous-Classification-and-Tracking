@@ -1,0 +1,34 @@
+# Stage 0: the current classifier, recorded as the reference point.
+#
+# This is the architecture and the objective the repository shipped before the
+# optimization work: a ResNet-50 with random weights trained with BCE under
+# SGD. Only the run length and batch size are raised above the module defaults,
+# which exist to make a one-step smoke test cheap and would not produce a
+# meaningful reference. Every candidate is given the same epoch budget.
+
+kind = "classifier"
+arch = "resnet50"
+data_dir = "data/processed/classifier"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 20
+batch_size = 64
+patience = 6
+eval_interval = 1
+
+optimizer = "sgd"
+learning_rate = 0.01
+momentum = 0.9
+weight_decay = 0.0
+scheduler = "cosine"
+loss = "bce"
+
+shuffle = true
+augment = false
+amp = true
+seed = 0
+val_metric = "f1"

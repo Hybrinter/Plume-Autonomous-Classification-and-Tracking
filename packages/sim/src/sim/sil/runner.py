@@ -101,6 +101,7 @@ def build_sil_system(
         compute="sim",
         link="sim",
         clock="sim",
+        ephemeris="sim",
         host="x86_64",
     )
     sil_config = dataclasses.replace(config, environment=sil_env)
@@ -127,6 +128,7 @@ class SilHarness:
             system: The wired SilSystem to drive.
         """
         self._system = system
+        self._now = 0.0
         self._payload_state: ControlState = system.apps.payload.controller.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
 
@@ -140,6 +142,7 @@ class SilHarness:
         Args:
             now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
         """
+        self._now = now
         system = self._system
         self._payload_state, self._fault_entries = step_once(
             system.apps,
@@ -155,16 +158,15 @@ class SilHarness:
     def run_steps(self, count: int, dt: float = 1.0) -> None:
         """Run count deterministic steps, advancing `now` and the shared clock by dt each step.
 
-        Advancing the shared ManualClock each step is what lets the SimGimbal first-order
-        dynamics integrate between steps (it integrates lazily on clock-time elapsed), so
-        commanded motion actually moves the gimbal across steps.
+        Advancing the shared ManualClock after each step lets SimGimbal apply
+        catch-up debt against the clock jump without double-counting plant time.
 
         Args:
             count: Number of steps to run.
             dt: Seconds to advance `now` per step.
         """
-        now = 0.0
+        now = self._now
         for _ in range(count):
             now += dt
-            self._system.clock.advance(dt)
             self.step(now)
+            self._system.clock.advance(dt)

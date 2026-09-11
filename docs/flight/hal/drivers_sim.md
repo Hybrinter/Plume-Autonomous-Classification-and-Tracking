@@ -13,14 +13,16 @@ composition roots. Each driver satisfies the matching HAL Protocol structurally.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`sensor`](drivers_sim/sensor.md) | driver | `SimSensor` replays scripted mosaic frames |
-| [`gimbal`](drivers_sim/gimbal.md) | driver | `SimGimbal` first-order gimbal dynamics |
+| [`gimbal`](drivers_sim/gimbal.md) | driver | `SimGimbal` rigid-body elevation plant |
+| [`ephemeris`](drivers_sim/ephemeris.md) | driver | `SimIssEphemeris` circular ECI orbit |
 | [`station`](drivers_sim/station.md) | driver | `SimStationLink` replays inbound CCSDS packets |
 | [`scalar`](drivers_sim/scalar.md) | driver | `SimScalarSensor` replays scalar readings |
 | [`launch_lock`](drivers_sim/launch_lock.md) | driver | `SimLaunchLock` in-memory launch lock |
 
 ## Package interface
 
-Re-exports: `SimGimbal`, `SimLaunchLock`, `SimScalarSensor`, `SimSensor`, `SimStationLink`.
+Re-exports: `SimGimbal`, `SimIssEphemeris`, `SimLaunchLock`, `SimScalarSensor`,
+`SimSensor`, `SimStationLink`.
 
 `SimLaunchLock` is the only launch-lock implementation. No real driver exists yet.
 
@@ -36,8 +38,8 @@ type (stall, hold-last, or empty queue).
 
 - Real and sim driver packages do not import each other.
 - Sim drivers return `Result` and do not raise on runtime faults.
-- `SimGimbal` integrates pose lazily on every public call. The injected clock must advance
-  between SIL steps or the pose does not move.
+- `SimGimbal` integrates the plant on `set_torque` and on clock jumps after catch-up
+  debt. The harness advances the clock after the payload catch-up methods.
 - `SimStationLink.sent` is a test inspection hook with no real-driver counterpart.
 
 ## Related documents

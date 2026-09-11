@@ -1,0 +1,51 @@
+# Stage 3: the reported classifier numbers, at the flight input size.
+#
+# Set the second `arch` entry to the architecture selected through stages 2 to
+# 2.7, and copy that stage's winning recipe into the scalar fields.
+#
+# The baseline architecture is retrained here alongside the selected one, at the
+# same resolution, epoch budget, recipe and seed. Stage 0 recorded the baseline
+# at 128 px, and comparing a 256 px candidate against a 128 px reference would
+# credit the candidate for a resolution change it did not earn. Retraining both
+# is the only way the reported improvement is attributable to the model.
+#
+# This stage runs at 256 px because that is the input size the flight contract
+# fixes and the acceptance gate checks. Parameter count does not change with
+# resolution, so the frontier found at 128 px still holds; FLOPs, latency and
+# memory do change, which is why they are measured here rather than earlier.
+#
+# The test split is scored once, on the runs this stage produces. Everything
+# before it was chosen on validation.
+#
+# 2 architectures x 1 seed = 2 trials.
+
+kind = "classifier"
+data_dir = "data/processed/classifier"
+run_dir = "artifacts/runs"
+
+input_height_px = 256
+input_width_px = 256
+in_channels = 4
+
+epochs = 30
+batch_size = 32
+patience = 6
+eval_interval = 1
+
+arch = [
+  "resnet50",
+  "shufflenetv2_x0_5_pt",
+]
+seed = 0
+
+optimizer = "adamw"
+learning_rate = 0.001
+loss = "bce"
+momentum = 0.9
+weight_decay = 0.001
+pos_weight = 4.69
+scheduler = "cosine"
+shuffle = true
+augment = false
+amp = true
+val_metric = "f1"

@@ -6,6 +6,7 @@ from flight.electrical.app import ElectricalApp
 from flight.fault.app import FaultApp
 from flight.hal.drivers_sim import (
     SimGimbal,
+    SimIssEphemeris,
     SimLaunchLock,
     SimScalarSensor,
     SimSensor,
@@ -24,9 +25,11 @@ from flight.thermal.app import ThermalApp
 
 def _drivers() -> Drivers:
     """Bundle sim drivers + a scripted detector for composition testing."""
+    clock = ManualClock()
     return Drivers(
         sensor=SimSensor([]),
-        gimbal=SimGimbal(clock=ManualClock()),
+        gimbal=SimGimbal(clock=clock),
+        ephemeris=SimIssEphemeris(clock=clock),
         detector=ScriptedDetector(np.zeros((256, 256), dtype=np.float32)),
         station=SimStationLink([]),
         thermal_sensor=SimScalarSensor([20.0]),

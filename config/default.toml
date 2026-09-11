@@ -3,30 +3,61 @@
 # No magic numbers in source code — every threshold must reference this file.
 # Loaded once at startup by ops/config_loader.py into typed PactConfig dataclasses.
 
-[controller]
+[controller.vision]
 confidence_gate = 0.55
-ema_alpha = 0.4
-min_deadband_px = 20
-max_deadband_px = 250
-max_deadband_strike_count = 3
-retarget_rate_limit_hz = 0.5
-max_slew_rate_deg_per_s = 2.0
-acquire_persistence_frames = 3
-release_persistence_frames = 5
-scan_entry_idle_seconds = 60.0
-scan_slew_rate_deg_per_s = 0.5
 blob_iou_match_threshold = 0.25
 min_blob_area_px = 15
-# Kalman filter
-kalman_dt_s = 0.1
-kalman_process_noise = 0.01
-kalman_measurement_noise = 0.1
-# LQR controller
-lqr_Q_diag = [10.0, 10.0, 1.0, 1.0]
-lqr_R_diag = [1.0, 1.0]
-max_slew_deg_s = 2.0
-runaway_rate_tolerance_deg_per_s = 1.0
-runaway_strike_count = 3
+queue_depth = 4
+
+[controller.arbiter]
+release_persistence_frames = 5
+limb_arrival_deg = 0.5
+max_observation_age_s = 0.25
+
+[controller.inner]
+dt_s = 0.001
+rate_fit_n = 7
+rate_fit_degree = 2
+kp = 200.0
+ki = 10000.0
+tau_cl_s = 0.010
+
+[controller.outer]
+dt_s = 0.020
+Kp = 8.0
+
+[controller.residual]
+Q_diag = [1.0e-11, 3.0e-8]
+q_accel_rad2_s3 = 3.0e-8
+R_v = 2.12e-9
+P0_diag = [1.0e-3, 1.2e-5]
+encoder_variance_rad2 = 1.0e-10
+reversal_variance_rad2 = 1.0e-10
+reversal_threshold_rad = 1.0e-6
+interpolation_span_max_s = 0.020
+timing_uncertainty_max_s = 1.0e-4
+rewind_horizon_s = 0.10
+rewind_snapshots = 8
+
+[controller.position]
+K_pos = 4.0
+r_max_deg_per_s = 8.0
+
+[controller.integrity]
+catchup_max_s = 2.0
+freeze_strikes = 50
+r_min_rad_s = 0.01745
+encoder_rate_ratio = 0.2
+lock_fight_rad_s = 0.05
+lock_fight_strikes = 50
+# Driver-side command lease. Hardware must independently inhibit on expiry.
+command_authority_s = 0.020
+feedback_max_age_s = 0.010
+# Only classified transient availability faults may use this bounded retry budget.
+recovery_max_attempts = 3
+recovery_window_s = 1.0
+# Provisional braking/feedback margin inside each science boundary.
+science_boundary_guard_deg = 0.25
 
 [inference]
 segmentor_model_path = "data/models/active_segmentor.onnx"
@@ -35,10 +66,11 @@ segmentor_rollback_model_path = "data/models/rollback_segmentor.onnx"
 classifier_rollback_model_path = "data/models/rollback_classifier.onnx"
 classifier_logit_threshold = 0.0
 input_bands = ["BLUE", "GREEN", "RED", "NIR"]
-input_height_px = 256
-input_width_px = 256
+input_height_px = 1024
+input_width_px = 1224
 use_int8 = false
-latency_budget_ms = 500.0   # TBD — update when Jetson Xavier benchmark is complete
+# Derived expected detect wall (Orin Nano Super, mixed knee: cls FP16 + seg INT8).
+latency_budget_ms = 4.0
 
 [comms]
 max_downlink_rate_bps = 5000000
@@ -63,39 +95,121 @@ sunglint_nir_mean_threshold = 0.6
 max_motion_smear_px = 1.0
 
 [sensor]
-width_px = 1024
-height_px = 1024
+# BFS-U3-50S5M-C, Sony IMX264, global shutter. width is lateral; height is along-track.
+part_number = "BFS-U3-50S5M-C"
+sensor_name = "Sony IMX264"
+width_px = 2448
+height_px = 2048
 bit_depth = 12
 mosaic_layout = ["BLUE", "GREEN", "RED", "NIR"]
-# 1024 @ 0.02 deg/px keeps FOV parity with the previous 512 @ 0.04 geometry.
-ifov_deg_per_px = 0.02
-default_exposure_us = 1000.0
-default_gain_db = 0.0
+pixel_um = 3.45
+focal_length_mm = 150.0
+f_number = 4.0
+lens_distortion_pct = 0.66
+ifov_mosaic_deg_per_px = 0.001318
+ifov_band_deg_per_px = 0.002636
+fov_lateral_deg = 3.204
+fov_along_deg = 2.681
+datasheet_hfov_2_3_deg = 3.36
+qe_530_pct = 62.51
+saturation_capacity_e = 10824.0
+temporal_dark_noise_e = 2.27
+dynamic_range_db = 71.83
+max_frame_rate_hz = 35.0
+exposure_min_us = 13.0
+exposure_max_us = 30000000.0
+initial_exposure_us = 13.0
+gain_min_db = 0.0
+gain_max_db = 47.0
+initial_gain_db = 0.0
 calibration_dir = ""
 
 [fault]
 watchdog_interval_s = 5.0
 watchdog_max_miss_count = 3
-inference_timeout_ms = 2000.0
-thermal_limit_c = 80.0
+# Derived FDIR detect timeout (5x expected, Orin Nano Super mixed knee).
+inference_timeout_ms = 20.0
+# Payload-bus FDIR allocation. Orin Nano Super module TDP is 25 W; this is not module TDP.
 power_limit_w = 55.0
 
+[thermal]
+# Record-only datasheet limits. Housekeeping does not compare until per-component sensors exist.
+camera_min_c = 0.0
+camera_max_c = 50.0
+lens_min_c = -10.0
+lens_max_c = 50.0
+gimbal_min_c = -20.0
+gimbal_max_c = 70.0
+compute_min_c = 0.0
+compute_max_c = 80.0
+
 [gimbal]
-az_min_deg = -90.0
-az_max_deg = 90.0
-el_min_deg = -45.0
-el_max_deg = 45.0
+# Elevation is signed off-nadir, deg: 0 = geocentric nadir, + along-track (velocity), - look-back.
+el_hw_min_deg = -45.0
+el_hw_max_deg = 90.0
+# Science stop at +45 deg off-nadir: along-track band GSD ~45 m at that look on the
+# design pass (~20 m at nadir, ~118 m at 60 deg). Geometric Earth limb is ~69 deg
+# off-nadir and is not the detection limit.
+el_science_min_deg = 0.0
+el_science_max_deg = 45.0
 max_hw_slew_rate_deg_per_s = 10.0
-stow_az_deg = 0.0
 stow_el_deg = -45.0
-home_az_deg = 0.0
-home_el_deg = 0.0
-sim_time_constant_s = 0.2
-sim_encoder_noise_deg = 0.005
-sim_seed = 0
+home_el_deg = 45.0
+[gimbal.simulation]
+J_kg_m2 = 0.008
+B_nms_per_rad = 0.04
+tau_max_nm = 1.0
+encoder_counts_per_rev = 262144
+encoder_noise_deg = 0.005
+seed = 0
+
+[gimbal.xeryon]
+model = "XRT-U-40-109-HV"
+controller = "XD-C"
+controller_counts_per_rev = 86400
+effective_encoder_resolution_urad = 109.0
+min_incremental_motion_urad = 109.0
+repeatability_uni_urad = 109.0
+repeatability_bi_urad = 109.0
+wobble_urad = 0.0
+command_quantum_deg_per_s = 0.01
+rated_speed_limit_deg_per_s = 10.0
+software_tracking_limit_deg_per_s = 10.0
+encoder_variance_rad2 = 1.0e-10
+reversal_variance_rad2 = 1.0e-10
+feedback_max_age_s = 0.010
+interpolation_span_max_s = 0.020
+timing_uncertainty_max_s = 1.0e-4
+hv_max_on_s = 120.0
+hv_duty_fraction = 0.5
+stow_reference_rate_deg_per_s = 1.0
+stow_timeout_s = 30.0
 serial_port = ""
-serial_baud = 9600
-counts_per_deg = 77.6
+settings_file_path = ""
+transport = "usb"
+usb_baudrate = 115200
+jetson_uart_baudrate = 76800
+feedback_info_level = 4
+feedback_poll_interval_ms = 2.0
+vendor_module = "Xeryon"
+vendor_stage = "XRTU_40_109"
+axis_letter = "X"
+motion_enabled = false
+vendor_license_audited = false
+python314_audited = false
+watchdog_validated = false
+stow_bench_validated = false
+external_watchdog_required = true
+
+[ephemeris]
+# Circular Keplerian ECI stand-in (ISS GP TLE 25544 mean elements, epoch 2026-09-01).
+inclination_deg = 51.6312
+mean_motion_rev_per_day = 15.48958602
+mu_m3_s2 = 3.986004418e14
+omega_earth_rad_s = 7.2921159e-5
+wgs84_a_m = 6378137.0
+wgs84_f = 0.0033528106647474805
+epoch_utc_s = 1788249600.0
 
 [link]
 command_tcp_host = "127.0.0.1"
@@ -120,4 +234,5 @@ gimbal = "real"
 compute = "real"
 link = "real"
 clock = "real"
+ephemeris = "real"
 host = "jetson_aarch64"

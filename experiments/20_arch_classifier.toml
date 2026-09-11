@@ -1,0 +1,104 @@
+# Stage 2: classifier architecture, training recipe held fixed.
+#
+# The recipe below comes from stage 1, but not from its single best cell.
+# After eight of twelve trials the top two sit within 0.002 F1: SGD at 0.01
+# with BCE at 0.9543, and AdamW at 0.001 with BCE at 0.9525. The remaining four
+# trials are the 0.0001 learning-rate block; SGD at 0.001 with BCE already
+# scored 0.8895, so a further tenfold drop cannot overtake the leaders. The
+# 0.002 spread on a 3,202-image validation split is noise, so those two cells
+# are tied and the ranking among them cannot carry a decision.
+#
+# What separates them is how far each falls when the learning rate is wrong,
+# which matters because this stage spans ImageNet-pretrained backbones,
+# the same graphs from scratch, and compact networks three orders of magnitude
+# smaller. Across a tenfold rate change SGD moved 0.065 F1 (0.9543 down to
+# 0.8895) against AdamW's 0.039 (0.9525 down to 0.9136), so AdamW degrades more
+# gently. SGD at 0.01 is also aggressive enough to wash out pretrained features,
+# which would report a handicap on the `_pt` entries as an architectural result.
+#
+# Holding a single recipe across every architecture is what makes the frontier
+# comparable, so the recipe is the robust member of the tied pair. Stage 2.7
+# re-tunes the rate on the selected architecture.
+#
+# Every backbone appears twice, once from scratch and once with ImageNet
+# weights. The pair is the point: the size ladder alone would say that
+# ShuffleNetV2 beats ResNet-50 on parameters and lose the more useful reading,
+# which is how much of each backbone's accuracy comes from pretraining. If
+# scratch and pretrained land together on a small backbone, the pretrained
+# weights are not earning their download and the scratch model ships.
+#
+# The `pactnet` entries are the compact family built for this corpus rather
+# than for ImageNet. They cannot be pretrained, so they carry the whole burden
+# of the scratch case, and at 11 k to 292 k parameters they sit two orders of
+# magnitude below the smallest torchvision backbone. The baseline reaches a
+# perfect train score while giving up several points on the held-out split, so
+# the corpus plainly does not need 23.5 M parameters; these entries are how far
+# down that observation can be pushed.
+#
+# The ladder spans roughly 0.011 M parameters (pactnet_w8) to 23.5 M
+# (ResNet-50), which is wide enough that the frontier has somewhere to go.
+#
+# The epoch budget is 30 rather than the 15 stage 1 used, because the two
+# families do not converge at the same rate. A pretrained backbone starts near
+# its answer and settles within about ten epochs; a compact network trained from
+# scratch is still climbing well past that point. Scoring both at 15 epochs
+# would not measure architecture, it would measure how much each one benefits
+# from a short schedule. Early stopping keeps the cost of the larger budget on
+# the runs that actually use it: a converged trial exits at its patience bound
+# instead of running to the cap.
+#
+# One seed per architecture at this stage. Repeating all 21 architectures twice
+# spends most of the budget resolving gaps between points that are nowhere near
+# the frontier. Stage 2.5 repeats the handful of architectures that land on or
+# beside the knee, which is the only place seed spread changes a decision.
+#
+# 21 architectures x 1 seed = 21 trials.
+
+kind = "classifier"
+data_dir = "data/processed/classifier"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 30
+batch_size = 64
+patience = 6
+eval_interval = 1
+
+arch = [
+  "resnet50",
+  "resnet50_pt",
+  "resnet34",
+  "resnet34_pt",
+  "resnet18",
+  "resnet18_pt",
+  "efficientnet_b0",
+  "efficientnet_b0_pt",
+  "mobilenetv3_large",
+  "mobilenetv3_large_pt",
+  "mobilenetv3_small",
+  "mobilenetv3_small_pt",
+  "shufflenetv2_x0_5",
+  "shufflenetv2_x0_5_pt",
+  "pactnet",
+  "pactnet_w8",
+  "pactnet_w32",
+  "pactnet_w64",
+  "pactnet_w16_d5",
+  "pactnet_w32_d5",
+  "pactnet_w16_full",
+]
+seed = 0
+
+optimizer = "adamw"
+learning_rate = 0.001
+loss = "bce"
+momentum = 0.9
+weight_decay = 0.0001
+scheduler = "cosine"
+shuffle = true
+augment = true
+amp = true
+val_metric = "f1"

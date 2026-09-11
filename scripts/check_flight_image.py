@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Lean-install CI check for the isolated pact-flight package.
 
-Verifies that pact-flight installs without pulling pact-tools, pact-sim, or pact-gse,
-declares the expected role extras, and does not expose heavy ML frameworks. Stdlib plus
-subprocess calls to ``uv`` so the probe runs in a fresh venv, not the workspace dev env.
+Verifies that pact-flight installs without pulling pact-tools, pact-sim, pact-gse, or
+pact-analysis, declares the expected role extras, and does not expose heavy ML frameworks.
+Stdlib plus subprocess calls to ``uv`` so the probe runs in a fresh venv, not the
+workspace dev env.
 """
 
 from __future__ import annotations
@@ -16,13 +17,15 @@ import tomllib
 import zipfile
 from pathlib import Path
 
-DENIED_DISTRIBUTIONS: frozenset[str] = frozenset({"pact-tools", "pact-sim", "pact-gse"})
+DENIED_DISTRIBUTIONS: frozenset[str] = frozenset(
+    {"pact-tools", "pact-sim", "pact-gse", "pact-analysis"}
+)
 DENIED_MODULES: frozenset[str] = frozenset(
     {"torch", "torchvision", "tensorflow", "jax", "jaxlib", "flax", "keras", "mlx"}
 )
 FLIGHT_EXTRAS: frozenset[str] = frozenset({"inference", "camera", "gimbal"})
-TOOLS_EXTRAS: frozenset[str] = frozenset({"train", "export"})
-FORBIDDEN_WHEEL_PREFIXES: frozenset[str] = frozenset({"tools/", "sim/", "gse/"})
+TOOLS_EXTRAS: frozenset[str] = frozenset({"export"})
+FORBIDDEN_WHEEL_PREFIXES: frozenset[str] = frozenset({"tools/", "sim/", "gse/", "analysis/"})
 
 
 def load_optional_dependency_keys(pyproject: Path) -> frozenset[str]:
@@ -264,6 +267,21 @@ def _build_and_check_wheel(repo: Path, out_dir: Path) -> list[str]:
     return findings
 
 
+def venv_python(venv_dir: Path) -> Path:
+    """Return the interpreter path inside a venv, for the running platform.
+
+    Args:
+        venv_dir: root of a virtual environment.
+
+    Returns:
+        Path to the interpreter. Windows venvs place it in ``Scripts`` with an
+        ``.exe`` suffix; every other platform uses ``bin``.
+    """
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
 def run_full_check(repo: Path) -> int:
     """Create an isolated venv, install pact-flight, and probe the result.
 
@@ -284,7 +302,7 @@ def run_full_check(repo: Path) -> int:
             detail = (venv.stdout + venv.stderr).strip()
             return _fail("check_flight_image: failed to create probe venv", detail=detail)
 
-        python = venv_dir / "bin" / "python"
+        python = venv_python(venv_dir)
         install_error = _install_flight(repo, python)
         if install_error is not None:
             detail = (install_error.stdout + install_error.stderr).strip()

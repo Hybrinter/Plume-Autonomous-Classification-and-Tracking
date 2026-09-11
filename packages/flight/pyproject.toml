@@ -11,6 +11,8 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.11",
     "structlog>=23.0",
+    "pydantic>=2.12",
+    "pact-xeryon-vendor",
 ]
 
 [project.optional-dependencies]
@@ -18,7 +20,7 @@ dependencies = [
 # inference = onboard model runtime; camera / gimbal = pip-installable device libs only.
 inference = ["onnxruntime>=1.19"]
 camera = []
-gimbal = []
+gimbal = ["pact-xeryon-vendor"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flight"]

@@ -207,7 +207,7 @@ def saturated_fraction_raw(
 def predicted_smear_px(
     slew_rate_deg_per_s: float,
     exposure_us: float,
-    ifov_deg_per_px: float,
+    ifov_band_deg_per_px: float,
     platform_rate_deg_per_s: float = 0.0,
 ) -> float:
     """Predicted motion smear length in band-plane pixels over one exposure.
@@ -223,17 +223,17 @@ def predicted_smear_px(
         slew_rate_deg_per_s (float): Gimbal slew rate over the exposure, deg/s (either
             sign). 0.0 when unknown.
         exposure_us (float): Exposure time, microseconds.
-        ifov_deg_per_px (float): Band-plane IFOV, deg/px.
+        ifov_band_deg_per_px (float): Band-plane IFOV, deg/px.
         platform_rate_deg_per_s (float): Platform ground-track angular rate, deg/s.
             Default 0.0 (gimbal-only smear).
 
     Outputs:
         float: Smear length in band-plane pixels; 0.0 when ifov is non-positive.
     """
-    if ifov_deg_per_px <= 0.0:
+    if ifov_band_deg_per_px <= 0.0:
         return 0.0
     total_rate = abs(slew_rate_deg_per_s) + platform_rate_deg_per_s
-    return total_rate * (exposure_us * 1e-6) / ifov_deg_per_px
+    return total_rate * (exposure_us * 1e-6) / ifov_band_deg_per_px
 
 
 def cloud_fraction(bands: np.ndarray, test: CloudTest) -> float:
@@ -264,7 +264,7 @@ def compute_quality_metrics(
     bands: np.ndarray,
     exposure_us: float,
     slew_rate_deg_per_s: float,
-    ifov_deg_per_px: float,
+    ifov_band_deg_per_px: float,
     utc_timestamp: str,
     band_names: tuple[str, ...] = DEFAULT_BAND_NAMES,
     gain_db: float | None = None,
@@ -282,7 +282,7 @@ def compute_quality_metrics(
             band_names order.
         exposure_us (float): Exposure time, microseconds.
         slew_rate_deg_per_s (float): Gimbal slew rate over the exposure, deg/s.
-        ifov_deg_per_px (float): Band-plane IFOV, deg/px.
+        ifov_band_deg_per_px (float): Band-plane IFOV, deg/px.
         utc_timestamp (str): ISO 8601 frame timestamp; empty means missing.
         band_names (tuple[str, ...]): Channel names of bands. Default
             (BLUE, GREEN, RED, NIR).
@@ -321,7 +321,7 @@ def compute_quality_metrics(
         on_raw = False
 
     smear = predicted_smear_px(
-        slew_rate_deg_per_s, exposure_us, ifov_deg_per_px, platform_rate_deg_per_s
+        slew_rate_deg_per_s, exposure_us, ifov_band_deg_per_px, platform_rate_deg_per_s
     )
 
     red_idx = band_index(band_names, _BAND_RED)
@@ -391,7 +391,7 @@ def compute_quality_flags(
     bands: np.ndarray,
     exposure_us: float,
     slew_rate_deg_per_s: float,
-    ifov_deg_per_px: float,
+    ifov_band_deg_per_px: float,
     utc_timestamp: str,
     cfg: PreprocessingConfig,
     band_names: tuple[str, ...] = DEFAULT_BAND_NAMES,
@@ -414,7 +414,7 @@ def compute_quality_flags(
         exposure_us (float): Camera exposure time in microseconds.
         slew_rate_deg_per_s (float): Gimbal slew rate over the exposure, deg/s (0.0
             when unknown -- the gimbal term of the smear gate degrades to zero).
-        ifov_deg_per_px (float): Band-plane IFOV, deg/px (SensorConfig.ifov_deg_per_px).
+        ifov_band_deg_per_px (float): Band-plane IFOV, deg/px (SensorConfig.ifov_band_deg_per_px).
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
         band_names (tuple[str, ...]): Channel names of bands; default
@@ -439,7 +439,7 @@ def compute_quality_flags(
         bands,
         exposure_us,
         slew_rate_deg_per_s,
-        ifov_deg_per_px,
+        ifov_band_deg_per_px,
         utc_timestamp,
         band_names,
         gain_db,

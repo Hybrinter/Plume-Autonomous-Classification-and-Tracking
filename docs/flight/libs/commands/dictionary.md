@@ -40,6 +40,9 @@ parameters against that schema.
 | `RELEASE_LAUNCH_LOCK` | `mechanical` | `phase: str` | yes |
 | `UPLOAD_MODEL_CHUNK` | `iss_iface` | chunk fields | no |
 | `ACTIVATE_MODEL` | `model_deploy` | `version: str` | no |
+| `GIMBAL_STOW` | `payload` | none | no |
+| `GIMBAL_HOME` | `payload` | none | no |
+| `GIMBAL_GOTO` | `payload` | `el_deg: float` | no |
 
 ## Inputs and outputs
 

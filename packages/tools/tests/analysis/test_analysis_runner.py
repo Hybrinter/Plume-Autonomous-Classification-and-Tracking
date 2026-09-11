@@ -39,12 +39,19 @@ def test_every_builtin_scenario_runs() -> None:
         assert run.capture.n_steps == SCENARIOS[name].steps
 
 
-def test_thermal_and_power_drive_safe_and_stow() -> None:
-    """Thermal/power over-limit runs latch SAFE and stow the gimbal."""
-    for name in ("thermal_over_limit_safe", "power_over_limit_safe"):
-        run = run_scenario(scenario(name))
-        assert _ever_positive(run, "system", "system.safe_latched")
-        assert _ever_positive(run, "payload", "payload.stow_switch")
+def test_power_drives_safe_and_stow() -> None:
+    """A power over-limit run latches SAFE and stows the gimbal."""
+    run = run_scenario(scenario("power_over_limit_safe"))
+    assert _ever_positive(run, "system", "system.safe_latched")
+    assert _ever_positive(run, "payload", "payload.stow_switch")
+
+
+def test_thermal_hot_sample_stays_nominal() -> None:
+    """A hot thermal sample publishes telemetry and does not latch SAFE."""
+    run = run_scenario(scenario("thermal_hot_sample"))
+    assert _final(run, "system", "system.safe_latched") == 0.0
+    temps = run.capture.wide["thermal"]["thermal.temperature_c"]
+    assert float(temps.max()) >= 95.0
 
 
 def test_injected_faults_drive_safe() -> None:

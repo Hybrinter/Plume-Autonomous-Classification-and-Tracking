@@ -38,7 +38,7 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
 **`load_scenario_spec(path) -> ScenarioSpec`**
 
 - Converts GSE TOML commands to post-ingress `CommandMsg` injections via the command
-  dictionary. Ignores GSE assertions.
+  dictionary. Ignores GSE assertions. Extra GSE keys are ignored by the file schema.
 
 ## Behavior
 
@@ -48,9 +48,10 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
 3. Pre-step runs actions first, then publishes injection messages on the bus.
 4. `record_run` owns the stepping loop after the hook fires.
 
-Built-in scenarios include: nominal tracking, thermal and power SAFE, gimbal runaway,
-watchdog inject, EXIT_SAFE recovery, hazardous ARM/EXECUTE, launch-lock interlock, model
-lifecycle, storage eviction, downlink AOS budget, and signed command ingress.
+Built-in scenarios include: nominal tracking, thermal hot-sample telemetry, power SAFE,
+gimbal runaway, watchdog inject, EXIT_SAFE recovery, hazardous ARM/EXECUTE, launch-lock
+interlock, model lifecycle, storage eviction, downlink AOS budget, and signed command
+ingress.
 
 ## Errors and faults
 
@@ -70,9 +71,10 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 
 ## Constraints
 
-- Faults the harness cannot raise organically (runaway, watchdog miss) arrive as injected
-  `FaultEventMsg`.
-- Gimbal runaway is injected. The sim gimbal tracks commands faithfully.
+- The `gimbal_runaway` suite freezes the sim encoder under a nonzero rate reference
+  so the light integrity detector trips `GIMBAL_RUNAWAY`.
+- A watchdog miss still arrives as an injected `FaultEventMsg`. `step_once`
+  synthesizes heartbeats each cycle.
 - File scenarios prefix names with `file_` and category `scenario-file`.
 
 ## Related documents

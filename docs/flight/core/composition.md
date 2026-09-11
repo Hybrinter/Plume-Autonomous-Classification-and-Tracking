@@ -13,7 +13,7 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 | Name | Kind | Description |
 | --- | --- | --- |
 | `MONITORED_SUBSYSTEMS` | constant | Nine heartbeat-emitting subsystem names |
-| `Drivers` | class | Frozen bundle of HAL drivers and detector backend |
+| `Drivers` | class | Frozen bundle of HAL drivers, ISS ephemeris, and detector backend |
 | `SystemApps` | class | Frozen bundle of all constructed apps and core services |
 | `default_bus_policy` | function | Per-message-type queue bounds and overflow rules |
 | `build_apps` | function | Construct every app from config, bus, clock, and drivers |
@@ -39,7 +39,9 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 3. `build_apps` constructs `StorageService` first.
 4. `build_apps` constructs payload, fault, iss_iface, thermal, electrical, command_router,
    downlink, mechanical, and model_deploy apps via each app's `from_config`.
-5. `build_apps` passes the same storage instance to payload, iss_iface, and model_deploy.
+5. `build_apps` passes `drivers.ephemeris` into `PayloadApp.from_config` with the gimbal,
+   sensor, detector, and launch lock.
+6. `build_apps` passes the same storage instance to payload, iss_iface, and model_deploy.
 
 ## Errors and faults
 
@@ -68,6 +70,7 @@ Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEven
   "mechanical", "model_deploy")`.
 - The fault app receives the `monitored` tuple. It does not monitor itself.
 - `Drivers.launch_lock` is always a sim stand-in. No real launch-lock driver exists.
+- `Drivers.ephemeris` is the injected `IssEphemeris` (sim circular Keplerian or real stub).
 
 ## Related documents
 

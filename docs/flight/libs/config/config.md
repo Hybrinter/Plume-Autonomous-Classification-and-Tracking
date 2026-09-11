@@ -5,24 +5,34 @@
 
 ## Purpose
 
-The module defines frozen dataclasses for all tunable flight parameters. Default field values
-match `config/default.toml`.
+The module defines frozen schema dataclasses for all tunable flight parameters. Default field
+values match `config/default.toml`. Field constraints and cross-field checks run when a config
+object is constructed.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ControllerConfig` | class | Gimbal controller, tracker, LQR, and runaway tuning |
-| `InferenceConfig` | class | Model paths, input bands, and latency budget |
+| `ArbiterConfig` | class | TRACKING / REWIND / SAFE persistence and limb arrival |
+| `VisionConfig` | class | Blob gates and in-process vision queue depth |
+| `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
+| `OuterLoopConfig` | class | Outer period and proportional error gain |
+| `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
+| `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
+| `IntegrityConfig` | class | Catch-up cap and light GIMBAL_RUNAWAY detector |
+| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, position, and integrity configs |
+| `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
-| `SensorConfig` | class | Sensor geometry, mosaic layout, and calibration dir |
+| `SensorConfig` | class | Purchased mosaic geometry, optics, IFOV, and exposure/gain ranges |
 | `PreprocessingConfig` | class | Quality-flag thresholds |
-| `FaultConfig` | class | Watchdog, inference timeout, thermal and power limits |
-| `GimbalConfig` | class | Travel limits, stow/home poses, sim dynamics, serial link |
+| `FaultConfig` | class | Watchdog, inference timeout, and power limit |
+| `ThermalConfig` | class | Record-only per-component temperature limits |
+| `GimbalConfig` | class | Elevation envelopes, stow/home, plant scalars, encoder |
 | `LinkConfig` | class | TCP/UDP endpoints and CCSDS APIDs |
 | `CommandIngressConfig` | class | HMAC key path, auth flag, accepted sources |
 | `CommandRouterConfig` | class | Hazardous ARM window duration |
+| `EphemerisConfig` | class | Circular-orbit ISS elements and WGS-84 constants |
 | `EnvironmentConfig` | class | Per-axis sim/real wiring selector |
 | `PactConfig` | class | Top-level config composing all sub-configs |
 | `AxisMode` | type alias | `"sim"` or `"real"` |
@@ -32,22 +42,27 @@ match `config/default.toml`.
 Each config class is constructed with keyword arguments or defaults. `PactConfig()` with no
 arguments yields a fully functional development configuration.
 
-`config_loader.load_config()` is the sole TOML entry point. It returns `PactConfig`.
+`config_loader.load_config()` is the sole TOML entry point. It validates a merged TOML dict
+into `PactConfig`.
 
 ## Behavior
 
 1. Each subsystem receives its sub-config slice at construction time.
 2. Frozen dataclasses prevent runtime mutation after load.
 3. Tuple fields hold array-like values. TOML arrays load as lists and map into tuples.
-4. `EnvironmentConfig` names sim/real axes for sensor, gimbal, compute, link, and clock.
-5. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
-6. `CommandIngressConfig` names the HMAC key path and accepted command sources.
-7. Routable targets and hazardous commands come from the command dictionary, not from router
+4. Unknown keys and out-of-range values fail at construction.
+5. `PactConfig` requires inference `H,W` to equal the demosaiced band plane
+   (`height_px/2`, `width_px/2`).
+6. `EnvironmentConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
+7. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
+8. `CommandIngressConfig` names the HMAC key path and accepted command sources.
+9. Routable targets and hazardous commands come from the command dictionary, not from router
    config fields.
 
 ## Errors and faults
 
-None from this module. Invalid TOML or out-of-range values fail in `config_loader` at startup.
+Construction raises `ValidationError` for unknown keys, out-of-range fields, and cross-field
+violations. `config_loader.load_config()` maps those errors to `Err(str)`.
 
 ## Messages
 
@@ -59,15 +74,26 @@ The module defines configuration. Key field groups:
 
 ### ControllerConfig
 
-Confidence gate, EMA alpha, deadband limits, retarget rate, slew limits, persistence frame
-counts, scan timing, blob IoU threshold, Kalman noise parameters, LQR cost weights, and encoder
-runaway tolerance.
+Nested tables under `[controller]`:
+
+- `vision`: `confidence_gate`, `blob_iou_match_threshold`, `min_blob_area_px`,
+  `queue_depth`
+- `arbiter`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
+- `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
+- `outer`: `dt_s`, `Kp`
+- `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
+- `position`: `K_pos`, `r_max_deg_per_s`
+- `integrity`: `catchup_max_s`, `freeze_strikes`, `r_min_rad_s`,
+  `encoder_rate_ratio`, `lock_fight_rad_s`, `lock_fight_strikes`,
+  `command_authority_s`, `feedback_max_age_s`, `recovery_max_attempts`,
+  `recovery_window_s`, `science_boundary_guard_deg`
 
 ### InferenceConfig
 
 `segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
 `classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
-dimensions, INT8 flag, and `latency_budget_ms`.
+dimensions (`1024 x 1224`), INT8 flag, and `latency_budget_ms` (4 ms expected
+detect).
 
 ### CommsConfig
 
@@ -76,18 +102,27 @@ staged segmentor and classifier paths, and per-pass downlink byte budget.
 
 ### SensorConfig
 
-`width_px`, `height_px`, `bit_depth`, `mosaic_layout`, `ifov_deg_per_px`, default exposure
-and gain, and `calibration_dir`.
+Mosaic `width_px` (lateral 2448) and `height_px` (along-track 2048), bit depth, mosaic
+layout, pixel pitch, focal length, f-number, mosaic and band IFOV, FOV check fields,
+QE and well-capacity records, exposure and gain legal ranges plus initials, and
+`calibration_dir`.
 
 ### FaultConfig
 
-`watchdog_interval_s`, `watchdog_max_miss_count`, `inference_timeout_ms`, `thermal_limit_c`,
-and `power_limit_w`.
+`watchdog_interval_s`, `watchdog_max_miss_count`, `inference_timeout_ms` (20 ms),
+and `power_limit_w` (payload-bus FDIR; module Super TDP is 25 W).
+
+### ThermalConfig
+
+Per-component min/max Celsius records: camera, lens, gimbal, compute. Housekeeping does
+not compare these values.
 
 ### GimbalConfig
 
-Azimuth and elevation travel limits, stow and home poses, sim dynamics parameters, and PTU
-serial settings.
+Hardware elevation `[el_hw_min_deg, el_hw_max_deg]`, science window
+`[el_science_min_deg, el_science_max_deg]`, stow and home elevation, max hardware slew,
+plant copies `J_kg_m2`, `B_nms_per_rad`, `tau_max_nm`, 18-bit encoder counts, and sim
+encoder noise. There is no azimuth travel field.
 
 ### LinkConfig
 
@@ -102,13 +137,21 @@ serial settings.
 
 `arm_window_s` for hazardous ARM/EXECUTE pairing.
 
+### EphemerisConfig
+
+ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
+`mu_m3_s2`, `epoch_utc_s`), Earth rate, and WGS-84 `a` and `f`.
+
 ## Constraints
 
 - Default field values must match `config/default.toml` exactly.
 - No subsystem reads TOML directly.
 - `calibration_dir=""` selects identity calibration (SIL only).
-- `serial_port=""` marks real gimbal unavailable at startup.
 - Launch-lock axis is not in `EnvironmentConfig`.
+- Science elevation must lie inside hardware travel. Stow and home must lie inside
+  hardware travel.
+- `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have
+  length 2.
 
 ## Related documents
 

@@ -1,16 +1,10 @@
-"""
-Gimbal arbiter state machine for PACT.
+"""Gimbal arbiter: TRACKING / REWIND / SAFE mode selection (pure).
 
-Implements the four-state + SAFE arbiter that governs all gimbal commands.
-The arbiter is a pure function: GimbalArbiter.step() has no side effects and holds
-no references to queues, hardware, or I/O. All state transitions are returned as
-TelemetryEventMsg values to be dispatched by the caller (the payload app shell).
-
-The arbiter emits a typed GimbalRequest (not a bus message): RATE during TRACKING,
-ABSOLUTE for the SCAN raster, STOW on SAFE entry. SAFE is latched in the arbiter and
-commanded/cleared by ModeChangeMsg flags (safe_commanded/safe_cleared) drained by the
-shell; pointing error is supplied as boresight-relative degrees by the caller, killing
-the old absolute-centroid PIXEL_TO_DEG conversion.
+The arbiter selects the rate-reference policy. It does not emit axis rates or
+torque. SAFE latches until ground clears it. A plume moves the machine to
+TRACKING immediately. A loss below the science limb enters REWIND after the
+first of a bounded empty-result release or observation-age timeout. Arrival at
+the limb with no plume is TRACKING with r = 0.
 
 Satisfies: REQ-AIML-GIMB-001 through 008, REQ-GIMB-HIGH-001 through 004
 """
@@ -19,320 +13,234 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from flight.libs.config import ControllerConfig
-from flight.libs.messages import (
-    BlobMeta,
-    InferenceResultMsg,
-    TelemetryEventMsg,
-    utc_now_iso,
-)
+from flight.libs.config import ArbiterConfig, GimbalConfig
+from flight.libs.messages import BlobMeta, TelemetryEventMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
-
-_SCAN_LIMIT_DEG: float = 30.0  # azimuth raster half-span before the scan reverses direction
 
 
 @dataclass(frozen=True)
 class ArbiterState:
-    """Immutable arbiter state snapshot.
-
-    All fields are value types or immutable collections. Never mutate an ArbiterState;
-    always produce a new one via dataclasses.replace().
+    """Immutable arbiter snapshot.
 
     Fields
     ------
     gimbal_state:
-        Current state in the four-state + SAFE machine.
+        TRACKING, REWIND, or SAFE.
     tracked_blobs:
-        Blobs that survived all safety gates in the previous step.
-    idle_duration_s:
-        Seconds the arbiter has been continuously in IDLE (reset on any non-IDLE entry).
-    last_command_time:
-        Unix timestamp of the most recent command issued. Used by the rate limiter.
-    current_target_id:
-        blob_id of the blob currently being tracked, or None if not in TRACKING.
-    scan_pan_deg:
-        Current azimuth pan position during SCAN mode (absolute degrees).
-    scan_direction:
-        Sign (+1.0 / -1.0) of the SCAN raster sweep; flips at the +-_SCAN_LIMIT_DEG edge.
+        Blobs that survived safety gates on the last vision sample.
+    aggregate_live:
+        Whether an accepted aggregate is present or is still within its
+        bounded prediction-only coast. This is deliberately independent of
+        connected-component IDs.
+    last_observation_s:
+        Shutter time of the most recent accepted aggregate, or None before one
+        has been seen. It is retained after loss for age telemetry.
+    loss_handled:
+        True after the aggregate has exhausted its coast. It prevents a
+        limbed REWIND from immediately re-entering REWIND every outer tick.
     miss_count:
-        TRACKING release-hysteresis counter: consecutive frames with no blob while in
-        TRACKING. TRACKING releases to IDLE only once miss_count reaches
-        release_persistence_frames; any blob resets it to 0.
+        Consecutive vision samples with no blob while in TRACKING.
     """
 
     gimbal_state: GimbalState
     tracked_blobs: tuple[BlobMeta, ...]
-    idle_duration_s: float
-    last_command_time: float  # Unix timestamp; 0.0 if no command has been issued yet
     current_target_id: int | None
-    scan_pan_deg: float = 0.0  # current pan position during SCAN mode
-    scan_direction: float = 1.0  # SCAN raster sweep sign; flips at the travel edges
-    miss_count: int = 0  # TRACKING release-hysteresis counter
+    miss_count: int = 0
+    aggregate_live: bool = False
+    last_observation_s: float | None = None
+    loss_handled: bool = False
 
 
 class GimbalArbiter:
-    """Four-state + SAFE gimbal arbiter. REQ-AIML-GIMB-008.
+    """TRACKING / REWIND / SAFE gimbal arbiter. REQ-AIML-GIMB-008.
 
-    State Machine
-    -------------
-    States
-        IDLE        No blob in view, or confidence gate has not been met.
-        ACQUIRING   Blob detected and above threshold, but persistence < acquire frames.
-        TRACKING    Blob held for >= acquire_persistence_frames consecutive frames.
-        SCAN        IDLE for > scan_entry_idle_seconds; execute an absolute raster slew.
-        SAFE        Fault/ground-induced; latched. Only exit is a cleared-mode signal.
-
-    Transitions (all logged as TelemetryEventMsg)
-        IDLE       -> ACQUIRING  : blob detected, persistence < acquire threshold
-        ACQUIRING  -> TRACKING   : persistence >= acquire_persistence_frames
-        TRACKING   -> IDLE       : no blobs for release_persistence_frames frames
-        IDLE       -> SCAN       : idle_duration_s > scan_entry_idle_seconds
-        SCAN       -> ACQUIRING  : blob detected above threshold
-        any        -> SAFE       : safe_commanded or InferenceResultMsg.mode_flags != 0
-        SAFE       -> IDLE       : safe_cleared (ground recovery)
-
-    Design Notes
-    ------------
-    - step() is a **pure function**: no I/O, no queue access, no random, no time.time().
-      The caller supplies `now` (monotonic seconds) and the boresight-relative error so
-      the function is fully deterministic and trivially testable without mocking.
-    - GimbalArbiter itself is stateless -- it stores no mutable instance state. ArbiterState
-      is threaded externally through the app loop.
-    - SAFE latches: while in SAFE, no further requests are produced and blobs are ignored
-      until safe_cleared returns the machine to IDLE.
-    - The TRACKING command is a proportional fallback (gain 1.0 / s) on the boresight error;
-      control.py refines it via the LQR once the estimator is initialized. The SCAN raster
-      is an ABSOLUTE pan that reverses at +-_SCAN_LIMIT_DEG (the old delta scan never
-      reversed).
+    step() is a pure function aside from timestamp strings on returned telemetry.
+    GimbalArbiter holds no mutable instance state; ArbiterState threads externally.
     """
 
-    def __init__(self, cfg: ControllerConfig) -> None:
-        """Hold the immutable controller config for thresholds, rates, and limits.
+    def __init__(self, cfg: ArbiterConfig, gimbal: GimbalConfig) -> None:
+        """Hold arbiter thresholds and the science-limb elevation.
 
         Args:
-            cfg: The ControllerConfig supplying gates, persistence, and slew limits.
+            cfg: ArbiterConfig supplying release persistence and limb arrival.
+            gimbal: GimbalConfig supplying science-limb elevation.
         """
         self._cfg = cfg
+        self._gimbal = gimbal
 
     def step(
         self,
         state: ArbiterState,
-        result: InferenceResultMsg,
-        error_deg: tuple[float, float] | None,
+        blobs: tuple[BlobMeta, ...],
         now: float,
         safe_commanded: bool,
         safe_cleared: bool,
-    ) -> tuple[
-        ArbiterState,
-        GimbalRequest | None,
-        list[TelemetryEventMsg],
-    ]:
-        """Advance the state machine by one frame and emit at most one GimbalRequest.
+        el_deg: float | None,
+        mode_flags: int = 0,
+        vision_updated: bool = True,
+        observation_t_s: float | None = None,
+        coast_permitted: bool = True,
+        timestamp_utc: str = "",
+    ) -> tuple[ArbiterState, GimbalRequest | None, list[TelemetryEventMsg]]:
+        """Advance the mode machine by one outer tick.
 
         Parameters
         ----------
         state:
             Current immutable arbiter state.
-        result:
-            Pre-filtered InferenceResultMsg (blobs already passed all safety gates).
-        error_deg:
-            Boresight-relative (az, el) error of the matched target in degrees, or None
-            when no usable target exists. Used only in TRACKING to form the rate command.
+        blobs:
+            Gated, IoU-matched blobs from the latest vision sample (empty on coast).
         now:
-            Monotonic seconds (supplied by the caller for determinism; used as deltas).
+            Monotonic seconds (unused for rates; kept for the pure-core signature).
         safe_commanded:
-            True if a SAFE mode change was drained this frame: latch SAFE and stow.
+            True if a SAFE mode change was drained: latch SAFE and stow.
         safe_cleared:
-            True if a non-SAFE mode change was drained this frame: exit SAFE to IDLE.
+            True if a non-SAFE mode change was drained: exit SAFE to TRACKING.
+        el_deg:
+            Current elevation in signed off-nadir degrees, or None.
+        mode_flags:
+            Inference mode_flags; any nonzero value latches SAFE.
+        vision_updated:
+            True when this tick consumed a vision sample. False on outer coast:
+            miss_count is unchanged, but observation age still advances.
+        observation_t_s:
+            Shutter time of the consumed vision sample. Defaults to ``now`` for
+            a direct caller that has no separate shutter timestamp.
+        coast_permitted:
+            Estimator-uncertainty seam. A later estimator selection can revoke
+            prediction-only coasting without changing the mode machine.
+        timestamp_utc:
+            Injected ISO stamp for transition telemetry. Empty uses a blank stamp.
 
         Returns
         -------
         (new_state, request, telemetry_events)
-            new_state        : Updated ArbiterState after this step.
-            request          : GimbalRequest to issue, or None.
-            telemetry_events : Zero or more TelemetryEventMsg for state transitions.
+            request is STOW on SAFE entry, otherwise None. The outer law owns r.
         """
         cfg = self._cfg
+        gimbal = self._gimbal
         old_gs = state.gimbal_state
-        blobs = result.blobs
-        has_blobs = len(blobs) > 0
+        blobs_now = blobs if vision_updated else state.tracked_blobs
+        # Old association records survive an outer coast so that the next vision
+        # sample can match them. They are not a new observation and must never
+        # refresh aggregate liveness or observation age.
+        has_plume = vision_updated and len(blobs) > 0
         events: list[TelemetryEventMsg] = []
+        at_limb = el_deg is not None and el_deg >= gimbal.el_science_max_deg - cfg.limb_arrival_deg
 
-        # SAFE entry: a commanded SAFE or any non-zero mode_flags latches SAFE and stows.
-        if (safe_commanded or result.mode_flags != 0) and old_gs != GimbalState.SAFE:
+        if (safe_commanded or mode_flags != 0) and old_gs != GimbalState.SAFE:
             new_state = replace(
                 state,
                 gimbal_state=GimbalState.SAFE,
-                tracked_blobs=blobs,
+                tracked_blobs=blobs_now,
                 miss_count=0,
                 current_target_id=None,
+                aggregate_live=False,
+                last_observation_s=None,
+                loss_handled=False,
             )
-            events.append(self._transition_event(old_gs, GimbalState.SAFE))
+            events.append(self._transition_event(old_gs, GimbalState.SAFE, timestamp_utc))
             stow_request = GimbalRequest(
                 mode=GimbalCommandMode.STOW,
-                az_deg=0.0,
-                el_deg=0.0,
+                el_deg=gimbal.stow_el_deg,
                 reason="safe_entry_stow",
             )
             return new_state, stow_request, events
 
-        # SAFE latch / exit: while SAFE, produce nothing unless cleared.
         if old_gs == GimbalState.SAFE:
             if safe_cleared:
                 new_state = ArbiterState(
-                    gimbal_state=GimbalState.IDLE,
+                    gimbal_state=GimbalState.TRACKING,
                     tracked_blobs=(),
-                    idle_duration_s=0.0,
-                    last_command_time=state.last_command_time,
                     current_target_id=None,
-                    scan_pan_deg=state.scan_pan_deg,
-                    scan_direction=state.scan_direction,
                     miss_count=0,
+                    aggregate_live=False,
+                    last_observation_s=None,
+                    loss_handled=False,
                 )
-                events.append(self._transition_event(GimbalState.SAFE, GimbalState.IDLE))
+                events.append(
+                    self._transition_event(GimbalState.SAFE, GimbalState.TRACKING, timestamp_utc)
+                )
                 return new_state, None, events
-            return replace(state, tracked_blobs=blobs), None, events
+            return replace(state, tracked_blobs=blobs_now, aggregate_live=False), None, events
 
         new_gs = old_gs
-        idle_dur = state.idle_duration_s
-        target_id = state.current_target_id
-        scan_pan = state.scan_pan_deg
-        scan_direction = state.scan_direction
+        # Kept as a compatibility-only telemetry field. Aggregate validity and
+        # control do not select or depend on an individual component ID.
+        target_id: int | None = None
         miss_count = state.miss_count
-        last_cmd_time = state.last_command_time
+        last_observation_s = state.last_observation_s
+        loss_handled = state.loss_handled
 
-        if old_gs == GimbalState.IDLE:
-            if has_blobs:
-                new_gs = (
-                    GimbalState.TRACKING if _any_acquired(blobs, cfg) else GimbalState.ACQUIRING
-                )
-                idle_dur = 0.0
-            else:
-                idle_dur = state.idle_duration_s + cfg.kalman_dt_s
-                if idle_dur >= cfg.scan_entry_idle_seconds:
-                    new_gs = GimbalState.SCAN
-                    scan_pan = 0.0
-
-        elif old_gs == GimbalState.ACQUIRING:
-            if not has_blobs:
-                new_gs = GimbalState.IDLE
-                idle_dur = 0.0
-                target_id = None
-            elif _any_acquired(blobs, cfg):
+        if has_plume:
+            # An accepted aggregate enters TRACKING immediately. Component IDs
+            # remain association metadata only; the aggregate owns liveness.
+            last_observation_s = now if observation_t_s is None else observation_t_s
+            miss_count = 0
+            loss_handled = False
+            if old_gs is GimbalState.REWIND:
                 new_gs = GimbalState.TRACKING
+        elif vision_updated:
+            miss_count = state.miss_count + 1
 
-        elif old_gs == GimbalState.TRACKING:
-            if has_blobs:
+        age_s = None if last_observation_s is None else max(0.0, now - last_observation_s)
+        empty_release = vision_updated and miss_count >= cfg.release_persistence_frames
+        age_release = age_s is not None and age_s >= cfg.max_observation_age_s
+        coast_exhausted = (empty_release or age_release or not coast_permitted) and not has_plume
+
+        if old_gs is GimbalState.TRACKING and coast_exhausted and not loss_handled:
+            loss_handled = True
+            target_id = None
+            if at_limb:
                 miss_count = 0
             else:
-                miss_count = state.miss_count + 1
-                if miss_count >= cfg.release_persistence_frames:
-                    new_gs = GimbalState.IDLE
-                    idle_dur = 0.0
-                    target_id = None
-                    miss_count = 0
+                new_gs = GimbalState.REWIND
+                miss_count = 0
+        elif old_gs is GimbalState.REWIND and not has_plume and at_limb:
+            new_gs = GimbalState.TRACKING
+            miss_count = 0
 
-        elif old_gs == GimbalState.SCAN:
-            if has_blobs:
-                new_gs = (
-                    GimbalState.TRACKING if _any_acquired(blobs, cfg) else GimbalState.ACQUIRING
-                )
-                idle_dur = 0.0
+        aggregate_live = has_plume or (
+            last_observation_s is not None
+            and not loss_handled
+            and coast_permitted
+            and not empty_release
+            and not age_release
+        )
 
         if new_gs != old_gs:
-            events.append(self._transition_event(old_gs, new_gs))
-
-        request: GimbalRequest | None = None
-
-        if new_gs == GimbalState.TRACKING and has_blobs and error_deg is not None:
-            best = _select_best_target(blobs)
-            target_id = best.blob_id
-            if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                limit = cfg.max_slew_rate_deg_per_s
-                az_rate = min(max(error_deg[0] * 1.0, -limit), limit)
-                el_rate = min(max(error_deg[1] * 1.0, -limit), limit)
-                request = GimbalRequest(
-                    mode=GimbalCommandMode.RATE,
-                    az_deg=az_rate,
-                    el_deg=el_rate,
-                    reason="tracking_target",
-                )
-                last_cmd_time = now
-
-        elif new_gs == GimbalState.SCAN:
-            if _rate_ok(last_cmd_time, now, cfg.retarget_rate_limit_hz):
-                scan_pan = scan_pan + scan_direction * cfg.scan_slew_rate_deg_per_s * (
-                    1.0 / cfg.retarget_rate_limit_hz
-                )
-                if scan_pan > _SCAN_LIMIT_DEG:
-                    scan_pan = _SCAN_LIMIT_DEG
-                    scan_direction = -1.0
-                elif scan_pan < -_SCAN_LIMIT_DEG:
-                    scan_pan = -_SCAN_LIMIT_DEG
-                    scan_direction = 1.0
-                request = GimbalRequest(
-                    mode=GimbalCommandMode.ABSOLUTE,
-                    az_deg=scan_pan,
-                    el_deg=0.0,
-                    reason="nadir_scan",
-                )
-                last_cmd_time = now
+            events.append(self._transition_event(old_gs, new_gs, timestamp_utc))
 
         new_state = ArbiterState(
             gimbal_state=new_gs,
-            tracked_blobs=blobs,
-            idle_duration_s=idle_dur,
-            last_command_time=last_cmd_time,
+            tracked_blobs=blobs_now,
             current_target_id=target_id,
-            scan_pan_deg=scan_pan,
-            scan_direction=scan_direction,
             miss_count=miss_count,
+            aggregate_live=aggregate_live,
+            last_observation_s=last_observation_s,
+            loss_handled=loss_handled,
         )
-        return new_state, request, events
+        return new_state, None, events
 
     @staticmethod
-    def _transition_event(from_state: GimbalState, to_state: GimbalState) -> TelemetryEventMsg:
+    def _transition_event(
+        from_state: GimbalState, to_state: GimbalState, timestamp_utc: str
+    ) -> TelemetryEventMsg:
         """Build the state_transition telemetry event for one arbiter transition.
 
         Args:
             from_state: The GimbalState before the transition.
             to_state: The GimbalState after the transition.
+            timestamp_utc: Injected ISO timestamp (not wall clock).
 
         Returns:
             A TelemetryEventMsg recording the from/to states for the controller subsystem.
         """
         return TelemetryEventMsg(
             msg_type=MessageType.TELEMETRY_EVENT,
-            timestamp_utc=utc_now_iso(),
+            timestamp_utc=timestamp_utc,
             subsystem="controller",
             event_name="state_transition",
             payload={"from": from_state.value, "to": to_state.value},
         )
-
-
-def _any_acquired(
-    blobs: tuple[BlobMeta, ...],
-    cfg: ControllerConfig,
-) -> bool:
-    """Return True if any blob has persistence >= acquire threshold."""
-    return any(b.persistence_count >= cfg.acquire_persistence_frames for b in blobs)
-
-
-def _select_best_target(blobs: tuple[BlobMeta, ...]) -> BlobMeta:
-    """Select best target: highest persistence, then confidence."""
-    return max(
-        blobs,
-        key=lambda b: (b.persistence_count, b.mean_confidence),
-    )
-
-
-def _rate_ok(
-    last_cmd_time: float,
-    now: float,
-    rate_hz: float,
-) -> bool:
-    """Check if enough time elapsed for a new command."""
-    if rate_hz <= 0.0:
-        return False
-    return (now - last_cmd_time) >= (1.0 / rate_hz)

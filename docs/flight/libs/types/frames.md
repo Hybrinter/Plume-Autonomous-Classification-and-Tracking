@@ -18,13 +18,14 @@ to the payload app. It is not a bus message.
 
 | Entry point | Inputs | Outputs |
 | --- | --- | --- |
-| `MosaicFrame(...)` | `timestamp_utc`, `frame_id`, `mosaic`, `exposure_us`, `gain_db` | Frozen `MosaicFrame` instance |
+| `MosaicFrame(...)` | `timestamp_utc`, `timestamp_s`, `frame_id`, `mosaic`, `exposure_us`, `gain_db` | Frozen `MosaicFrame` instance |
 
 Fields:
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `timestamp_utc` | `str` | ISO 8601 capture time with millisecond precision |
+| `timestamp_s` | `float` | Monotonic shutter time in seconds |
 | `frame_id` | `int` | Monotonic uint32 frame counter from the driver |
 | `mosaic` | `object` | `np.ndarray[uint16, (H, W)]` raw 2x2-CFA mosaic plane |
 | `exposure_us` | `float` | Exposure time in microseconds |

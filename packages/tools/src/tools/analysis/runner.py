@@ -8,13 +8,14 @@ or flip the link state). Driving state changes through prepared bus messages / p
 (never a flight code change) is exactly how the existing SIL tests steer the system; the recorder
 captures the response passively.
 
-The suite covers the nominal track plus every required fault/behavior path: thermal and power
-over-limit -> SAFE -> stow, gimbal runaway, watchdog/process-died, EXIT_SAFE recovery via the
-ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the launch-lock interlock, the model
-upload -> activate -> rollback lifecycle, storage eviction, and downlink AOS/budget backpressure.
-Faults that the deterministic ``step_once`` cannot raise organically (a gimbal encoder runaway, or
-a watchdog miss when ``step_once`` synthesizes every app's heartbeat each step) are injected as the
-FDIR input FaultEventMsg, which is documented per scenario.
+The suite covers the nominal track plus every required fault/behavior path: a thermal hot
+sample (telemetry only), power over-limit -> SAFE -> stow, gimbal runaway, watchdog/process-died,
+EXIT_SAFE recovery via the ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the
+launch-lock interlock, the model upload -> activate -> rollback lifecycle, storage eviction,
+and downlink AOS/budget backpressure.
+The gimbal-runaway scenario freezes the sim encoder under a nonzero rate reference so
+the light integrity detector trips ``GIMBAL_RUNAWAY``. A watchdog miss is still injected
+as a FaultEventMsg because ``step_once`` synthesizes every app heartbeat each step.
 
 Contains:
   - Injection / Action / ScenarioSpec / ScenarioRun: the declarative run + its captured result.
@@ -46,6 +47,10 @@ from flight.libs.messages import (
 )
 from flight.libs.time import ManualClock
 from flight.libs.types import DownlinkPriority, FaultCode, LinkState, MessageType, Ok
+
+# third-party
+from pydantic import ConfigDict, Field, TypeAdapter
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilSystem, build_sil_system
 
@@ -218,16 +223,18 @@ def _stage_model_action(version: str, channels: int) -> SystemAction:
     publish ModelStagedMsg (the message iss_iface emits after reassembly). model_deploy
     validates digest plus both network contracts exactly as in flight.
     """
+    inf = PactConfig().inference
+    height, width = inf.input_height_px, inf.input_width_px
     blob = json.dumps(
         {
             "version": version,
             "classifier": {
-                "input_shape": [1, channels, 256, 256],
+                "input_shape": [1, channels, height, width],
                 "output_shape": [1, 1],
             },
             "segmentor": {
-                "input_shape": [1, channels, 256, 256],
-                "output_shape": [1, 1, 256, 256],
+                "input_shape": [1, channels, height, width],
+                "output_shape": [1, 1, height, width],
             },
         },
         sort_keys=True,
@@ -295,21 +302,19 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="nominal_tracking",
             title="Nominal plume tracking",
             description=(
-                "Detect the scripted plume, transition IDLE -> ACQUIRING -> TRACKING, and slew the "
-                "gimbal toward the target (azimuth positive, elevation negative). No faults; the "
-                "system stays nominal the whole run."
+                "Detect the scripted plume, enter TRACKING, and slew elevation toward "
+                "the target. No faults; the system stays nominal the whole run."
             ),
             category="nominal",
             steps=14,
             num_frames=14,
         ),
         ScenarioSpec(
-            name="thermal_over_limit_safe",
-            title="Thermal over-limit -> SAFE -> stow",
+            name="thermal_hot_sample",
+            title="Thermal hot sample is telemetry only",
             description=(
-                "A thermal spike above the 80 C limit self-reports THERMAL_OVER_LIMIT; "
-                "FDIR latches SAFE, the arbiter commands STOW, and the gimbal reaches the "
-                "stow pose (stow switch engaged)."
+                "A thermal spike to 95 C publishes thermal_sample telemetry. Housekeeping "
+                "does not emit THERMAL_OVER_LIMIT. The system stays nominal."
             ),
             category="thermal",
             steps=16,
@@ -332,19 +337,14 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="gimbal_runaway",
             title="Gimbal runaway -> SAFE",
             description=(
-                "Models an encoder runaway: the deterministic sim gimbal tracks commands "
-                "faithfully, so a GIMBAL_RUNAWAY FaultEventMsg (the FDIR input the "
-                "controller's runaway monitor would raise) is injected at step 3; FDIR "
-                "routes it to SAFE."
+                "Freezes the sim encoder at step 3 while the outer loop still commands a "
+                "nonzero r. The light integrity detector trips GIMBAL_RUNAWAY; FDIR routes "
+                "it to SAFE."
             ),
             category="gimbal",
             steps=12,
             num_frames=12,
-            injections=(
-                Injection(
-                    3, _fault(FaultCode.GIMBAL_RUNAWAY, "payload", "encoder rate divergence")
-                ),
-            ),
+            actions=(Action(3, lambda system: system.gimbal.freeze_encoder()),),
         ),
         ScenarioSpec(
             name="watchdog_process_died",
@@ -367,7 +367,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="exit_safe_recovery",
             title="EXIT_SAFE recovery via ARM/EXECUTE",
             description=(
-                "A thermal spike latches SAFE, then the spike clears; a ground EXIT_SAFE is "
+                "A power spike latches SAFE, then the spike clears; a ground EXIT_SAFE is "
                 "ARMed (step 8) and EXECUTEd (step 9) through the command router and fault "
                 "app, un-latching SAFE so the arbiter returns to operations and re-acquires "
                 "the plume."
@@ -375,7 +375,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             category="recovery",
             steps=14,
             num_frames=14,
-            thermal_readings=(25.0, 25.0, 95.0, 95.0, 25.0),
+            power_readings=(30.0, 30.0, 80.0, 80.0, 25.0),
             injections=(
                 Injection(8, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=1)),
                 Injection(9, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=2)),
@@ -524,6 +524,46 @@ def scenario_names() -> tuple[str, ...]:
     return tuple(SCENARIOS)
 
 
+_FILE_SCHEMA = ConfigDict(extra="ignore")
+_ParamValue = str | int | float | bool
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_FILE_SCHEMA)
+class _SceneFile:
+    """GSE [scene] subset used by analysis capture (assertions ignored)."""
+
+    num_frames: int
+    seed: int
+    thermal_readings: tuple[float, ...] = (25.0,)
+    power_readings: tuple[float, ...] = (30.0,)
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_FILE_SCHEMA)
+class _CommandFile:
+    """GSE [[commands]] row used to build a post-ingress CommandMsg injection."""
+
+    at_frame: int
+    command_id: str
+    source: str
+    seq: int
+    params: dict[str, _ParamValue] = Field(default_factory=dict)
+
+
+@pydantic_dataclass(frozen=True, slots=True, config=_FILE_SCHEMA)
+class _ScenarioFile:
+    """GSE scenario TOML subset. Extra keys such as assertions are ignored."""
+
+    name: str
+    profile: str
+    scene: _SceneFile
+    steps: int
+    dt: float
+    commands: tuple[_CommandFile, ...] = ()
+
+
+_SCENARIO_FILE_ADAPTER = TypeAdapter(_ScenarioFile)
+
+
 def load_scenario_spec(path: str | Path) -> ScenarioSpec:
     """Adapt an existing scenarios/*.toml file (the GSE schema) into a ScenarioSpec.
 
@@ -539,53 +579,44 @@ def load_scenario_spec(path: str | Path) -> ScenarioSpec:
     Raises:
         OSError: if the file cannot be read.
         tomllib.TOMLDecodeError: if the file is not valid TOML.
-        KeyError: if a required field is missing.
+        ValidationError: if a required field is missing.
 
     Notes:
         Command targets are resolved from the flight command dictionary, so a declared command
         routes to the same subsystem it would in flight. This raises (test/CLI tooling) rather
-        than returning a Result.
+        than returning a Result. Extra GSE keys such as assertions are ignored.
     """
     data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
-    scene = data["scene"]
+    parsed = _SCENARIO_FILE_ADAPTER.validate_python(data)
     injections = tuple(
         Injection(
-            int(cmd["at_frame"]),
+            cmd.at_frame,
             _command(
-                str(cmd["command_id"]),
-                _target_for(str(cmd["command_id"])),
-                dict(cmd.get("params", {})),
-                source=str(cmd["source"]),
-                seq=int(cmd["seq"]),
+                cmd.command_id,
+                _target_for(cmd.command_id),
+                dict(cmd.params),
+                source=cmd.source,
+                seq=cmd.seq,
             ),
         )
-        for cmd in data.get("commands", [])
+        for cmd in parsed.commands
     )
     return ScenarioSpec(
-        name=f"file_{data['name']}",
-        title=f"Scenario file: {data['name']}",
+        name=f"file_{parsed.name}",
+        title=f"Scenario file: {parsed.name}",
         description=(
-            f"Captured from scenarios/{data['name']}.toml (profile {data['profile']}); GSE "
+            f"Captured from scenarios/{parsed.name}.toml (profile {parsed.profile}); GSE "
             "assertions are not scored -- the run is captured passively for analysis."
         ),
         category="scenario-file",
-        steps=int(data["steps"]),
-        dt=float(data["dt"]),
-        num_frames=int(scene["num_frames"]),
-        seed=int(scene["seed"]),
-        thermal_readings=_readings(scene.get("thermal_readings"), (25.0,)),
-        power_readings=_readings(scene.get("power_readings"), (30.0,)),
+        steps=parsed.steps,
+        dt=parsed.dt,
+        num_frames=parsed.scene.num_frames,
+        seed=parsed.scene.seed,
+        thermal_readings=parsed.scene.thermal_readings,
+        power_readings=parsed.scene.power_readings,
         injections=injections,
     )
-
-
-def _readings(raw: object, default: tuple[float, ...]) -> tuple[float, ...]:
-    """Normalize an optional TOML readings array into a float tuple, or fall back to a default."""
-    if raw is None:
-        return default
-    if not isinstance(raw, list):
-        raise TypeError(f"scene readings must be a list, got {type(raw).__name__}")
-    return tuple(float(value) for value in raw)
 
 
 def _target_for(command_id: str) -> str:

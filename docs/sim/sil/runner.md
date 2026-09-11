@@ -47,7 +47,8 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 3. It calls `build_validation_system` and casts driver fields to concrete sim types.
 4. `SilHarness.__init__` seeds payload `ControlState` and FDIR watchdog entries.
 5. `SilHarness.step` delegates to `step_once` with apps, protocols, bus, clock, and state.
-6. `run_steps` starts at `now=0`, adds `dt` each step, and advances the shared clock.
+6. `run_steps` continues from the last `now`, adds `dt` each step, and advances the
+   shared clock. A later `run_steps` call does not reset time.
 
 ## Errors and faults
 

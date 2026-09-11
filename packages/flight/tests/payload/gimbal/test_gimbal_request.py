@@ -1,13 +1,12 @@
-"""Tests for the GimbalRequest pure-core command value."""
+"""Tests for the GimbalRequest pose-command value."""
 
 from flight.libs.types import GimbalCommandMode
 from flight.payload.gimbal import GimbalRequest
 
 
-def test_gimbal_request_carries_mode_and_values() -> None:
-    """GimbalRequest is a frozen value: mode + two axis values + reason."""
-    req = GimbalRequest(
-        mode=GimbalCommandMode.RATE, az_deg=1.5, el_deg=-0.5, reason="tracking_target"
-    )
-    assert req.mode is GimbalCommandMode.RATE
-    assert req.az_deg == 1.5
+def test_gimbal_request_carries_mode_and_elevation() -> None:
+    """GimbalRequest is a frozen pose value: mode + elevation + reason."""
+    req = GimbalRequest(mode=GimbalCommandMode.ABSOLUTE, el_deg=-12.5, reason="goto_science")
+    assert req.mode is GimbalCommandMode.ABSOLUTE
+    assert req.el_deg == -12.5
+    assert not hasattr(req, "az_deg")

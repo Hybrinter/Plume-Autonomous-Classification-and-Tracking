@@ -23,12 +23,13 @@ load.
 `onnx_tensor_shape(shape) -> tuple[int | None, ...]`.
 
 `load_onnx_session(model_path, expected_sha256, expected_input_shape,
-expected_output_shape) -> OnnxInferenceSession`.
+expected_output_shape, providers=None) -> OnnxInferenceSession`.
 
 ## Behavior
 
 1. When `expected_sha256` is set, hash the artifact before constructing a session.
-2. Import onnxruntime and open `InferenceSession(model_path)`.
+2. Import onnxruntime and open `InferenceSession`. A `None` provider list lets
+   onnxruntime select from the providers this install registered.
 3. When both expected shapes are set, compare session I/O shapes to the contract.
 
 ## Errors and faults
@@ -49,10 +50,11 @@ None. Callers pass paths and expected shapes.
 ## Constraints
 
 onnxruntime imports inside `load_onnx_session`. Importing the module does not require
-the SDK.
+the SDK. A `None` provider list leaves selection to onnxruntime.
 
 ## Related documents
 
 - [`flight.payload.inference.verify`](verify.md)
+- [`flight.payload.inference.artifact_path`](artifact_path.md)
 - [`flight.payload.inference.classifier`](classifier.md)
 - [`flight.payload.inference.segmentor`](segmentor.md)

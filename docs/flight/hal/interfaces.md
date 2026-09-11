@@ -14,7 +14,8 @@ structurally.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`sensor`](interfaces/sensor.md) | module | `ImagingSensor` acquire-only camera Protocol |
-| [`gimbal`](interfaces/gimbal.md) | module | `GimbalActuator` and `GimbalPosition` |
+| [`gimbal`](interfaces/gimbal.md) | module | Torque-SIL and production rate-command gimbal Protocols |
+| [`ephemeris`](interfaces/ephemeris.md) | module | `IssEphemeris` and `IssState` |
 | [`station`](interfaces/station.md) | module | `StationLink` byte-level CCSDS transport |
 | [`scalar`](interfaces/scalar.md) | module | `ScalarSensor` single-value housekeeping read |
 | [`launch_lock`](interfaces/launch_lock.md) | module | `LaunchLock` motorized pin Protocol |
@@ -22,8 +23,10 @@ structurally.
 
 ## Package interface
 
-Re-exports: `GimbalActuator`, `GimbalPosition`, `ImagingSensor`, `LaunchLock`,
-`ScalarSensor`, `StationLink`, `StorageReader`, `StorageWriter`.
+Re-exports: `GimbalActuator`, `GimbalRateActuator`, `GimbalRateCommand`,
+`ExternalWatchdogGate`, `GimbalPosition`, `GimbalHealth`, `ImagingSensor`,
+`IssEphemeris`, `IssState`, `LaunchLock`, `ScalarSensor`, `StationLink`,
+`StorageReader`, `StorageWriter`.
 
 ## Interactions
 

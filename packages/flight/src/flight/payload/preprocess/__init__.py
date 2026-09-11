@@ -1,17 +1,16 @@
 """Payload preprocessing: pure functions transforming a raw mosaic plane for inference.
 
-Stage order in the payload loop:
-    calibrate_mosaic (dark -> flat -> bad-pixel repair, on the raw mosaic plane)
-    -> separate_bands (2x2 CFA unpack, cfa_phase aware)
-    -> normalize_dn (DN / ADC full scale, clip [0, 1])
-    -> select_bands (layout order -> model input order, by name)
-    -> compute_quality_flags (saturation, smear, cloud, over-brightness, metadata)
-    -> decide_usability (TRAINING | TRACKING | INVALID keep/drop verdict)
-    -> decimate_to_size (search) | crop_and_upsample (track) with a RoiTransform record.
+Stage order in the payload loop: calibrate_mosaic -> separate_bands -> normalize_dn ->
+select_bands -> compute_quality_flags. The full demosaiced band plane is passed to
+inference with no crop and no scale.
 
 All functions are pure (no I/O, no global state). Calibration and raw-DN saturation run
 on the raw mosaic plane (pre-demosaic) where the sensor physics lives; quality flags run
-on the full band plane before any ROI crop or decimation.
+on the full band plane before any ROI crop or decimation. Beyond the pipeline stages the
+package provides the keep/drop gate (decide_usability mapping compute_quality_flags to
+TRAINING | TRACKING | INVALID under a UsabilityPolicy) and ROI resampling helpers
+(decimate_to_size / crop_and_upsample with a RoiTransform record and plane<->tensor
+pixel backprojection) for search/track frame preparation.
 
 Satisfies: REQ-AIML-PREP-001, REQ-AIML-PREP-002, REQ-AIML-PREP-003, REQ-AIML-IMAG-001,
 REQ-AIML-IMAG-002, REQ-AIML-DATA-003, REQ-AIML-DATA-005.

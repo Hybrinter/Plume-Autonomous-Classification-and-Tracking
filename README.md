@@ -2,7 +2,7 @@
 
 PACT is an **ISS-attached external payload** for autonomous detection, segmentation, and tracking
 of industrial plumes in multispectral VNIR imagery from orbit. It runs a neural detector on each
-frame, drives a two-axis gimbal to keep detected plumes boresighted, persists science products
+frame, drives a single-axis elevation gimbal to keep detected plumes boresighted, persists science products
 with integrity checksums, and exchanges authenticated commands and downlink products with the
 station over a CCSDS link — with no real-time ground-in-the-loop control.
 
@@ -17,7 +17,7 @@ The flight software is a **Python-only `uv` workspace** under `packages/`, built
 | Capability | Description |
 |-----------|-------------|
 | **Plume detection** | A binary ONNX classifier gates a U-Net-class ONNX segmentor. The classifier skips segmentation on empty frames. The segmentor produces a plume probability mask; blobs are extracted for tracking. Raw 2×2 mosaic frames are demosaiced into BLUE/GREEN/RED/NIR bands (≈ Sentinel-2 B2/B3/B4/B8) in pure preprocessing. |
-| **Closed-loop pointing** | Boresight-relative error → EMA / Kalman tracking → LQR rate commands drive the gimbal; a pure FSM arbiter resolves IDLE / ACQUIRING / TRACKING / SCAN / SAFE behind safety gates. |
+| **Closed-loop pointing** | Cascaded elevation torque loop: inner PI + computed torque at ~1 ms, outer residual filter + co-rotating predictor at ~20 ms. Arbiter modes are TRACKING / REWIND / SAFE. |
 | **ISS command path** | Authenticated CCSDS command ingress (CRC + per-source sequence dedup + HMAC-SHA256 + command-dictionary validation); every command yields an ACCEPTED or REJECTED ack. |
 | **FDIR / SAFE** | Heartbeat watchdog + fault-to-mode policy; SAFE-triggering faults latch the system into a single SAFE mode (stow + quiesce), exited only by ground command. |
 | **Validation** | A configuration matrix of driver / compute profiles with a requirement → venue VCRM. A deterministic in-process SIL and a `sil-link-real` x86 partial run in CI, driven by declarative scenarios through the GSE harness. |
@@ -34,6 +34,7 @@ packages/
   sim/      # pact-sim    — SIL harness, scene generation, validation harness (depends on flight)
   tools/    # pact-tools  — artifact acceptance / SIL experiment runners / analysis
   gse/      # pact-gse    — ground support: CCSDS station emulator + declarative scenarios + orchestrator
+  analysis/ # pact-analysis — design/performance studies (depends on flight + sim; not STE-mirrored)
 config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
 profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
 scenarios/  # declarative validation scenarios (scene + command timeline + assertions)
@@ -94,10 +95,42 @@ uv sync --package pact-flight --no-dev
 ### Training box
 
 ```bash
-uv sync --package pact-tools --extra train --extra export
+uv sync --package pact-tools --extra export
 ```
 
-The `train` extra installs torch and torchvision. The `export` extra installs onnx.
+The default `pact-tools` install includes torch and torchvision. The `export`
+extra installs onnx.
+
+GPU training needs no extra flag. On Windows, `torch` and `torchvision` resolve from the CUDA 13.0
+PyTorch index (`https://download.pytorch.org/whl/cu130`); on Linux the PyPI wheel already bundles
+the CUDA 13.0 runtime. Both need an NVIDIA driver that supports CUDA 13.0 or later, and neither
+needs a separate CUDA toolkit install. macOS is CPU-only. Confirm the GPU after a sync:
+
+```bash
+uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
+A CUDA-enabled install prints a `+cu130` version tag on both Windows and Linux. Availability is
+`True` once an NVIDIA GPU and a matching driver are present. The train loop selects CUDA when it is
+available; pass `--device` to override.
+
+Run inference engineering workflows through the installed tools command:
+
+```bash
+pact-tools inference fetch
+pact-tools inference train --kind segmentor --out artifacts/segmentor.pt
+pact-tools inference export \
+  --kind segmentor \
+  --checkpoint artifacts/segmentor.pt \
+  --out artifacts/segmentor.onnx
+```
+
+Factory flight graphs are `data/models/active_classifier.onnx` (ShuffleNetV2-x0.5)
+and `data/models/active_segmentor.onnx` (DilateNet-w32). `config/default.toml`
+`[inference]` points at those paths. `pact-tools inference finalize --promote`
+copies a passed artifact there.
+
+Use `python -m tools` as an alias for `pact-tools`.
 
 Run a declarative SIL scenario through the GSE harness (from the repo root):
 

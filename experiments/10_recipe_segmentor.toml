@@ -1,0 +1,39 @@
+# Stage 1: training recipe for the segmentor, architecture held fixed.
+#
+# The objective axis carries the most weight here. Median plume coverage in the
+# annotated corpus is under one percent of pixels, so plain BCE is dominated by
+# background and tends toward an empty mask, which scores nothing on the IoU
+# the acceptance gate measures. Dice and focal are the two terms that address
+# that, and the combinations are worth measuring against each other directly.
+#
+# The corpus is 1,437 images, so a trial here is cheap and the grid can be
+# wider than the classifier's.
+#
+# 2 optimizers x 3 learning rates x 5 objectives = 30 trials.
+
+kind = "segmentor"
+arch = "unet_w32"
+data_dir = "data/processed/segmentor"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 50
+batch_size = 16
+patience = 12
+eval_interval = 1
+
+optimizer = ["sgd", "adamw"]
+learning_rate = [0.01, 0.001, 0.0001]
+loss = ["bce", "dice", "bce_dice", "focal", "focal_dice"]
+
+momentum = 0.9
+weight_decay = 0.0001
+scheduler = "cosine"
+shuffle = true
+augment = true
+amp = true
+seed = 0
+val_metric = "mean_iou"

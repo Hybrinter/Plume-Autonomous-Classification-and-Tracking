@@ -12,7 +12,8 @@ available suites and scenarios.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `main` | function | Parse argv and dispatch `run` or `list` |
+| `app` | Typer application | Analysis command group |
+| `main` | function | Invoke `run` or `list` and return an exit code |
 
 ## Inputs and outputs
 
@@ -30,7 +31,7 @@ python -m tools.analysis list
 
 ## Behavior
 
-1. `_build_parser` registers `run` and `list` subcommands.
+1. The Typer application registers `run` and `list` subcommands.
 2. `run` resolves specs via `suite_specs`, captures via `run_suite`, and writes via
    `write_suite_report`.
 3. Default output directory is `artifacts/analysis/<name>`.

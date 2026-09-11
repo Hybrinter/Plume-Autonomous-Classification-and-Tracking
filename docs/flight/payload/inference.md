@@ -16,6 +16,7 @@ Verification helpers check artifact hash, I/O contract, and latency.
 | [`classifier`](inference/classifier.md) | module | Presence classifier protocol, scripted and ONNX implementations |
 | [`segmentor`](inference/segmentor.md) | module | Probability-mask protocol, scripted and ONNX implementations |
 | [`detector`](inference/detector.md) | module | Composer of classifier, segmentor, and blob extraction |
+| [`artifact_path`](inference/artifact_path.md) | module | FP32 path to INT8 sibling when `use_int8` is true |
 | [`onnx_session`](inference/onnx_session.md) | module | Lazy onnxruntime session load with hash and shape checks |
 | [`verify`](inference/verify.md) | module | Hash, I/O contract, and latency verification |
 

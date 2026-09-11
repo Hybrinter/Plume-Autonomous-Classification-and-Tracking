@@ -1,0 +1,50 @@
+# Stage 2.7: second-tier hyperparameters, on the selected classifier.
+#
+# Set `arch` to the architecture chosen at the knee in stage 2, and copy the
+# optimizer, learning rate and objective from the stage 2 held recipe. This stage tunes the
+# settings that stage 1 held fixed, and it runs here rather than earlier for two
+# reasons: these axes interact with capacity, so their best values on a 23.5 M
+# parameter stand-in do not transfer to a 40 k parameter network, and searching
+# them once on one architecture is far cheaper than searching them on all 21.
+#
+# The three axes are the ones the baseline's failure mode points at. The
+# baseline scores a perfect 1.000 on the train split against 0.9219 on test, so
+# it is overfitting, and weight decay and augmentation are the two settings that
+# address that directly. Recall is its weakest metric at 0.8856 against 0.9613
+# precision, which is what a 17.6% positive rate does to a plain BCE objective;
+# `pos_weight` is the correction for it.
+#
+# A positive weight of 4.69 is the negative-to-positive ratio of the corpus
+# (17,600 to 3,750), which equalises the two classes' contribution to the loss.
+# The value is included alongside 0.0 rather than assumed, because rebalancing
+# buys recall at the cost of precision and F1 does not always prefer the trade.
+#
+# 3 weight decays x 2 positive weights x 2 augmentation settings = 12 trials.
+
+kind = "classifier"
+arch = "shufflenetv2_x0_5_pt"
+data_dir = "data/processed/classifier"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 30
+batch_size = 64
+patience = 6
+eval_interval = 1
+
+weight_decay = [0.0, 0.0001, 0.001]
+pos_weight = [0.0, 4.69]
+augment = [true, false]
+
+optimizer = "adamw"
+learning_rate = 0.001
+loss = "bce"
+momentum = 0.9
+scheduler = "cosine"
+shuffle = true
+amp = true
+seed = 0
+val_metric = "f1"

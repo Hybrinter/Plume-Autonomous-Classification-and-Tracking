@@ -1,0 +1,37 @@
+# Stage 2.5: extra seeds at the knee, so the choice is not two draws.
+#
+# Set `arch` to the architectures that landed on or beside the stage 2 frontier
+# knee. Stage 2 already ran seeds 0 and 1 for every architecture. This stage
+# adds seeds 2 and 3 only at the knee, which is where seed spread can reverse
+# a ranking that the two-seed mean left too close to call.
+#
+# Recipe, resolution, and epoch budget match stage 2.
+#
+# Fill `arch` after stage 2. N architectures x 2 seeds.
+
+kind = "segmentor"
+arch = ["unet_w8_sep", "dilatenet_w64", "unet_w16_sep"]
+data_dir = "data/processed/segmentor"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 120
+batch_size = 16
+patience = 20
+eval_interval = 1
+
+seed = [2, 3]
+
+optimizer = "adamw"
+learning_rate = 0.001
+loss = "focal_dice"
+momentum = 0.9
+weight_decay = 0.0001
+scheduler = "cosine"
+shuffle = true
+augment = true
+amp = true
+val_metric = "mean_iou"

@@ -6,8 +6,8 @@
 ## Purpose
 
 The config package holds frozen dataclasses for every tunable flight parameter. The config
-loader maps TOML into these types. Subsystems receive typed config slices; they do not read
-TOML directly.
+loader validates TOML into these types. Subsystems receive typed config slices; they do not
+read TOML directly.
 
 ## Contents
 
@@ -23,9 +23,12 @@ TOML directly.
 | --- | --- |
 | `AxisMode` | type alias |
 | `CommandIngressConfig`, `CommandRouterConfig`, `CommsConfig` | class |
-| `ControllerConfig`, `EnvironmentConfig`, `FaultConfig` | class |
+| `ArbiterConfig`, `VisionConfig`, `InnerLoopConfig`, `OuterLoopConfig` | class |
+| `ResidualConfig`, `PositionLoopConfig`, `ControllerConfig` | class |
+| `EnvironmentConfig`, `EphemerisConfig`, `FaultConfig` | class |
 | `GimbalConfig`, `InferenceConfig`, `LinkConfig` | class |
 | `PactConfig`, `PreprocessingConfig`, `SensorConfig`, `StorageConfig` | class |
+| `ThermalConfig` | class |
 
 ## Interactions
 

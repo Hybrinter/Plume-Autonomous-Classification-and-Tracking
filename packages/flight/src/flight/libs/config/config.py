@@ -14,165 +14,468 @@ No other flight module is imported here.
 from __future__ import annotations
 
 # stdlib
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import field
+from typing import Literal, Self
+
+# third-party
+from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic.dataclasses import dataclass
+
+_SCHEMA = ConfigDict(extra="forbid")
+_MOSAIC_BANDS: frozenset[str] = frozenset({"BLUE", "GREEN", "RED", "NIR"})
 
 # ---------------------------------------------------------------------------
 # Per-subsystem config dataclasses
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
+class VisionConfig:
+    """Blob gates and the in-process vision queue (not a pointing estimator)."""
+
+    confidence_gate: float = Field(default=0.55, ge=0.0, le=1.0)
+    blob_iou_match_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
+    min_blob_area_px: int = 15
+    queue_depth: int = Field(default=4, ge=1)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class ArbiterConfig:
+    """TRACKING / REWIND / SAFE mode-machine thresholds.
+
+    ``max_observation_age_s`` is an independent ceiling on prediction-only
+    coasting.  It protects against a vision pipeline that stops producing
+    packets, where ``release_persistence_frames`` cannot advance.
+    """
+
+    release_persistence_frames: int = Field(default=5, ge=1)
+    limb_arrival_deg: float = Field(default=0.5, gt=0.0)
+    max_observation_age_s: float = Field(default=0.25, gt=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class InnerLoopConfig:
+    """Inner PI, computed torque, and causal encoder-rate fit."""
+
+    dt_s: float = Field(default=0.001, gt=0.0)
+    rate_fit_n: int = Field(default=7, ge=3)
+    rate_fit_degree: int = Field(default=2, ge=1)
+    kp: float = Field(default=200.0, gt=0.0)
+    ki: float = Field(default=10_000.0, ge=0.0)
+    tau_cl_s: float = Field(default=0.010, gt=0.0)
+
+    @model_validator(mode="after")
+    def _rate_fit_window(self) -> Self:
+        """Reject a polynomial degree that does not fit in the encoder ring."""
+        if self.rate_fit_n <= self.rate_fit_degree:
+            raise ValueError("rate_fit_n must be greater than rate_fit_degree")
+        return self
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class OuterLoopConfig:
+    """Outer rate law period and proportional error gain."""
+
+    dt_s: float = Field(default=0.020, gt=0.0)
+    Kp: float = Field(default=8.0, gt=0.0)  # noqa: N815
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class ResidualConfig:
+    """Two-state residual process, encoder, chronology, and history settings."""
+
+    # ``Q_diag`` is retained as a loader/source compatibility field while the
+    # estimator migrates to the continuous white-acceleration scalar below.
+    Q_diag: tuple[float, ...] = Field(default=(1.0e-11, 3.0e-8))  # noqa: N815
+    q_accel_rad2_s3: float = Field(default=3.0e-8, ge=0.0)
+    R_v: float = Field(default=2.12e-9, gt=0.0)  # noqa: N815
+    P0_diag: tuple[float, ...] = Field(default=(1.0e-3, 1.2e-5))  # noqa: N815
+    encoder_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    reversal_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    reversal_threshold_rad: float = Field(default=1.0e-6, ge=0.0)
+    interpolation_span_max_s: float = Field(default=0.020, gt=0.0)
+    timing_uncertainty_max_s: float = Field(default=1.0e-4, gt=0.0)
+    rewind_horizon_s: float = Field(default=0.10, gt=0.0)
+    rewind_snapshots: int = Field(default=8, ge=1)
+
+    @model_validator(mode="after")
+    def _diag_length(self) -> Self:
+        """Reject residual covariances that are not two-state."""
+        if len(self.Q_diag) != 2:
+            raise ValueError("Q_diag must have length 2")
+        if len(self.P0_diag) != 2:
+            raise ValueError("P0_diag must have length 2")
+        return self
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class PositionLoopConfig:
+    """STOW / HOME / GOTO proportional rate into the inner PI."""
+
+    K_pos: float = Field(default=4.0, gt=0.0)  # noqa: N815
+    r_max_deg_per_s: float = Field(default=8.0, gt=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class IntegrityConfig:
+    """Light pointing-integrity detector and catch-up cap."""
+
+    catchup_max_s: float = Field(default=2.0, gt=0.0)
+    freeze_strikes: int = Field(default=50, ge=1)
+    r_min_rad_s: float = Field(default=0.01745, gt=0.0)
+    encoder_rate_ratio: float = Field(default=0.2, gt=0.0)
+    lock_fight_rad_s: float = Field(default=0.05, gt=0.0)
+    lock_fight_strikes: int = Field(default=50, ge=1)
+    command_authority_s: float = Field(default=0.020, gt=0.0)
+    feedback_max_age_s: float = Field(default=0.010, gt=0.0)
+    recovery_max_attempts: int = Field(default=3, ge=0)
+    recovery_window_s: float = Field(default=1.0, gt=0.0)
+    science_boundary_guard_deg: float = Field(default=0.25, ge=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
 class ControllerConfig:
-    """Configuration for the gimbal controller and safety arbiter subsystem."""
+    """Nested configuration for vision gates, arbiter, and cascaded loops."""
 
-    confidence_gate: float = 0.55  # minimum mean blob confidence to accept
-    ema_alpha: float = 0.4  # EMA smoothing factor (0 < alpha <= 1)
-    min_deadband_px: int = 20  # minimum displacement to issue a command
-    max_deadband_px: int = 250  # maximum displacement before GIMBAL_RUNAWAY
-    max_deadband_strike_count: int = 3  # consecutive max violations before fault
-    retarget_rate_limit_hz: float = 0.5  # maximum gimbal command rate (Hz)
-    max_slew_rate_deg_per_s: float = 2.0  # maximum slew rate (degrees per second)
-    acquire_persistence_frames: int = 3  # frames needed to enter TRACKING from ACQUIRING
-    release_persistence_frames: int = 5  # consecutive miss frames before IDLE
-    scan_entry_idle_seconds: float = 60.0  # idle duration before entering SCAN mode
-    scan_slew_rate_deg_per_s: float = 0.5  # slew rate during nadir scan
-    blob_iou_match_threshold: float = 0.25  # minimum IoU for blob association across frames
-    min_blob_area_px: int = 15  # minimum blob area in pixels to accept
-    # Kalman filter parameters
-    kalman_dt_s: float = 0.1  # state propagation timestep (seconds)
-    kalman_process_noise: float = 1e-2  # scalar process noise variance (Q = I * value)
-    kalman_measurement_noise: float = 1e-1  # scalar measurement noise variance (R = I * value)
-    # LQR controller parameters
-    lqr_Q_diag: tuple[float, ...] = (10.0, 10.0, 1.0, 1.0)  # noqa: N815  state cost weights
-    lqr_R_diag: tuple[float, ...] = (1.0, 1.0)  # noqa: N815  control cost weights
-    max_slew_deg_s: float = 2.0  # maximum LQR output clamp (deg/s)
-    # Encoder-runaway tuning
-    runaway_rate_tolerance_deg_per_s: float = 1.0  # commanded-vs-encoder rate divergence limit
-    runaway_strike_count: int = 3  # consecutive divergent frames before GIMBAL_RUNAWAY
+    vision: VisionConfig = field(default_factory=VisionConfig)
+    arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
+    inner: InnerLoopConfig = field(default_factory=InnerLoopConfig)
+    outer: OuterLoopConfig = field(default_factory=OuterLoopConfig)
+    residual: ResidualConfig = field(default_factory=ResidualConfig)
+    position: PositionLoopConfig = field(default_factory=PositionLoopConfig)
+    integrity: IntegrityConfig = field(default_factory=IntegrityConfig)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class InferenceConfig:
     """Configuration for the inference subsystem and model deployment."""
 
-    segmentor_model_path: str = "data/models/active_segmentor.onnx"  # active segmentor artifact
-    classifier_model_path: str = "data/models/active_classifier.onnx"  # active classifier artifact
-    segmentor_rollback_model_path: str = (
-        "data/models/rollback_segmentor.onnx"  # rollback segmentor artifact
-    )
-    classifier_rollback_model_path: str = (
-        "data/models/rollback_classifier.onnx"  # rollback classifier artifact
-    )
-    classifier_logit_threshold: float = 0.0  # positive when logit >= threshold (0.0 <=> p >= 0.5)
-    input_bands: tuple[str, ...] = ("BLUE", "GREEN", "RED", "NIR")  # bands to select
-    input_height_px: int = 256  # model input height in pixels
-    input_width_px: int = 256  # model input width in pixels
-    use_int8: bool = False  # enable INT8 quantization (flight only)
-    latency_budget_ms: float = 500.0  # max inference latency (TBD: tune after Jetson benchmark)
+    segmentor_model_path: str = "data/models/active_segmentor.onnx"
+    classifier_model_path: str = "data/models/active_classifier.onnx"
+    segmentor_rollback_model_path: str = "data/models/rollback_segmentor.onnx"
+    classifier_rollback_model_path: str = "data/models/rollback_classifier.onnx"
+    classifier_logit_threshold: float = 0.0
+    input_bands: tuple[str, ...] = Field(default=("BLUE", "GREEN", "RED", "NIR"), min_length=1)
+    input_height_px: int = Field(default=1024, gt=0)
+    input_width_px: int = Field(default=1224, gt=0)
+    use_int8: bool = False
+    latency_budget_ms: float = Field(default=4.0, gt=0.0)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class CommsConfig:
     """Configuration for CCSDS communications, downlink, and uplink subsystems."""
 
-    max_downlink_rate_bps: int = 5_000_000  # 5 Mbps TDRSS downlink limit
-    max_uplink_rate_bps: int = 2_000_000  # 2 Mbps TDRSS uplink limit
-    max_daily_downlink_bytes: int = 1_073_741_824  # 1 GB daily downlink cap
-    max_daily_uplink_bytes: int = 104_857_600  # 100 MB daily uplink cap
-    comm_window_days: tuple[str, ...] = ("MON", "TUE", "WED", "THU", "FRI")  # weekdays only
-    ccsds_apid: int = 0x001  # CCSDS Application Process Identifier
-    staged_segmentor_model_path: str = (
-        "data/models/staged_segmentor.onnx"  # staged segmentor slot after pair unpack
-    )
-    staged_classifier_model_path: str = (
-        "data/models/staged_classifier.onnx"  # staged classifier slot after pair unpack
-    )
-    downlink_max_bytes_per_pass: int = 1_048_576  # downlink manager byte budget per AOS pass
+    max_downlink_rate_bps: int = Field(default=5_000_000, gt=0)
+    max_uplink_rate_bps: int = Field(default=2_000_000, gt=0)
+    max_daily_downlink_bytes: int = Field(default=1_073_741_824, gt=0)
+    max_daily_uplink_bytes: int = Field(default=104_857_600, gt=0)
+    comm_window_days: tuple[str, ...] = ("MON", "TUE", "WED", "THU", "FRI")
+    ccsds_apid: int = Field(default=0x001, ge=0, le=0x7FF)
+    staged_segmentor_model_path: str = "data/models/staged_segmentor.onnx"
+    staged_classifier_model_path: str = "data/models/staged_classifier.onnx"
+    downlink_max_bytes_per_pass: int = Field(default=1_048_576, gt=0)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class StorageConfig:
     """Configuration for the frame storage subsystem."""
 
-    data_root: str = "data/flight"  # root directory for all stored data
-    max_storage_bytes: int = 107_374_182_400  # 100 GB storage limit (placeholder)
-    checksum_algorithm: str = "sha256"  # hash algorithm for file integrity
+    data_root: str = "data/flight"
+    max_storage_bytes: int = Field(default=107_374_182_400, gt=0)
+    checksum_algorithm: str = Field(default="sha256", min_length=1)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class SensorConfig:
     """Configuration for the imaging sensor and its 2x2 mosaic filter optics.
 
-    Geometry and optics constants for the FLIR Blackfly S (12-bit Sony IMX-class)
-    behind a custom 2x2 mosaic filter (BLUE/GREEN/RED/NIR ~ Sentinel-2 B2/B3/B4/B8).
-    These values drive demosaic, normalization, quality gates, and the composition
-    root's calibration-load decision.
+    Geometry and optics constants for the FLIR Blackfly S BFS-U3-50S5M-C (Sony IMX264)
+    behind a 150 mm f/4 athermal lens and a custom 2x2 mosaic filter
+    (BLUE/GREEN/RED/NIR ~ Sentinel-2 B2/B3/B4/B8). width_px is lateral (cross-track);
+    height_px is along-track. IFOV is a fixed optic property. Pointing and smear use
+    ifov_band_deg_per_px (2x2 demosaic). These values drive demosaic, normalization,
+    quality gates, and the composition root's calibration-load decision.
 
     Satisfies: REQ-AIML-IMAG-001.
     """
 
-    width_px: int = 1024  # mosaic plane width in pixels (must be even)
-    height_px: int = 1024  # mosaic plane height in pixels (must be even)
-    bit_depth: int = 12  # ADC bit depth; full scale = 2**bit_depth - 1 DN
-    # Row-major band name per 2x2 cell: (0,0), (0,1), (1,0), (1,1).
+    part_number: str = "BFS-U3-50S5M-C"
+    sensor_name: str = "Sony IMX264"
+    width_px: int = Field(default=2448, gt=0)
+    height_px: int = Field(default=2048, gt=0)
+    bit_depth: int = Field(default=12, ge=1, le=16)
     mosaic_layout: tuple[str, ...] = ("BLUE", "GREEN", "RED", "NIR")
-    # Per band-plane pixel; 1024 @ 0.02 keeps FOV parity with the previous 512 @ 0.04.
-    ifov_deg_per_px: float = 0.02  # instantaneous field of view per band-plane pixel
-    default_exposure_us: float = 1000.0  # exposure commanded at startup
-    default_gain_db: float = 0.0  # gain commanded at startup
-    calibration_dir: str = ""  # dir of dark/flat/bad-pixel artifacts; "" -> identity (SIL only)
+    pixel_um: float = Field(default=3.45, gt=0.0)
+    focal_length_mm: float = Field(default=150.0, gt=0.0)
+    f_number: float = Field(default=4.0, gt=0.0)
+    lens_distortion_pct: float = Field(default=0.66, ge=0.0)
+    ifov_mosaic_deg_per_px: float = Field(default=0.001318, gt=0.0)
+    ifov_band_deg_per_px: float = Field(default=0.002636, gt=0.0)
+    fov_lateral_deg: float = Field(default=3.204, gt=0.0)
+    fov_along_deg: float = Field(default=2.681, gt=0.0)
+    datasheet_hfov_2_3_deg: float = Field(default=3.36, gt=0.0)
+    qe_530_pct: float = Field(default=62.51, gt=0.0)
+    saturation_capacity_e: float = Field(default=10824.0, gt=0.0)
+    temporal_dark_noise_e: float = Field(default=2.27, ge=0.0)
+    dynamic_range_db: float = Field(default=71.83, gt=0.0)
+    max_frame_rate_hz: float = Field(default=35.0, gt=0.0)
+    exposure_min_us: float = Field(default=13.0, gt=0.0)
+    exposure_max_us: float = Field(default=30_000_000.0, gt=0.0)
+    initial_exposure_us: float = Field(default=13.0, gt=0.0)
+    gain_min_db: float = Field(default=0.0, ge=0.0)
+    gain_max_db: float = Field(default=47.0, ge=0.0)
+    initial_gain_db: float = Field(default=0.0, ge=0.0)
+    calibration_dir: str = ""
+
+    @field_validator("width_px", "height_px")
+    @classmethod
+    def _even_mosaic_dim(cls, value: int) -> int:
+        """Reject odd mosaic-plane dimensions (2x2 CFA separation)."""
+        if value % 2:
+            raise ValueError("must be even (2x2 mosaic separation)")
+        return value
+
+    @model_validator(mode="after")
+    def _mosaic_permutation(self) -> Self:
+        """Reject a mosaic_layout that is not a permutation of BLUE/GREEN/RED/NIR."""
+        if frozenset(self.mosaic_layout) != _MOSAIC_BANDS or len(self.mosaic_layout) != len(
+            _MOSAIC_BANDS
+        ):
+            raise ValueError(
+                "sensor.mosaic_layout must name each Band (BLUE/GREEN/RED/NIR) exactly once"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _exposure_gain_range(self) -> Self:
+        """Reject inverted exposure/gain ranges or initials outside the range."""
+        if self.exposure_min_us >= self.exposure_max_us:
+            raise ValueError("exposure_min_us must be < exposure_max_us")
+        if not (self.exposure_min_us <= self.initial_exposure_us <= self.exposure_max_us):
+            raise ValueError(
+                "initial_exposure_us must be within [exposure_min_us, exposure_max_us]"
+            )
+        if self.gain_min_db > self.gain_max_db:
+            raise ValueError("gain_min_db must be <= gain_max_db")
+        if not (self.gain_min_db <= self.initial_gain_db <= self.gain_max_db):
+            raise ValueError("initial_gain_db must be within [gain_min_db, gain_max_db]")
+        return self
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class PreprocessingConfig:
     """Configuration for the preprocessing quality-flag subsystem."""
 
-    saturation_fraction_threshold: float = 0.05  # fraction of pixels above 0.95 -> SATURATED flag
-    nir_red_ratio_threshold: float = 3.0  # NIR/Red mean ratio above this -> CLOUD_CONTAMINATED
-    sunglint_nir_mean_threshold: float = 0.6  # mean NIR above this -> SUNGLINT flag
-    max_motion_smear_px: float = 1.0  # predicted smear (slew x exposure / IFOV) above this -> flag
+    saturation_fraction_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
+    nir_red_ratio_threshold: float = Field(default=3.0, gt=0.0)
+    sunglint_nir_mean_threshold: float = Field(default=0.6, gt=0.0)
+    max_motion_smear_px: float = Field(default=1.0, gt=0.0)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class FaultConfig:
     """Configuration for the fault detection and watchdog subsystem."""
 
-    watchdog_interval_s: float = 5.0  # heartbeat check interval (seconds)
-    watchdog_max_miss_count: int = 3  # missed heartbeats before fault
-    inference_timeout_ms: float = 2000.0  # inference timeout before fault
-    thermal_limit_c: float = 80.0  # thermal limit in degrees Celsius
-    power_limit_w: float = 55.0  # power consumption limit in Watts
+    watchdog_interval_s: float = Field(default=5.0, gt=0.0)
+    watchdog_max_miss_count: int = Field(default=3, ge=1)
+    inference_timeout_ms: float = Field(default=20.0, gt=0.0)
+    power_limit_w: float = Field(default=55.0, gt=0.0)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
+class ThermalConfig:
+    """Record-only per-component temperature limits in degrees Celsius.
+
+    Housekeeping publishes a single scalar sample and does not compare against these
+    limits until per-component sensors exist.
+    """
+
+    camera_min_c: float = 0.0
+    camera_max_c: float = 50.0
+    lens_min_c: float = -10.0
+    lens_max_c: float = 50.0
+    gimbal_min_c: float = -20.0
+    gimbal_max_c: float = 70.0
+    compute_min_c: float = 0.0
+    compute_max_c: float = 80.0
+
+    @model_validator(mode="after")
+    def _limit_order(self) -> Self:
+        """Reject inverted min/max pairs."""
+        pairs = (
+            ("camera", self.camera_min_c, self.camera_max_c),
+            ("lens", self.lens_min_c, self.lens_max_c),
+            ("gimbal", self.gimbal_min_c, self.gimbal_max_c),
+            ("compute", self.compute_min_c, self.compute_max_c),
+        )
+        for name, lo, hi in pairs:
+            if lo >= hi:
+                raise ValueError(f"{name}_min_c must be < {name}_max_c")
+        return self
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class GimbalSimulationConfig:
+    """Simulation-only elevation-plant and encoder configuration.
+
+    The production Xeryon path does not use inertia, damping, torque limits, or
+    synthetic encoder noise.  They remain available in a separate typed section
+    so a SIL run cannot accidentally be mistaken for hardware characterization.
+    """
+
+    J_kg_m2: float = Field(default=0.008, gt=0.0)  # noqa: N815
+    B_nms_per_rad: float = Field(default=0.04, ge=0.0)  # noqa: N815
+    tau_max_nm: float = Field(default=1.0, gt=0.0)
+    encoder_counts_per_rev: int = Field(default=262144, ge=2)
+    encoder_noise_deg: float = Field(default=0.005, ge=0.0)
+    seed: int = 0
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class XeryonConfig:
+    """Typed, fail-closed configuration for the XRT-U-40-109-HV/XD-C path.
+
+    Values describing the controller protocol are intentionally explicit.  The
+    adapter remains motion-disabled until the audit and bench-validation flags
+    are all true; defaults are therefore safe for development and CI.
+    """
+
+    model: Literal["XRT-U-40-109-HV"] = "XRT-U-40-109-HV"
+    controller: Literal["XD-C"] = "XD-C"
+    controller_counts_per_rev: int = Field(default=86_400, ge=2)
+    effective_encoder_resolution_urad: float = Field(default=109.0, gt=0.0)
+    min_incremental_motion_urad: float = Field(default=109.0, gt=0.0)
+    repeatability_uni_urad: float = Field(default=109.0, ge=0.0)
+    repeatability_bi_urad: float = Field(default=109.0, ge=0.0)
+    wobble_urad: float = Field(default=0.0, ge=0.0)
+    command_quantum_deg_per_s: float = Field(default=0.01, gt=0.0)
+    rated_speed_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
+    software_tracking_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
+    encoder_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    reversal_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
+    feedback_max_age_s: float = Field(default=0.010, gt=0.0)
+    interpolation_span_max_s: float = Field(default=0.020, gt=0.0)
+    timing_uncertainty_max_s: float = Field(default=1.0e-4, gt=0.0)
+    hv_max_on_s: float = Field(default=120.0, gt=0.0)
+    hv_duty_fraction: float = Field(default=0.5, gt=0.0, le=1.0)
+    stow_reference_rate_deg_per_s: float = Field(default=1.0, gt=0.0)
+    stow_timeout_s: float = Field(default=30.0, gt=0.0)
+    serial_port: str = ""
+    settings_file_path: str = ""
+    transport: Literal["usb", "jetson_uart"] = "usb"
+    usb_baudrate: int = Field(default=115_200, ge=1)
+    jetson_uart_baudrate: int = Field(default=76_800, ge=1)
+    feedback_info_level: int = Field(default=4, ge=0)
+    feedback_poll_interval_ms: float = Field(default=2.0, gt=0.0)
+    vendor_module: str = "Xeryon"
+    vendor_stage: str = "XRTU_40_109"
+    axis_letter: str = Field(default="X", min_length=1, max_length=1)
+    motion_enabled: bool = False
+    vendor_license_audited: bool = False
+    python314_audited: bool = False
+    watchdog_validated: bool = False
+    stow_bench_validated: bool = False
+    external_watchdog_required: bool = True
+
+    @model_validator(mode="after")
+    def _speed_limits(self) -> Self:
+        """Require the software limit to stay inside the rated limit."""
+        if self.software_tracking_limit_deg_per_s > self.rated_speed_limit_deg_per_s:
+            raise ValueError(
+                "software_tracking_limit_deg_per_s must not exceed rated_speed_limit_deg_per_s"
+            )
+        return self
+
+    @property
+    def prerequisites_ready(self) -> bool:
+        """Whether production motion may be enabled by the adapter."""
+        return (
+            self.motion_enabled
+            and self.vendor_license_audited
+            and self.python314_audited
+            and self.watchdog_validated
+            and self.stow_bench_validated
+            and bool(self.settings_file_path)
+        )
+
+    @property
+    def baudrate(self) -> int:
+        """Selected transport baud (USB bench or Jetson UART)."""
+        return self.usb_baudrate if self.transport == "usb" else self.jetson_uart_baudrate
+
+
+@dataclass(frozen=True, config=_SCHEMA)
 class GimbalConfig:
-    """Configuration for the gimbal hardware envelope, poses, sim dynamics, and link.
+    """Configuration for the single-axis gimbal envelope, plant, and encoder.
 
-    Fields cover the travel limits, configured stow/home poses, SimGimbal first-order
-    dynamics parameters for SIL, and the serial link for the real PTU driver.
+    Elevation is signed off-nadir degrees: 0 at geocentric nadir, positive along-track
+    (velocity), negative look-back. Hardware travel, science imaging window, and stow/home
+    poses are distinct. Plant scalars J, B, tau_max are placeholders until hardware exists.
 
     Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
     """
 
-    az_min_deg: float = -90.0  # travel limit, azimuth minimum
-    az_max_deg: float = 90.0  # travel limit, azimuth maximum
-    el_min_deg: float = -45.0  # travel limit, elevation minimum
-    el_max_deg: float = 45.0  # travel limit, elevation maximum
-    max_hw_slew_rate_deg_per_s: float = 10.0  # hardware slew envelope (driver-enforced)
-    stow_az_deg: float = 0.0  # stow pose azimuth (inside travel limits)
-    stow_el_deg: float = -45.0  # stow pose elevation (inside travel limits)
-    home_az_deg: float = 0.0  # home pose azimuth
-    home_el_deg: float = 0.0  # home pose elevation
-    sim_time_constant_s: float = 0.2  # SimGimbal first-order response time constant
-    sim_encoder_noise_deg: float = 0.005  # SimGimbal encoder read noise (1-sigma)
-    sim_seed: int = 0  # SimGimbal noise RNG seed (SIL determinism)
-    serial_port: str = ""  # PTU serial port; "" -> RealGimbal unavailable (startup error)
-    serial_baud: int = 9600  # PTU serial baud rate
-    counts_per_deg: float = 77.6  # PTU encoder counts per degree (E46-class resolution)
+    el_hw_min_deg: float = -45.0
+    el_hw_max_deg: float = 90.0
+    el_science_min_deg: float = 0.0
+    el_science_max_deg: float = 45.0
+    max_hw_slew_rate_deg_per_s: float = Field(default=10.0, gt=0.0)
+    stow_el_deg: float = -45.0
+    home_el_deg: float = 45.0
+    simulation: GimbalSimulationConfig = field(default_factory=GimbalSimulationConfig)
+    xeryon: XeryonConfig = field(default_factory=XeryonConfig)
+
+    @property
+    def J_kg_m2(self) -> float:  # noqa: N802, N815
+        """Detailed-plant inertia; unavailable to the production Xeryon adapter."""
+        return self.simulation.J_kg_m2
+
+    @property
+    def B_nms_per_rad(self) -> float:  # noqa: N802, N815
+        """Detailed-plant damping; unavailable to the production Xeryon adapter."""
+        return self.simulation.B_nms_per_rad
+
+    @property
+    def tau_max_nm(self) -> float:
+        """Detailed-plant torque limit used only by simulation control."""
+        return self.simulation.tau_max_nm
+
+    @property
+    def encoder_counts_per_rev(self) -> int:
+        """Detailed-plant encoder count used only by simulation."""
+        return self.simulation.encoder_counts_per_rev
+
+    @property
+    def sim_encoder_noise_deg(self) -> float:
+        """Detailed-plant synthetic encoder noise."""
+        return self.simulation.encoder_noise_deg
+
+    @property
+    def sim_seed(self) -> int:
+        """Detailed-plant random seed."""
+        return self.simulation.seed
+
+    @model_validator(mode="after")
+    def _travel_envelope(self) -> Self:
+        """Reject inverted envelopes or poses outside hardware travel."""
+        if self.el_hw_min_deg >= self.el_hw_max_deg:
+            raise ValueError("el_hw_min_deg must be < el_hw_max_deg")
+        if self.el_science_min_deg >= self.el_science_max_deg:
+            raise ValueError("el_science_min_deg must be < el_science_max_deg")
+        if not (
+            self.el_hw_min_deg <= self.el_science_min_deg
+            and self.el_science_max_deg <= self.el_hw_max_deg
+        ):
+            raise ValueError("science elevation window must lie within hardware travel")
+        if not (self.el_hw_min_deg <= self.stow_el_deg <= self.el_hw_max_deg):
+            raise ValueError("stow_el_deg must be within [el_hw_min_deg, el_hw_max_deg]")
+        if not (self.el_hw_min_deg <= self.home_el_deg <= self.el_hw_max_deg):
+            raise ValueError("home_el_deg must be within [el_hw_min_deg, el_hw_max_deg]")
+        return self
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class LinkConfig:
     """Station data-link transport config: CCSDS endpoints + APIDs.
 
@@ -181,16 +484,16 @@ class LinkConfig:
     lazily in the real driver; SIL uses the byte-level sim link and ignores host/port.
     """
 
-    command_tcp_host: str = "127.0.0.1"  # bind address for inbound TC server socket
-    command_tcp_port: int = 50501  # TCP port the payload listens on for commands
-    telemetry_udp_host: str = "127.0.0.1"  # station endpoint for outbound TM
-    telemetry_udp_port: int = 50502  # UDP port for outbound telemetry/products
-    socket_timeout_s: float = 1.0  # accept/recv timeout so the link thread can stop promptly
-    tc_apid: int = 0x001  # CCSDS APID for inbound telecommands
-    tm_apid: int = 0x002  # CCSDS APID for outbound telemetry
+    command_tcp_host: str = "127.0.0.1"
+    command_tcp_port: int = Field(default=50501, ge=1, le=65535)
+    telemetry_udp_host: str = "127.0.0.1"
+    telemetry_udp_port: int = Field(default=50502, ge=1, le=65535)
+    socket_timeout_s: float = Field(default=1.0, gt=0.0)
+    tc_apid: int = Field(default=0x001, ge=0, le=0x7FF)
+    tm_apid: int = Field(default=0x002, ge=0, le=0x7FF)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class CommandIngressConfig:
     """Command-ingress integrity + authentication config.
 
@@ -200,12 +503,19 @@ class CommandIngressConfig:
     ingress pipeline state, not here.
     """
 
-    hmac_key_path: str = "data/keys/uplink_hmac.key"  # path to the shared HMAC secret
-    require_auth: bool = True  # if False, skip HMAC verification (test/bench only)
-    accepted_sources: tuple[str, ...] = ("ground", "station_ops")  # allowed command origins
+    hmac_key_path: str = "data/keys/uplink_hmac.key"
+    require_auth: bool = True
+    accepted_sources: tuple[str, ...] = Field(default=("ground", "station_ops"), min_length=1)
+
+    @model_validator(mode="after")
+    def _auth_key_path(self) -> Self:
+        """Reject an empty HMAC path when authentication is required."""
+        if self.require_auth and not self.hmac_key_path:
+            raise ValueError("hmac_key_path must be set when require_auth is true")
+        return self
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class CommandRouterConfig:
     """Configuration for the core command router (routing + ARM/EXECUTE two-step).
 
@@ -215,14 +525,31 @@ class CommandRouterConfig:
     (flight.libs.commands), not configured here, so they stay in sync with the dictionary.
     """
 
-    arm_window_s: float = 30.0  # seconds an ARM authorizes a following EXECUTE
+    arm_window_s: float = Field(default=30.0, gt=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class EphemerisConfig:
+    """Circular-orbit ISS ephemeris stand-in and WGS-84 constants.
+
+    The sim driver propagates a circular Keplerian orbit in ECI (meters) from these
+    mean elements. The station TLE API is out of scope; the real driver stubs Err.
+    """
+
+    inclination_deg: float = Field(default=51.6312, ge=0.0, le=180.0)
+    mean_motion_rev_per_day: float = Field(default=15.48958602, gt=0.0)
+    mu_m3_s2: float = Field(default=3.986004418e14, gt=0.0)
+    omega_earth_rad_s: float = Field(default=7.2921159e-5, gt=0.0)
+    wgs84_a_m: float = Field(default=6_378_137.0, gt=0.0)
+    wgs84_f: float = Field(default=0.0033528106647474805, gt=0.0, lt=1.0)
+    epoch_utc_s: float = 1_788_249_600.0
 
 
 # A deployment axis is wired to either a sim stand-in or the real device/driver.
 AxisMode = Literal["sim", "real"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class EnvironmentConfig:
     """Per-axis sim/real wiring selector for the composition root.
 
@@ -237,15 +564,16 @@ class EnvironmentConfig:
     Satisfies: REQ-OPER-HIGH-002 (validated startup config selects the deployment axes).
     """
 
-    sensor: AxisMode = "real"  # imaging sensor: SimSensor vs RealSensor
-    gimbal: AxisMode = "real"  # gimbal actuator: SimGimbal vs RealGimbal
-    compute: AxisMode = "real"  # detector backend: ScriptedDetector vs OnnxDetector
-    link: AxisMode = "real"  # station link: SimStationLink vs RealStationLink
-    clock: AxisMode = "real"  # ManualClock (sim) vs RealClock (real); read by the root
-    host: str = "jetson_aarch64"  # target-machine label (provenance only)
+    sensor: AxisMode = "real"
+    gimbal: AxisMode = "real"
+    compute: AxisMode = "real"
+    link: AxisMode = "real"
+    clock: AxisMode = "real"
+    ephemeris: AxisMode = "real"
+    host: str = "jetson_aarch64"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, config=_SCHEMA)
 class PactConfig:
     """Top-level PACT configuration. Composes all per-subsystem configs.
 
@@ -258,10 +586,34 @@ class PactConfig:
     comms: CommsConfig = field(default_factory=CommsConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     fault: FaultConfig = field(default_factory=FaultConfig)
+    thermal: ThermalConfig = field(default_factory=ThermalConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     sensor: SensorConfig = field(default_factory=SensorConfig)
     gimbal: GimbalConfig = field(default_factory=GimbalConfig)
     link: LinkConfig = field(default_factory=LinkConfig)
     command_ingress: CommandIngressConfig = field(default_factory=CommandIngressConfig)
     command_router: CommandRouterConfig = field(default_factory=CommandRouterConfig)
+    ephemeris: EphemerisConfig = field(default_factory=EphemerisConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+
+    @model_validator(mode="after")
+    def _input_bands_in_mosaic(self) -> Self:
+        """Reject inference input bands that are absent from the sensor mosaic."""
+        mosaic_set = set(self.sensor.mosaic_layout)
+        for band in self.inference.input_bands:
+            if band not in mosaic_set:
+                raise ValueError(
+                    f"inference.input_bands entry {band!r} is not present in sensor.mosaic_layout"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _inference_matches_band_plane(self) -> Self:
+        """Reject inference input size that is not the full demosaiced band plane."""
+        plane_h = self.sensor.height_px // 2
+        plane_w = self.sensor.width_px // 2
+        if self.inference.input_height_px != plane_h or self.inference.input_width_px != plane_w:
+            raise ValueError(
+                f"inference input size must equal the demosaiced band plane ({plane_h} x {plane_w})"
+            )
+        return self

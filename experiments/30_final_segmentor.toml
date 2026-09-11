@@ -1,0 +1,49 @@
+# Stage 3: the reported segmentor numbers, at the flight input size.
+#
+# Set the second `arch` entry to the architecture selected through stages 2 to
+# 2.7, and copy that stage's winning recipe into the scalar fields.
+#
+# As with the classifier, the baseline architecture is retrained here under the
+# same resolution, budget, recipe and seed as the candidate. Stage 0 recorded
+# the baseline at 128 px with BCE under SGD, so a candidate measured against it
+# directly would be credited for the resolution and the objective as well as for
+# the architecture. Retraining both isolates the architecture.
+#
+# Batch size drops to 8 because a 256 px activation map is four times the area
+# of a 128 px one, and the widest U-Net variants would otherwise exhaust the
+# 8 GB of VRAM on this machine.
+#
+# The test split is scored once, on the runs this stage produces.
+#
+# 2 architectures x 1 seed = 2 trials.
+
+kind = "segmentor"
+data_dir = "data/processed/segmentor"
+run_dir = "artifacts/runs"
+
+input_height_px = 256
+input_width_px = 256
+in_channels = 4
+
+epochs = 120
+batch_size = 8
+patience = 20
+eval_interval = 1
+
+arch = [
+  "unet",
+  "dilatenet_w32",
+]
+seed = 0
+
+optimizer = "adamw"
+learning_rate = 0.001
+loss = "focal_dice"
+momentum = 0.9
+weight_decay = 0.0001
+pos_weight = 32.0
+scheduler = "cosine"
+shuffle = true
+augment = true
+amp = true
+val_metric = "mean_iou"

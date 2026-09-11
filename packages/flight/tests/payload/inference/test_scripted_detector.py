@@ -5,7 +5,7 @@ import importlib.util
 import numpy as np
 import pytest
 from flight.libs.messages import ProcessedFrameMsg
-from flight.libs.types import MessageType, Ok
+from flight.libs.types import FrameUsabilityTag, MessageType, Ok
 from flight.payload.inference import DetectorBackend, OnnxDetector, ScriptedDetector
 
 
@@ -18,8 +18,6 @@ def _processed_frame(height: int = 20, width: int = 20) -> ProcessedFrameMsg:
         frame_id=7,
         tensor=tensor,
         quality_flags=frozenset(),
-        crop_origin_px=(0, 0),
-        scale_factor=1.0,
     )
 
 
@@ -50,6 +48,22 @@ def test_negative_classifier_skips_segmentor() -> None:
     assert isinstance(result, Ok)
     assert result.value.blobs == ()
     assert float(np.asarray(result.value.mask).max()) == 0.0
+
+
+def test_detector_preserves_quality_for_science_qualification() -> None:
+    """Image quality follows inference without becoming a control safety flag."""
+    frame = _processed_frame()
+    frame = ProcessedFrameMsg(
+        msg_type=frame.msg_type,
+        timestamp_utc=frame.timestamp_utc,
+        frame_id=frame.frame_id,
+        tensor=frame.tensor,
+        quality_flags=frozenset({FrameUsabilityTag.MOTION_SMEAR}),
+    )
+    result = ScriptedDetector(np.zeros((20, 20), dtype=np.float32)).detect(frame)
+    assert isinstance(result, Ok)
+    assert result.value.quality_flags == frozenset({FrameUsabilityTag.MOTION_SMEAR})
+    assert result.value.mode_flags == 0
 
 
 @pytest.mark.skipif(

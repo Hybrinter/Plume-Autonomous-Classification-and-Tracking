@@ -1,29 +1,32 @@
-"""Tests for the PayloadController pure control composition (boresight-error space)."""
+"""Tests for the PayloadController cascaded inner/outer cores."""
+
+import math
 
 import numpy as np
-from flight.hal.interfaces import GimbalPosition
-from flight.libs.config import ControllerConfig, SensorConfig
+from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, SensorConfig
 from flight.libs.messages import BlobMeta, InferenceResultMsg
-from flight.libs.types import FaultCode, GimbalCommandMode, GimbalState, MessageType
-from flight.payload.control import ControlState, PayloadController
-from flight.payload.gimbal import GimbalRequest
+from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
+from flight.payload.control import IssSample, PayloadController, VisionSample
+from flight.payload.tracking import EncoderSample
 
-# Default geometry: 1024 sensor -> 512 plane, boresight at (256, 256).
-_BORESIGHT = 256.0
+_BORESIGHT_X = 612.0
+_BORESIGHT_Y = 512.0
+
+
+def _encoder(t_s: float, angle_rad: float = 0.0) -> EncoderSample:
+    """Build a valid timestamped encoder sample for one outer tick."""
+    return EncoderSample(f"encoder:{t_s:.6f}", t_s, angle_rad, 0.0)
 
 
 def _controller() -> PayloadController:
-    """Build a controller with the default controller + sensor geometry."""
-    return PayloadController.from_config(ControllerConfig(), SensorConfig())
+    """Build a controller with default controller, sensor, and gimbal geometry."""
+    return PayloadController.from_config(
+        ControllerConfig(), SensorConfig(), GimbalConfig(), EphemerisConfig()
+    )
 
 
-def _result(
-    frame_id: int,
-    *,
-    centroid: tuple[float, float] | None,
-) -> InferenceResultMsg:
+def _result(frame_id: int, *, centroid: tuple[float, float] | None) -> InferenceResultMsg:
     """Build an InferenceResultMsg, optionally carrying one strong blob at `centroid`."""
-    mask = np.zeros((16, 16), dtype=np.float32)
     blobs: tuple[BlobMeta, ...] = ()
     if centroid is not None:
         blobs = (
@@ -40,144 +43,222 @@ def _result(
         msg_type=MessageType.INFERENCE_RESULT,
         timestamp_utc="2026-06-01T00:00:00.000Z",
         frame_id=frame_id,
-        mask=mask,
+        mask=np.zeros((16, 16), dtype=np.float32),
         blobs=blobs,
         model_version="test",
         inference_ms=0.0,
         mode_flags=0,
-        crop_origin_px=(0, 0),
-        scale_factor=1.0,
     )
 
 
-def test_initial_state_is_idle() -> None:
-    """The controller starts IDLE with no tracked blobs and a fresh runaway monitor."""
+def _blob(blob_id: int, centroid: tuple[float, float], pixel_area: int) -> BlobMeta:
+    """Build one accepted connected component for aggregate-centroid tests."""
+    return BlobMeta(
+        blob_id=blob_id,
+        bbox=(100, 100, 150, 150),
+        centroid_raw=centroid,
+        pixel_area=pixel_area,
+        mean_confidence=0.85,
+        persistence_count=1,
+    )
+
+
+def test_initial_state_is_tracking_cold() -> None:
+    """The controller starts TRACKING with r=0 and no residual measurement."""
     state = _controller().initial_state()
-    assert state.arbiter.gimbal_state is GimbalState.IDLE
-    assert state.arbiter.tracked_blobs == ()
-    assert state.deadband_strikes == 0
-    assert state.runaway.last_pos is None
-
-
-def test_no_detection_stays_idle_no_command() -> None:
-    """With no blobs, the controller stays IDLE and issues no request."""
-    controller = _controller()
-    state = controller.initial_state()
-    state, request, _events, fault = controller.step(
-        state, _result(1, centroid=None), 1.0, None, False, False
-    )
-    assert state.arbiter.gimbal_state is GimbalState.IDLE
-    assert request is None
-    assert fault is None
-
-
-def test_persistent_blob_progresses_to_tracking_and_commands() -> None:
-    """A stable off-center blob over frames drives TRACKING and issues a RATE request."""
-    controller = _controller()
-    state = controller.initial_state()
-    # 70 px off boresight -> ~99 px displacement: above min_deadband, below max_deadband.
-    centroid = (_BORESIGHT + 70.0, _BORESIGHT + 70.0)
-    now = 0.0
-    last_rate: GimbalRequest | None = None
-    for frame_id in range(1, 9):
-        now += 1.0
-        state, request, _events, _fault = controller.step(
-            state, _result(frame_id, centroid=centroid), now, None, False, False
-        )
-        if request is not None and request.mode is GimbalCommandMode.RATE:
-            last_rate = request
     assert state.arbiter.gimbal_state is GimbalState.TRACKING
-    assert last_rate is not None
-    # Target right (+x) and below (+y) of boresight -> slew toward it: +az and -el.
-    assert last_rate.az_deg > 0.0
-    assert last_rate.el_deg < 0.0
+    assert state.arbiter.tracked_blobs == ()
+    assert state.r_rad_s == 0.0
+    assert state.residual.has_measurement is False
 
 
-def test_deadband_below_min_suppresses_rate_command() -> None:
-    """A target inside the minimum deadband (near boresight) never issues a RATE command."""
+def test_cold_outer_holds_r_zero_without_vision() -> None:
+    """Coast ticks before the first blob keep r = 0."""
     controller = _controller()
     state = controller.initial_state()
-    centroid = (_BORESIGHT + 2.0, _BORESIGHT + 2.0)  # ~2.8 px < min_deadband_px=20
-    now = 0.0
-    for frame_id in range(1, 9):
-        now += 1.0
-        state, request, _events, _fault = controller.step(
-            state, _result(frame_id, centroid=centroid), now, None, False, False
-        )
-        assert not (request is not None and request.mode is GimbalCommandMode.RATE)
+    tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, False, False)
+    assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert tick.state.r_rad_s == 0.0
+    assert tick.request is None
+    assert tick.fault is None
 
 
-def test_max_deadband_strikes_raise_runaway_fault() -> None:
-    """Displacement above max_deadband_px for the strike count raises GIMBAL_RUNAWAY."""
+def _iss() -> IssSample:
+    """Circular-LEO IssSample at the ephemeris epoch."""
+    eph = EphemerisConfig()
+    radius = 6_378_137.0 + 400_000.0
+    speed = math.sqrt(eph.mu_m3_s2 / radius)
+    return IssSample(r_m=(radius, 0.0, 0.0), v_m_s=(0.0, speed, 0.0), utc_s=eph.epoch_utc_s)
+
+
+def test_blob_above_boresight_commands_positive_r() -> None:
+    """An above-boresight blob snaps e and produces a positive elevation rate."""
     controller = _controller()
     state = controller.initial_state()
-    # 200 px off each axis -> ~283 px displacement > max_deadband_px=250.
-    centroid = (_BORESIGHT + 200.0, _BORESIGHT + 200.0)
-    strike_limit = ControllerConfig().max_deadband_strike_count
-    now = 0.0
-    fault: FaultCode | None = None
-    for frame_id in range(1, strike_limit + 1):
-        now += 1.0
-        state, _request, _events, fault = controller.step(
-            state, _result(frame_id, centroid=centroid), now, None, False, False
-        )
-    assert fault is FaultCode.GIMBAL_RUNAWAY
-
-
-def test_runaway_fault_from_stalled_encoder_while_commanding() -> None:
-    """A stalled encoder while a RATE was commanded last frame raises GIMBAL_RUNAWAY."""
-    cfg = ControllerConfig()
-    controller = PayloadController.from_config(cfg, SensorConfig())
-    # Seed a state that commanded a 2 deg/s azimuth rate last frame.
-    base = controller.initial_state()
-    state = ControlState(
-        arbiter=base.arbiter,
-        ema=base.ema,
-        kalman=base.kalman,
-        runaway=base.runaway,
-        deadband_strikes=0,
-        commanded_az_rate_deg_per_s=2.0,
-        commanded_el_rate_deg_per_s=0.0,
+    centroid = (_BORESIGHT_X, _BORESIGHT_Y - 70.0)
+    iss = _iss()
+    state, sample = controller.ingest_inference(
+        state, _result(1, centroid=centroid), 0.0, 1000.0, iss
     )
-    fault: FaultCode | None = None
-    # Encoder reports no motion across consecutive timestamps -> divergence strikes.
-    for i in range(0, cfg.runaway_strike_count + 1):
-        pos = GimbalPosition(az_deg=0.0, el_deg=0.0, timestamp_s=float(i))
-        state, _request, _events, fault = controller.step(
-            state, _result(i + 1, centroid=None), float(i), pos, False, False
-        )
-        # Keep the commanded rate non-zero so the monitor stays armed each frame.
-        state = ControlState(
-            arbiter=state.arbiter,
-            ema=state.ema,
-            kalman=state.kalman,
-            runaway=state.runaway,
-            deadband_strikes=state.deadband_strikes,
-            commanded_az_rate_deg_per_s=2.0,
-            commanded_el_rate_deg_per_s=0.0,
-        )
-    assert fault is FaultCode.GIMBAL_RUNAWAY
+    assert sample.z_v is not None
+    assert sample.z_v > 0.0
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
+    assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert tick.state.residual.has_measurement is True
+    assert tick.state.r_rad_s > 0.0
+    assert tick.request is None
 
 
-def test_safe_entry_produces_stow_request_and_latched_state() -> None:
-    """A commanded SAFE produces a STOW request and a latched SAFE arbiter state."""
+def test_ingest_uses_area_weighted_aggregate_centroid() -> None:
+    """Every accepted component contributes to the visible union centroid."""
+    controller = _controller()
+    result = InferenceResultMsg(
+        msg_type=MessageType.INFERENCE_RESULT,
+        timestamp_utc="2026-06-01T00:00:00.000Z",
+        frame_id=1,
+        mask=np.zeros((16, 16), dtype=np.float32),
+        blobs=(
+            _blob(1, (100.0, 300.0), 100),
+            _blob(2, (700.0, 700.0), 300),
+        ),
+        model_version="test",
+        inference_ms=0.0,
+        mode_flags=0,
+    )
+
+    _state, sample = controller.ingest_inference(controller.initial_state(), result, 0.0, 1000.0)
+
+    assert sample.p_cog == (550.0, 600.0)
+
+
+def test_visual_tracking_does_not_require_navigation() -> None:
+    """A valid visual aggregate commands tracking when ephemeris is unavailable."""
+    controller = _controller()
+    state, sample = controller.ingest_inference(
+        controller.initial_state(),
+        _result(1, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0)),
+        0.0,
+        1000.0,
+    )
+
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, None, False, False)
+
+    assert tick.state.arbiter.aggregate_live is True
+    assert tick.state.r_rad_s > 0.0
+
+
+def test_aggregate_coast_expires_into_return() -> None:
+    """A stalled vision pipeline makes an observed target return toward +45 degrees."""
+    controller = _controller()
+    state, sample = controller.ingest_inference(
+        controller.initial_state(),
+        _result(1, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0)),
+        0.0,
+        1000.0,
+    )
+    live = controller.outer_step(state, 0.02, _encoder(0.0), sample, None, False, False).state
+
+    expired = controller.outer_step(
+        live,
+        controller.cfg.arbiter.max_observation_age_s + 0.04,
+        _encoder(controller.cfg.arbiter.max_observation_age_s + 0.04, 0.0),
+        None,
+        None,
+        False,
+        False,
+    )
+
+    assert expired.state.arbiter.gimbal_state is GimbalState.REWIND
+    assert expired.state.arbiter.aggregate_live is False
+    assert expired.state.r_rad_s > 0.0
+
+
+def test_safe_entry_produces_stow_request() -> None:
+    """A commanded SAFE produces a STOW request and latched SAFE state."""
     controller = _controller()
     state = controller.initial_state()
-    state, request, _events, _fault = controller.step(
-        state, _result(1, centroid=None), 1.0, None, True, False
+    tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, True, False)
+    assert tick.request is not None
+    assert tick.request.mode is GimbalCommandMode.STOW
+    assert tick.state.arbiter.gimbal_state is GimbalState.SAFE
+    assert tick.state.pose_mode is GimbalCommandMode.STOW
+    assert tick.state.r_rad_s < 0.0
+
+
+def test_inner_step_writes_torque() -> None:
+    """inner_step with a nonzero r produces a torque command."""
+    from dataclasses import replace
+
+    controller = _controller()
+    state = replace(controller.initial_state(), r_rad_s=math.radians(1.0))
+    tick = controller.inner_step(state, 0.001, 0.0)
+    assert tick.tau_nm != 0.0
+
+
+def test_iss_sample_feeds_predictor() -> None:
+    """An IssSample with a stored CoG produces a finite omega_t_nom."""
+    controller = _controller()
+    from dataclasses import replace
+
+    eph = EphemerisConfig()
+    r = 6_378_137.0 + 400_000.0
+    v = math.sqrt(eph.mu_m3_s2 / r)
+    iss = IssSample(r_m=(r, 0.0, 0.0), v_m_s=(0.0, v, 0.0), utc_s=eph.epoch_utc_s)
+    cog = (eph.wgs84_a_m, 0.0, 0.0)
+    state = replace(controller.initial_state(), r_cog_ecef_m=cog)
+    sample = VisionSample(
+        t_s=0.0,
+        z_v=0.0,
+        p_cog=(612.0, 512.0),
+        exposure_us=1000.0,
+        blobs=(),
+        mode_flags=0,
+        iss=iss,
+        frame_id="1",
     )
-    assert request is not None
-    assert request.mode is GimbalCommandMode.STOW
-    assert state.arbiter.gimbal_state is GimbalState.SAFE
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
+    assert math.isfinite(tick.state.last_omega_t_nom)
 
 
-def test_returns_bundled_control_state() -> None:
-    """step() threads a ControlState bundling arbiter, EMA, Kalman, and runaway sub-states."""
+def test_home_request_sets_pose_mode() -> None:
+    """HOME pose_mode writes a position-loop rate toward home."""
+    from dataclasses import replace
+
+    controller = _controller()
+    state = replace(
+        controller.initial_state(),
+        pose_mode=GimbalCommandMode.HOME,
+        pose_el_deg=controller.gimbal.home_el_deg,
+    )
+    tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, False, False)
+    assert tick.state.pose_mode is GimbalCommandMode.HOME
+    assert tick.state.r_rad_s > 0.0
+
+
+def test_science_window_zeros_negative_r_at_min() -> None:
+    """TRACKING live does not command r that would leave the science window."""
     controller = _controller()
     state = controller.initial_state()
-    centroid = (_BORESIGHT + 70.0, _BORESIGHT + 70.0)
-    state, _request, _events, _fault = controller.step(
-        state, _result(1, centroid=centroid), 1.0, None, False, False
+    iss = _iss()
+    centroid = (_BORESIGHT_X, _BORESIGHT_Y + 70.0)
+    state, sample = controller.ingest_inference(
+        state, _result(1, centroid=centroid), 0.0, 1000.0, iss
     )
-    assert isinstance(state, ControlState)
-    assert state.ema.initialized is True
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
+    assert tick.state.r_rad_s == 0.0
+
+
+def test_exit_safe_resets_residual() -> None:
+    """EXIT_SAFE cold-starts the residual filter."""
+    from dataclasses import replace
+
+    controller = _controller()
+    state = controller.initial_state()
+    safe = controller.outer_step(state, 0.02, _encoder(0.02), None, None, True, False)
+    residual = replace(safe.state.residual, has_measurement=True)
+    hot = replace(safe.state, residual=residual)
+    cleared = controller.outer_step(hot, 0.04, _encoder(0.04), None, None, False, True)
+    assert cleared.state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert cleared.state.residual.has_measurement is False
+    assert float(cleared.state.residual.x[0]) == 0.0
+    assert float(cleared.state.residual.x[1]) == 0.0

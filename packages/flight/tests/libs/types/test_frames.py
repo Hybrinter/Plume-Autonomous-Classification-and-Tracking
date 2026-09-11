@@ -9,6 +9,7 @@ def test_mosaic_frame_holds_uint16_plane() -> None:
     mosaic = np.zeros((4, 4), dtype=np.uint16)  # np.ndarray[uint16, (H, W)]
     frame = MosaicFrame(
         timestamp_utc="2026-06-09T00:00:00.000Z",
+        timestamp_s=0.0,
         frame_id=1,
         mosaic=mosaic,
         exposure_us=1000.0,

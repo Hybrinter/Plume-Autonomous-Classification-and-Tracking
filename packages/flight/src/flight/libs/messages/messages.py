@@ -44,7 +44,7 @@ from flight.libs.types import (
 # field layout changes incompatibly, so a consumer (or a downlinked record) can detect a
 # version skew rather than silently mis-parsing. Every message dataclass carries it as a
 # defaulted trailing field, so existing keyword constructions are unaffected.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # Shared timestamp utility
@@ -78,7 +78,7 @@ class BlobMeta:
 
     blob_id: int  # uint16 persistent tracker ID
     bbox: tuple[int, int, int, int]  # (x_min, y_min, x_max, y_max) pixel space
-    centroid_raw: tuple[float, float]  # (x, y) float centroid in crop-space pixels
+    centroid_raw: tuple[float, float]  # (x, y) float centroid in band-plane pixels
     pixel_area: int  # number of pixels in blob mask
     mean_confidence: float  # mean softmax probability over blob pixels
     persistence_count: int  # consecutive frames this blob has been tracked
@@ -102,8 +102,6 @@ class ProcessedFrameMsg:
     frame_id: int  # uint32 monotonic frame counter
     tensor: object  # np.ndarray[float32, (4, H, W)]
     quality_flags: frozenset[FrameUsabilityTag]
-    crop_origin_px: tuple[int, int]  # (x, y) top-left offset of crop in full frame
-    scale_factor: float  # resize scale applied during preprocessing
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
@@ -122,28 +120,23 @@ class InferenceResultMsg:
     model_version: str  # model checkpoint identifier string
     inference_ms: float  # wall-clock inference duration in ms
     mode_flags: int  # uint8 bitmask; semantics defined in config
-    crop_origin_px: tuple[int, int]  # (x, y) preprocess crop origin the blobs live in
-    scale_factor: float  # preprocess decimation scale the blobs live in (tensor_px = plane_px * s)
+    quality_flags: frozenset[FrameUsabilityTag] = frozenset()
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
 @dataclass(frozen=True)
 class GimbalCommandMsg:
-    """Telemetry record of a gimbal command issued by the payload app.
+    """Telemetry record of a pose command issued by the payload app.
 
-    Reshaped from the legacy delta command into a typed telemetry record of the
-    GimbalRequest the payload app issued onto the GimbalActuator HAL: mode plus the
-    two axis values (interpreted per the mode), the arbiter state at the time, and a
-    human-readable reason. This is a downlink/log record -- it is no longer the
-    actuation vehicle (actuation flows through the HAL methods directly).
+    Records STOW / HOME / ABSOLUTE elevation targets. Tracking torque is not a
+    command message; compact pointing telemetry uses TelemetryEventMsg.
     """
 
     msg_type: MessageType  # must be MessageType.GIMBAL_COMMAND
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # frame that triggered this command
-    mode: GimbalCommandMode  # RATE / ABSOLUTE / STOW / HOME
-    az_value_deg: float  # rate (deg/s) for RATE; target angle (deg) for ABSOLUTE; 0 otherwise
-    el_value_deg: float  # rate (deg/s) for RATE; target angle (deg) for ABSOLUTE; 0 otherwise
+    mode: GimbalCommandMode  # ABSOLUTE / STOW / HOME
+    el_value_deg: float  # target angle (deg) for ABSOLUTE; 0 otherwise
     state: GimbalState  # arbiter state at time of command
     reason: str  # human-readable reason code for logging
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version

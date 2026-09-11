@@ -1,0 +1,7 @@
+# Frozen train/val/test recipe for Zenodo 4250706.
+# Applied to sorted paired filenames after preprocess. CI does not download.
+
+seed = 0
+train_fraction = 0.70
+val_fraction = 0.15
+test_fraction = 0.15

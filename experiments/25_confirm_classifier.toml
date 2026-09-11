@@ -1,0 +1,41 @@
+# Stage 2.5: extra seeds at the knee, so the choice is not one draw.
+#
+# Set `arch` to the architectures that landed on or beside the stage 2 frontier
+# knee. Do not re-run the rest of the catalog. Seed spread only changes a
+# decision at the knee; everywhere else the ranking is already decided by a
+# gap larger than typical seed noise.
+#
+# The classifier ran one seed in stage 2. This stage adds three more. Four
+# seeds is enough to report a mean and a spread, which is what the selection
+# rule compares against the metric given up by a cheaper neighbour.
+#
+# Recipe, resolution, and epoch budget match stage 2.
+#
+# Fill `arch` after stage 2. N architectures x 3 seeds.
+
+kind = "classifier"
+arch = ["pactnet_w64", "shufflenetv2_x0_5_pt", "efficientnet_b0_pt"]
+data_dir = "data/processed/classifier"
+run_dir = "artifacts/runs"
+
+input_height_px = 128
+input_width_px = 128
+in_channels = 4
+
+epochs = 30
+batch_size = 64
+patience = 6
+eval_interval = 1
+
+seed = [1, 2, 3]
+
+optimizer = "adamw"
+learning_rate = 0.001
+loss = "bce"
+momentum = 0.9
+weight_decay = 0.0001
+scheduler = "cosine"
+shuffle = true
+augment = true
+amp = true
+val_metric = "f1"

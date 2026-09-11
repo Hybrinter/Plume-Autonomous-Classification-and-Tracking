@@ -26,6 +26,7 @@ Package-local decisions live under `docs/<package>/adr/`.
 | ADR-REPO-0010 | [0010-validation-configuration-matrix.md](adr/0010-validation-configuration-matrix.md) | Validation as a configuration matrix with a VCRM spine | Accepted |
 | ADR-REPO-0011 | [0011-ship-flight-as-isolated-package.md](adr/0011-ship-flight-as-isolated-package.md) | Ship flight as an isolated package | Accepted |
 | ADR-REPO-0012 | [0012-tests-mirror-src-package-tree.md](adr/0012-tests-mirror-src-package-tree.md) | Tests mirror the tree inside `src/<package>/` | Accepted |
+| ADR-REPO-0013 | [0013-pydantic-toml-schemas.md](adr/0013-pydantic-toml-schemas.md) | Pydantic dataclasses for TOML file schemas | Accepted |
 
 ## Notes
 

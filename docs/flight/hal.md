@@ -25,7 +25,7 @@ None. The top-level `hal` package has no `__init__.py` re-exports. Importers rea
 ## Interactions
 
 Apps receive injected Protocol implementations from `flight.core.composition.build_apps`.
-The payload app uses `ImagingSensor` and `GimbalActuator`. The iss_iface app uses
+The payload app uses `ImagingSensor`, `GimbalActuator`, and `IssEphemeris`. The iss_iface app uses
 `StationLink`, `StorageReader`, and `StorageWriter`. The thermal and electrical apps
 use `ScalarSensor`. The mechanical app uses `LaunchLock`.
 
@@ -39,7 +39,9 @@ Import-linter contracts enforce this boundary.
 - Real and sim driver packages do not import each other.
 - Every driver method returns `Result[T, FaultCode]`. Drivers do not raise on runtime
   faults.
-- Vendor SDK imports happen inside driver constructors, not at module import time.
+- Vendor SDK imports stay out of app code. `RealSensor` imports PySpin during
+  construction. `RealGimbal` imports the vendored Xeryon module at driver-module
+  load; serial I/O still waits until connect.
 - Large artifacts (frames, stored bytes) pass by direct call, not on the message bus.
 
 ## Related documents

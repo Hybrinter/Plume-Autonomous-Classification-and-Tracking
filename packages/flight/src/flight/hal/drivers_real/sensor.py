@@ -120,6 +120,7 @@ class RealSensor:
             return Ok(
                 MosaicFrame(
                     timestamp_utc=self._clock.wall_clock_iso(),
+                    timestamp_s=self._clock.monotonic_s(),
                     frame_id=self._frame_id,
                     mosaic=mosaic,
                     exposure_us=float(self._cam.ExposureTime.GetValue()),

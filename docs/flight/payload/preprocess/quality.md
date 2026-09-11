@@ -18,7 +18,7 @@ dataset classification.
 
 ## Inputs and outputs
 
-`compute_quality_flags(bands, exposure_us, slew_rate_deg_per_s, ifov_deg_per_px,
+`compute_quality_flags(bands, exposure_us, slew_rate_deg_per_s, ifov_band_deg_per_px,
 utc_timestamp, cfg)` returns `frozenset[FrameUsabilityTag]`. An empty set means a clean
 frame.
 
@@ -45,11 +45,11 @@ None. Flags are carried on the in-process processed frame; they are not bus mess
 
 Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_px`,
 `nir_red_ratio_threshold`, `sunglint_nir_mean_threshold`. Also uses
-`SensorConfig.ifov_deg_per_px` and frame metadata from the raw mosaic.
+`SensorConfig.ifov_band_deg_per_px` and frame metadata from the raw mosaic.
 
 ## Constraints
 
-Quality evaluation runs on the full band plane before ROI crop or decimation. A slew
+Quality evaluation runs on the full band plane. A slew
 rate of 0.0 disables motion smear flagging when the rate is unknown.
 
 ## Related documents

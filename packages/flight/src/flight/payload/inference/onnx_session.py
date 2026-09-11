@@ -6,7 +6,7 @@ verification runs after load when both expected shapes are given.
 
 Contains:
   - onnx_tensor_shape: normalize an onnxruntime dim list to a typed tuple.
-  - load_onnx_session: open a session with optional hash and I/O contract checks.
+  - load_onnx_session: open a session with optional hash, I/O, and provider list.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
@@ -64,6 +64,7 @@ def load_onnx_session(
     expected_sha256: str | None = None,
     expected_input_shape: tuple[int | None, ...] | None = None,
     expected_output_shape: tuple[int | None, ...] | None = None,
+    providers: Sequence[str] | None = None,
 ) -> OnnxInferenceSession:
     """Open an onnxruntime InferenceSession over model_path.
 
@@ -72,6 +73,8 @@ def load_onnx_session(
         expected_sha256: Optional SHA-256 hex digest checked before load.
         expected_input_shape: Optional required input shape after load.
         expected_output_shape: Optional required output shape after load.
+        providers: Optional execution-provider list. ``None`` lets onnxruntime
+            select from the providers this install registered.
 
     Returns:
         OnnxInferenceSession: An onnxruntime session matching the protocol.
@@ -96,7 +99,10 @@ def load_onnx_session(
             "artifacts to use the ONNX backends; use scripted backends in tests "
             "and simulation."
         ) from exc
-    session = cast(OnnxInferenceSession, onnxruntime.InferenceSession(model_path))
+    kwargs: dict[str, object] = {}
+    if providers is not None:
+        kwargs["providers"] = list(providers)
+    session = cast(OnnxInferenceSession, onnxruntime.InferenceSession(model_path, **kwargs))
     if expected_input_shape is not None and expected_output_shape is not None:
         actual_in = onnx_tensor_shape(session.get_inputs()[0].shape)
         actual_out = onnx_tensor_shape(session.get_outputs()[0].shape)

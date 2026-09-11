@@ -18,12 +18,11 @@ with no I/O and no global state.
 | [`normalize`](preprocess/normalize.md) | module | DN to [0, 1] scaling by ADC full scale |
 | [`band_select`](preprocess/band_select.md) | module | Reorder band planes for model input |
 | [`quality`](preprocess/quality.md) | module | Per-frame usability flags |
-| [`crop`](preprocess/crop.md) | module | ROI crop and pixel back-projection |
 
 ## Package interface
 
-Re-exports: `CELL_OFFSETS`, `MosaicCalibration`, `backproject_pixel`, `calibrate_mosaic`,
-`compute_quality_flags`, `correct_bad_pixels`, `crop_to_roi`, `interleave_bands`,
+Re-exports: `CELL_OFFSETS`, `MosaicCalibration`, `calibrate_mosaic`,
+`compute_quality_flags`, `correct_bad_pixels`, `interleave_bands`,
 `normalize_dn`, `select_bands`, `separate_bands`.
 
 ## Interactions
@@ -35,8 +34,9 @@ in-process processed frame record.
 ## Constraints
 
 All functions are pure. Calibration runs on the raw mosaic plane before CFA separation.
-Quality flags run on the full band plane before ROI crop or decimation. The package does
-not read TOML or load files; artifact loading lives in `flight.payload.calibration_io`.
+Quality flags run on the full band plane. The full selected band plane is passed to
+inference with no crop and no scale. The package does not read TOML or load files;
+artifact loading lives in `flight.payload.calibration_io`.
 
 ## Related documents
 

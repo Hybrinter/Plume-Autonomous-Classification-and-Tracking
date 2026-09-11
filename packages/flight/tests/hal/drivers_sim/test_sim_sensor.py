@@ -10,6 +10,7 @@ def _frame(frame_id: int) -> MosaicFrame:
     mosaic = np.zeros((8, 8), dtype=np.uint16)  # np.ndarray[uint16, (H, W)]
     return MosaicFrame(
         timestamp_utc="2026-05-31T00:00:00.000Z",
+        timestamp_s=float(frame_id),
         frame_id=frame_id,
         mosaic=mosaic,
         exposure_us=10_000.0,

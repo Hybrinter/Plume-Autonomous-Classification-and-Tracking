@@ -6,17 +6,22 @@
   state the system as it is. Use the STE100-inspired guide in
   `docs/style/ste-guide.md`.
 - **ADRs** (`docs/adr`, `docs/<package>/adr`) record design decisions.
+- **Design briefs** (`docs/design`) specify architecture that is not yet
+  as-built. They may use equations and future-tense language. They are not
+  STE-mirrored and must not cite architecture-decision identifiers.
 - **`.claude/rules/`** holds coding standards and agent invariants.
 
 Do not put design rationale in descriptive docs. Do not put coding-style
-preferences in ADRs.
+preferences in ADRs. Do not put an as-yet-unbuilt controller in a descriptive
+page; put it in `docs/design` until the code exists.
 
 ## Mirror maintenance
 
 When you add, rename, or delete a source module or package directory under
 `packages/{flight,sim,gse,tools}/src/`, update the matching descriptive page
 in the same change. Empty `__init__.py` files fold into the parent directory
-page and do not get their own markdown file.
+page and do not get their own markdown file. `packages/analysis/` is not
+STE-mirrored.
 
 ## ADR rules
 

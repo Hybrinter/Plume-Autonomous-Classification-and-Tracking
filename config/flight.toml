@@ -6,7 +6,7 @@
 # --- Flight-specific overrides ---
 
 [inference]
-# INT8 quantization enabled for Jetson Xavier flight deployment (TensorRT path).
-# Reduces inference latency and power draw at the cost of minor precision loss.
-# Validated against REQ-AIML-COMP-003 before enabling.
-use_int8 = true
+# Factory boot loads the quality knee: classifier FP16 and segmentor INT8
+# already written into active_*.onnx. use_int8 stays false because those
+# paths are the quantized graphs, not FP32 files with INT8 siblings.
+use_int8 = false

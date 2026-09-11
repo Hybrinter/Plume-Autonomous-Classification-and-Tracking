@@ -5,8 +5,8 @@ software. The Ok/Err/Result types live in flight.libs.types.result.
 
 Includes:
 - SystemMode: top-level operational mode transitions.
-- GimbalState: four-state arbiter for gimbal control.
-- GimbalCommandMode: interpretation of gimbal command axis values (RATE/ABSOLUTE/STOW/HOME).
+- GimbalState: TRACKING / REWIND / SAFE arbiter for gimbal control.
+- GimbalCommandMode: interpretation of gimbal pose commands (ABSOLUTE/STOW/HOME).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
   (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
   command-ingress integrity codes (COMMAND_CRC_FAIL, COMMAND_AUTH_FAIL, COMMAND_SEQ_ERROR,
@@ -48,27 +48,23 @@ class SystemMode(enum.Enum):
 
 
 class GimbalState(enum.Enum):
-    """Four-state + safe arbiter. REQ-AIML-GIMB-008."""
+    """Three-state + safe arbiter. REQ-AIML-GIMB-008."""
 
-    IDLE = "IDLE"
-    ACQUIRING = "ACQUIRING"
     TRACKING = "TRACKING"
-    SCAN = "SCAN"
+    REWIND = "REWIND"
     SAFE = "SAFE"
 
 
 class GimbalCommandMode(enum.Enum):
-    """How a gimbal command's axis values are interpreted.
+    """How a gimbal pose command's elevation is interpreted.
 
-    RATE: az/el are rates in deg/s (TRACKING). ABSOLUTE: az/el are target angles in
-    degrees (SCAN, acquisition repositioning). STOW/HOME: axis values are ignored;
-    the driver resolves the configured stow/home pose.
+    ABSOLUTE: el is a target angle in degrees (HOME/GOTO via the position loop).
+    STOW/HOME: elevation is ignored; the driver or position loop uses the configured pose.
 
     String values mirror member names (log readability convention).
     Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
     """
 
-    RATE = "RATE"
     ABSOLUTE = "ABSOLUTE"
     STOW = "STOW"
     HOME = "HOME"
@@ -93,6 +89,16 @@ class FaultCode(enum.Enum):
     CALIBRATION_INVALID = "CALIBRATION_INVALID"
     FRAME_MALFORMED = "FRAME_MALFORMED"
     GIMBAL_FAULT = "GIMBAL_FAULT"
+    GIMBAL_ENCODER_INVALID = "GIMBAL_ENCODER_INVALID"
+    GIMBAL_CONTROLLER_ERROR = "GIMBAL_CONTROLLER_ERROR"
+    GIMBAL_THERMAL = "GIMBAL_THERMAL"
+    GIMBAL_SAFETY_TIMEOUT = "GIMBAL_SAFETY_TIMEOUT"
+    GIMBAL_CLOSED_LOOP_LOSS = "GIMBAL_CLOSED_LOOP_LOSS"
+    GIMBAL_STALE_FEEDBACK = "GIMBAL_STALE_FEEDBACK"
+    GIMBAL_TIME_MAPPING = "GIMBAL_TIME_MAPPING"
+    GIMBAL_DUTY_EXHAUSTED = "GIMBAL_DUTY_EXHAUSTED"
+    GIMBAL_WATCHDOG_UNCONFIRMED = "GIMBAL_WATCHDOG_UNCONFIRMED"
+    EPHEMERIS_FAULT = "EPHEMERIS_FAULT"
     COMMAND_CRC_FAIL = "COMMAND_CRC_FAIL"
     COMMAND_AUTH_FAIL = "COMMAND_AUTH_FAIL"
     COMMAND_SEQ_ERROR = "COMMAND_SEQ_ERROR"
@@ -222,6 +228,9 @@ class CommandId(enum.Enum):
     RELEASE_LAUNCH_LOCK = "RELEASE_LAUNCH_LOCK"  # hazardous; target mechanical; param phase: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
+    GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop
+    GIMBAL_HOME = "GIMBAL_HOME"  # non-hazardous; target payload; home via position loop
+    GIMBAL_GOTO = "GIMBAL_GOTO"  # non-hazardous; target payload; param el_deg: float
 
 
 class ParamKind(enum.Enum):

@@ -666,7 +666,7 @@ def test_unmatched_blob_without_intersect_drops_prior_cog() -> None:
     )
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.r_cog_ecef_m is None
-    assert tick.state.residual.has_measurement is False
+    assert tick.state.last_omega_t_nom == 0.0
     assert not np.allclose(tick.state.residual.x, planted_x)
 
 

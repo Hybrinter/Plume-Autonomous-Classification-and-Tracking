@@ -196,7 +196,7 @@ def test_inner_step_writes_torque() -> None:
 
 
 def test_iss_sample_feeds_predictor() -> None:
-    """An IssSample with a stored CoG produces a finite omega_t_nom."""
+    """An IssSample with a stored CoG at the 2 km proxy produces a finite omega_t_nom."""
     controller = _controller()
     from dataclasses import replace
 
@@ -218,6 +218,67 @@ def test_iss_sample_feeds_predictor() -> None:
     )
     tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
     assert math.isfinite(tick.state.last_omega_t_nom)
+    assert math.isfinite(tick.state.last_omega_az_nom)
+
+
+def test_rewind_uses_boresight_not_plume_cog() -> None:
+    """REWIND predicts from current boresight at 2 km, not the lost-plume ECEF point."""
+    from dataclasses import replace
+
+    from flight.payload.gimbal.intersect import intersect_boresight
+    from flight.payload.gimbal.predictor import predict_los
+
+    controller = _controller()
+    eph = EphemerisConfig()
+    iss = _iss()
+    plume = (eph.wgs84_a_m, 0.0, 0.0)
+    state, sample = controller.ingest_inference(
+        controller.initial_state(),
+        _result(1, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0)),
+        0.0,
+        1000.0,
+        iss,
+    )
+    live = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False).state
+    live = replace(live, r_cog_ecef_m=plume)
+    now = controller.cfg.arbiter.max_observation_age_s + 0.04
+    theta_g = math.radians(20.0)
+    expired = controller.outer_step(live, now, _encoder(now, theta_g), None, iss, False, False)
+    assert expired.state.arbiter.gimbal_state is GimbalState.REWIND
+    assert expired.state.r_cog_ecef_m == plume
+    assert float(expired.state.residual.x[1]) == 0.0
+    height_m = controller.cfg.predictor.cog_height_m
+    bore = intersect_boresight(
+        theta_g,
+        iss.r_m,
+        iss.v_m_s,
+        iss.utc_s,
+        eph.epoch_utc_s,
+        eph.omega_earth_rad_s,
+        eph.wgs84_a_m,
+        eph.wgs84_f,
+        None,
+        height_m,
+    )
+    assert bore.hit is True and bore.r_cog_ecef_m is not None
+    _th_b, omega_bore, _az_b = predict_los(
+        iss.utc_s,
+        iss.r_m,
+        iss.v_m_s,
+        bore.r_cog_ecef_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    _th_p, omega_plume, _az_p = predict_los(
+        iss.utc_s,
+        iss.r_m,
+        iss.v_m_s,
+        plume,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert abs(expired.state.last_omega_t_nom - omega_bore) < 1e-9
+    assert abs(omega_bore - omega_plume) > 1e-8
 
 
 def test_home_request_sets_pose_mode() -> None:

@@ -122,6 +122,22 @@ def test_motion_smear_from_slew_and_exposure() -> None:
     assert FrameUsabilityTag.MOTION_SMEAR not in flags
 
 
+def test_azimuth_only_motion_does_not_raise_motion_smear() -> None:
+    """Lateral smear is not an input; matched elevation rates stay clean."""
+    bands = np.zeros((4, 8, 8), dtype=np.float32)
+    cfg = PreprocessingConfig()
+    flags = compute_quality_flags(
+        bands,
+        50_000.0,
+        2.0,
+        _IFOV,
+        _TS,
+        cfg,
+        omega_scene_el_deg_per_s=2.0,
+    )
+    assert FrameUsabilityTag.MOTION_SMEAR not in flags
+
+
 def test_motion_smear_scene_matched_high_gimbal_rate_is_clean() -> None:
     """A high commanded elevation rate that tracks the scene must not raise MOTION_SMEAR."""
     bands = np.zeros((4, 8, 8), dtype=np.float32)

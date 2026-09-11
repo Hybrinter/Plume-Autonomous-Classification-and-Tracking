@@ -34,18 +34,18 @@ the station TLE HTTP API. Do not run a formal gain or plant-identification study
 
 | Topic | Choice |
 | --- | --- |
-| Actuator command | Torque \(\tau\) (N·m) on the HAL. Motor current is a later linear map in the real driver, not in the control law. |
+| Actuator command | Production: leased absolute elevation `set_rate`. SIL detailed plant: torque \(\tau\) from the inner PI that tracks the same \(r\). |
 | Axes | Elevation motor only. No azimuth hardware, no azimuth tracking law. |
 | Hunt | `REWIND` toward the science limb. Not an azimuth raster. |
 | Arbiter | TRACKING / REWIND / SAFE. No IDLE. No ACQUIRING. Limb wait is TRACKING with \(r=0\). |
 | Ephemeris | New HAL Protocol. ISS state is ECI, SI meters. Sim driver is a circular Keplerian orbit. Station TLE API later behind the same Protocol. |
-| Plume target | Recompute Earth intersect of the CoG LOS every accepted vision frame. The CoG is not a fixed ground origin. |
+| Plume target | Recompute the CoG LOS intersect with a 2 km geodetic-height ellipsoid every accepted vision frame. Height is a tracking proxy, not stereo. |
 | Inner rate | Cheap causal polynomial differentiator on an encoder ring. Not a Kalman filter. |
 | Outer estimator | Two-state residual Kalman filter on boresight elevation error and residual rate. |
 | Vision to outer | In-process shell queue of \((t_s, z_v, \mathbf{p}_{\mathrm{cog}})\). Not the MessageBus. |
-| Smear cap | Live camera `exposure_us` in (19), also clipped to \(\omega_{\mathrm{hw}}\). |
+| Smear cap | Live `exposure_us` in (19) caps elevation-relative rate only (`K_p e` and sharp REWIND hunt). Azimuth smear is independent and unactuated. |
 | Runaway monitor | Light detector: NaN, encoder freeze, lock-fight → `GIMBAL_RUNAWAY`. Plus envelope clips and SAFE stow. |
-| Hardware | Raw motor + amp. The FLIR PTU rate/position ASCII driver is dead. Real `set_torque` is a stub until the amp interface exists. |
+| Hardware | Production Xeryon rate servo via `GimbalRateActuator.set_rate`. SIL keeps the torque plant. |
 | Validation | Analysis-package block tests with simulated I/O. SIL harness architecture is out of this pass. |
 | Placeholders | Numeric \(J,B,\tau_{\max},k_p,k_i,K_p,Q,R_v\) in config until later studies retune them. |
 
@@ -60,7 +60,7 @@ A cascaded **elevation** controller for a **raw motor** (no vendor rate servo):
 | Inner | \(T_{\mathrm{in}}\ll T_{\mathrm{out}}\) | Track a scalar rate reference \(r\) by commanding torque |
 | Outer | own loop, \(T_{\mathrm{out}}\lesssim T_v\) | Hold boresight elevation error \(e\approx 0\) using kinematic feedforward plus a residual Kalman filter |
 | Vision | irregular \(T_v\) | Measure \(e\) from the CoG pinhole ray, tagged at shutter time \(t_s\); enqueue for the outer loop |
-| Predictor | outer ticks | From ISS ECI state + current CoG Earth point + Earth rotation (elevation component only), compute nominal target rate \(\omega_{t,\mathrm{nom}}\) |
+| Predictor | outer ticks | Frozen ECEF CoG at 2 km + ISS ECI + Earth rotation → \((\theta_{\mathrm{el}},\omega_{\mathrm{el}},\omega_{\mathrm{az}})\). Command \(\omega_{\mathrm{el}}\) only. |
 
 Inference can run near camera frame rate (detect wall on the order of 4 ms on the
 current Orin mix). That does **not** let the outer loop command torque. The plant
@@ -482,9 +482,10 @@ model is \(\omega_{t,\mathrm{res}}\).
    under the CoG, not under the optical axis.
 3. Rotate into mount with \(R_y(\theta_g)\). Transform into ECI using ISS
    along-track, starboard, and nadir from \(\mathbf{r}_s,\mathbf{v}_s\).
-4. Intersect \(\mathbf{r}_s + \rho\hat{\mathbf{u}}_{\mathrm{cog}}\) with the WGS-84
-   ellipsoid (\(a=6378137\,\mathrm{m}\), \(f=1/298.257223563\)). Store
-   \(\mathbf{r}_{\mathrm{cog}}\) in ECEF meters. Discard \(\rho\).
+4. Intersect \(\mathbf{r}_s + \rho\hat{\mathbf{u}}_{\mathrm{cog}}\) with a constant
+   geodetic-height ellipsoid \(a'=a+h\), \(b'=b+h\) at \(h=2000\,\mathrm{m}\)
+   (`controller.predictor.cog_height_m`). Store \(\mathbf{r}_{\mathrm{cog}}\) in
+   ECEF meters. Discard \(\rho\). Do not triangulate height from successive CoGs.
 5. If the intersect fails (no hit, behind the camera, below the limb): keep the
    last good \(\mathbf{r}_{\mathrm{cog}}\) and treat the frame as a miss. Do not
    NaN the rate.
@@ -514,8 +515,15 @@ analysis-package 90°-at-nadir elevation convention.
 
 Compute (12) by an analytic Jacobian of (11) with \(\mathbf{r}_{\mathrm{cog,ECEF}}\)
 **held fixed** and Earth rotation plus ISS motion allowed to run, or by a small
-central difference of (11) with that same freeze. Include the **elevation**
-component of Earth rotation. Do **not** command an azimuth rate.
+central difference of (11) with that same freeze. \(\omega_{t,\mathrm{nom}}\) is
+the elevation projection of ISS velocity **and** \(\boldsymbol{\Omega}_E\times\mathbf{r}_{\mathrm{cog}}\),
+not orbital mean motion.
+
+Also form unactuated optical azimuth
+\(\phi=\operatorname{atan2}(\mathbf{l}\cdot\hat y,\ \hypot(\mathbf{l}\cdot\hat x,\mathbf{l}\cdot\hat z))\)
+and \(\omega_{\mathrm{az}}=\dot\phi\). Never command it. Never subtract it from
+the elevation smear cap. It is telemetry so equator lateral Earth-rotation smear
+stays explicit.
 
 ### 10.3 Between vision frames (coast)
 
@@ -525,9 +533,13 @@ only. Do not invent wind. Recompute (12) with the new ISS state each outer tick.
 On the next accepted vision frame, replace \(\mathbf{r}_{\mathrm{cog}}\) with the
 new intersect. A jump in ECEF is expected (CoG walk).
 
+Without a live CoG (REWIND / no plume), intersect the **current boresight** with
+the same 2 km ellipsoid and predict from that hit. Do not reuse a lost-plume ECEF
+point.
+
 Predictor signature (pure):
 
-`(now, iss_state, r_cog_ecef) -> (theta_los, omega_t_nom)`.
+`(now, iss_state, r_cog_ecef) -> (theta_el, omega_el, omega_az)`.
 
 ---
 
@@ -622,58 +634,65 @@ the rewind snapshot ring.
 
 ## 12. Outer law
 
+TRACKING live:
+
 \[
-r=\mathrm{sat}\big(\omega_{t,\mathrm{nom}}+\hat\omega_{t,\mathrm{res}}+K_p\hat e;\;
-r_{\max}(\mathrm{mode})\big). \tag{18}
+\omega_{\mathrm{scene}}=\omega_{t,\mathrm{nom}}+\hat\omega_{t,\mathrm{res}},
+\qquad
+r=\mathrm{sat}\big(\omega_{\mathrm{scene}}+\mathrm{clip}(K_p\hat e,\ \pm\omega_{\mathrm{sharp,el}});\;
+\omega_{\mathrm{hw}}\big). \tag{18}
 \]
 
-Scalar \(K_p\) is enough. \(\hat\omega_{t,\mathrm{res}}\) is already in the
-feedforward; do not add a second copy.
+Never smear-clip \(\omega_{\mathrm{scene}}\). Scalar \(K_p\) is enough.
+\(\hat\omega_{t,\mathrm{res}}\) is already in the scene rate; do not add a second copy.
 
 If \(\hat e\to 0\) and \(\hat\omega_{t,\mathrm{res}}\approx\omega_{t,\mathrm{res}}\),
 then \(r\to\omega_t\) and (13) stays at zero: the gimbal leads the orbit instead
 of chasing pixels.
 
-**Smear cap (imaging).** During TRACKING (once live) and REWIND:
+**Smear cap (elevation-relative).** During TRACKING (once live) and sharp REWIND:
 
 \[
-\omega_{\mathrm{sharp}}
+\omega_{\mathrm{sharp,el}}
 =\frac{\sigma_{\mathrm{smear}}\,\mathrm{IFOV}_{\mathrm{band}}}{\Delta t_{\mathrm{exp}}},
 \qquad
-\text{science sharp when }|\omega_{\mathrm{target}}-\omega_g|\le\omega_{\mathrm{sharp}}. \tag{19}
+\text{along-track sharp when }|\omega_{\mathrm{scene,el}}-\omega_g|\le\omega_{\mathrm{sharp,el}}. \tag{19}
 \]
 
 \(\sigma_{\mathrm{smear}}\) is `max_motion_smear_px`. \(\Delta t_{\mathrm{exp}}\)
 is the live frame exposure. Do not use `initial_exposure_us` as a frozen science
-exposure. Equation (19) qualifies target-relative image motion and does not
-reduce gimbal control authority.
+exposure. Equation (19) limits leftover **elevation** image motion (`K_p e` and
+REWIND hunt). It does not combine with \(\omega_{\mathrm{az}}\) and it does not
+clip the matching feedforward. Lateral smear is unactuated diagnostic only.
 
 Do not suppress \(\omega_{t,\mathrm{nom}}+\hat\omega_{t,\mathrm{res}}\) while
-TRACKING. Orbit feedforward must continue even when \(e\) is small.
+TRACKING. Orbit and Earth-rotation feedforward must continue even when \(e\) is small.
 
 SAFE replaces tracking with the stow position loop while actuator integrity is
-healthy. An actuator-integrity SAFE inhibits torque.
+healthy. An actuator-integrity SAFE inhibits drive.
 
 ---
 
 ## 13. Modes
 
 Keep a pure arbiter. It selects the \(r\) **policy**. It does not emit axis rates
-or call `set_rate`. The inner loop turns \(r\) into \(\tau\).
+or call `set_rate`. The tracking loop returns absolute \(r\); production writes
+`set_rate`, SIL writes torque.
 
-There is no RATE command mode. `GimbalCommandMode` is ABSOLUTE / STOW / HOME.
+There is no RATE command mode on `GimbalCommandMode`. `GimbalCommandMode` is
+ABSOLUTE / STOW / HOME. Tracking rates are `GimbalRateCommand`.
 
 | State | Rate reference \(r\) | Notes |
 | --- | --- | --- |
 | TRACKING (cold / limb wait) | \(0\) | No accepted aggregate, or arrived at the science limb after loss. |
-| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). Image-smear estimates qualify science frames separately. |
+| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at 2 km at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). |
 | Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Ends at the first of `release_persistence_frames` received-empty samples, `max_observation_age_s`, or an estimator uncertainty gate. |
-| REWIND | \(r=\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) toward the science limb | Hunt after loss below the limb. Not an azimuth raster. |
+| REWIND (sharp window) | \(\omega_{\mathrm{el,boresight}}+\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\mathrm{sharp,el}}\) | Hunt after loss below the limb. Boresight ∩ 2 km ellipsoid. Ignore leftover residual. Stamp `rewind_entered_s`. |
+| REWIND (after `rewind_sharp_max_s`) | \(\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) | Escape even if frames smear. |
 | REWIND at limb | → TRACKING with \(r=0\) | Wait. Blob → TRACKING live. |
-| SAFE | inhibit torque; request contained HAL STOW | Latch until ground clear. Blobs ignored. |
+| SAFE | inhibit drive; request contained HAL STOW | Latch until ground clear. Blobs ignored. |
 
-REWIND uses the inner rate loop at the hardware and stopping-distance caps, not
-an open-loop absolute goto. Arrival at the limb is
+Arrival at the limb is
 \(|\theta_g-\theta_{\mathrm{sci,max}}|\) within a small config tolerance.
 
 ---
@@ -682,9 +701,10 @@ an open-loop absolute goto. Arrival at the limb is
 
 ### 14.1 Gimbal
 
-Elevation torque plant.
+Elevation torque plant (SIL) and rate command (production).
 
-- `set_torque(tau_nm, valid_until_s) -> Result[None, FaultCode]` -- leased tracking path
+- `set_rate(GimbalRateCommand) -> Result[None, FaultCode]` -- leased absolute elevation rate (production tracking)
+- `set_torque(tau_nm, valid_until_s) -> Result[None, FaultCode]` -- leased SIL torque path
 - `inhibit(reason) -> Result[GimbalHealth, FaultCode]` -- confirmed drive containment
 - `read_health() -> Result[GimbalHealth, FaultCode]` -- feedback and authority evidence
 - `read_position() -> Result[GimbalPosition, FaultCode]` -- elevation + monotonic timestamp
@@ -692,7 +712,8 @@ Elevation torque plant.
 - `stow()` / `home()` / `goto_angle(el_deg)` -- set the position-loop target
 - Hardware envelope clamp on \(\tau\), \(\omega\), \(\theta\)
 
-`GimbalPosition` is elevation plus timestamp. No azimuth field. No `set_rate`.
+`GimbalPosition` is elevation plus timestamp. No azimuth field.
+`GimbalRateCommand.rate_deg_per_s` is physical gimbal rate, not target-relative.
 
 Sim driver: integrate (1), encoder quantization and noise, travel/torque/slew
 clamps, stow switch.
@@ -747,6 +768,8 @@ Defaults must match `config/default.toml`. Do not hide numbers in source.
 | `controller.inner.tau_cl_s` | 0.010 | design statement |
 | `controller.outer.dt_s` | 0.020 | |
 | `controller.outer.Kp` | 8.0 | 1/s on rad |
+| `controller.outer.rewind_sharp_max_s` | 2.0 | sharp REWIND then hw escape |
+| `controller.predictor.cog_height_m` | 2000.0 | tracking height proxy |
 | `controller.residual.Q_diag` | `[1e-11, 3e-8]` | per outer step |
 | `controller.residual.R_v` | 2.12e-9 | rad² (~1 band px) |
 | `controller.residual.P0_diag` | `[1e-3, 1.2e-5]` | |
@@ -777,8 +800,6 @@ Remove `lqr_*`, dual-axis `kalman_*`, `ema_alpha`, `retarget_rate_limit_hz`,
 - Dual-axis constant-velocity Kalman `[pan, tilt, pan_rate, tilt_rate]`
 - Dual-axis LQR / DARE as the tracking law
 - EMA as a pointing estimator
-- `set_rate` as the TRACKING actuator command
-- RATE command mode
 - ACQUIRING and IDLE arbiter states
 - Encoder-runaway monitor
 - First-order sim rate plant as tracking truth
@@ -801,8 +822,7 @@ harness.
 
 1. **Walking CoG:** `predict_los(..., p1)` versus `predict_los(..., p2)` at the
    same ISS time; \(\omega_{t,\mathrm{nom}}\) is not the walk slope.
-2. **Smear:** inlined \(\sigma_{\mathrm{smear}}\cdot\mathrm{IFOV}/\Delta t_{\mathrm{exp}}\);
-   13 µs exposure is hardware-capped.
+2. **Smear:** (19) caps `K_p e` / sharp REWIND hunt, not `|ω_scene|`. 13 µs exposure is hardware-capped. `omega_az` does not change `r`.
 3. **Residual extra rate:** closed-loop through `rewind_update`; \(e\) stops ramping.
 4. **Earth rate:** \(\omega_{t,\mathrm{nom}}(\Omega_E)\) versus 0.
 5. **Inner track:** mismatched \(\hat J,\hat B\) still tracks.

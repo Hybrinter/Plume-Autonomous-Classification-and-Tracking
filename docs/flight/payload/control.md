@@ -52,14 +52,17 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
 4. Residual replay uses encoder angle displacement, encoder uncertainty, and
    reversal uncertainty. A vision event is accepted only when its shutter time
    has an exact encoder sample or a valid bracket.
-5. The predictor supplies nominal target rate. A smooth sampled change uses the
+5. The predictor supplies nominal elevation rate and unactuated azimuth rate of a
+   frozen ECEF CoG locked at `cog_height_m`. A smooth sampled change uses the
    zero-order-hold rate history. An explicit reference replacement rebases the
    residual rate and keeps total target rate continuous.
-6. The outer rate is `omega_t_nom + omega_t_res + Kp * e` before the existing
-   science, smear, and slew limits. Visual tracking can run without navigation.
+6. The tracking rate law matches `omega_t_nom + omega_t_res` and smear-caps only
+   `Kp * e`. REWIND matches boresight-ground `omega_el` and hunts at the
+   elevation smear cap for `rewind_sharp_max_s`. After that window it escapes at
+   the hardware slew. Residual is ignored in REWIND. Visual tracking can run
+   without navigation.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE entry and SAFE exit reset the residual checkpoint as required by the
-   state machine.
+   SAFE entry, SAFE exit, and REWIND entry reset the residual checkpoint.
 8. The state starts with `last_inner_s` and `last_outer_s` set to `None`.
 
 ## Errors and faults
@@ -76,10 +79,12 @@ app shell publishes them.
 ## Configuration
 
 The controller reads nested vision, arbiter, inner, outer, residual, position,
-and integrity config. The residual config supplies continuous acceleration
-density, encoder and reversal uncertainty, interpolation and timing limits, and
-history horizon. Gimbal geometry, plant values, WGS-84 values, and smear budget
-remain injected typed config.
+integrity, and predictor config. `predictor.cog_height_m` is the tracking-proxy
+intersect height. `outer.rewind_sharp_max_s` is the sharp REWIND window. The
+residual config supplies continuous acceleration density, encoder and reversal
+uncertainty, interpolation and timing limits, and history horizon. Gimbal
+geometry, plant values, WGS-84 values, and smear budget remain injected typed
+config.
 
 ## Constraints
 

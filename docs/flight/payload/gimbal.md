@@ -15,7 +15,7 @@ integrity detector.
 | --- | --- | --- |
 | [`arbiter`](gimbal/arbiter.md) | pure module | TRACKING / REWIND / SAFE FSM |
 | [`inner`](gimbal/inner.md) | pure module | PI plus computed torque |
-| [`outer`](gimbal/outer.md) | pure module | Residual feedforward and smear clip |
+| [`outer`](gimbal/outer.md) | pure module | Scene match plus elevation-relative smear cap |
 | [`position`](gimbal/position.md) | pure module | STOW / HOME / GOTO rate into the inner PI |
 | [`rate_fit`](gimbal/rate_fit.md) | pure module | Causal polynomial encoder-rate estimator |
 | [`intersect`](gimbal/intersect.md) | pure module | Pinhole CoG and boresight height-ellipsoid intersect |

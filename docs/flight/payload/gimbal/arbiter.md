@@ -12,7 +12,7 @@ torque. SAFE latches until ground clears it.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ArbiterState` | dataclass | Immutable FSM snapshot: mode, blobs, aggregate liveness, observation age state, miss count |
+| `ArbiterState` | dataclass | Immutable FSM snapshot: mode, blobs, aggregate liveness, observation age, miss count, REWIND entry time |
 | `GimbalArbiter` | class | Stateless arbiter holding `ArbiterConfig` and `GimbalConfig` |
 | `GimbalArbiter.step` | method | Advances the FSM one outer tick |
 
@@ -37,9 +37,10 @@ The request is STOW on SAFE entry. Otherwise it is `None`. The outer law owns `r
 4. From TRACKING: empty packets increment the release counter. The first of
    `release_persistence_frames` empty packets, `max_observation_age_s` since the
    accepted aggregate, or a false `coast_permitted` expires the coast. Enter REWIND
-   below the science limb; at the limb, stay TRACKING with `r = 0`.
-5. From REWIND: an accepted aggregate returns to TRACKING. Arrival at the limb with no plume also
-   returns to TRACKING.
+   below the science limb and stamp `rewind_entered_s`; at the limb, stay TRACKING
+   with `r = 0`.
+5. From REWIND: an accepted aggregate returns to TRACKING and clears
+   `rewind_entered_s`. Arrival at the limb with no plume also returns to TRACKING.
 6. Outer coast ticks pass `vision_updated=False` and leave `miss_count` unchanged,
    but elapsed observation age continues. This prevents a silent vision pipeline
    from preserving a live target indefinitely.

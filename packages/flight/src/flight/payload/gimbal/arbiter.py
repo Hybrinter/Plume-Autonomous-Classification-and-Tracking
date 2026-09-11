@@ -41,6 +41,8 @@ class ArbiterState:
         limbed REWIND from immediately re-entering REWIND every outer tick.
     miss_count:
         Consecutive vision samples with no blob while in TRACKING.
+    rewind_entered_s:
+        Monotonic seconds when REWIND was entered, or None when not in REWIND.
     """
 
     gimbal_state: GimbalState
@@ -50,6 +52,7 @@ class ArbiterState:
     aggregate_live: bool = False
     last_observation_s: float | None = None
     loss_handled: bool = False
+    rewind_entered_s: float | None = None
 
 
 class GimbalArbiter:
@@ -139,6 +142,7 @@ class GimbalArbiter:
                 aggregate_live=False,
                 last_observation_s=None,
                 loss_handled=False,
+                rewind_entered_s=None,
             )
             events.append(self._transition_event(old_gs, GimbalState.SAFE, timestamp_utc))
             stow_request = GimbalRequest(
@@ -158,6 +162,7 @@ class GimbalArbiter:
                     aggregate_live=False,
                     last_observation_s=None,
                     loss_handled=False,
+                    rewind_entered_s=None,
                 )
                 events.append(
                     self._transition_event(GimbalState.SAFE, GimbalState.TRACKING, timestamp_utc)
@@ -212,6 +217,15 @@ class GimbalArbiter:
         if new_gs != old_gs:
             events.append(self._transition_event(old_gs, new_gs, timestamp_utc))
 
+        if new_gs is GimbalState.REWIND:
+            rewind_entered_s = (
+                now if old_gs is not GimbalState.REWIND else state.rewind_entered_s
+            )
+            if rewind_entered_s is None:
+                rewind_entered_s = now
+        else:
+            rewind_entered_s = None
+
         new_state = ArbiterState(
             gimbal_state=new_gs,
             tracked_blobs=blobs_now,
@@ -220,6 +234,7 @@ class GimbalArbiter:
             aggregate_live=aggregate_live,
             last_observation_s=last_observation_s,
             loss_handled=loss_handled,
+            rewind_entered_s=rewind_entered_s,
         )
         return new_state, None, events
 

@@ -415,9 +415,7 @@ class PayloadApp:
         gimbal_rate_deg_per_s = (
             slew_rate_deg_per_s if slew_rate_deg_per_s != 0.0 else math.degrees(state.r_rad_s)
         )
-        omega_scene_el_deg_per_s = math.degrees(
-            getattr(state, "last_omega_scene_el", state.last_omega_t_nom)
-        )
+        omega_scene_el_deg_per_s = math.degrees(state.last_omega_scene_el)
         quality_flags = compute_quality_flags(
             selected.value,
             raw.exposure_us,

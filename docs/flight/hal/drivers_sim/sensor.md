@@ -61,6 +61,7 @@ None. Frames are supplied at construction by the SIL or test harness.
 - Frames are typically rendered by `sim.scene`.
 - `load_next` is a sim-only mutator. Real drivers have no counterpart.
 - Callers must not overlap `load_next` with `acquire_frame`. The slot has no lock.
+- `unread_scripted_count` is a sim-only observer. Real drivers have no counterpart.
 
 ## Related documents
 

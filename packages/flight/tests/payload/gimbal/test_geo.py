@@ -13,6 +13,7 @@ from flight.payload.gimbal.geo import (
     pinhole_cam_ray,
     ry,
     wgs84_intersect,
+    wgs84_intersect_at_height,
 )
 
 
@@ -83,3 +84,18 @@ def test_wgs84_nadir_from_iss_hits() -> None:
     point, slant = hit
     assert slant > 1.0
     assert float(np.linalg.norm(point)) < a + 1.0
+
+
+def test_height_intersect_is_farther_than_surface_at_nadir() -> None:
+    """A nadir height-ellipsoid hit lies about height_m farther out than the surface."""
+    a = 6378137.0
+    f = 0.0033528106647474805
+    height_m = 2000.0
+    r0 = np.array([a + 400_000.0, 0.0, 0.0])
+    d = np.array([-1.0, 0.0, 0.0])
+    surface = wgs84_intersect(r0, d, a, f)
+    raised = wgs84_intersect_at_height(r0, d, a, f, height_m)
+    assert surface is not None and raised is not None
+    r_surf = float(np.linalg.norm(surface[0]))
+    r_hi = float(np.linalg.norm(raised[0]))
+    assert abs((r_hi - r_surf) - height_m) < 1.0

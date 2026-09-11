@@ -5,8 +5,8 @@ inner -- PI + computed torque;
 outer -- residual feedforward and smear clip;
 position -- STOW/HOME/GOTO rate into the inner PI;
 rate_fit -- causal polynomial encoder-rate estimator;
-intersect -- pinhole CoG Earth intersect;
-predictor -- co-rotating elevation rate;
+intersect -- pinhole CoG and boresight height-ellipsoid intersect;
+predictor -- co-rotating elevation and unactuated azimuth rates;
 geo -- mount / LVLH / WGS-84 helpers;
 pointing -- pinhole boresight error;
 request -- typed pose command from the pure core;
@@ -16,7 +16,7 @@ safety -- confidence and area gates.
 from flight.payload.gimbal.arbiter import ArbiterState, GimbalArbiter
 from flight.payload.gimbal.inner import InnerResult, inner_step
 from flight.payload.gimbal.integrity import IntegrityResult, check_integrity, lock_hold_rate
-from flight.payload.gimbal.intersect import IntersectResult, intersect_cog
+from flight.payload.gimbal.intersect import IntersectResult, intersect_boresight, intersect_cog
 from flight.payload.gimbal.outer import clip_rate, outer_rate, smear_cap_rad_s
 from flight.payload.gimbal.pointing import (
     boresight_error_deg,
@@ -44,6 +44,7 @@ __all__ = [
     "fit_rate",
     "fit_rate_timed",
     "inner_step",
+    "intersect_boresight",
     "intersect_cog",
     "lock_hold_rate",
     "outer_rate",

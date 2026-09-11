@@ -18,8 +18,8 @@ integrity detector.
 | [`outer`](gimbal/outer.md) | pure module | Residual feedforward and smear clip |
 | [`position`](gimbal/position.md) | pure module | STOW / HOME / GOTO rate into the inner PI |
 | [`rate_fit`](gimbal/rate_fit.md) | pure module | Causal polynomial encoder-rate estimator |
-| [`intersect`](gimbal/intersect.md) | pure module | Pinhole CoG Earth intersect |
-| [`predictor`](gimbal/predictor.md) | pure module | Co-rotating elevation rate |
+| [`intersect`](gimbal/intersect.md) | pure module | Pinhole CoG and boresight height-ellipsoid intersect |
+| [`predictor`](gimbal/predictor.md) | pure module | Co-rotating elevation and unactuated azimuth rates |
 | [`geo`](gimbal/geo.md) | pure module | Mount, LVLH, and WGS-84 helpers |
 | [`pointing`](gimbal/pointing.md) | pure module | Pinhole boresight error |
 | [`request`](gimbal/request.md) | pure module | Typed pose command from the pure core |
@@ -31,8 +31,9 @@ integrity detector.
 Re-exports: `ArbiterState`, `GimbalArbiter`, `GimbalRequest`, `InnerResult`,
 `IntegrityResult`, `IntersectResult`, `apply_confidence_gate`, `apply_min_area_gate`,
 `boresight_error_deg`, `check_integrity`, `clip_rate`, `fit_rate`, `inner_step`,
-`intersect_cog`, `lock_hold_rate`, `outer_rate`, `pinhole_error_rad`, `position_rate`,
-`predict_los`, `smear_cap_rad_s`, `target_displacement_px`.
+`intersect_boresight`, `intersect_cog`, `lock_hold_rate`, `outer_rate`,
+`pinhole_error_rad`, `position_rate`, `predict_los`, `smear_cap_rad_s`,
+`target_displacement_px`.
 
 ## Interactions
 

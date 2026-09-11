@@ -97,14 +97,14 @@ def test_predictor_matches_theta_finite_difference() -> None:
     r_norm = math.hypot(*r_iss)
     scale = eph.wgs84_a_m / r_norm
     r_cog = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
-    _theta, omega = predict_los(
+    _theta, omega, _omega_az = predict_los(
         t0, r_iss, s0.value.v_m_s, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
     )
     dt = 0.05
     sp = sim.read_state(t0 + dt)
     sm = sim.read_state(t0 - dt)
     assert isinstance(sp, Ok) and isinstance(sm, Ok)
-    tp, _ = predict_los(
+    tp, _, _ = predict_los(
         t0 + dt,
         sp.value.r_m,
         sp.value.v_m_s,
@@ -112,7 +112,7 @@ def test_predictor_matches_theta_finite_difference() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     )
-    tm, _ = predict_los(
+    tm, _, _ = predict_los(
         t0 - dt,
         sm.value.r_m,
         sm.value.v_m_s,
@@ -137,13 +137,13 @@ def test_walking_cog_at_same_iss_time() -> None:
     scale = eph.wgs84_a_m / r_norm
     p1 = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
     p2 = (p1[0], p1[1] + 20_000.0, p1[2])
-    _th1, w1 = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    _th2, w2 = predict_los(t0, r_iss, v_iss, p2, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    _th1, w1, _az1 = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    _th2, w2, _az2 = predict_los(t0, r_iss, v_iss, p2, eph.omega_earth_rad_s, eph.epoch_utc_s)
     assert abs(w1 - w2) > 1e-8
     s1 = sim.read_state(t0 + 1.0)
     assert isinstance(s1, Ok)
-    th1, _ = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    th2, w2_later = predict_los(
+    th1, _, _ = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    th2, w2_later, _az_later = predict_los(
         t0 + 1.0,
         s1.value.r_m,
         s1.value.v_m_s,
@@ -167,8 +167,8 @@ def test_earth_rate_changes_nominal_rate() -> None:
     r_norm = math.hypot(*r_iss)
     scale = eph.wgs84_a_m / r_norm
     r_cog = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
-    _th, w_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    _th0, w_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
+    _th, w_on, _az_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    _th0, w_off, _az_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
     assert abs(w_on - w_off) > 1e-8
 
 

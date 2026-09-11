@@ -35,6 +35,7 @@ from flight.payload.gimbal import (
     apply_min_area_gate,
     fit_rate_timed,
     inner_step,
+    intersect_boresight,
     intersect_cog,
     outer_rate,
     pinhole_error_rad,
@@ -123,7 +124,9 @@ class ControlState:
         pose_el_deg: Position-loop target elevation, degrees.
         last_tau_nm: Last inner torque, N·m.
         last_theta_los: Last predictor elevation, rad.
-        last_omega_t_nom: Last co-rotating rate, rad/s.
+        last_omega_t_nom: Last co-rotating elevation rate, rad/s.
+        last_omega_az_nom: Last unactuated optical-azimuth rate, rad/s.
+        last_omega_scene_el: Last elevation scene rate used for smear, rad/s.
         last_e_az: Unactuated optical azimuth error, rad (telemetry only).
     """
 
@@ -149,6 +152,8 @@ class ControlState:
     last_tau_nm: float
     last_theta_los: float
     last_omega_t_nom: float
+    last_omega_az_nom: float
+    last_omega_scene_el: float
     last_e_az: float
 
 
@@ -280,6 +285,8 @@ class PayloadController:
             last_tau_nm=0.0,
             last_theta_los=0.0,
             last_omega_t_nom=0.0,
+            last_omega_az_nom=0.0,
+            last_omega_scene_el=0.0,
             last_e_az=0.0,
         )
 
@@ -518,6 +525,7 @@ class PayloadController:
         residual = state.residual
         history = state.residual_history
         vision_disposition = "none"
+        omega_az = state.last_omega_az_nom
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us
@@ -527,7 +535,10 @@ class PayloadController:
             omega_t_nom = 0.0
             theta_los = state.last_theta_los
         else:
-            if safe_cleared:
+            if safe_cleared or (
+                new_arbiter.gimbal_state is GimbalState.REWIND
+                and state.arbiter.gimbal_state is not GimbalState.REWIND
+            ):
                 residual = self.residual_filt.initial_state()
                 history = self.residual_filt.initial_history(
                     t_s=encoder.t_s,
@@ -539,6 +550,7 @@ class PayloadController:
             else:
                 exposure_us = state.last_exposure_us
             r_cog = state.r_cog_ecef_m
+            height_m = self.cfg.predictor.cog_height_m
             shutter_iss = vision.iss if vision is not None else None
             shutter_theta = vision.theta_g_rad if vision is not None else None
             if (
@@ -546,6 +558,7 @@ class PayloadController:
                 and vision.p_cog is not None
                 and shutter_iss is not None
                 and shutter_theta is not None
+                and new_arbiter.gimbal_state is not GimbalState.REWIND
             ):
                 inter = intersect_cog(
                     vision.p_cog,
@@ -562,20 +575,50 @@ class PayloadController:
                     self.pixel_pitch_m,
                     self.focal_m,
                     r_cog,
+                    height_m,
                 )
                 if inter.hit and inter.r_cog_ecef_m is not None:
                     r_cog = inter.r_cog_ecef_m
 
             omega_t_nom = 0.0
             theta_los = 0.0
-            if r_cog is not None and iss is not None:
-                theta_los, omega_t_nom = predict_los(
+            omega_az = 0.0
+            scene_ecef = r_cog
+            if new_arbiter.gimbal_state is GimbalState.REWIND and iss is not None:
+                bore = intersect_boresight(
+                    theta_g_rad,
+                    iss.r_m,
+                    iss.v_m_s,
+                    iss.utc_s,
+                    self.eph.epoch_utc_s,
+                    self.eph.omega_earth_rad_s,
+                    self.eph.wgs84_a_m,
+                    self.eph.wgs84_f,
+                    None,
+                    height_m,
+                )
+                if bore.hit and bore.r_cog_ecef_m is not None:
+                    scene_ecef = bore.r_cog_ecef_m
+            if scene_ecef is not None and iss is not None:
+                theta_los, omega_t_nom, omega_az = predict_los(
                     iss.utc_s,
                     iss.r_m,
                     iss.v_m_s,
-                    r_cog,
+                    scene_ecef,
                     self.eph.omega_earth_rad_s,
                     self.eph.epoch_utc_s,
+                )
+            if (
+                reference_change is None
+                and r_cog is not None
+                and state.r_cog_ecef_m is not None
+                and r_cog != state.r_cog_ecef_m
+            ):
+                reference_change = PredictorReferenceChange(
+                    change_id=f"cog:{encoder.sample_id}",
+                    t_s=encoder.t_s,
+                    old_rate_rad_s=state.last_omega_t_nom,
+                    new_rate_rad_s=omega_t_nom,
                 )
 
             history, _ = submit_event(history, encoder, now_s=now)
@@ -613,6 +656,16 @@ class PayloadController:
         live = new_arbiter.aggregate_live
         e_hat = float(residual.x[0])
         omega_res = float(residual.x[1])
+        in_rewind = new_arbiter.gimbal_state is GimbalState.REWIND
+        omega_res_cmd = 0.0 if in_rewind else omega_res
+        omega_scene_el = omega_t_nom if in_rewind else (omega_t_nom + omega_res)
+        if new_arbiter.gimbal_state is GimbalState.SAFE or (
+            new_arbiter.gimbal_state is GimbalState.TRACKING and not live
+        ):
+            omega_scene_el = 0.0 if not live else omega_scene_el
+        rewind_elapsed_s = 0.0
+        if new_arbiter.rewind_entered_s is not None:
+            rewind_elapsed_s = max(0.0, now - new_arbiter.rewind_entered_s)
 
         if pose_mode is not None:
             r = position_rate(
@@ -626,7 +679,7 @@ class PayloadController:
             rate_loop_bandwidth = self.cfg.inner.kp if detailed_plant else math.inf
             r = outer_rate(
                 omega_t_nom,
-                omega_res,
+                omega_res_cmd,
                 e_hat,
                 self.cfg.outer.Kp,
                 new_arbiter.gimbal_state,
@@ -640,6 +693,9 @@ class PayloadController:
                 math.radians(self.gimbal.el_science_min_deg),
                 max_decel,
                 rate_loop_bandwidth,
+                rewind_elapsed_s=rewind_elapsed_s,
+                rewind_sharp_max_s=self.cfg.outer.rewind_sharp_max_s,
+                omega_az=omega_az,
             )
 
         new_state = replace(
@@ -655,6 +711,8 @@ class PayloadController:
             pose_el_deg=pose_el,
             last_theta_los=theta_los,
             last_omega_t_nom=omega_t_nom,
+            last_omega_az_nom=omega_az,
+            last_omega_scene_el=omega_scene_el,
         )
         if timestamp_utc:
             checkpoint = history.checkpoint
@@ -672,8 +730,13 @@ class PayloadController:
                         "r": r,
                         "tau": state.last_tau_nm,
                         "omega_t_nom": omega_t_nom,
+                        "omega_az": omega_az,
+                        "omega_scene_el": omega_scene_el,
                         "omega_t_res": omega_res,
                         "omega_t_total": omega_t_nom + omega_res,
+                        "rewind_elapsed_s": rewind_elapsed_s,
+                        "rewind_escape": in_rewind
+                        and rewind_elapsed_s >= self.cfg.outer.rewind_sharp_max_s,
                         "y_m": state.y_m,
                         "P00": float(residual.P[0, 0]),
                         "P01": float(residual.P[0, 1]),

@@ -277,4 +277,5 @@ def test_finite_stopping_governor_binds_near_sci_max() -> None:
     assert prod.commanded_rate_rad_s > plant.commanded_rate_rad_s
     assert plant.science_limited is True
     assert prod.science_limited is False
-    assert stopping_cap(0.01, 1.0, 10.0) == plant.commanded_rate_rad_s
+    remaining = theta_max - theta
+    assert abs(stopping_cap(remaining, 1.0, 10.0) - plant.commanded_rate_rad_s) < 1e-12

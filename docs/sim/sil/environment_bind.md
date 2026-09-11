@@ -13,7 +13,7 @@ pushes mosaics and masks into sim drivers.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SilEnvironmentBind` | class | `pre_step(now)` evaluate and driver feed |
-| `bind_sil_environment` | function | Construct a bind and reject empty-frame stalls |
+| `bind_sil_environment` | function | Construct a bind and reject empty-frame or mixed-mosaic cases |
 
 ## Inputs and outputs
 
@@ -24,20 +24,22 @@ pushes mosaics and masks into sim drivers.
   optional RNG.
 - Output: `SilEnvironmentBind`.
 - Raises `ValueError` when `frames` is empty and a probe evaluate emits no mosaic.
+- Raises `ValueError` when `frames` remain and a probe evaluate emits a mosaic.
 
 **`SilEnvironmentBind.pre_step(now) -> EnvSample`**
 
 - Input: monotonic seconds for this cycle.
 - Output: `EnvSample`. Updates `last_sample` and `last_hal_iss`.
+- Raises `ValueError` when appearance emits a mosaic and constructor frames remain.
 
 ## Behavior
 
-1. `pre_step` calls `gimbal.read_position` so the plant integrates to the clock.
+1. `pre_step` calls `gimbal.advance_plant`. The plant integrates to the clock.
 2. It builds `ShutterPose` from `true_el_deg` and `true_omega_rad_s`.
 3. `EnvTime.from_step` maps `now` onto UTC.
 4. `environment.evaluate` returns truth and a driver feed.
 5. A non-None mosaic is wrapped in `MosaicFrame` with `timestamp_s=now` and
-   pushed through `SimSensor.load_next`.
+   pushed through `SimSensor.load_next` when no constructor frames remain.
 6. A non-None mask is pushed through `ScriptedDetector.load_mask` when a
    detector was supplied.
 7. HAL `IssEphemeris.read_state` is stored on `last_hal_iss`. It is not a
@@ -46,7 +48,8 @@ pushes mosaics and masks into sim drivers.
 ## Errors and faults
 
 `ValueError` at bind construction when scripted frames are empty and appearance
-emits no mosaic.
+emits no mosaic. `ValueError` at construction or `pre_step` when appearance
+mosaics would mix with unread constructor frames.
 
 ## Messages
 
@@ -60,6 +63,8 @@ Reads `SensorConfig.initial_exposure_us` and `initial_gain_db` for `ShutterPose`
 
 - Opt-in. Default SIL and GSE leave `bind=None` and keep `sim.scene.plume` frames.
 - The bind does not pass `None` into `load_next` or `load_mask`.
+- Live mosaics require empty constructor frames. An OracleMask bind may keep
+  scripted frames.
 - Environment objects still do not own a clock, bus, or gimbal.
 
 ## Related documents

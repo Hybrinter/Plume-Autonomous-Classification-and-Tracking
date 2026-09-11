@@ -94,6 +94,30 @@ def test_command_authority_expiry_inhibits_drive() -> None:
     assert gimbal._tau_nm == 0.0
 
 
+def test_advance_plant_does_not_consume_encoder_noise() -> None:
+    """advance_plant integrates the plant; the next encoder sample matches a single read."""
+    clock = ManualClock()
+    cfg = GimbalConfig(
+        simulation=GimbalSimulationConfig(encoder_noise_deg=0.5, seed=7),
+    )
+    advanced = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    once = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    twice = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    for gimbal in (advanced, once, twice):
+        gimbal.set_torque(0.2, valid_until_s=2.0)
+    clock.advance(1.0)
+    advanced.advance_plant()
+    pos_advanced = advanced.read_position()
+    pos_once = once.read_position()
+    twice.read_position()
+    pos_twice = twice.read_position()
+    assert isinstance(pos_advanced, Ok)
+    assert isinstance(pos_once, Ok)
+    assert isinstance(pos_twice, Ok)
+    assert pos_advanced.value.el_deg == pos_once.value.el_deg
+    assert pos_twice.value.el_deg != pos_once.value.el_deg
+
+
 def test_frozen_catch_up_does_not_double_count() -> None:
     """set_torque at a frozen clock plus a later advance of the same dt moves once."""
     clock = ManualClock()

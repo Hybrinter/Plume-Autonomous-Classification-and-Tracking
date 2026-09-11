@@ -39,6 +39,7 @@ class SimGimbal:
         _catchup_debt_s: Plant time already applied at a frozen clock.
         _inner_dt_s: Catch-up inner period when the clock does not advance.
         _rng: Seeded numpy Generator for encoder noise.
+        _last_feedback_s: Timestamp of the last encoder sample, or None.
     """
 
     def __init__(
@@ -250,6 +251,17 @@ class SimGimbal:
         self._integrate_clock()
         self._encoder_frozen = True
         self._frozen_el_deg = self._quantize_deg(self._theta_rad)
+
+    def advance_plant(self) -> None:
+        """Integrate the plant to the clock without taking an encoder sample.
+
+        Not on GimbalActuator. SIL bind uses this for true shutter pose. It does
+        not consume encoder-noise RNG or update last_feedback_s.
+
+        Returns:
+            None.
+        """
+        self._integrate_clock()
 
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
         """Return the quantized, noisy, timestamped encoder elevation.

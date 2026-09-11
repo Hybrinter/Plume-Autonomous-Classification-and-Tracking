@@ -1,13 +1,15 @@
 """Opt-in SIL bind: evaluate the world, then feed sim drivers, then step_once.
 
-SilEnvironmentBind does not own a clock, bus, or gimbal plant. pre_step reads
-true elevation after a clock-integrating gimbal read, evaluates the environment,
-and pushes only non-None mosaics and masks. HAL ephemeris is logged beside
-truth for scoring and never placed in DriverFeed.
+SilEnvironmentBind does not own a clock, bus, or gimbal plant. pre_step
+advances the plant without an encoder sample, evaluates the environment, and
+pushes only non-None mosaics and masks. HAL ephemeris is logged beside truth
+for scoring and never placed in DriverFeed. Live mosaics are refused while
+constructor frames remain so frame_id values cannot collide.
 
 Contains:
   - SilEnvironmentBind: per-step evaluate + driver feed
-  - bind_sil_environment: construct and reject empty-frame + no-mosaic
+  - bind_sil_environment: construct and reject empty-frame + no-mosaic,
+    and reject constructor frames mixed with appearance mosaics
 """
 
 from __future__ import annotations
@@ -59,15 +61,18 @@ class SilEnvironmentBind:
         self.last_hal_iss: IssState | None = None
 
     def pre_step(self, now: float) -> EnvSample:
-        """Integrate the gimbal, evaluate, and push non-None feed slots.
+        """Integrate the gimbal plant, evaluate, and push non-None feed slots.
 
         Args:
             now: Step monotonic seconds (same value later passed to step_once).
 
         Returns:
             The EnvSample from evaluate. last_sample and last_hal_iss are updated.
+
+        Raises:
+            ValueError: Appearance emitted a mosaic while constructor frames remain.
         """
-        self._gimbal.read_position()
+        self._gimbal.advance_plant()
         shutter = ShutterPose(
             true_el_rad=math.radians(self._gimbal.true_el_deg),
             true_el_rate_rad_s=self._gimbal.true_omega_rad_s,
@@ -81,6 +86,10 @@ class SilEnvironmentBind:
         self.last_hal_iss = self._read_hal_iss(time.utc_s)
         mosaic = sample.feed.mosaic
         if mosaic is not None:
+            if self._sensor.unread_scripted_count() > 0:
+                raise ValueError(
+                    "appearance mosaics cannot interleave with unread constructor frames"
+                )
             self._frame_id += 1
             self._sensor.load_next(
                 MosaicFrame(
@@ -135,7 +144,8 @@ def bind_sil_environment(
         A ready SilEnvironmentBind.
 
     Raises:
-        ValueError: frames is empty and a probe evaluate emits no mosaic.
+        ValueError: frames is empty and a probe evaluate emits no mosaic, or
+            frames remain and a probe evaluate emits a mosaic.
     """
     bind = SilEnvironmentBind(
         environment,
@@ -147,18 +157,20 @@ def bind_sil_environment(
         ephemeris=ephemeris,
         rng=rng,
     )
+    probe_rng = np.random.default_rng(1)
+    probe_time = EnvTime.from_step(clock, clock.monotonic_s())
+    probe_shutter = ShutterPose(
+        true_el_rad=0.0,
+        true_el_rate_rad_s=0.0,
+        exposure_us=sensor_cfg.initial_exposure_us,
+        gain_db=sensor_cfg.initial_gain_db,
+    )
+    probe = environment.evaluate(probe_time, probe_shutter, probe_rng, None)
     if len(frames) == 0:
-        probe_rng = np.random.default_rng(1)
-        probe_time = EnvTime.from_step(clock, clock.monotonic_s())
-        probe_shutter = ShutterPose(
-            true_el_rad=0.0,
-            true_el_rate_rad_s=0.0,
-            exposure_us=sensor_cfg.initial_exposure_us,
-            gain_db=sensor_cfg.initial_gain_db,
-        )
-        probe = environment.evaluate(probe_time, probe_shutter, probe_rng, None)
         if probe.feed.mosaic is None:
             raise ValueError(
                 "empty SimSensor frames require an appearance model that emits mosaics"
             )
+    elif probe.feed.mosaic is not None:
+        raise ValueError("constructor frames and appearance mosaics cannot be mixed")
     return bind

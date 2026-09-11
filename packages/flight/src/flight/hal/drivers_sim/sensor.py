@@ -7,6 +7,7 @@ processing (acquire-only contract).
 
 load_next is a sim-only single-slot mutator (not on ImagingSensor). A closed-loop
 bind may overwrite the unread slot each step. Empty constructor plus no slot stalls.
+unread_scripted_count reports remaining constructor frames after the live slot.
 
 Contains:
   - SimSensor: replays pre-loaded MosaicFrame frames one per acquire_frame() call.
@@ -45,6 +46,17 @@ class SimSensor:
             frame: Mosaic to return on the next acquire_frame.
         """
         self._slot = frame
+
+    def unread_scripted_count(self) -> int:
+        """Return how many constructor frames remain after the live slot.
+
+        Not on ImagingSensor. A SIL bind uses this to refuse live mosaics while
+        scripted frames remain, so frame_id values stay unique.
+
+        Returns:
+            Remaining constructor frames (0 when the list is exhausted).
+        """
+        return max(0, len(self._frames) - self._index)
 
     def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
         """Return the live slot, else the next scripted frame, else CAMERA_STALL.

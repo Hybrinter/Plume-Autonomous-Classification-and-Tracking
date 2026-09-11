@@ -13,6 +13,7 @@ thread. It exposes builders, harnesses, and the shared `step_once` cycle body.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`runner`](sil/runner.md) | module | All-sim `SilSystem`, `build_sil_system`, `SilHarness` |
+| [`environment_bind`](sil/environment_bind.md) | module | Opt-in world evaluate and driver feed |
 | [`stepping`](sil/stepping.md) | module | Driver-agnostic `step_once` for one SIL cycle |
 | [`validation`](sil/validation.md) | module | Env-driven `ValidationSystem`, harness, profile loader |
 
@@ -22,11 +23,13 @@ thread. It exposes builders, harnesses, and the shared `step_once` cycle body.
 
 | Name | Kind |
 | --- | --- |
+| `SilEnvironmentBind` | class |
 | `SilHarness` | class |
 | `SilSystem` | class |
 | `SimDriverInputs` | class (from `flight.core.select_drivers`) |
 | `ValidationHarness` | class |
 | `ValidationSystem` | class |
+| `bind_sil_environment` | function |
 | `build_sil_system` | function |
 | `build_validation_system` | function |
 | `load_profile_config` | function |
@@ -52,11 +55,14 @@ GSE drives `build_validation_system` and `ValidationHarness`. Tools analysis cal
 - The harness publishes one `HeartbeatMsg` per entry in `MONITORED_SUBSYSTEMS` each step.
 - `SilHarness.run_steps` advances the shared `ManualClock` so `SimGimbal` dynamics integrate.
 - Storage redirects to a temp directory in `build_validation_system`.
+- `SilHarness` and `ValidationHarness` accept an optional `SilEnvironmentBind`.
+  Default runs keep pre-rendered `sim.scene.plume` frames.
 
 ## Related documents
 
 - [`sim`](sim.md)
 - [`sim.sil.runner`](sil/runner.md)
+- [`sim.sil.environment_bind`](sil/environment_bind.md)
 - [`sim.sil.stepping`](sil/stepping.md)
 - [`sim.sil.validation`](sil/validation.md)
 - [`gse`](gse.md)

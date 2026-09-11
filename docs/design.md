@@ -14,6 +14,7 @@ controller modules as the specification.
 | Document | Topic |
 | --- | --- |
 | [`design/single-axis-elevation-controller.md`](design/single-axis-elevation-controller.md) | Single-axis elevation gimbal controller |
+| [`design/simulated-environment.md`](design/simulated-environment.md) | Simulated world models vs HAL driver selection |
 
 ## Constraints
 

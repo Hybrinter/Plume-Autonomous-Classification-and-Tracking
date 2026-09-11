@@ -572,7 +572,102 @@ def test_unmatched_blob_resets_residual() -> None:
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.residual_history.checkpoint.t_s == 0.02
     assert not np.allclose(tick.state.residual.x, planted_x)
+    assert tick.state.r_cog_ecef_m is not None
+    assert tick.state.r_cog_ecef_m != planted.r_cog_ecef_m
     assert "1" not in {obs.frame_id for obs in tick.state.residual_history.vision_observations}
+
+
+def test_acquire_without_shutter_encoder_rejects_vision() -> None:
+    """Acquire without a shutter encoder bracket does not invent an endpoint."""
+    controller = _controller()
+    iss = _iss()
+    planted = replace(
+        controller.initial_state(),
+        arbiter=ArbiterState(
+            gimbal_state=GimbalState.REWIND,
+            tracked_blobs=(),
+            current_target_id=None,
+            miss_count=0,
+            aggregate_live=False,
+            last_observation_s=None,
+            loss_handled=True,
+            rewind_entered_s=0.0,
+        ),
+        residual=replace(
+            controller.initial_state().residual,
+            x=np.array([0.15, 0.04], dtype=np.float64),
+            has_measurement=True,
+        ),
+        r_cog_ecef_m=(1.0, 2.0, 3.0),
+        last_exposure_us=1000.0,
+    )
+    state, sample = controller.ingest_inference(
+        planted,
+        _result(3, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0)),
+        2.0,
+        1000.0,
+        iss,
+        None,
+    )
+    assert sample.theta_g_rad is None
+    assert sample.z_v is not None
+    tick = controller.outer_step(
+        state,
+        2.0,
+        _encoder(0.95, math.radians(25.0)),
+        sample,
+        iss,
+        False,
+        False,
+        timestamp_utc="2026-06-01T00:00:00.000Z",
+    )
+    assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert tick.state.residual.has_measurement is False
+    assert tick.state.residual_history.checkpoint.t_s == 2.0
+    assert tick.state.residual_history.checkpoint.encoder_angle_rad is None
+    assert tick.state.r_cog_ecef_m is None
+    pointing = [event for event in tick.telemetry if event.event_name == "pointing"]
+    assert pointing
+    assert pointing[0].payload["vision_disposition"] == "no_encoder_bracket"
+
+
+def test_unmatched_blob_without_intersect_drops_prior_cog() -> None:
+    """Disjoint TRACKING blobs drop the old CoG when this frame has no shutter intersect."""
+    controller = _controller()
+    iss = _iss()
+    theta_g = math.radians(20.0)
+    first, sample = controller.ingest_inference(
+        controller.initial_state(),
+        _result(1, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0), bbox=(100, 100, 150, 150)),
+        0.0,
+        1000.0,
+        iss,
+        theta_g,
+    )
+    live = controller.outer_step(
+        first, 0.02, _encoder(0.0, theta_g), sample, iss, False, False
+    ).state
+    assert live.r_cog_ecef_m is not None
+    planted_x = np.array([0.15, 0.04], dtype=np.float64)
+    planted = replace(
+        live,
+        residual=replace(live.residual, x=planted_x, has_measurement=True),
+    )
+    next_state, next_sample = controller.ingest_inference(
+        planted,
+        _result(2, centroid=(_BORESIGHT_X, _BORESIGHT_Y + 70.0), bbox=(400, 400, 450, 450)),
+        0.02,
+        1000.0,
+        iss,
+        None,
+    )
+    tick = controller.outer_step(
+        next_state, 0.04, _encoder(0.02, theta_g), next_sample, iss, False, False
+    )
+    assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert tick.state.r_cog_ecef_m is None
+    assert tick.state.residual.has_measurement is False
+    assert not np.allclose(tick.state.residual.x, planted_x)
 
 
 def test_home_request_sets_pose_mode() -> None:

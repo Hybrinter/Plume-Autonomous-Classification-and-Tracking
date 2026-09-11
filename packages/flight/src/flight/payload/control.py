@@ -494,8 +494,10 @@ class PayloadController:
             Previous tracked blobs are state.arbiter.tracked_blobs before
             arbiter.step. REWIND stores no CoG and does not submit residual
             events. TRACKING acquire cold-starts the residual filter at the vision
-            shutter (or the encoder if the shutter is after now) and then submits
-            the vision observation.
+            shutter when the sample carries a shutter encoder angle. A missing
+            shutter angle leaves the checkpoint angle unset. A shutter after now
+            uses the encoder sample. An identity reset drops the prior CoG unless
+            this frame wrote a new intersect.
         """
         del dt_s  # Detailed-plant cadence is retained by inner_step only.
         theta_g_rad = encoder.angle_rad
@@ -557,6 +559,7 @@ class PayloadController:
             else:
                 exposure_us = state.last_exposure_us
             r_cog = state.r_cog_ecef_m
+            fresh_cog = False
             height_m = self.cfg.predictor.cog_height_m
             shutter_iss = vision.iss if vision is not None else None
             shutter_theta = vision.theta_g_rad if vision is not None else None
@@ -587,6 +590,7 @@ class PayloadController:
                 )
                 if inter is not None:
                     r_cog = inter.point_ecef_m
+                    fresh_cog = True
             if in_rewind:
                 r_cog = None
 
@@ -598,20 +602,21 @@ class PayloadController:
                 new_blob_ids=frozenset(blob.blob_id for blob in blobs),
             )
             if reset_residual:
+                if not fresh_cog:
+                    r_cog = None
                 seed_t_s = encoder.t_s
-                seed_angle_rad = encoder.angle_rad
-                if vision is not None and vision.z_v is not None:
+                seed_angle_rad: float | None = encoder.angle_rad
+                seed_angle_var = encoder.angle_variance_rad2
+                if vision is not None and vision.z_v is not None and vision.t_s <= now + 1e-12:
                     seed_t_s = vision.t_s
-                    if vision.theta_g_rad is not None:
-                        seed_angle_rad = vision.theta_g_rad
-                    if seed_t_s > now + 1e-12:
-                        seed_t_s = encoder.t_s
-                        seed_angle_rad = encoder.angle_rad
+                    seed_angle_rad = vision.theta_g_rad
+                    if seed_angle_rad is None:
+                        seed_angle_var = 0.0
                 residual = self.residual_filt.initial_state()
                 history = self.residual_filt.initial_history(
                     t_s=seed_t_s,
                     encoder_angle_rad=seed_angle_rad,
-                    encoder_endpoint_variance_rad2=encoder.angle_variance_rad2,
+                    encoder_endpoint_variance_rad2=seed_angle_var,
                 )
 
             scene = select_scene(

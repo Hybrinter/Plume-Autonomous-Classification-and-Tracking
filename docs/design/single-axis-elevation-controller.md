@@ -618,9 +618,12 @@ F=\begin{bmatrix}1&T\\ 0&1\end{bmatrix},
 REWIND freezes residual history. Encoder rings on `ControlState` still run for
 the inner loop. Do not submit encoder, boresight-nominal, or vision events for a
 target that does not exist. Do not wipe the filter on disappearance. Reset
-`initial_state` + `initial_history` at the current encoder when TRACKING
-acquires: first blob from cold, blob from REWIND, or TRACKING blobs with no
-overlapping `blob_id` versus the previous `tracked_blobs`. IoU-matched CoG walk
+`initial_state` + `initial_history` when TRACKING acquires: first blob from cold,
+blob from REWIND, or TRACKING blobs with no overlapping `blob_id` versus the
+previous `tracked_blobs`. Seed the checkpoint at shutter with the shutter encoder
+angle when the sample carries one. A missing shutter angle leaves the checkpoint
+angle unset. A shutter after now uses the current encoder. Drop the stored CoG on
+that reset unless this frame wrote a new intersect. IoU-matched CoG walk
 while already TRACKING keeps the filter and rebases with
 `PredictorReferenceChange` at the current ISS epoch. A single empty TRACKING
 frame keeps the filter and CoG.
@@ -701,7 +704,7 @@ ABSOLUTE / STOW / HOME. Tracking rates are `GimbalRateCommand`.
 | State | Rate reference \(r\) | Notes |
 | --- | --- | --- |
 | TRACKING (cold / limb wait) | \(0\) | No accepted aggregate, or arrived at the science limb after loss. |
-| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at 2 km at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). Reset residual on acquire (cold, from REWIND, or unmatched `blob_id`). IoU-matched CoG jump rebases; it does not reset. |
+| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at 2 km at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). Reset residual on acquire (cold, from REWIND, or unmatched `blob_id`). Drop the prior CoG on that reset unless this frame intersected. IoU-matched CoG jump rebases; it does not reset. |
 | Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Ends at the first of `release_persistence_frames` received-empty samples, `max_observation_age_s`, or an estimator uncertainty gate. One empty frame does not reset the residual. |
 | REWIND (sharp window) | \(\omega_{\mathrm{el,boresight}}+\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\mathrm{sharp,el}}\) | Hunt after loss below the limb. No target CoG (\(\mathbf{r}_{\mathrm{cog}}=\texttt{None}\)). Boresight ∩ 2 km is scene rate only; not stored as CoG. Residual frozen (not fed boresight rates, not wiped). Stamp `rewind_entered_s`. |
 | REWIND (after `rewind_sharp_max_s`) | \(\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) | Hardware escape. Keep `rewind_sharp_max_s` = 2 s. |

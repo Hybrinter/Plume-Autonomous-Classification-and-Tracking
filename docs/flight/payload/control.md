@@ -47,12 +47,15 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
    detailed-plant PI. `y_m` remains available for inner integrity checks and
    simulation. It is not an outer residual-estimator input.
 3. `outer_step` updates CoG from vision while TRACKING. It cold-starts the
-   residual on TRACKING acquire. It then calls `select_scene`. Residual encoder,
-   nominal, and vision events run only in TRACKING. REWIND freezes the residual
-   and sets `r_cog_ecef_m` to `None`.
+   residual on TRACKING acquire. An identity reset drops the stored CoG unless
+   this frame wrote a new intersect. It then calls `select_scene`. Residual
+   encoder, nominal, and vision events run only in TRACKING. REWIND freezes the
+   residual and sets `r_cog_ecef_m` to `None`.
 4. Residual replay uses encoder angle displacement, encoder uncertainty, and
    reversal uncertainty. A vision event is accepted only when its shutter time
-   has an exact encoder sample or a valid bracket.
+   has an exact encoder sample or a valid bracket. TRACKING acquire seeds the
+   checkpoint at shutter when the sample carries a shutter encoder angle. A
+   missing shutter angle leaves the checkpoint angle unset.
 5. `select_scene` supplies nominal elevation rate of a frozen ECEF CoG in
    TRACKING, or of the boresight height-proxy hit in REWIND. Missing ISS is
    unknown navigation. It is not a zero-rate scene. An IoU-matched CoG
@@ -68,7 +71,9 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
    SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND does
    not drop the inner encoder rings. A single TRACKING miss keeps the residual
-   and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets it.
+   and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets the
+   residual. That reset also drops the prior CoG unless this frame produced a new
+   intersect.
 8. The state starts with `last_inner_s` and `last_outer_s` set to `None`.
 
 ## Errors and faults

@@ -127,8 +127,9 @@ arguments to the SIL builder. Examples:
 - Ephemeris-error: twin orbit is truth `circular_kepler`; HAL
   `SimIssEphemeris` uses a **different** `EphemerisConfig` (bias). Flight
   never reads twin ISS state.
-- Replay: `orbit=replay_iss_state`, `plume=replay_mosaic`; HAL sensor still
-  `sim`.
+- Replay: `orbit=replay_iss_state` plus `silhouette=replay_mosaic`. A recorded
+  mosaic is a **driver-feed** artifact (silhouette axis), not a `PlumeState`.
+  HAL sensor stays `sim`.
 
 SIL, PIL, and HIL remain corners of the **HAL** matrix. They do not name
 world fidelity.
@@ -214,14 +215,16 @@ observation, unless the study is about sensor noise itself.
 
 ### 5.7 `TwinDriverFeed` (what the SIL root may push)
 
-- `mosaic: MosaicFrame | None`
+- `mosaic: MosaicFrame | None` — present when the silhouette model renders a
+  frame
 - `mask: object | None` — probability mask, `np.ndarray[float32, (H, W)]` at
   band-plane size; type in code as a numpy array, not `object`, except at the
-  flight.libs boundary if needed
-- `iss_ephemeris: IssState | None` — **logging / scoring only**, populated
-  from HAL `SimIssEphemeris.read_state` at the same UTC. **Not** pushed into
-  the ephemeris driver. Payload already reads that driver in
-  `PayloadApp._read_iss_at`.
+  flight.libs boundary if needed. Present when the silhouette model paints a
+  scripted mask
+
+No HAL ephemeris field. Twin models do not see `SimIssEphemeris`. The bind
+logs HAL `IssState` (if needed for scoring) from `read_state` after
+`evaluate_twin`, beside `(shutter, truth)`.
 
 Pushed mosaic fields: `timestamp_s=now` (the step monotonic), matching
 `timestamp_utc` from the clock mapping, plus the shutter exposure and gain.
@@ -320,15 +323,20 @@ Do not use `analysis.lib.optics` for closed-loop projection.
 
 ### 6.6 Silhouette
 
-| Name | Behavior |
-| --- | --- |
-| `oracle_mask` | Paint a square or Gaussian at the projected CoG. Matches today's `plume_detector()`. |
-| `geometric_silhouette` | Project the column, fill the silhouette, add read noise into a mosaic. Document whether the painted centroid equals the CoG oracle. |
-| `radiometric_mosaic` | Later; feeds HAL `compute=real`. |
+| Name | Behavior | Feed |
+| --- | --- | --- |
+| `oracle_mask` | Paint a square or Gaussian at the projected CoG. Matches today's `plume_detector()`. | **mask required.** Mosaic only if bind has no sensor replay (`frames=[]`); then emit a minimal background + painted blob. Otherwise mosaic is `None` and the pre-rendered replay stays. |
+| `geometric_silhouette` | Project the column, fill the silhouette, add read noise into a mosaic. Document whether the painted centroid equals the CoG oracle. | **mosaic required.** Mask optional (scripted compute may use it). |
+| `radiometric_mosaic` | Later; feeds HAL `compute=real`. | **mosaic required.** Mask `None`. |
+| `replay_mosaic` | Later; tabulated mosaics (and optional masks) keyed by UTC or step. | **mosaic required.** Not a plume model. |
 
 When HAL `compute=real`, the silhouette must produce a mosaic the preprocessor
 will demosaic. `oracle_mask` plus `compute=real` is not a detection-performance
 study.
+
+`build_twin` / bind rejects illegal pairs: `frames=[]` with a silhouette that
+cannot emit a mosaic; `compute=sim` with a silhouette that never emits a mask
+and no pre-built `ScriptedDetector`.
 
 ---
 
@@ -385,12 +393,22 @@ When a twin is bound, each step:
 2. `time = TwinTime.from_step(clock, now)`.
 3. `shutter = ShutterPose(...)` from those rates plus configured exposure/gain.
 4. `sample = twin.evaluate(time, shutter, rng, prior_plume)`.
-5. `sensor.load_next(sample.feed.mosaic)` with `timestamp_s=now`.
-6. If compute is scripted, `detector.load_mask(sample.feed.mask)`.
+5. If `sample.feed.mosaic` is not `None`, `sensor.load_next(mosaic)` after
+   stamping `timestamp_s=now`. If it is `None`, leave the existing replay
+   slot (do not pass `None`).
+6. If compute is scripted and `sample.feed.mask` is not `None`,
+   `detector.load_mask(mask)`. If the mask is `None`, keep the detector
+   already constructed at bind.
 7. Call existing `step_once`.
-8. Append `(shutter, sample.truth)` to the harness truth log. Optionally log
-   HAL `iss_ephemeris` from `SimIssEphemeris.read_state` at the same UTC.
+8. Append `(shutter, sample.truth)` to the harness truth log. If the study
+   scores ephemeris error, also log HAL `IssState` from
+   `SimIssEphemeris.read_state` at the same UTC (bind/trial log, not the
+   twin feed).
 9. `prior_plume = sample.truth.plume`.
+
+Bind-time check: if `SimSensor` was built with `frames=[]`, the silhouette
+model must produce a mosaic every step. If it cannot, fail at bind, not
+with `CAMERA_STALL` on step 1.
 
 This is a **ZOH**: the image is the start-of-step pose; controller catch-up to
 `now` runs after ingest. Do not move twin evaluation to after `advance_inner`.
@@ -547,9 +565,10 @@ member of `PactConfig`.
    `flight` still cannot import `sim.twin`.
 8. STE pages for new modules. Keep this brief until behavior matches.
 
-Later: `advected_gaussian` (tangent-plane), `pinhole_smear`, `replay_*`,
-SGP4/J2, `radiometric_mosaic`, `iss_attitude_*`, `atmospheric_refraction`,
-`lens_distortion_map`, GSE `twin_config_path`, Monte Carlo trial runner.
+Later: `advected_gaussian` (tangent-plane), `pinhole_smear`,
+`replay_iss_state`, `replay_mosaic`, SGP4/J2, `radiometric_mosaic`,
+`iss_attitude_*`, `atmospheric_refraction`, `lens_distortion_map`, GSE
+`twin_config_path`, Monte Carlo trial runner.
 
 ---
 

@@ -83,9 +83,9 @@ def build_sil_system(
     Notes:
         Forces an all-"sim" DriverConfig (host "x86_64") and delegates to the general
         build_validation_system, so the SIL exercises the exact same driver-driven selection +
-        wiring path the flight entry and the GSE backend use. The all-sim driver config guarantees the
-        returned ValidationSystem carries the concrete sim drivers, which are cast back to
-        their concrete sim types here for the SilSystem's inspection fields.
+        wiring path the flight entry and the GSE backend use. The all-sim driver config
+        guarantees the returned ValidationSystem carries the concrete sim drivers, which are
+        cast back to their concrete sim types here for the SilSystem's inspection fields.
     """
     sim_inputs = SimDriverInputs(
         frames=frames,

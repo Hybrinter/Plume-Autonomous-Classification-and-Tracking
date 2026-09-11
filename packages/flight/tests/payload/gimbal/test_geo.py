@@ -8,6 +8,7 @@ from flight.payload.gimbal.geo import (
     boresight_mount,
     cam_ray_to_mount,
     ecef_from_eci,
+    height_proxy_semiaxes,
     lvlh_axes,
     mount_to_eci,
     pinhole_cam_ray,
@@ -99,3 +100,24 @@ def test_height_intersect_is_farther_than_surface_at_nadir() -> None:
     r_surf = float(np.linalg.norm(surface[0]))
     r_hi = float(np.linalg.norm(raised[0]))
     assert abs((r_hi - r_surf) - height_m) < 1.0
+
+
+def test_height_proxy_semiaxes_inflate_a_and_b() -> None:
+    """The 2 km proxy ellipsoid derives a' = a + h and b' = b + h."""
+    a = 6378137.0
+    f = 0.0033528106647474805
+    height_m = 2000.0
+    b = a * (1.0 - f)
+    a_h, b_h = height_proxy_semiaxes(a, f, height_m)
+    assert a_h == a + height_m
+    assert b_h == b + height_m
+    a0, b0 = height_proxy_semiaxes(a, f, 0.0)
+    assert a0 == a and b0 == b
+    f_h = 1.0 - b_h / a_h
+    r0 = np.array([a + 400_000.0, 0.0, 0.0])
+    d = np.array([-1.0, 0.0, 0.0])
+    direct = wgs84_intersect(r0, d, a_h, f_h)
+    proxy = wgs84_intersect_at_height(r0, d, a, f, height_m)
+    assert direct is not None and proxy is not None
+    assert np.allclose(direct[0], proxy[0])
+    assert abs(direct[1] - proxy[1]) < 1e-9

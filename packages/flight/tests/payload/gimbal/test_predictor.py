@@ -50,13 +50,13 @@ def test_frozen_ecef_matches_theta_finite_difference() -> None:
     r_iss = state0.value.r_m
     r_cog = _nadir_cog(r_iss, eph.wgs84_a_m)
     dt = 0.05
-    theta0, omega, _omega_az = predict_los(
+    pred0 = predict_los(
         t0, r_iss, state0.value.v_m_s, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
     )
     plus = sim.read_state(t0 + dt)
     minus = sim.read_state(t0 - dt)
     assert isinstance(plus, Ok) and isinstance(minus, Ok)
-    theta_p, _, _ = predict_los(
+    pred_p = predict_los(
         t0 + dt,
         plus.value.r_m,
         plus.value.v_m_s,
@@ -64,7 +64,7 @@ def test_frozen_ecef_matches_theta_finite_difference() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     )
-    theta_m, _, _ = predict_los(
+    pred_m = predict_los(
         t0 - dt,
         minus.value.r_m,
         minus.value.v_m_s,
@@ -72,9 +72,9 @@ def test_frozen_ecef_matches_theta_finite_difference() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     )
-    fd = (theta_p - theta_m) / (2.0 * dt)
-    assert abs(omega - fd) / max(abs(fd), 1e-9) < 0.05
-    assert abs(theta0) < math.radians(2.0)
+    fd = (pred_p.elevation_rad - pred_m.elevation_rad) / (2.0 * dt)
+    assert abs(pred0.elevation_rate_rad_s - fd) / max(abs(fd), 1e-9) < 0.05
+    assert abs(pred0.elevation_rad) < math.radians(2.0)
 
 
 def test_earth_rotation_rotates_ecef_into_eci() -> None:
@@ -101,7 +101,7 @@ def test_omega_az_matches_optical_azimuth_finite_difference() -> None:
     r_iss = state0.value.r_m
     r_cog = _nadir_cog(r_iss, eph.wgs84_a_m)
     dt = 0.05
-    _theta, _omega_el, omega_az = predict_los(
+    pred0 = predict_los(
         t0, r_iss, state0.value.v_m_s, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
     )
     plus = sim.read_state(t0 + dt)
@@ -124,7 +124,7 @@ def test_omega_az_matches_optical_azimuth_finite_difference() -> None:
         eph.epoch_utc_s,
     )
     fd = (az_p - az_m) / (2.0 * dt)
-    assert abs(omega_az - fd) / max(abs(fd), 1e-9) < 0.05
+    assert abs(pred0.azimuth_rate_rad_s - fd) / max(abs(fd), 1e-9) < 0.05
 
 
 def test_omega_az_near_zero_when_earth_rotation_off() -> None:
@@ -136,10 +136,8 @@ def test_omega_az_near_zero_when_earth_rotation_off() -> None:
     assert isinstance(state0, Ok)
     r_iss = state0.value.r_m
     r_cog = _nadir_cog(r_iss, eph.wgs84_a_m)
-    _theta, _omega_el, omega_az = predict_los(
-        t0, r_iss, state0.value.v_m_s, r_cog, 0.0, eph.epoch_utc_s
-    )
-    assert abs(omega_az) < 1e-9
+    pred = predict_los(t0, r_iss, state0.value.v_m_s, r_cog, 0.0, eph.epoch_utc_s)
+    assert abs(pred.azimuth_rate_rad_s) < 1e-9
 
 
 def test_earth_rotation_changes_omega_el() -> None:
@@ -152,11 +150,9 @@ def test_earth_rotation_changes_omega_el() -> None:
     r_iss = state0.value.r_m
     v_iss = state0.value.v_m_s
     r_cog = _nadir_cog(r_iss, eph.wgs84_a_m)
-    _th_on, el_on, _az_on = predict_los(
-        t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
-    )
-    _th_off, el_off, _az_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
-    assert abs(el_on - el_off) > 1e-8
+    pred_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    pred_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
+    assert abs(pred_on.elevation_rate_rad_s - pred_off.elevation_rate_rad_s) > 1e-8
 
 
 def test_omega_az_changes_with_earth_rotation_at_nadir() -> None:
@@ -169,11 +165,9 @@ def test_omega_az_changes_with_earth_rotation_at_nadir() -> None:
     r_iss = state0.value.r_m
     v_iss = state0.value.v_m_s
     r_cog = _nadir_cog(r_iss, eph.wgs84_a_m)
-    _th_on, _el_on, az_on = predict_los(
-        t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
-    )
-    _th_off, _el_off, az_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
-    assert abs(az_on - az_off) > 1e-8
+    pred_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    pred_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
+    assert abs(pred_on.azimuth_rate_rad_s - pred_off.azimuth_rate_rad_s) > 1e-8
 
 
 def test_equator_omega_az_exceeds_high_latitude_due_east() -> None:
@@ -186,15 +180,11 @@ def test_equator_omega_az_exceeds_high_latitude_due_east() -> None:
     r_iss_eq = (r_eq, 0.0, 0.0)
     v_iss_eq = (0.0, v_eq * math.cos(inc), v_eq * math.sin(inc))
     r_cog_eq = (eph.wgs84_a_m, 0.0, 0.0)
-    _th_eq, _el_eq, az_eq = predict_los(
-        t0, r_iss_eq, v_iss_eq, r_cog_eq, eph.omega_earth_rad_s, eph.epoch_utc_s
-    )
+    pred_eq = predict_los(t0, r_iss_eq, v_iss_eq, r_cog_eq, eph.omega_earth_rad_s, eph.epoch_utc_s)
 
     r_hi = (0.0, 0.0, r_eq)
     v_iss_hi = (0.0, v_eq, 0.0)
     b_m = eph.wgs84_a_m * (1.0 - eph.wgs84_f)
     r_cog_hi = (0.0, 0.0, b_m)
-    _th_hi, _el_hi, az_hi = predict_los(
-        t0, r_hi, v_iss_hi, r_cog_hi, eph.omega_earth_rad_s, eph.epoch_utc_s
-    )
-    assert abs(az_eq) > abs(az_hi)
+    pred_hi = predict_los(t0, r_hi, v_iss_hi, r_cog_hi, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    assert abs(pred_eq.azimuth_rate_rad_s) > abs(pred_hi.azimuth_rate_rad_s)

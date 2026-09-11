@@ -29,6 +29,7 @@ from flight.libs.messages import BlobMeta, InferenceResultMsg, TelemetryEventMsg
 from flight.libs.types import FaultCode, GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal import (
     ArbiterState,
+    CameraGeometry,
     GimbalArbiter,
     GimbalRequest,
     apply_confidence_gate,
@@ -567,15 +568,16 @@ class PayloadController:
                     self.eph.omega_earth_rad_s,
                     self.eph.wgs84_a_m,
                     self.eph.wgs84_f,
-                    self.plane_width_px,
-                    self.plane_height_px,
-                    self.pixel_pitch_m,
-                    self.focal_m,
-                    r_cog,
+                    CameraGeometry(
+                        width_px=self.plane_width_px,
+                        height_px=self.plane_height_px,
+                        pixel_pitch_m=self.pixel_pitch_m,
+                        focal_length_m=self.focal_m,
+                    ),
                     height_m,
                 )
-                if inter.hit and inter.r_cog_ecef_m is not None:
-                    r_cog = inter.r_cog_ecef_m
+                if inter is not None:
+                    r_cog = inter.point_ecef_m
 
             omega_t_nom = 0.0
             theta_los = 0.0
@@ -591,12 +593,11 @@ class PayloadController:
                     self.eph.omega_earth_rad_s,
                     self.eph.wgs84_a_m,
                     self.eph.wgs84_f,
-                    None,
                     height_m,
                 )
-                scene_ecef = bore.r_cog_ecef_m if bore.hit else None
+                scene_ecef = bore.point_ecef_m if bore is not None else None
             if scene_ecef is not None and iss is not None:
-                theta_los, omega_t_nom, omega_az = predict_los(
+                los = predict_los(
                     iss.utc_s,
                     iss.r_m,
                     iss.v_m_s,
@@ -604,6 +605,9 @@ class PayloadController:
                     self.eph.omega_earth_rad_s,
                     self.eph.epoch_utc_s,
                 )
+                theta_los = los.elevation_rad
+                omega_t_nom = los.elevation_rate_rad_s
+                omega_az = los.azimuth_rate_rad_s
             if (
                 reference_change is None
                 and r_cog is not None
@@ -611,7 +615,7 @@ class PayloadController:
                 and r_cog != state.r_cog_ecef_m
                 and iss is not None
             ):
-                _theta_old, old_omega, _omega_az_old = predict_los(
+                old = predict_los(
                     iss.utc_s,
                     iss.r_m,
                     iss.v_m_s,
@@ -622,7 +626,7 @@ class PayloadController:
                 reference_change = PredictorReferenceChange(
                     change_id=f"cog:{encoder.sample_id}",
                     t_s=encoder.t_s,
-                    old_rate_rad_s=old_omega,
+                    old_rate_rad_s=old.elevation_rate_rad_s,
                     new_rate_rad_s=omega_t_nom,
                 )
 

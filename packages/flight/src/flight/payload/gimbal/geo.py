@@ -255,6 +255,28 @@ def wgs84_intersect(
     return hit, t_hit
 
 
+def height_proxy_semiaxes(a_m: float, f: float, height_m: float) -> tuple[float, float]:
+    """Inflated WGS-84 semiaxes for the height-proxy ellipsoid.
+
+    Inputs:
+        a_m: WGS-84 semi-major axis meters.
+        f: WGS-84 flattening.
+        height_m: Height offset meters. Non-positive returns the surface (a, b).
+
+    Outputs:
+        tuple[float, float]: (a', b') with a' = a + h and b' = b + h.
+
+    Notes:
+        Axes are derived from a, f, and height_m at the call. The configured
+        tracking value is a 2 km height proxy ellipsoid. This is not a
+        geodetic-height solver.
+    """
+    b_m = a_m * (1.0 - f)
+    if height_m <= 0.0:
+        return a_m, b_m
+    return a_m + height_m, b_m + height_m
+
+
 def wgs84_intersect_at_height(
     r0_ecef_m: np.ndarray,
     d_ecef: np.ndarray,
@@ -262,28 +284,26 @@ def wgs84_intersect_at_height(
     f: float,
     height_m: float,
 ) -> tuple[np.ndarray, float] | None:
-    """Forward intersect of a ray with a constant geodetic-height ellipsoid.
+    """Forward intersect of a ray with the 2 km height proxy ellipsoid.
 
     Inputs:
         r0_ecef_m: Ray origin ECEF meters (ISS position).
         d_ecef: Unit look direction in ECEF.
         a_m: WGS-84 semi-major axis meters.
         f: WGS-84 flattening.
-        height_m: Height above the WGS-84 ellipsoid, meters. Non-positive uses
-            the surface ellipsoid.
+        height_m: Height offset meters. Non-positive uses the surface ellipsoid.
 
     Outputs:
         (r_hit_ecef_m, slant_m) for the nearest forward hit, or None on a miss.
 
     Notes:
-        Uses a' = a + h and b' = b + h with b = a * (1 - f) and f' = 1 - b'/a'.
-        height_m <= 0 uses the surface ellipsoid. This is a tracking proxy, not a
-        geodetic height solver.
+        Inflated axes are a' = a + h and b' = b + h with b = a * (1 - f) and
+        f' = 1 - b'/a'. The function derives a' and b' from a, f, and height_m.
+        It does not store derived copies. The configured tracking value is a
+        2 km height proxy ellipsoid. This is not a geodetic-height solver.
     """
+    a_h, b_h = height_proxy_semiaxes(a_m, f, height_m)
     if height_m <= 0.0:
         return wgs84_intersect(r0_ecef_m, d_ecef, a_m, f)
-    b_m = a_m * (1.0 - f)
-    a_h = a_m + height_m
-    b_h = b_m + height_m
     f_h = 1.0 - b_h / a_h
     return wgs84_intersect(r0_ecef_m, d_ecef, a_h, f_h)

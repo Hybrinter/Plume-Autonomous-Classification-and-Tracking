@@ -28,12 +28,12 @@ integrity detector.
 
 ## Package interface
 
-Re-exports: `ArbiterState`, `GimbalArbiter`, `GimbalRequest`, `InnerResult`,
-`IntegrityResult`, `IntersectResult`, `apply_confidence_gate`, `apply_min_area_gate`,
-`boresight_error_deg`, `check_integrity`, `clip_rate`, `fit_rate`, `inner_step`,
-`intersect_boresight`, `intersect_cog`, `lock_hold_rate`, `outer_rate`,
-`pinhole_error_rad`, `position_rate`, `predict_los`, `smear_cap_rad_s`,
-`target_displacement_px`.
+Re-exports: `ArbiterState`, `CameraGeometry`, `GimbalArbiter`, `GimbalRequest`,
+`InnerResult`, `IntegrityResult`, `LosPrediction`, `RayHit`,
+`apply_confidence_gate`, `apply_min_area_gate`, `boresight_error_deg`,
+`check_integrity`, `clip_rate`, `fit_rate`, `inner_step`, `intersect_boresight`,
+`intersect_cog`, `lock_hold_rate`, `outer_rate`, `pinhole_error_rad`,
+`position_rate`, `predict_los`, `smear_cap_rad_s`, `target_displacement_px`.
 
 ## Interactions
 

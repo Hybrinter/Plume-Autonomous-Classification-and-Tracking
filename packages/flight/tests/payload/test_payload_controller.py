@@ -9,7 +9,7 @@ from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import IssSample, PayloadController, VisionSample
 from flight.payload.gimbal.arbiter import ArbiterState
-from flight.payload.gimbal.intersect import intersect_cog
+from flight.payload.gimbal.intersect import CameraGeometry, intersect_cog
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.tracking import EncoderSample
 
@@ -102,13 +102,23 @@ def _iss(dt_s: float = 0.0) -> IssSample:
     )
 
 
+def _camera(controller: PayloadController) -> CameraGeometry:
+    """Band-plane pinhole geometry from the controller."""
+    return CameraGeometry(
+        width_px=controller.plane_width_px,
+        height_px=controller.plane_height_px,
+        pixel_pitch_m=controller.pixel_pitch_m,
+        focal_length_m=controller.focal_m,
+    )
+
+
 def _predict(
     controller: PayloadController,
     iss: IssSample,
     r_cog_ecef_m: tuple[float, float, float],
 ) -> float:
     """Elevation rate of a frozen ECEF CoG at one ISS sample."""
-    _theta, omega_el, _omega_az = predict_los(
+    los = predict_los(
         iss.utc_s,
         iss.r_m,
         iss.v_m_s,
@@ -116,7 +126,7 @@ def _predict(
         controller.eph.omega_earth_rad_s,
         controller.eph.epoch_utc_s,
     )
-    return omega_el
+    return los.elevation_rate_rad_s
 
 
 def _intersect(
@@ -124,7 +134,6 @@ def _intersect(
     p_cog: tuple[float, float],
     theta_g_rad: float,
     iss: IssSample,
-    last_r_cog_ecef_m: tuple[float, float, float] | None,
 ) -> tuple[float, float, float]:
     """Height-proxy CoG intersect using the controller pinhole geometry."""
     result = intersect_cog(
@@ -137,16 +146,11 @@ def _intersect(
         controller.eph.omega_earth_rad_s,
         controller.eph.wgs84_a_m,
         controller.eph.wgs84_f,
-        controller.plane_width_px,
-        controller.plane_height_px,
-        controller.pixel_pitch_m,
-        controller.focal_m,
-        last_r_cog_ecef_m,
+        _camera(controller),
         controller.cfg.predictor.cog_height_m,
     )
-    assert result.hit is True
-    assert result.r_cog_ecef_m is not None
-    return result.r_cog_ecef_m
+    assert result is not None
+    return result.point_ecef_m
 
 
 def test_blob_above_boresight_commands_positive_r() -> None:
@@ -315,26 +319,25 @@ def test_rewind_uses_boresight_not_plume_cog() -> None:
         eph.omega_earth_rad_s,
         eph.wgs84_a_m,
         eph.wgs84_f,
-        None,
         height_m,
     )
-    assert bore.hit is True and bore.r_cog_ecef_m is not None
-    _th_b, omega_bore, _az_b = predict_los(
+    assert bore is not None
+    omega_bore = predict_los(
         iss.utc_s,
         iss.r_m,
         iss.v_m_s,
-        bore.r_cog_ecef_m,
+        bore.point_ecef_m,
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
-    )
-    _th_p, omega_plume, _az_p = predict_los(
+    ).elevation_rate_rad_s
+    omega_plume = predict_los(
         iss.utc_s,
         iss.r_m,
         iss.v_m_s,
         plume,
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
-    )
+    ).elevation_rate_rad_s
     assert abs(expired.state.last_omega_t_nom - omega_bore) < 1e-9
     assert abs(omega_bore - omega_plume) > 1e-8
 
@@ -348,8 +351,8 @@ def test_cog_jump_rebases_against_old_cog_at_current_iss() -> None:
     iss0 = _iss(0.0)
     iss1 = _iss(10.0)
     p_cog = (_BORESIGHT_X, _BORESIGHT_Y)
-    p1 = _intersect(controller, p_cog, theta_g, iss0, None)
-    p2 = _intersect(controller, p_cog, theta_g, iss1, p1)
+    p1 = _intersect(controller, p_cog, theta_g, iss0)
+    p2 = _intersect(controller, p_cog, theta_g, iss1)
     assert p2 != p1
     omega_old0 = _predict(controller, iss0, p1)
     omega_old1 = _predict(controller, iss1, p1)

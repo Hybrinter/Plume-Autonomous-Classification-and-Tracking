@@ -331,14 +331,14 @@ def test_safe_position_loop_and_cold_start() -> None:
     cold = controller.initial_state()
     encoder = EncoderSample(sample_id="encoder:0", t_s=0.02, angle_rad=0.0)
     coast = controller.outer_step(cold, 0.02, encoder, None, None, False, False)
-    assert coast.state.r_rad_s == 0.0
+    assert coast.state.commanded_rate_rad_s == 0.0
     assert coast.state.arbiter.gimbal_state is GimbalState.TRACKING
 
     safe = controller.outer_step(cold, 0.02, encoder, None, None, True, False)
     assert safe.state.arbiter.gimbal_state is GimbalState.SAFE
     assert safe.request is not None
     assert safe.request.mode is GimbalCommandMode.STOW
-    assert safe.state.r_rad_s < 0.0
+    assert safe.state.commanded_rate_rad_s < 0.0
 
     blob = BlobMeta(
         blob_id=1,
@@ -368,7 +368,7 @@ def test_safe_position_loop_and_cold_start() -> None:
         False,
     )
     assert ignored.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert ignored.state.pose_mode is GimbalCommandMode.STOW
+    assert ignored.state.pose.pose_mode is GimbalCommandMode.STOW
 
 
 def test_no_azimuth_on_request_or_command() -> None:

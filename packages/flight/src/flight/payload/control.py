@@ -32,6 +32,7 @@ from flight.payload.gimbal import (
     CameraGeometry,
     GimbalArbiter,
     GimbalRequest,
+    RateDecision,
     acquire_resets_residual,
     apply_confidence_gate,
     apply_min_area_gate,
@@ -102,60 +103,119 @@ class IssSample:
 
 
 @dataclass(frozen=True, slots=True)
+class EncoderState:
+    """Inner-loop encoder ring and polynomial rate estimate.
+
+    Attributes:
+        samples: Timestamped encoder samples, oldest to newest. One sequence.
+        last_theta_enc_rad: Last encoder elevation, radians, or None.
+        measured_rate_rad_s: Polynomial rate at the newest sample (inner y_m).
+    """
+
+    samples: tuple[EncoderSample, ...]
+    last_theta_enc_rad: float | None
+    measured_rate_rad_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class InnerControlState:
+    """Inner PI memory owned by inner_step.
+
+    Attributes:
+        integrator: Inner PI integrator.
+        last_inner_s: Monotonic time of the last inner step, or None.
+        last_tau_nm: Last inner torque, N·m.
+    """
+
+    integrator: float
+    last_inner_s: float | None
+    last_tau_nm: float
+
+
+@dataclass(frozen=True, slots=True)
+class IntegrityState:
+    """Light integrity detector strikes and lock-hold latch.
+
+    Attributes:
+        freeze_strikes: Consecutive encoder-freeze inner ticks.
+        lock_strikes: Consecutive lock-fight inner ticks.
+        lock_theta_ref_rad: Encoder elevation latched at lock engage, or None.
+        lock_ref_s: Monotonic seconds of that latch, or None.
+    """
+
+    freeze_strikes: int
+    lock_strikes: int
+    lock_theta_ref_rad: float | None
+    lock_ref_s: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetState:
+    """Stored CoG and last scene-rate terms owned by outer_step.
+
+    Attributes:
+        r_cog_ecef_m: Last good CoG Earth point, ECEF meters. None in REWIND.
+        last_exposure_us: Last live exposure (REWIND smear cap).
+        last_theta_los: Last predictor elevation, rad.
+        last_omega_t_nom: Last co-rotating elevation rate, rad/s.
+        last_omega_az_nom: Last unactuated optical-azimuth rate, rad/s.
+        last_omega_scene_el: Last elevation scene rate used for smear, rad/s.
+    """
+
+    r_cog_ecef_m: tuple[float, float, float] | None
+    last_exposure_us: float
+    last_theta_los: float
+    last_omega_t_nom: float
+    last_omega_az_nom: float
+    last_omega_scene_el: float
+
+
+@dataclass(frozen=True, slots=True)
+class PoseState:
+    """Position-loop pose owned by outer_step and ground commands.
+
+    Attributes:
+        pose_mode: STOW/HOME/ABSOLUTE while the position loop is active.
+        pose_el_deg: Position-loop target elevation, degrees.
+    """
+
+    pose_mode: GimbalCommandMode | None
+    pose_el_deg: float
+
+
+@dataclass(frozen=True, slots=True)
 class ControlState:
     """Bundled control state threaded across inner and outer ticks.
+
+    Nested records group fields by the loop that updates them. residual is the
+    snapshot of estimate_at at the last TRACKING tick.
 
     Attributes:
         arbiter: Gimbal FSM state.
         residual: Latest two-state residual Kalman estimate.
         residual_history: Timestamped residual events and stable posterior anchor.
-        encoder_ring: Encoder elevations in radians, oldest to newest.
-        integrator: Inner PI integrator.
-        r_cog_ecef_m: Last good CoG Earth point, ECEF meters. None in REWIND.
-        r_rad_s: Last rate reference.
-        y_m: Last encoder-rate estimate, rad/s.
-        last_inner_s: Monotonic time of the last inner step, or None if not started.
-        last_outer_s: Monotonic time of the last outer step, or None if not started.
-        last_theta_enc_rad: Last encoder sample, radians, or None.
-        integrity_freeze_strikes: Consecutive encoder-freeze inner ticks.
-        integrity_lock_strikes: Consecutive lock-fight inner ticks.
-        lock_theta_ref_rad: Encoder elevation latched at lock engage, or None.
-        lock_ref_s: Monotonic seconds of that latch, or None.
-        last_exposure_us: Last live exposure (REWIND smear cap).
-        pose_mode: STOW/HOME/ABSOLUTE while the position loop is active.
-        pose_el_deg: Position-loop target elevation, degrees.
-        last_tau_nm: Last inner torque, N·m.
-        last_theta_los: Last predictor elevation, rad.
-        last_omega_t_nom: Last co-rotating elevation rate, rad/s.
-        last_omega_az_nom: Last unactuated optical-azimuth rate, rad/s.
-        last_omega_scene_el: Last elevation scene rate used for smear, rad/s.
+        encoder: Inner encoder ring and measured rate.
+        inner: Inner PI integrator, time, and torque.
+        integrity: Freeze and lock-fight strikes with lock-hold latch.
+        target: Stored CoG and last scene-rate terms.
+        pose: Position-loop mode and target elevation.
+        last_outer_s: Monotonic time of the last outer step, or None.
+        commanded_rate_rad_s: Last rate reference.
+        last_rate_decision: Last outer_rate RateDecision, or None on the pose path.
         last_e_az: Unactuated optical azimuth error, rad (telemetry only).
     """
 
     arbiter: ArbiterState
     residual: ResidualState
     residual_history: ResidualHistory
-    encoder_ring: tuple[float, ...]
-    encoder_timestamp_ring: tuple[float, ...]
-    integrator: float
-    r_cog_ecef_m: tuple[float, float, float] | None
-    r_rad_s: float
-    y_m: float
-    last_inner_s: float | None
+    encoder: EncoderState
+    inner: InnerControlState
+    integrity: IntegrityState
+    target: TargetState
+    pose: PoseState
     last_outer_s: float | None
-    last_theta_enc_rad: float | None
-    integrity_freeze_strikes: int
-    integrity_lock_strikes: int
-    lock_theta_ref_rad: float | None
-    lock_ref_s: float | None
-    last_exposure_us: float
-    pose_mode: GimbalCommandMode | None
-    pose_el_deg: float
-    last_tau_nm: float
-    last_theta_los: float
-    last_omega_t_nom: float
-    last_omega_az_nom: float
-    last_omega_scene_el: float
+    commanded_rate_rad_s: float
+    last_rate_decision: RateDecision | None
     last_e_az: float
 
 
@@ -257,7 +317,7 @@ class PayloadController:
         """Cold TRACKING arbiter, zero residual, empty encoder ring, r=0.
 
         Outputs:
-            ControlState: Starting state. last_inner_s and last_outer_s are None.
+            ControlState: Starting state. inner.last_inner_s and last_outer_s are None.
         """
         return ControlState(
             arbiter=ArbiterState(
@@ -268,27 +328,30 @@ class PayloadController:
             ),
             residual=self.residual_filt.initial_state(),
             residual_history=self.residual_filt.initial_history(),
-            encoder_ring=(),
-            encoder_timestamp_ring=(),
-            integrator=0.0,
-            r_cog_ecef_m=None,
-            r_rad_s=0.0,
-            y_m=0.0,
-            last_inner_s=None,
+            encoder=EncoderState(
+                samples=(),
+                last_theta_enc_rad=None,
+                measured_rate_rad_s=0.0,
+            ),
+            inner=InnerControlState(integrator=0.0, last_inner_s=None, last_tau_nm=0.0),
+            integrity=IntegrityState(
+                freeze_strikes=0,
+                lock_strikes=0,
+                lock_theta_ref_rad=None,
+                lock_ref_s=None,
+            ),
+            target=TargetState(
+                r_cog_ecef_m=None,
+                last_exposure_us=0.0,
+                last_theta_los=0.0,
+                last_omega_t_nom=0.0,
+                last_omega_az_nom=0.0,
+                last_omega_scene_el=0.0,
+            ),
+            pose=PoseState(pose_mode=None, pose_el_deg=0.0),
             last_outer_s=None,
-            last_theta_enc_rad=None,
-            integrity_freeze_strikes=0,
-            integrity_lock_strikes=0,
-            lock_theta_ref_rad=None,
-            lock_ref_s=None,
-            last_exposure_us=0.0,
-            pose_mode=None,
-            pose_el_deg=0.0,
-            last_tau_nm=0.0,
-            last_theta_los=0.0,
-            last_omega_t_nom=0.0,
-            last_omega_az_nom=0.0,
-            last_omega_scene_el=0.0,
+            commanded_rate_rad_s=0.0,
+            last_rate_decision=None,
             last_e_az=0.0,
         )
 
@@ -377,14 +440,20 @@ class PayloadController:
         """
         dt = self.cfg.inner.dt_s if dt_s is None else dt_s
         sample_s = now if encoder_timestamp_s is None else encoder_timestamp_s
-        ring = state.encoder_ring + (theta_enc_rad,)
-        timestamp_ring = state.encoder_timestamp_ring + (sample_s,)
+        sample = EncoderSample(
+            sample_id=f"inner:{sample_s:.9f}",
+            t_s=sample_s,
+            angle_rad=theta_enc_rad,
+        )
+        samples = state.encoder.samples + (sample,)
         max_n = self.cfg.inner.rate_fit_n
-        if len(ring) > max_n:
-            ring = ring[-max_n:]
-            timestamp_ring = timestamp_ring[-max_n:]
+        if len(samples) > max_n:
+            samples = samples[-max_n:]
         y_m = fit_rate_timed(
-            ring, timestamp_ring, self.cfg.inner.rate_fit_n, self.cfg.inner.rate_fit_degree
+            tuple(item.angle_rad for item in samples),
+            tuple(item.t_s for item in samples),
+            self.cfg.inner.rate_fit_n,
+            self.cfg.inner.rate_fit_degree,
         )
         el_deg = math.degrees(theta_enc_rad)
         at_sci_min = el_deg <= self.gimbal.el_science_min_deg + 1e-9
@@ -392,8 +461,12 @@ class PayloadController:
         stopped = (
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
         )
-        if safe_latched or state.pose_mode is not None:
-            pose_el = state.pose_el_deg if state.pose_mode is not None else self.gimbal.stow_el_deg
+        if safe_latched or state.pose.pose_mode is not None:
+            pose_el = (
+                state.pose.pose_el_deg
+                if state.pose.pose_mode is not None
+                else self.gimbal.stow_el_deg
+            )
             r = position_rate(
                 math.radians(pose_el),
                 theta_enc_rad,
@@ -408,7 +481,7 @@ class PayloadController:
                     math.radians(self.cfg.position.r_max_deg_per_s),
                 )
         else:
-            r = state.r_rad_s
+            r = state.commanded_rate_rad_s
             max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2
             guard = math.radians(self.cfg.integrity.science_boundary_guard_deg)
             if r > 0.0:
@@ -437,7 +510,7 @@ class PayloadController:
         result = inner_step(
             r,
             y_m,
-            state.integrator,
+            state.inner.integrator,
             dt,
             self.gimbal.J_kg_m2,
             self.gimbal.B_nms_per_rad,
@@ -449,14 +522,17 @@ class PayloadController:
         )
         new_state = replace(
             state,
-            encoder_ring=ring,
-            encoder_timestamp_ring=timestamp_ring,
-            integrator=result.integrator,
-            r_rad_s=r,
-            y_m=y_m,
-            last_inner_s=now,
-            last_theta_enc_rad=theta_enc_rad,
-            last_tau_nm=result.tau_nm,
+            encoder=EncoderState(
+                samples=samples,
+                last_theta_enc_rad=theta_enc_rad,
+                measured_rate_rad_s=y_m,
+            ),
+            inner=InnerControlState(
+                integrator=result.integrator,
+                last_inner_s=now,
+                last_tau_nm=result.tau_nm,
+            ),
+            commanded_rate_rad_s=r,
         )
         return InnerTick(state=new_state, tau_nm=0.0 if locked else result.tau_nm)
 
@@ -517,8 +593,8 @@ class PayloadController:
             timestamp_utc=timestamp_utc,
         )
 
-        pose_mode = state.pose_mode
-        pose_el = state.pose_el_deg
+        pose_mode = state.pose.pose_mode
+        pose_el = state.pose.pose_el_deg
         if request is not None:
             pose_mode = request.mode
             if request.mode is GimbalCommandMode.STOW:
@@ -536,16 +612,16 @@ class PayloadController:
         residual = state.residual
         history = state.residual_history
         vision_disposition = "none"
-        omega_az = state.last_omega_az_nom
+        omega_az = state.target.last_omega_az_nom
         in_rewind = new_arbiter.gimbal_state is GimbalState.REWIND
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us
             else:
-                exposure_us = state.last_exposure_us
-            r_cog = state.r_cog_ecef_m
+                exposure_us = state.target.last_exposure_us
+            r_cog = state.target.r_cog_ecef_m
             omega_t_nom = 0.0
-            theta_los = state.last_theta_los
+            theta_los = state.target.last_theta_los
         else:
             if safe_cleared:
                 residual = self.residual_filt.initial_state()
@@ -557,8 +633,8 @@ class PayloadController:
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us
             else:
-                exposure_us = state.last_exposure_us
-            r_cog = state.r_cog_ecef_m
+                exposure_us = state.target.last_exposure_us
+            r_cog = state.target.r_cog_ecef_m
             fresh_cog = False
             height_m = self.cfg.predictor.cog_height_m
             shutter_iss = vision.iss if vision is not None else None
@@ -646,15 +722,15 @@ class PayloadController:
                     not reset_residual
                     and reference_change is None
                     and r_cog is not None
-                    and state.r_cog_ecef_m is not None
-                    and r_cog != state.r_cog_ecef_m
+                    and state.target.r_cog_ecef_m is not None
+                    and r_cog != state.target.r_cog_ecef_m
                     and iss is not None
                 ):
                     old = predict_los(
                         iss.utc_s,
                         iss.r_m,
                         iss.v_m_s,
-                        state.r_cog_ecef_m,
+                        state.target.r_cog_ecef_m,
                         self.eph.omega_earth_rad_s,
                         self.eph.epoch_utc_s,
                     )
@@ -716,6 +792,7 @@ class PayloadController:
         hardware_limited = False
         science_limited = False
         requested_relative_rate_rad_s = 0.0
+        last_rate_decision: RateDecision | None = None
         if pose_mode is not None:
             r = position_rate(
                 math.radians(pose_el),
@@ -746,6 +823,7 @@ class PayloadController:
                 rewind_sharp_max_s=self.cfg.outer.rewind_sharp_max_s,
             )
             r = decision.commanded_rate_rad_s
+            last_rate_decision = decision
             hardware_limited = decision.hardware_limited
             science_limited = decision.science_limited
             requested_relative_rate_rad_s = decision.requested_relative_rate_rad_s
@@ -755,16 +833,19 @@ class PayloadController:
             arbiter=new_arbiter,
             residual=residual,
             residual_history=history,
-            r_cog_ecef_m=r_cog,
-            r_rad_s=r,
+            target=replace(
+                state.target,
+                r_cog_ecef_m=r_cog,
+                last_exposure_us=exposure_us,
+                last_theta_los=theta_los,
+                last_omega_t_nom=omega_t_nom,
+                last_omega_az_nom=omega_az,
+                last_omega_scene_el=omega_scene_el,
+            ),
+            pose=PoseState(pose_mode=pose_mode, pose_el_deg=pose_el),
             last_outer_s=now,
-            last_exposure_us=exposure_us,
-            pose_mode=pose_mode,
-            pose_el_deg=pose_el,
-            last_theta_los=theta_los,
-            last_omega_t_nom=omega_t_nom,
-            last_omega_az_nom=omega_az,
-            last_omega_scene_el=omega_scene_el,
+            commanded_rate_rad_s=r,
+            last_rate_decision=last_rate_decision,
         )
         if timestamp_utc:
             checkpoint = history.checkpoint
@@ -780,7 +861,7 @@ class PayloadController:
                     payload={
                         "e": e_hat,
                         "r": r,
-                        "tau": state.last_tau_nm,
+                        "tau": state.inner.last_tau_nm,
                         "omega_t_nom": omega_t_nom,
                         "omega_az": omega_az,
                         "omega_scene_el": omega_scene_el,
@@ -792,7 +873,7 @@ class PayloadController:
                         "rewind_elapsed_s": rewind_elapsed_s,
                         "rewind_escape": in_rewind
                         and rewind_elapsed_s >= self.cfg.outer.rewind_sharp_max_s,
-                        "y_m": state.y_m,
+                        "y_m": state.encoder.measured_rate_rad_s,
                         "P00": float(residual.P[0, 0]),
                         "P01": float(residual.P[0, 1]),
                         "P10": float(residual.P[1, 0]),

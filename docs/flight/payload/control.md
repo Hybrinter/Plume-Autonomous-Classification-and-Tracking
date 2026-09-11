@@ -17,7 +17,12 @@ predictor events, vision replay, and the rate law.
 | --- | --- | --- |
 | `VisionSample` | dataclass | Frame ID, shutter time, error, centroid, exposure, blobs, and ISS |
 | `IssSample` | dataclass | ISS ECI state for the predictor |
-| `ControlState` | dataclass | Arbiter, residual history, inner state, and command state |
+| `EncoderState` | dataclass | Timestamped encoder samples, last angle, and measured rate |
+| `InnerControlState` | dataclass | Inner PI integrator, last inner time, and last torque |
+| `IntegrityState` | dataclass | Freeze and lock-fight strikes with lock-hold latch |
+| `TargetState` | dataclass | Stored CoG and last scene-rate terms |
+| `PoseState` | dataclass | Position-loop mode and target elevation |
+| `ControlState` | dataclass | Nested records grouped by the loop that updates them |
 | `InnerTick` | dataclass | Updated state and detailed-plant torque |
 | `OuterTick` | dataclass | Updated state, optional pose request, telemetry, and fault |
 | `PayloadController` | dataclass | Immutable cascaded control core |
@@ -36,21 +41,25 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
 `PredictorReferenceChange`.
 
 `OuterTick.state.residual_history` contains the bounded event history.
-`OuterTick.state.residual` contains the latest replayed estimate.
+`OuterTick.state.residual` is the snapshot of `estimate_at` at the last
+TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
+`commanded_rate_rad_s`. `outer_step` writes arbiter, residual, `TargetState`,
+`PoseState`, `last_outer_s`, `commanded_rate_rad_s`, and `last_rate_decision`.
 
 ## Behavior
 
 1. `ingest_inference` applies confidence and area gates, matches blobs, and
    forms the area-weighted centroid of every accepted component. It stores the
    frame ID and shutter time in the queued sample.
-2. `inner_step` keeps the timestamped encoder ring, fits `y_m`, and runs the
-   detailed-plant PI. `y_m` remains available for inner integrity checks and
-   simulation. It is not an outer residual-estimator input.
+2. `inner_step` appends one `EncoderSample` to `EncoderState.samples`, trims
+   the ring to `rate_fit_n`, fits `measured_rate_rad_s`, and runs the
+   detailed-plant PI. The measured rate remains available for inner integrity
+   checks and simulation. It is not an outer residual-estimator input.
 3. `outer_step` updates CoG from vision while TRACKING. It cold-starts the
    residual on TRACKING acquire. An identity reset drops the stored CoG unless
    this frame wrote a new intersect. It then calls `select_scene`. Residual
    encoder, nominal, and vision events run only in TRACKING. REWIND freezes the
-   residual and sets `r_cog_ecef_m` to `None`.
+   residual and sets `TargetState.r_cog_ecef_m` to `None`.
 4. Residual replay uses encoder angle displacement, encoder uncertainty, and
    reversal uncertainty. A vision event is accepted only when its shutter time
    has an exact encoder sample or a valid bracket. TRACKING acquire seeds the
@@ -62,7 +71,9 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
    replacement rebases residual rate with the old CoG at the current ISS time.
    ISS motion between ticks is not a reference jump.
 6. The tracking/rewind path calls `outer_rate` and stores
-   `RateDecision.commanded_rate_rad_s` on `ControlState.r_rad_s`. TRACKING matches
+   `RateDecision.commanded_rate_rad_s` on `ControlState.commanded_rate_rad_s`.
+   It also stores the `RateDecision` on `last_rate_decision`. The pose path
+   leaves `last_rate_decision` empty. TRACKING matches
    `omega_t_nom + omega_t_res` and smear-caps only `Kp * e`. REWIND matches
    boresight-ground `omega_el` and hunts at `+omega_sharp` for
    `rewind_sharp_max_s`. After that window it escapes at `+omega_hw`. Residual
@@ -70,11 +81,11 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
    navigation. The pose path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
    SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND does
-   not drop the inner encoder rings. A single TRACKING miss keeps the residual
+   not drop the inner encoder samples. A single TRACKING miss keeps the residual
    and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets the
    residual. That reset also drops the prior CoG unless this frame produced a new
    intersect.
-8. The state starts with `last_inner_s` and `last_outer_s` set to `None`.
+8. The state starts with `inner.last_inner_s` and `last_outer_s` set to `None`.
 
 ## Errors and faults
 

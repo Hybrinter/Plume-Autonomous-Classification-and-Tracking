@@ -77,7 +77,7 @@ def test_initial_state_is_tracking_cold() -> None:
     state = _controller().initial_state()
     assert state.arbiter.gimbal_state is GimbalState.TRACKING
     assert state.arbiter.tracked_blobs == ()
-    assert state.r_rad_s == 0.0
+    assert state.commanded_rate_rad_s == 0.0
     assert state.residual.has_measurement is False
 
 
@@ -87,7 +87,7 @@ def test_cold_outer_holds_r_zero_without_vision() -> None:
     state = controller.initial_state()
     tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, False, False)
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
-    assert tick.state.r_rad_s == 0.0
+    assert tick.state.commanded_rate_rad_s == 0.0
     assert tick.request is None
     assert tick.fault is None
 
@@ -172,7 +172,7 @@ def test_blob_above_boresight_commands_positive_r() -> None:
     tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.residual.has_measurement is True
-    assert tick.state.r_rad_s > 0.0
+    assert tick.state.commanded_rate_rad_s > 0.0
     assert tick.request is None
 
 
@@ -211,7 +211,7 @@ def test_visual_tracking_does_not_require_navigation() -> None:
     tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, None, False, False)
 
     assert tick.state.arbiter.aggregate_live is True
-    assert tick.state.r_rad_s > 0.0
+    assert tick.state.commanded_rate_rad_s > 0.0
 
 
 def test_aggregate_coast_expires_into_return() -> None:
@@ -237,7 +237,7 @@ def test_aggregate_coast_expires_into_return() -> None:
 
     assert expired.state.arbiter.gimbal_state is GimbalState.REWIND
     assert expired.state.arbiter.aggregate_live is False
-    assert expired.state.r_rad_s > 0.0
+    assert expired.state.commanded_rate_rad_s > 0.0
 
 
 def test_safe_entry_produces_stow_request() -> None:
@@ -248,8 +248,8 @@ def test_safe_entry_produces_stow_request() -> None:
     assert tick.request is not None
     assert tick.request.mode is GimbalCommandMode.STOW
     assert tick.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert tick.state.pose_mode is GimbalCommandMode.STOW
-    assert tick.state.r_rad_s < 0.0
+    assert tick.state.pose.pose_mode is GimbalCommandMode.STOW
+    assert tick.state.commanded_rate_rad_s < 0.0
 
 
 def test_inner_step_writes_torque() -> None:
@@ -257,7 +257,7 @@ def test_inner_step_writes_torque() -> None:
     from dataclasses import replace
 
     controller = _controller()
-    state = replace(controller.initial_state(), r_rad_s=math.radians(1.0))
+    state = replace(controller.initial_state(), commanded_rate_rad_s=math.radians(1.0))
     tick = controller.inner_step(state, 0.001, 0.0)
     assert tick.tau_nm != 0.0
 
@@ -272,7 +272,8 @@ def test_iss_sample_feeds_predictor() -> None:
     v = math.sqrt(eph.mu_m3_s2 / r)
     iss = IssSample(r_m=(r, 0.0, 0.0), v_m_s=(0.0, v, 0.0), utc_s=eph.epoch_utc_s)
     cog = (eph.wgs84_a_m, 0.0, 0.0)
-    state = replace(controller.initial_state(), r_cog_ecef_m=cog)
+    cold = controller.initial_state()
+    state = replace(cold, target=replace(cold.target, r_cog_ecef_m=cog))
     sample = VisionSample(
         t_s=0.0,
         z_v=0.0,
@@ -284,8 +285,8 @@ def test_iss_sample_feeds_predictor() -> None:
         frame_id="1",
     )
     tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
-    assert math.isfinite(tick.state.last_omega_t_nom)
-    assert math.isfinite(tick.state.last_omega_az_nom)
+    assert math.isfinite(tick.state.target.last_omega_t_nom)
+    assert math.isfinite(tick.state.target.last_omega_az_nom)
 
 
 def test_rewind_uses_boresight_not_plume_cog() -> None:
@@ -307,12 +308,12 @@ def test_rewind_uses_boresight_not_plume_cog() -> None:
         iss,
     )
     live = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False).state
-    live = replace(live, r_cog_ecef_m=plume)
+    live = replace(live, target=replace(live.target, r_cog_ecef_m=plume))
     now = controller.cfg.arbiter.max_observation_age_s + 0.04
     theta_g = math.radians(20.0)
     expired = controller.outer_step(live, now, _encoder(now, theta_g), None, iss, False, False)
     assert expired.state.arbiter.gimbal_state is GimbalState.REWIND
-    assert expired.state.r_cog_ecef_m is None
+    assert expired.state.target.r_cog_ecef_m is None
     assert expired.state.residual_history.events is live.residual_history.events
     assert np.array_equal(expired.state.residual.x, live.residual.x)
     height_m = controller.cfg.predictor.cog_height_m
@@ -344,7 +345,7 @@ def test_rewind_uses_boresight_not_plume_cog() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     ).elevation_rate_rad_s
-    assert abs(expired.state.last_omega_t_nom - omega_bore) < 1e-9
+    assert abs(expired.state.target.last_omega_t_nom - omega_bore) < 1e-9
     assert abs(omega_bore - omega_plume) > 1e-8
 
 
@@ -373,10 +374,10 @@ def test_cog_jump_rebases_against_old_cog_at_current_iss() -> None:
         mean_confidence=0.85,
         persistence_count=2,
     )
+    cold = controller.initial_state()
     state = replace(
-        controller.initial_state(),
-        r_cog_ecef_m=p1,
-        last_omega_t_nom=omega_old0,
+        cold,
+        target=replace(cold.target, r_cog_ecef_m=p1, last_omega_t_nom=omega_old0),
         arbiter=ArbiterState(
             gimbal_state=GimbalState.TRACKING,
             tracked_blobs=(blob,),
@@ -403,7 +404,7 @@ def test_cog_jump_rebases_against_old_cog_at_current_iss() -> None:
     assert abs(changes[0].old_rate_rad_s - omega_old1) < 1e-12
     assert abs(changes[0].old_rate_rad_s - omega_old0) > 1e-8
     assert abs(changes[0].new_rate_rad_s - omega_new1) < 1e-12
-    assert tick.state.r_cog_ecef_m == p2
+    assert tick.state.target.r_cog_ecef_m == p2
 
 
 def test_plume_during_rewind_acquires_with_new_cog_and_resets_residual() -> None:
@@ -431,7 +432,7 @@ def test_plume_during_rewind_acquires_with_new_cog_and_resets_residual() -> None
     now = controller.cfg.arbiter.max_observation_age_s + 0.04
     rewound = controller.outer_step(planted, now, _encoder(now, theta_g), None, iss, False, False)
     assert rewound.state.arbiter.gimbal_state is GimbalState.REWIND
-    assert rewound.state.r_cog_ecef_m is None
+    assert rewound.state.target.r_cog_ecef_m is None
     assert np.array_equal(rewound.state.residual.x, planted_x)
 
     t_acq = now + 0.02
@@ -445,7 +446,7 @@ def test_plume_during_rewind_acquires_with_new_cog_and_resets_residual() -> None
     )
     tick = controller.outer_step(state, t_acq, _encoder(t_acq, theta_g), sample, iss, False, False)
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
-    assert tick.state.r_cog_ecef_m is not None
+    assert tick.state.target.r_cog_ecef_m is not None
     assert tick.state.residual.has_measurement is True
     assert not np.allclose(tick.state.residual.x, planted_x)
     assert tick.state.residual_history.checkpoint.t_s == t_acq
@@ -457,8 +458,9 @@ def test_acquire_applies_vision_when_encoder_sample_is_stale() -> None:
     controller = _controller()
     iss = _iss()
     theta_g = math.radians(20.0)
+    cold = controller.initial_state()
     planted = replace(
-        controller.initial_state(),
+        cold,
         arbiter=ArbiterState(
             gimbal_state=GimbalState.REWIND,
             tracked_blobs=(),
@@ -470,11 +472,11 @@ def test_acquire_applies_vision_when_encoder_sample_is_stale() -> None:
             rewind_entered_s=0.0,
         ),
         residual=replace(
-            controller.initial_state().residual,
+            cold.residual,
             x=np.array([0.15, 0.04], dtype=np.float64),
             has_measurement=True,
         ),
-        last_exposure_us=1000.0,
+        target=replace(cold.target, last_exposure_us=1000.0),
     )
     state, sample = controller.ingest_inference(
         planted,
@@ -487,7 +489,7 @@ def test_acquire_applies_vision_when_encoder_sample_is_stale() -> None:
     tick = controller.outer_step(state, 2.0, _encoder(0.95, theta_g), sample, iss, False, False)
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.residual.has_measurement is True
-    assert tick.state.r_rad_s > 0.0
+    assert tick.state.commanded_rate_rad_s > 0.0
     assert abs(float(tick.state.residual.x[0]) - 0.15) > 1e-6
 
 
@@ -510,7 +512,7 @@ def test_single_miss_does_not_reset_residual() -> None:
     ).state
     assert live.arbiter.gimbal_state is GimbalState.TRACKING
     assert live.residual.has_measurement is True
-    assert live.r_cog_ecef_m is not None
+    assert live.target.r_cog_ecef_m is not None
     live_checkpoint = live.residual_history.checkpoint.t_s
 
     miss = VisionSample(
@@ -528,7 +530,7 @@ def test_single_miss_does_not_reset_residual() -> None:
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.arbiter.aggregate_live is True
     assert tick.state.residual.has_measurement is True
-    assert tick.state.r_cog_ecef_m == live.r_cog_ecef_m
+    assert tick.state.target.r_cog_ecef_m == live.target.r_cog_ecef_m
     assert tick.state.residual_history.checkpoint.t_s == live_checkpoint
 
 
@@ -572,8 +574,8 @@ def test_unmatched_blob_resets_residual() -> None:
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
     assert tick.state.residual_history.checkpoint.t_s == 0.02
     assert not np.allclose(tick.state.residual.x, planted_x)
-    assert tick.state.r_cog_ecef_m is not None
-    assert tick.state.r_cog_ecef_m != planted.r_cog_ecef_m
+    assert tick.state.target.r_cog_ecef_m is not None
+    assert tick.state.target.r_cog_ecef_m != planted.target.r_cog_ecef_m
     assert "1" not in {obs.frame_id for obs in tick.state.residual_history.vision_observations}
 
 
@@ -598,8 +600,11 @@ def test_acquire_without_shutter_encoder_rejects_vision() -> None:
             x=np.array([0.15, 0.04], dtype=np.float64),
             has_measurement=True,
         ),
-        r_cog_ecef_m=(1.0, 2.0, 3.0),
-        last_exposure_us=1000.0,
+        target=replace(
+            controller.initial_state().target,
+            r_cog_ecef_m=(1.0, 2.0, 3.0),
+            last_exposure_us=1000.0,
+        ),
     )
     state, sample = controller.ingest_inference(
         planted,
@@ -625,7 +630,7 @@ def test_acquire_without_shutter_encoder_rejects_vision() -> None:
     assert tick.state.residual.has_measurement is False
     assert tick.state.residual_history.checkpoint.t_s == 2.0
     assert tick.state.residual_history.checkpoint.encoder_angle_rad is None
-    assert tick.state.r_cog_ecef_m is None
+    assert tick.state.target.r_cog_ecef_m is None
     pointing = [event for event in tick.telemetry if event.event_name == "pointing"]
     assert pointing
     assert pointing[0].payload["vision_disposition"] == "no_encoder_bracket"
@@ -647,7 +652,7 @@ def test_unmatched_blob_without_intersect_drops_prior_cog() -> None:
     live = controller.outer_step(
         first, 0.02, _encoder(0.0, theta_g), sample, iss, False, False
     ).state
-    assert live.r_cog_ecef_m is not None
+    assert live.target.r_cog_ecef_m is not None
     planted_x = np.array([0.15, 0.04], dtype=np.float64)
     planted = replace(
         live,
@@ -665,8 +670,8 @@ def test_unmatched_blob_without_intersect_drops_prior_cog() -> None:
         next_state, 0.04, _encoder(0.02, theta_g), next_sample, iss, False, False
     )
     assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
-    assert tick.state.r_cog_ecef_m is None
-    assert tick.state.last_omega_t_nom == 0.0
+    assert tick.state.target.r_cog_ecef_m is None
+    assert tick.state.target.last_omega_t_nom == 0.0
     assert not np.allclose(tick.state.residual.x, planted_x)
 
 
@@ -675,14 +680,18 @@ def test_home_request_sets_pose_mode() -> None:
     from dataclasses import replace
 
     controller = _controller()
+    cold = controller.initial_state()
     state = replace(
-        controller.initial_state(),
-        pose_mode=GimbalCommandMode.HOME,
-        pose_el_deg=controller.gimbal.home_el_deg,
+        cold,
+        pose=replace(
+            cold.pose,
+            pose_mode=GimbalCommandMode.HOME,
+            pose_el_deg=controller.gimbal.home_el_deg,
+        ),
     )
     tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, False, False)
-    assert tick.state.pose_mode is GimbalCommandMode.HOME
-    assert tick.state.r_rad_s > 0.0
+    assert tick.state.pose.pose_mode is GimbalCommandMode.HOME
+    assert tick.state.commanded_rate_rad_s > 0.0
 
 
 def test_science_window_zeros_negative_r_at_min() -> None:
@@ -695,7 +704,7 @@ def test_science_window_zeros_negative_r_at_min() -> None:
         state, _result(1, centroid=centroid), 0.0, 1000.0, iss
     )
     tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
-    assert tick.state.r_rad_s == 0.0
+    assert tick.state.commanded_rate_rad_s == 0.0
 
 
 def test_exit_safe_resets_residual() -> None:
@@ -718,8 +727,9 @@ def test_rewind_production_zeros_outward_rate_at_sci_min() -> None:
     """Production rate mode (infinite stopping limits) holds r=0 at sci_min in REWIND."""
     controller = _controller()
     iss = _iss()
+    cold = controller.initial_state()
     state = replace(
-        controller.initial_state(),
+        cold,
         arbiter=ArbiterState(
             gimbal_state=GimbalState.REWIND,
             tracked_blobs=(),
@@ -730,7 +740,7 @@ def test_rewind_production_zeros_outward_rate_at_sci_min() -> None:
             loss_handled=True,
             rewind_entered_s=0.0,
         ),
-        last_exposure_us=1.0e6,
+        target=replace(cold.target, last_exposure_us=1.0e6),
     )
     tick = controller.outer_step(
         state,
@@ -743,6 +753,6 @@ def test_rewind_production_zeros_outward_rate_at_sci_min() -> None:
         detailed_plant=False,
     )
     assert tick.state.arbiter.gimbal_state is GimbalState.REWIND
-    assert tick.state.r_rad_s == 0.0
-    assert math.isfinite(tick.state.r_rad_s)
-    assert tick.state.last_omega_t_nom < 0.0
+    assert tick.state.commanded_rate_rad_s == 0.0
+    assert math.isfinite(tick.state.commanded_rate_rad_s)
+    assert tick.state.target.last_omega_t_nom < 0.0

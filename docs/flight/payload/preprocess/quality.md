@@ -14,6 +14,7 @@ dataset classification.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SATURATION_PIXEL_LEVEL` | constant | Normalized DN level (0.95) for saturation counting |
+| `SmearRateSource` | enum | `MEASURED`, `ENCODER`, or `COMMANDED` provenance of the smear rate |
 | `compute_quality_flags` | function | Returns a frozenset of raised usability tags |
 
 ## Inputs and outputs
@@ -21,6 +22,10 @@ dataset classification.
 `compute_quality_flags(bands, exposure_us, slew_rate_deg_per_s, ifov_band_deg_per_px,
 utc_timestamp, cfg, omega_scene_el_deg_per_s=0.0)` returns
 `frozenset[FrameUsabilityTag]`. An empty set means a clean frame.
+
+`SmearRateSource` names the elevation-rate source the payload app selected for
+MOTION_SMEAR. A rate of `0.0` is valid for every source. Unknown measured rate
+plus a failed encoder bracket uses the commanded rate and labels it `COMMANDED`.
 
 ## Behavior
 
@@ -52,7 +57,8 @@ Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_
 ## Constraints
 
 Quality evaluation runs on the full band plane. A zero gimbal rate is a stationary
-measurement. The payload app supplies measured, encoder, or commanded elevation rate.
+measurement. The payload app supplies a measured, encoder, or commanded elevation
+rate and a `SmearRateSource` label.
 
 ## Related documents
 

@@ -21,7 +21,7 @@ with no I/O and no global state.
 
 ## Package interface
 
-Re-exports: `CELL_OFFSETS`, `MosaicCalibration`, `calibrate_mosaic`,
+Re-exports: `CELL_OFFSETS`, `MosaicCalibration`, `SmearRateSource`, `calibrate_mosaic`,
 `compute_quality_flags`, `correct_bad_pixels`, `interleave_bands`,
 `normalize_dn`, `select_bands`, `separate_bands`.
 

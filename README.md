@@ -36,7 +36,7 @@ packages/
   gse/      # pact-gse    — ground support: CCSDS station emulator + declarative scenarios + orchestrator
   analysis/ # pact-analysis — design/performance studies (depends on flight + sim; not STE-mirrored)
 config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
-profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
+profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) driver profiles
 scenarios/  # declarative validation scenarios (scene + command timeline + assertions)
 scripts/    # check_vcrm.py, check_docs.py, check_adr.py, check_flight_image.py — CI gates
 docs/       # package-mirrored descriptive docs, ADRs, requirements (VCRM), validation

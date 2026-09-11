@@ -232,7 +232,7 @@ accepted_sources = ["ground", "station_ops"]
 [command_router]
 arm_window_s = 30.0
 
-[environment]
+[drivers]
 sensor = "real"
 gimbal = "real"
 compute = "real"

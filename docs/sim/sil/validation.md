@@ -5,7 +5,7 @@
 
 ## Purpose
 
-The validation module builds a flight system for any environment profile and steps it
+The validation module builds a flight system for any driver profile and steps it
 deterministically. GSE imports this surface and does not touch flight composition directly.
 
 ## Public interface
@@ -21,7 +21,7 @@ deterministically. GSE imports this surface and does not touch flight compositio
 
 **`build_validation_system(config, clock, sim_inputs=None, uplink_key=...) -> ValidationSystem`**
 
-- Inputs: `PactConfig` (environment axes intact), `ManualClock`, optional `SimDriverInputs`,
+- Inputs: `PactConfig` (driver axes intact), `ManualClock`, optional `SimDriverInputs`,
   uplink HMAC key.
 - Output: `ValidationSystem` with HAL protocol-typed driver fields.
 
@@ -55,7 +55,7 @@ Same as [`sim.sil.stepping`](stepping.md). Heartbeats are published inside `step
 
 ## Configuration
 
-Reads the full `PactConfig`. Environment axes (`sensor`, `gimbal`, `compute`, `link`,
+Reads the full `PactConfig`. Driver axes (`sensor`, `gimbal`, `compute`, `link`,
 `clock`, `host`) drive driver selection.
 
 Default uplink key is `b"sil-test-key-0000000000000000000"`.

@@ -66,9 +66,9 @@ def build_flight_system(
     """Resolve the env-selected Drivers bundle and wire the SystemApps.
 
     Args:
-        config: The validated PactConfig (its environment axes select each driver).
+        config: The validated PactConfig (its driver axes select each driver).
         bus: The shared MessageBus.
-        clock: The injected Clock (chosen in main from config.environment.clock).
+        clock: The injected Clock (chosen in main from config.drivers.clock).
         calib: The MosaicCalibration to inject into the payload app (loaded from
             checksummed artifacts, or identity when no calibration_dir is configured).
 
@@ -82,10 +82,10 @@ def build_flight_system(
     Notes:
         Driver construction is delegated to flight.core.select_drivers, which lazily
         imports PySpin/onnxruntime only inside the 'real' branches it backs.
-        With the default all-"real" environment this builds the full hardware stack, so
+        With the default all-"real" driver config this builds the full hardware stack, so
         this function runs only on flight hardware. sim_inputs is None: the default flight
-        env has no 'sim' axis, so no sim construction inputs are needed (select_drivers
-        raises ValueError if that assumption is ever violated by a misconfigured env).
+        driver config has no 'sim' axis, so no sim construction inputs are needed (select_drivers
+        raises ValueError if that assumption is ever violated by a misconfigured profile).
     """
     uplink_key = _load_uplink_key(config.command_ingress.hmac_key_path)
     drivers = select_drivers(config, clock, sim_inputs=None)
@@ -168,7 +168,7 @@ def main(config_path: str = "config/default.toml") -> None:
         calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
 
     bus = MessageBus(policy=default_bus_policy())
-    clock: Clock = RealClock() if config.environment.clock == "real" else ManualClock()
+    clock: Clock = RealClock() if config.drivers.clock == "real" else ManualClock()
     heartbeats = bus.subscribe(HeartbeatMsg)  # before start(), so no early heartbeat is missed
     apps = build_flight_system(config, bus, clock, calib)
 

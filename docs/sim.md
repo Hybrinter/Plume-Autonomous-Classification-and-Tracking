@@ -24,7 +24,7 @@ the real flight apps over sim HAL drivers and steps them deterministically.
 The SIL harness shares one cycle body: `sim.sil.stepping.step_once`. GSE and analysis reuse
 that function.
 
-Driver selection uses `EnvironmentConfig` from `flight.libs.config`. Command-path tests sign
+Driver selection uses `DriverConfig` from `flight.libs.config`. Command-path tests sign
 packets with `flight.libs.commands.build_tc_packet`.
 
 ## Interactions
@@ -39,8 +39,8 @@ Tools analysis imports `sim.scene` and `sim.sil` for passive capture runs.
 ## Constraints
 
 - SIL runs the real flight apps. There is no parallel app graph.
-- `build_sil_system` forces every environment axis to `"sim"`.
-- `build_validation_system` passes `config.environment` through unchanged.
+- `build_sil_system` forces every driver axis to `"sim"`.
+- `build_validation_system` passes `config.drivers` through unchanged.
 - The harness replaces the thread scheduler. It publishes heartbeats manually each step.
 - `sim/twin/` is an empty stub. No scene-feedback dynamics twin exists yet.
 

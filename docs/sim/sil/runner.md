@@ -43,7 +43,7 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 ## Behavior
 
 1. `build_sil_system` packs sim inputs into `SimDriverInputs`.
-2. It replaces `config.environment` with all `"sim"` axes and host `"x86_64"`.
+2. It replaces `config.drivers` with all `"sim"` axes and host `"x86_64"`.
 3. It calls `build_validation_system` and casts driver fields to concrete sim types.
 4. `SilHarness.__init__` seeds payload `ControlState` and FDIR watchdog entries.
 5. `SilHarness.step` delegates to `step_once` with apps, protocols, bus, clock, and state.
@@ -61,7 +61,7 @@ their own message types.
 
 ## Configuration
 
-Reads the supplied `PactConfig`. Overrides `environment` to all-sim inside
+Reads the supplied `PactConfig`. Overrides `drivers` to all-sim inside
 `build_sil_system`.
 
 Default uplink key is `b"sil-test-key-0000000000000000000"`.

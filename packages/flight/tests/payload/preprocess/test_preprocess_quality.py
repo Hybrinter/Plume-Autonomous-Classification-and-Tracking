@@ -103,14 +103,38 @@ def test_saturated_flag_boundary(fraction: float, expect_saturated: bool) -> Non
 
 
 def test_motion_smear_from_slew_and_exposure() -> None:
-    """smear_px = slew * exposure / IFOV; above max_motion_smear_px raises the flag."""
+    """Elevation-relative mismatch flags; matched gimbal and scene rates stay clean."""
     bands = np.zeros((4, 8, 8), dtype=np.float32)
     cfg = PreprocessingConfig()  # max_motion_smear_px = 1.0
-    # 2 deg/s * 0.05 s / 0.04 deg/px = 2.5 px > 1.0 -> flagged
-    flags = compute_quality_flags(bands, 50_000.0, 2.0, 0.04, "2026-06-09T00:00:00.000Z", cfg)
+    exposure_us = 50_000.0
+    ifov = 0.04
+    ts = "2026-06-09T00:00:00.000Z"
+    # |2 - 0| deg/s * 0.05 s / 0.04 deg/px = 2.5 px > 1.0 -> flagged
+    flags = compute_quality_flags(bands, exposure_us, 2.0, ifov, ts, cfg)
     assert FrameUsabilityTag.MOTION_SMEAR in flags
-    # 0 deg/s -> no smear
-    flags = compute_quality_flags(bands, 50_000.0, 0.0, 0.04, "2026-06-09T00:00:00.000Z", cfg)
+    # Matched 2 deg/s gimbal and scene -> zero relative smear (azimuth not modeled).
+    flags = compute_quality_flags(
+        bands, exposure_us, 2.0, ifov, ts, cfg, omega_scene_el_deg_per_s=2.0
+    )
+    assert FrameUsabilityTag.MOTION_SMEAR not in flags
+    # Both rates unknown (0, 0) -> never flags
+    flags = compute_quality_flags(bands, exposure_us, 0.0, ifov, ts, cfg)
+    assert FrameUsabilityTag.MOTION_SMEAR not in flags
+
+
+def test_motion_smear_scene_matched_high_gimbal_rate_is_clean() -> None:
+    """A high commanded elevation rate that tracks the scene must not raise MOTION_SMEAR."""
+    bands = np.zeros((4, 8, 8), dtype=np.float32)
+    cfg = PreprocessingConfig()
+    flags = compute_quality_flags(
+        bands,
+        50_000.0,
+        5.0,
+        _IFOV,
+        _TS,
+        cfg,
+        omega_scene_el_deg_per_s=5.0,
+    )
     assert FrameUsabilityTag.MOTION_SMEAR not in flags
 
 

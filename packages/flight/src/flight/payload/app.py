@@ -412,13 +412,20 @@ class PayloadApp:
             self._publish_fault(selected.error, f"band select failed frame_id={raw.frame_id}")
             return state, self._fault_outcome(raw.frame_id, selected.error, state)
 
+        gimbal_rate_deg_per_s = (
+            slew_rate_deg_per_s if slew_rate_deg_per_s != 0.0 else math.degrees(state.r_rad_s)
+        )
+        omega_scene_el_deg_per_s = math.degrees(
+            getattr(state, "last_omega_scene_el", state.last_omega_t_nom)
+        )
         quality_flags = compute_quality_flags(
             selected.value,
             raw.exposure_us,
-            slew_rate_deg_per_s,
+            gimbal_rate_deg_per_s,
             self.sensor_cfg.ifov_band_deg_per_px,
             raw.timestamp_utc,
             self.preprocessing_cfg,
+            omega_scene_el_deg_per_s=omega_scene_el_deg_per_s,
         )
 
         processed = ProcessedFrameMsg(
@@ -993,8 +1000,6 @@ class PayloadApp:
         holder: dict[str, ControlState] = {"state": self.controller.initial_state()}
         heartbeat_seq = 0
         last_heartbeat = self.clock.monotonic_s()
-        prev_pos: GimbalPosition | None = None
-        prev_pos_now = 0.0
 
         def inner_loop() -> None:
             """One inner_step + set_torque per T_in after origin init."""
@@ -1096,18 +1101,11 @@ class PayloadApp:
                 self.handle_commands()
                 acq = self.sensor.acquire_frame()
                 if isinstance(acq, Ok):
-                    slew_rate = 0.0
                     pos_res = self._read_position()
-                    pos: GimbalPosition | None = None
-                    if isinstance(pos_res, Ok):
-                        pos = pos_res.value
-                        if prev_pos is not None and now > prev_pos_now:
-                            slew_rate = abs(pos.el_deg - prev_pos.el_deg) / (now - prev_pos_now)
-                        prev_pos = pos
-                        prev_pos_now = now
+                    pos: GimbalPosition | None = pos_res.value if isinstance(pos_res, Ok) else None
                     with self.inner_lock:
                         current = holder["state"]
-                    current, _outcome = self.process_frame(acq.value, current, now, slew_rate, pos)
+                    current, _outcome = self.process_frame(acq.value, current, now, gimbal_pos=pos)
                     with self.inner_lock:
                         latest = holder["state"]
                         holder["state"] = replace(latest, last_e_az=current.last_e_az)

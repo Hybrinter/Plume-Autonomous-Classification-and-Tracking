@@ -10,9 +10,10 @@ vs. invalid).
 Flag conditions:
     SATURATED           -- any band has > saturation_fraction_threshold of pixels above
                            SATURATION_PIXEL_LEVEL (post-normalisation).
-    MOTION_SMEAR        -- physical: predicted smear length in band-plane pixels,
-                           smear_px = slew_rate_deg_per_s * (exposure_us * 1e-6) / IFOV,
-                           exceeds cfg.max_motion_smear_px.
+    MOTION_SMEAR        -- physical: elevation-relative smear length in band-plane pixels,
+                           smear_px = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
+                           * (exposure_us * 1e-6) / IFOV, exceeds cfg.max_motion_smear_px.
+                           Azimuth motion does not contribute.
     CLOUD_CONTAMINATED  -- NIR/Red mean ratio exceeds cfg.nir_red_ratio_threshold.
     SUNGLINT            -- mean NIR band intensity exceeds cfg.sunglint_nir_mean_threshold.
     INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
@@ -51,6 +52,7 @@ def compute_quality_flags(
     ifov_band_deg_per_px: float,
     utc_timestamp: str,
     cfg: PreprocessingConfig,
+    omega_scene_el_deg_per_s: float = 0.0,
 ) -> frozenset[FrameUsabilityTag]:
     """Compute per-frame quality flags for a calibrated, normalized multispectral frame.
 
@@ -61,21 +63,23 @@ def compute_quality_flags(
         bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised band array.
             C >= 4, band ordering [BLUE, GREEN, RED, NIR].
         exposure_us (float): Camera exposure time in microseconds.
-        slew_rate_deg_per_s (float): Commanded/observed gimbal slew rate in degrees per
-            second over the exposure (0.0 when unknown -- the smear gate degrades to
-            never-flag).
+        slew_rate_deg_per_s (float): Commanded/observed gimbal elevation rate in degrees
+            per second over the exposure (0.0 when unknown).
         ifov_band_deg_per_px (float): Instantaneous field of view per band-plane pixel,
             degrees per pixel (SensorConfig.ifov_band_deg_per_px).
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
+        omega_scene_el_deg_per_s (float): Nominal scene elevation rate in degrees per
+            second (co-rotation / tracking feedforward). Defaults to 0.0 when unknown.
 
     Outputs:
         frozenset[FrameUsabilityTag]: The flags raised for this frame; empty if clean.
 
     Notes:
-        MOTION_SMEAR is physically grounded: it converts the angular blur during the
-        exposure into a length in band-plane pixels via the IFOV, rather than gating on
-        exposure time alone.
+        MOTION_SMEAR uses elevation-relative blur: the mismatch between gimbal and scene
+        elevation rates during the exposure, converted to band-plane pixels via the IFOV.
+        When both rates are 0.0 (unknown), the smear gate never flags. Azimuth motion is
+        not modeled and cannot raise MOTION_SMEAR.
     """
     flags: set[FrameUsabilityTag] = set()
 
@@ -93,8 +97,9 @@ def compute_quality_flags(
             flags.add(FrameUsabilityTag.SATURATED)
             break
 
-    # --- MOTION_SMEAR: predicted smear length in band-plane pixels ---
-    smear_px = slew_rate_deg_per_s * (exposure_us * 1e-6) / ifov_band_deg_per_px
+    # --- MOTION_SMEAR: elevation-relative smear length in band-plane pixels ---
+    rel_rate_deg_per_s = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
+    smear_px = rel_rate_deg_per_s * (exposure_us * 1e-6) / ifov_band_deg_per_px
     if smear_px > cfg.max_motion_smear_px:
         flags.add(FrameUsabilityTag.MOTION_SMEAR)
 

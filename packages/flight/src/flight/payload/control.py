@@ -666,7 +666,6 @@ class PayloadController:
         e_hat = float(residual.x[0])
         omega_res = float(residual.x[1])
         in_rewind = new_arbiter.gimbal_state is GimbalState.REWIND
-        omega_res_cmd = 0.0 if in_rewind else omega_res
         if in_rewind:
             omega_scene_el = omega_t_nom
         elif new_arbiter.gimbal_state is GimbalState.TRACKING and live:
@@ -677,6 +676,9 @@ class PayloadController:
         if new_arbiter.rewind_entered_s is not None:
             rewind_elapsed_s = max(0.0, now - new_arbiter.rewind_entered_s)
 
+        hardware_limited = False
+        science_limited = False
+        requested_relative_rate_rad_s = 0.0
         if pose_mode is not None:
             r = position_rate(
                 math.radians(pose_el),
@@ -687,9 +689,9 @@ class PayloadController:
         else:
             max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2 if detailed_plant else math.inf
             rate_loop_bandwidth = self.cfg.inner.kp if detailed_plant else math.inf
-            r = outer_rate(
+            decision = outer_rate(
                 omega_t_nom,
-                omega_res_cmd,
+                omega_res,
                 e_hat,
                 self.cfg.outer.Kp,
                 new_arbiter.gimbal_state,
@@ -705,8 +707,11 @@ class PayloadController:
                 rate_loop_bandwidth,
                 rewind_elapsed_s=rewind_elapsed_s,
                 rewind_sharp_max_s=self.cfg.outer.rewind_sharp_max_s,
-                omega_az=omega_az,
             )
+            r = decision.commanded_rate_rad_s
+            hardware_limited = decision.hardware_limited
+            science_limited = decision.science_limited
+            requested_relative_rate_rad_s = decision.requested_relative_rate_rad_s
 
         new_state = replace(
             state,
@@ -744,6 +749,9 @@ class PayloadController:
                         "omega_scene_el": omega_scene_el,
                         "omega_t_res": omega_res,
                         "omega_t_total": omega_t_nom + omega_res,
+                        "requested_relative_rate_rad_s": requested_relative_rate_rad_s,
+                        "hardware_limited": hardware_limited,
+                        "science_limited": science_limited,
                         "rewind_elapsed_s": rewind_elapsed_s,
                         "rewind_escape": in_rewind
                         and rewind_elapsed_s >= self.cfg.outer.rewind_sharp_max_s,

@@ -2,7 +2,7 @@
 
 arbiter -- TRACKING / REWIND / SAFE mode selection;
 inner -- PI + computed torque;
-outer -- residual feedforward and smear clip;
+outer -- scene match, smear clip, and RateDecision;
 position -- STOW/HOME/GOTO rate into the inner PI;
 rate_fit -- causal polynomial encoder-rate estimator;
 intersect -- pinhole CoG and boresight height-ellipsoid intersect;
@@ -22,7 +22,7 @@ from flight.payload.gimbal.intersect import (
     intersect_boresight,
     intersect_cog,
 )
-from flight.payload.gimbal.outer import clip_rate, outer_rate, smear_cap_rad_s
+from flight.payload.gimbal.outer import RateDecision, clip_rate, outer_rate, smear_cap_rad_s
 from flight.payload.gimbal.pointing import (
     boresight_error_deg,
     pinhole_error_rad,
@@ -42,6 +42,7 @@ __all__ = [
     "InnerResult",
     "IntegrityResult",
     "LosPrediction",
+    "RateDecision",
     "RayHit",
     "apply_confidence_gate",
     "apply_min_area_gate",

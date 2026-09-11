@@ -57,11 +57,13 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
    zero-order-hold rate history. An explicit CoG replacement rebases residual
    rate with the old CoG at the current ISS time. ISS motion between ticks is
    not a reference jump.
-6. The tracking rate law matches `omega_t_nom + omega_t_res` and smear-caps only
-   `Kp * e`. REWIND matches boresight-ground `omega_el` and hunts at the
-   elevation smear cap for `rewind_sharp_max_s`. After that window it escapes at
-   the hardware slew. Residual is ignored in REWIND. Visual tracking can run
-   without navigation.
+6. The tracking/rewind path calls `outer_rate` and stores
+   `RateDecision.commanded_rate_rad_s` on `ControlState.r_rad_s`. TRACKING matches
+   `omega_t_nom + omega_t_res` and smear-caps only `Kp * e`. REWIND matches
+   boresight-ground `omega_el` and hunts at `+omega_sharp` for
+   `rewind_sharp_max_s`. After that window it escapes at `+omega_hw`. Residual
+   is ignored in REWIND. Visual tracking can run without navigation. The pose
+   path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
    SAFE entry and SAFE exit reset the residual checkpoint. REWIND ignores residual
    rate in the tracking law and does not drop encoder history.

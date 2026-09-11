@@ -5,45 +5,55 @@
 
 ## Purpose
 
-The tracking rate law forms an absolute elevation rate `r` for the production
-`set_rate` path and the detailed-plant inner PI. It matches the elevation scene
-rate and smear-caps only leftover along-track image motion.
+The tracking rate law returns a `RateDecision`. The commanded elevation rate
+matches the scene rate and smear-caps leftover along-track image motion.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `smear_cap_rad_s` | function | Elevation-relative smear |ω| cap from live exposure |
+| `RateDecision` | dataclass | Scene, requested, commanded rates and limit flags |
+| `smear_cap_rad_s` | function | Elevation smear rate cap from live exposure |
 | `clip_rate` | function | Symmetric rate clip |
-| `outer_rate` | function | Mode-dependent absolute rate reference |
+| `stopping_cap` | function | Finite speed cap from remaining angle |
+| `boundary_limited` | function | Stopping-distance clip inside the science window |
+| `finish` | function | Hardware slew, stopping governor, and science-window guards |
+| `outer_rate` | function | Mode-dependent `RateDecision` |
 
 ## Inputs and outputs
 
 `outer_rate` takes predictor elevation rate, residual rate, `e_hat`, `K_p`, arbiter
 mode, a live-target flag, elevation, science window, hardware slew, live exposure,
-smear budget, band IFOV, stopping-governor terms, REWIND elapsed time, REWIND
-sharp-window duration, and diagnostic `omega_az`. It returns `r` in rad/s.
+smear budget, band IFOV, stopping-governor terms, REWIND elapsed time, and REWIND
+sharp-window duration. Residual rate is unused in REWIND. The function does not
+take azimuth rate.
+
+The return is a `RateDecision`. Callers that command the gimbal read
+`commanded_rate_rad_s`.
 
 ## Behavior
 
-1. `omega_sharp,el` is `σ * IFOV / Δt_exp` from the live exposure. Unactuated
-   `omega_az` does not reduce that cap.
-2. In REWIND, if elevation is at the science limb, `r` is 0. Inside
-   `rewind_sharp_max_s`, `r = omega_t_nom + sign(θ_sci,max − θ_g) * omega_sharp`
-   (residual is ignored). After that window, `r` is the hardware cap toward the
-   limb. A negative `r` at `theta_sci_min` is 0.
-3. In TRACKING with a live aggregate, `omega_scene = omega_t_nom + omega_t_res`
-   is not smear-clipped. Only `K_p * e_hat` is clipped to `±omega_sharp`. Then
-   `r = omega_scene + omega_rel`. Zero `r` that would leave
-   `[theta_sci_min, theta_sci_max]`. Navigation is optional: without an ISS
-   sample, `omega_t_nom` is zero and visual residual feedback remains active.
-4. Otherwise return `0.0` (limb wait, cold TRACKING, or unused SAFE path).
-5. Hardware slew and the science-window stopping governor clip the absolute `r`
-   last. A zero remaining angle yields a zero cap before any infinite stopping
-   product.
+1. `omega_sharp,el` is `σ * IFOV / Δt_exp` from the live exposure. This is the
+   full elevation smear budget.
+2. In REWIND, if elevation is at `theta_sci_max`, commanded rate is 0. Inside
+   `rewind_sharp_max_s`, requested relative rate is `+omega_sharp`. After that
+   window, requested relative rate is `+omega_hw`. Scene rate is `omega_t_nom`.
+   Residual rate is ignored. A negative commanded rate at `theta_sci_min` is 0.
+3. In TRACKING with a live aggregate, scene rate is `omega_t_nom + omega_t_res`
+   and is not smear-clipped. Only `K_p * e_hat` is clipped to `+-omega_sharp`.
+   Requested rate is scene rate plus that relative term. Commanded rate that
+   would leave `[theta_sci_min, theta_sci_max]` is 0. Navigation is optional.
+   Without an ISS sample, `omega_t_nom` is zero and visual residual feedback
+   remains active.
+4. Otherwise commanded rate is `0.0` (limb wait, cold TRACKING, or unused SAFE
+   path).
+5. `finish` clips requested rate to hardware slew, then the science-window
+   stopping governor. `hardware_limited` and `science_limited` record those
+   clips. A zero remaining angle yields a zero cap before any infinite
+   stopping product.
 
-For motion toward either science boundary, a stopping-distance governor also
-limits the commanded rate by both `sqrt(2 * tau_max/J * remaining_angle)` and
+For motion toward either science boundary, the stopping-distance governor also
+limits commanded speed by both `sqrt(2 * tau_max/J * remaining_angle)` and
 `inner_kp * remaining_angle`. The latter accounts for the nominal rate-loop
 response. Independent containment of passive or failed-drive motion remains a
 hardware requirement.
@@ -69,8 +79,10 @@ come from `PreprocessingConfig.max_motion_smear_px`.
 
 ## Constraints
 
-SAFE / STOW / HOME are outside this tracking-rate law. The function is pure. `r`
-is an absolute gimbal elevation rate, not a target-relative rate.
+SAFE / STOW / HOME are outside this tracking-rate law. The function is pure.
+`commanded_rate_rad_s` is an absolute gimbal elevation rate, not a target-relative
+rate. Production rate mode passes infinite stopping limits. The detailed plant
+passes finite deceleration and rate-loop bandwidth.
 
 ## Related documents
 

@@ -284,7 +284,7 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
         1.0,
         ifov,
     )
-    assert abs(abs(r_13) - hw) < 1e-12
+    assert abs(abs(r_13.commanded_rate_rad_s) - hw) < 1e-12
     t_exp = 2000e-6
     oracle = 1.0 * ifov_rad / t_exp
     nom = math.radians(1.0)
@@ -303,23 +303,7 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
         ifov,
     )
     assert oracle < hw
-    assert abs(r_long - (nom + oracle)) < 1e-12
-    r_az = outer_rate(
-        nom,
-        0.0,
-        math.radians(4.0),
-        8.0,
-        GimbalState.TRACKING,
-        True,
-        math.radians(10.0),
-        math.radians(45.0),
-        hw,
-        2000.0,
-        1.0,
-        ifov,
-        omega_az=1.0,
-    )
-    assert r_az == r_long
+    assert abs(r_long.commanded_rate_rad_s - (nom + oracle)) < 1e-12
     r_rewind = outer_rate(
         nom,
         math.radians(9.0),
@@ -336,7 +320,7 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
         rewind_elapsed_s=0.1,
         rewind_sharp_max_s=2.0,
     )
-    assert abs(r_rewind - (nom + oracle)) < 1e-12
+    assert abs(r_rewind.commanded_rate_rad_s - (nom + oracle)) < 1e-12
 
 
 def test_safe_position_loop_and_cold_start() -> None:

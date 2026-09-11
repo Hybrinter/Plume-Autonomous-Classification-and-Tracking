@@ -142,6 +142,23 @@ def test_omega_az_near_zero_when_earth_rotation_off() -> None:
     assert abs(omega_az) < 1e-9
 
 
+def test_earth_rotation_changes_omega_el() -> None:
+    """Omega_E on versus off changes omega_el at a nadir CoG."""
+    eph = EphemerisConfig()
+    sim = SimIssEphemeris(ManualClock(utc_s=eph.epoch_utc_s), eph)
+    t0 = eph.epoch_utc_s
+    state0 = sim.read_state(t0)
+    assert isinstance(state0, Ok)
+    r_iss = state0.value.r_m
+    v_iss = state0.value.v_m_s
+    r_cog = _nadir_cog(r_iss, eph.wgs84_a_m)
+    _th_on, el_on, _az_on = predict_los(
+        t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
+    )
+    _th_off, el_off, _az_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
+    assert abs(el_on - el_off) > 1e-8
+
+
 def test_omega_az_changes_with_earth_rotation_at_nadir() -> None:
     """Omega_E on versus off changes omega_az at a nadir CoG."""
     eph = EphemerisConfig()

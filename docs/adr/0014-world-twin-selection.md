@@ -37,12 +37,15 @@ Keep two orthogonal selection spaces:
    **named** physics model (`circular_kepler`, `wgs84_ellipsoid`, `pinhole`, …),
    not a `low`/`med`/`high` rung and not a `sim`/`real` bit.
 
-The twin emits truth records. HAL sim drivers emit observations. Flight apps see
-only observations. Analysis scores flight telemetry against twin truth.
+The twin emits truth records. The SIL composition root pushes a driver feed
+(mosaic, optional mask) into sim HAL drivers. Flight apps see only HAL
+observations. HAL ephemeris stays its own driver; twin ISS state is never the
+payload predictor input. Analysis scores flight telemetry against twin truth.
 
-`sim.twin` composes the models. The SIL composition root binds them to drivers
-(push a mosaic into `SimSensor`; do not add a `FrameSource` HAL Protocol). Flight
-never imports `sim`. World config never enters `PactConfig`.
+`sim.twin` composes the models. Binding lives in `sim.sil` (`SilTwinBind.pre_step`
+on both SIL harnesses): push a mosaic via `SimSensor.load_next` and, when compute
+is scripted, a mask via `ScriptedDetector.load_mask`. Do not add a `FrameSource`
+HAL Protocol. Flight never imports `sim`. World config never enters `PactConfig`.
 
 Monte Carlo, clocks, and trial loops sit around the twin in analysis/tools. They
 are not world models.
@@ -59,7 +62,9 @@ slice lands and STE pages match.
   consume `sim.twin`. Existing analysis studies may keep their helpers until a
   migration.
 - A small `SimSensor.load_next` mutator (or equivalent) is required so the SIL
-  root can push live frames without `flight` importing `sim`.
+  root can push live frames without `flight` importing `sim`. Scripted compute
+  needs a matching `load_mask`. The bind must run on `ValidationHarness` as well
+  as `SilHarness`, or GSE studies never sample the twin.
 - CI default scenes stay pre-rendered `static_gaussian_bandplane` until a study
   opts into closed-loop sampling.
 - Operators of the flight image never see TwinConfig.

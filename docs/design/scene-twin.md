@@ -5,9 +5,17 @@ for the simulation world twin. It is not as-built documentation and not a code
 sketch.
 
 **First implementation scope:** `sim.twin` composition, named-model Protocols,
-frozen sample records, a `TwinConfig` registry, wrap the physics that already
-exists, and an optional SIL closed-loop render path. Do not add SGP4, 3-D
-advected plumes, Monte Carlo runners, or a new flight `EnvironmentConfig` axis.
+frozen records, a `TwinConfig` registry, wrap the physics that already exists,
+and an optional SIL closed-loop path bound through **both** `SilHarness` and
+`ValidationHarness`. Do not add SGP4, 3-D advected plumes, Monte Carlo runners,
+or a new flight `EnvironmentConfig` axis.
+
+**What this is:** a flight-consistent **geometry oracle** (same `geo` /
+`intersect` conventions as the payload). It is not a full-physics Earth/plume
+simulator. Selection-committee pointing studies may quote **relative** error
+(flight estimate minus twin truth) from the v1 stack below. They must not quote
+absolute smear, detection, or pass-timing performance until later named models
+exist.
 
 ---
 
@@ -62,16 +70,19 @@ closed-loop tests, and analysis studies all compose the same models.
 | Two spaces | HAL axes (`sim` / `real` devices) stay in `EnvironmentConfig`. World axes (named physics models) live in `TwinConfig`, sim-only. |
 | World vs device | A world model is anything the payload is not: Earth, truth orbit, wind, plume, projection, silhouette. Gimbal plant, encoder, camera electronics, ONNX, and the station link stay HAL. |
 | Names, not rungs | Models have identity names (`circular_kepler`, `wgs84_ellipsoid`, `pinhole`). Do not use `low` / `med` / `high`. |
-| Truth vs observation | The twin emits **truth**. HAL sim drivers emit **observations** (encoder, frames, optionally biased ephemeris). Flight apps see only observations. |
+| Truth vs driver feed | `evaluate_twin` emits **truth**. The SIL root pushes a **driver feed** into sim HAL drivers. Flight apps see only HAL observations. |
 | Units | SI meters, radians, UTC seconds inside the twin. Convert at analysis report boundaries. |
-| Frames | ECI, ECEF, mount, camera, band-plane pixels. Reuse flight `geo` / `intersect` conventions. Do not invent a parallel look-angle frame. |
-| Time | One `TwinTime` per sample: `monotonic_s`, `utc_s`, `wall_clock_iso`. The SIL `ManualClock` is the source. Models do not read a clock. |
-| Import direction | `flight` never imports `sim`. `sim` may import flight types, `geo`, and `intersect`. `analysis` and `gse` import `sim.twin`. |
-| Coupling | The SIL composition root binds twin to drivers. `SimSensor` does not import the twin. |
-| Scene feedback | Each step, the twin samples at the **true** gimbal elevation (`SimGimbal.true_el_deg()`), not the quantized encoder. |
-| Replay is a model | "Real world input" means a named `replay_*` model (recorded mosaics, recorded ISS state). It is not a HAL `real` axis. |
-| Monte Carlo | An outer trial harness in `analysis` / `tools`. Not a method on the twin. |
-| Existing SIL | Default GSE / CI scenes keep `static_gaussian_bandplane` + pre-rendered frames. Closed-loop twin rendering is opt-in. |
+| Look convention | Flight: elevation 0 rad at geocentric nadir, positive along-track toward the limb. Not analysis `Look` (degrees, 90 at nadir, kilometres). |
+| Frames | ECI, ECEF, mount, camera, band-plane pixels. Reuse flight `geo` / `intersect`. |
+| Time | `TwinTime` is `monotonic_s` + `utc_s`. Map from the step's `now` the same way `PayloadApp._read_iss_at` maps monotonic to UTC. Models do not read a clock. |
+| Import direction | `flight` never imports `sim`. `sim` may import flight types, `geo`, and `intersect`. `analysis` and `gse` import `sim.twin`. Do not import `analysis.lib` from `sim.twin`. |
+| Coupling | `SilTwinBind.pre_step` in `sim.sil` binds twin to drivers. Used by **both** `SilHarness` and `ValidationHarness`. |
+| Scene feedback | True gimbal elevation and rate (`true_el_deg`, `true_omega_rad_s`) after plant integrate. Not the quantized encoder. |
+| Shutter contract | Zero-order hold: evaluate at **start-of-step** true pose, **before** `acquire_frame`. Inner/outer catch-up in `step_once` runs after ingest. Do not evaluate after `advance_inner`. |
+| Replay is a model | Recorded mosaics / ISS state are named `replay_*` models. They are not a HAL `real` axis. |
+| Monte Carlo | Outer trial harness (`TrialSpec`). Not a method on the twin. |
+| Existing SIL | Default GSE / CI keeps `build_frames` + `plume_detector()`. Closed-loop twin rendering is opt-in. CI does not call `evaluate_twin`. |
+| v1 physics | Geometry oracle aligned with flight. Not SGP4, smear integration, radiometry, or ISS attitude. |
 
 ---
 
@@ -83,91 +94,156 @@ closed-loop tests, and analysis studies all compose the same models.
                     earth | orbit | wind | plume | projection | silhouette
                                       |
                                       v
-                               Twin.sample(...)
+                          evaluate_twin(...) -> TwinSample
                                       |
-                         truth: pose, CoG, mosaic, mask, look
-                                      |
-            +-------------------------+--------------------------+
-            |                         |                          |
-            v                         v                          v
-     SimSensor (frame)      optional ScriptedDetector      analysis oracle
-     SimIssEphemeris            (mask / ONNX)              (never on the bus)
-     SimGimbal encoder
-            |
-            v
+                    +-----------------+------------------+
+                    |                                    |
+                    v                                    v
+              TwinTruth                            TwinDriverFeed
+              (oracle; never on bus)               (SIL root only)
+                    |                                    |
+                    v                                    v
+              analysis sink                    SimSensor.load_next
+                                               ScriptedDetector.load_mask
+                                               (HAL ephemeris stays its own driver)
+                    |
+                    v
      EnvironmentConfig (HAL axes, sim | real)
-            |
-            v
+                    |
+                    v
      select_drivers -> build_apps -> step_once
 ```
 
-A run is a **point in both spaces**. Examples:
+A run is a **pair**: `EnvironmentConfig` plus `TwinConfig`. They are separate
+arguments to the SIL builder. Examples:
 
-- CI closed-loop command-direction test: all HAL `sim`, world
-  `static_gaussian_bandplane` (today). No twin sampling required.
-- Pointing-performance study: HAL `sim` devices, world
-  `wgs84_ellipsoid` + `circular_kepler` + `constant_ecef` wind +
-  `gaussian_column` + `pinhole` + `geometric_silhouette`. Twin renders
-  each frame from true elevation.
-- Detector-in-the-loop study: same world, HAL `compute=real` (ONNX) and
-  `silhouette=radiometric_mosaic`.
-- Ephemeris-error study: twin orbit is truth `circular_kepler`; HAL
-  ephemeris is the same model plus a bias, or a coarser model.
-- Replay study: `orbit=replay_iss_state`, `plume=replay_mosaic`; HAL
-  sensor still `sim` because the camera is not on the bench.
+- CI command-direction test: all HAL `sim`, **no twin**. Pre-rendered
+  `static_gaussian_bandplane` frames. Today's path.
+- Pointing-performance study: HAL `sim` devices, world `wgs84_ellipsoid` +
+  `circular_kepler` + `still` + `fixed_ecef_column` + `pinhole` +
+  `geometric_silhouette` (or `oracle_mask` for controller-only checks).
+- Detector-in-the-loop: same world, HAL `compute=real` (ONNX) and
+  `silhouette=radiometric_mosaic` (later).
+- Ephemeris-error: twin orbit is truth `circular_kepler`; HAL
+  `SimIssEphemeris` uses a **different** `EphemerisConfig` (bias). Flight
+  never reads twin ISS state.
+- Replay: `orbit=replay_iss_state`, `plume=replay_mosaic`; HAL sensor still
+  `sim`.
 
 SIL, PIL, and HIL remain corners of the **HAL** matrix. They do not name
 world fidelity.
 
-Do not add world fields to `PactConfig` or `config/default.toml`. The flight
-image has no Earth model. `TwinConfig` is loaded by `sim.sil`, GSE, or an
-analysis study.
+Do not add world fields to `PactConfig` or `config/default.toml`. `TwinConfig`
+is loaded by `sim.sil`, GSE, or an analysis study.
 
 ---
 
-## 5. Truth, observation, and scoring
+## 5. Records
 
-Three records leave each step. They must not collapse into one object.
+All new records are `@dataclass(frozen=True, slots=True)`. Prefer tuples of
+floats in truth records. Reuse flight `IssState`, `CameraGeometry`, and
+`MosaicFrame`.
 
-### 5.1 `TwinTruth` (oracle, sim-only)
+### 5.1 `TwinTime`
 
-Frozen. Never published on the bus. Never passed into a flight app.
+- `monotonic_s: float` — the SIL step's `now`
+- `utc_s: float` — `clock.utc_s() + (now - clock.monotonic_s())`
+
+Factory: `TwinTime.from_step(clock, now)`. Do **not** use `clock.monotonic_s()`
+or `clock.utc_s()` alone. `SilHarness.run_steps` and GSE `InProcessBackend`
+call `step_once(..., now=T)` while the clock still reads `T - dt` until after
+the step. Wall-clock ISO is derived at the report boundary, not stored here.
+
+### 5.2 `ShutterPose`
+
+Gimbal optical state at shutter. Not "vehicle" (ISS is also a vehicle).
+
+- `true_el_rad: float`
+- `true_el_rate_rad_s: float` (`SimGimbal.true_omega_rad_s`; zero allowed)
+- `exposure_us: float` — from `PactConfig.sensor` initial (or last commanded)
+- `gain_db: float` — same source
+
+The accessor that fills this record must integrate the plant first (same path
+as `read_position`).
+
+### 5.3 `PlumeState` (ECEF, v1)
+
+- `frame: Literal["ecef", "bandplane"]`
+- `cog_ecef_m: tuple[float, float, float] | None` — required when `frame="ecef"`
+- `centroid_band_px: tuple[float, float] | None` — required when
+  `frame="bandplane"`
+- `along_sigma_m: float`
+- `cross_sigma_m: float`
+- `height_proxy_m: float` — default 2000, must equal `cog_height_m`
+
+No principal axes and no per-band contrast in v1. Radiometry lives on
+silhouette params. `static_gaussian_bandplane` uses `frame="bandplane"` and
+**does not** go through the ECEF pipeline.
+
+### 5.4 `LookAngles`
+
+Flight convention: radians; elevation 0 at geocentric nadir; azimuth optical
+(unactuated); slant in meters; incidence in radians; `visible: bool`.
+
+Do not import `analysis.lib.look.Look`.
+
+### 5.5 `SceneGeometry`
+
+Handoff between truth assembly and observation rendering:
+
+- `iss: IssState`
+- `plume: PlumeState`
+- `look: LookAngles`
+- `centroid_band_px: tuple[float, float] | None`
+
+### 5.6 `TwinTruth` (oracle, sim-only)
+
+Never published on the bus. Never passed into a flight app.
 
 - `time: TwinTime`
-- `iss_eci: IssState` (reuse the flight dataclass; SI meters)
-- `plume_cog_ecef_m: tuple[float, float, float]`
-- `look: LookSample` (az/el/eta/slant/incidence/visible, same meaning as
-  flight / analysis look angles)
-- `centroid_band_px: tuple[float, float] | None` (pinhole projection of CoG)
-- `true_el_rad: float` (optical elevation that formed the image)
+- `iss: IssState`
+- `plume: PlumeState`
+- `look: LookAngles`
+- `centroid_band_px: tuple[float, float] | None`
 
-Analysis scores flight telemetry against this record.
+Do not copy `ShutterPose.true_el_rad` onto truth. The harness recorder pairs
+`(shutter, truth)` per step.
 
-### 5.2 `TwinObservation` (what HAL may replay)
+Scoring identity: **flight estimate minus twin truth**. Not flight minus HAL
+observation, unless the study is about sensor noise itself.
 
-- `mosaic: MosaicFrame` (or `None` if the sensor axis is `real`)
-- `mask: object | None` (probability mask for `ScriptedDetector`)
-- `iss_observed: IssState | None` (HAL ephemeris, possibly degraded)
+### 5.7 `TwinDriverFeed` (what the SIL root may push)
 
-The SIL root pushes `mosaic` into the sensor driver and, when the compute
-axis is `sim` and the silhouette model is not ONNX, pushes `mask` into the
-scripted detector.
+- `mosaic: MosaicFrame | None`
+- `mask: object | None` — probability mask, `np.ndarray[float32, (H, W)]` at
+  band-plane size; type in code as a numpy array, not `object`, except at the
+  flight.libs boundary if needed
+- `iss_ephemeris: IssState | None` — **logging / scoring only**, populated
+  from HAL `SimIssEphemeris.read_state` at the same UTC. **Not** pushed into
+  the ephemeris driver. Payload already reads that driver in
+  `PayloadApp._read_iss_at`.
 
-### 5.3 Flight telemetry (already exists)
+Pushed mosaic fields: `timestamp_s=now` (the step monotonic), matching
+`timestamp_utc` from the clock mapping, plus the shutter exposure and gain.
+Pre-rendered CI frames keep `timestamp_s=float(frame_id)` because GSE steps
+with `now=frame_id`.
 
-Control state, gimbal encoder, residual filter, arbiter mode, detections.
-`tools.analysis` already captures these. The twin does not duplicate them.
+### 5.8 Bundles
 
-The scoring identity is: **flight estimate minus twin truth**, never flight
-minus HAL observation, unless the study is about sensor noise itself.
+- `TwinSample(truth, feed)`
+- `TwinModels` — frozen refs to the six Protocol instances
+- `Twin` — small **non-frozen** class holding `TwinModels` + `CameraGeometry`.
+  No RNG, no prior plume, no clock, no bus, no gimbal.
 
 ---
 
 ## 6. Named world axes and first models
 
 Each axis is a `@runtime_checkable Protocol`. Each implementation is a frozen
-dataclass plus pure methods. Construction is a registry: a string name plus a
-frozen param block. Unknown names fail at composition, not at `sample()`.
+dataclass plus pure methods. Construction is a **per-axis**
+`dict[str, Builder]` in `sim.twin.registry`. Unknown names fail in
+`build_twin`, not in `evaluate_twin`. No plugin discovery. No single
+`WorldModel` Protocol.
 
 ### 6.1 Earth
 
@@ -176,9 +252,11 @@ frozen param block. Unknown names fail at composition, not at `sample()`.
 | Name | Behavior |
 | --- | --- |
 | `wgs84_ellipsoid` | Flight `geo.wgs84_intersect_at_height`. Default. |
-| `sphere` | Mean WGS-84 radius; cheaper limb tests. |
+| `sphere` | Mean WGS-84 radius. Limb tests only. **Do not mix** with flight ellipsoid intersect in the same study. |
 
-Do not add DEM, refraction, or terrain in the first pass.
+Do not add DEM, refraction, or terrain in the first pass. The 2 km height
+proxy is uniform semiaxis inflation (`a+h`, `b+h`), matching flight — not
+geodetic height.
 
 ### 6.2 Orbit (truth)
 
@@ -187,19 +265,21 @@ Do not add DEM, refraction, or terrain in the first pass.
 | Name | Behavior |
 | --- | --- |
 | `circular_kepler` | Same kinematics as `SimIssEphemeris` (ascending node at epoch). Default. |
-| `replay_iss_state` | Tabulated `(utc_s, IssState)` interpolator. Later. |
+| `replay_iss_state` | Tabulated `(utc_s, IssState)`. Later. |
 
-SGP4 is a later name on the same Protocol. The HAL `SimIssEphemeris` may
-share the circular implementation **as a library function in `sim.twin`**,
-but the HAL driver remains the observation channel. Flight code keeps its
-own copy of the circular propagator until a later extraction; do not make
-`flight.hal.drivers_sim.ephemeris` import `sim`.
+SGP4 / J2 / eccentricity are later names on the same Protocol.
 
-Epoch convention: twin truth and HAL observation must document whether
-`t = epoch` is the ascending node (HAL today) or the northern sub-satellite
-point (`analysis.lib.orbit` today). The twin uses the HAL convention so a
-zero-error ephemeris study is identical. Analysis studies that need the
-sub-satellite convention pass an explicit `u0` in the param block.
+`flight.hal.drivers_sim.ephemeris` must not import `sim`. First pass may copy
+the circular formulae into `sim.twin`. A **shared numerical test vector**
+must prove twin truth equals `SimIssEphemeris.read_state` at zero bias and
+matched UTC. A later extraction into a flight-safe library module is allowed;
+do not leave two untested copies.
+
+Epoch: twin uses the HAL convention (ascending node at `epoch_utc_s`).
+`analysis.lib.orbit` uses a northern sub-satellite `u0`. Studies that need
+that convention pass an explicit `u0` in `CircularKeplerParams`. `epoch_utc_s`
+and Earth-rate constants come from `EphemerisConfig` at bind time, not from a
+second copy of those numbers.
 
 ### 6.3 Wind
 
@@ -210,330 +290,348 @@ sub-satellite convention pass an explicit `u0` in the param block.
 | `still` | Zero. Default. |
 | `constant_ecef` | Constant ECEF vector from params. |
 
-Wind advects the **plume column**, not the ISS and not the gimbal. Do not
-put aerodynamic torque on `SimGimbal`.
+Wind advects the **plume column** on the height-proxy ellipsoid (project the
+velocity onto the local tangent plane; do not integrate off the ellipsoid).
+It does not torque the ISS or the gimbal. For `fixed_ecef_column`, wind is
+inert until `advected_gaussian`.
 
 ### 6.4 Plume
 
-`PlumeModel.sample(utc_s) -> PlumeState`.
+`PlumeModel.evaluate(time, prior, wind, earth) -> PlumeState`.
 
-`PlumeState` is frozen: CoG ECEF, principal axes (optional), along-track and
-cross-track sigma, peak contrast per band, height-proxy meters (default
-2000 m, matching the flight tracking ellipsoid).
+One signature. No `sample(utc_s)` variant.
 
 | Name | Behavior |
 | --- | --- |
-| `static_gaussian_bandplane` | Today's `sim.scene.plume`: CoG fixed in **band-plane pixels**, not ECEF. Exists so CI does not change. |
-| `fixed_ecef_column` | Gaussian column standing on a frozen ECEF CoG at the height proxy. First closed-loop world. |
-| `advected_gaussian` | `fixed_ecef_column` whose CoG integrates wind. Later. |
+| `static_gaussian_bandplane` | Today's `sim.scene.plume`: CoG fixed in band-plane pixels. `frame="bandplane"`. Ignores Earth, orbit, wind, and `ShutterPose.true_el_rad`. CI only. |
+| `fixed_ecef_column` | Gaussian column on a frozen ECEF CoG at the height proxy. First closed-loop world. |
+| `advected_gaussian` | `fixed_ecef_column` whose CoG integrates wind on the ellipsoid. Later. |
 
-`static_gaussian_bandplane` is a compatibility model. New studies must not
-use it when they claim geometric tracking performance.
+New geometric studies must not use `static_gaussian_bandplane`.
 
 ### 6.5 Projection
 
-`ProjectionModel`: camera from mount elevation + ISS state to band-plane
-pixels and, optionally, a mosaic.
-
 | Name | Behavior |
 | --- | --- |
-| `pinhole` | Flight `pinhole_cam_ray` inverted: ECEF point -> band-plane `(x, y)`. Optics from `CameraGeometry`. |
-| `pinhole_smear` | Integrate the pinhole CoG over `exposure_us` along true `omega`. Later. |
+| `pinhole` | Inverse of flight `pinhole_cam_ray`: ECEF CoG -> band-plane `(x, y)`. Optics from `CameraGeometry` resolved at bind time from `PactConfig` (`2 * mosaic pitch`, principal point at band-plane center). |
+| `pinhole_smear` | Integrate the pinhole CoG over `exposure_us` along true `omega`. Later. Do not double-count plant integration. |
 
-The twin **must** use `flight.payload.gimbal.geo` and `intersect` for the
-forward and inverse rays. Do not re-derive a thin-lens FOV in kilometres
-inside `analysis.lib.optics` for closed-loop work. That module may keep
-FOV bookkeeping for paper figures; the twin is the geometric authority.
+Do not use `analysis.lib.optics` for closed-loop projection.
 
 ### 6.6 Silhouette
 
-`SilhouetteModel`: truth plume + camera pose -> detection mask and/or mosaic
-radiometry.
-
 | Name | Behavior |
 | --- | --- |
-| `oracle_mask` | Paint a square/Gaussian at the projected CoG. Matches today's `plume_detector()`. |
-| `geometric_silhouette` | Project the column ellipsoid, fill the silhouette, add read noise into a mosaic. First performance-grade observation. |
-| `radiometric_mosaic` | Later; feeds HAL `compute=real` (ONNX). |
+| `oracle_mask` | Paint a square or Gaussian at the projected CoG. Matches today's `plume_detector()`. |
+| `geometric_silhouette` | Project the column, fill the silhouette, add read noise into a mosaic. Document whether the painted centroid equals the CoG oracle. |
+| `radiometric_mosaic` | Later; feeds HAL `compute=real`. |
 
-When HAL `compute=real`, the silhouette model must produce a mosaic the
-flight preprocessor will actually demosaic. When HAL `compute=sim`, an
-oracle mask is legal and is the CI default.
+When HAL `compute=real`, the silhouette must produce a mosaic the preprocessor
+will demosaic. `oracle_mask` plus `compute=real` is not a detection-performance
+study.
 
 ---
 
 ## 7. Twin composition
 
-The twin is a pure stepper. It holds model instances and a seed. It does not
-hold a clock, a bus, or a gimbal.
+`evaluate_twin` is a thin orchestrator over named pure functions. Physics does
+not live in the orchestrator.
 
 ```
-TwinConfig  --registry-->  Twin
-                               |
-Twin.sample(time, vehicle) -> TwinSample(truth, observation)
+TwinConfig --build_twin--> Twin (TwinModels + CameraGeometry)
+                                |
+Twin.evaluate(time, shutter, rng, prior_plume) -> TwinSample
+                                |
+                         evaluate_twin(...)   # same pipeline
 ```
 
-`VehicleSample` is the only vehicle input:
+Pipeline (`sim/twin/pipeline.py`):
 
-- `true_el_rad: float`
-- `true_el_rate_rad_s: float` (for later smear models; zero is allowed)
-- `exposure_us: float`
-- `gain_db: float`
+1. `orbit_state_eci(models.orbit, time.utc_s) -> IssState`
+2. `evaluate_plume(models.plume, time, prior, wind, earth) -> PlumeState`
+3. `build_scene_geometry(...) -> SceneGeometry` — if `plume.frame == "bandplane"`,
+   skip ECEF look/project and copy `centroid_band_px` from the plume; else
+   `compute_look` + `project_centroid` via flight `geo` / `intersect`
+4. `compose_truth(time, geom) -> TwinTruth`
+5. `render_feed(models.silhouette, geom, shutter, rng) -> TwinDriverFeed`
+6. return `TwinSample(truth, feed)`
 
-`sample` does not mutate the twin except RNG consumption for noise. Prefer
-an explicit `rng` argument (`np.random.Generator`) over hidden instance
-state. If a model needs state (advected CoG), that state lives in a
-`PlumeState` returned and fed back as `prior: PlumeState | None`. Do not
-store ISS position or gimbal angle inside the twin: those are inputs.
+After a successful `build_twin`, `evaluate_twin` is infallible (geometry miss
+is `visible=False` / `centroid_band_px=None`, not `Err`). Replay-table misses
+are out of v1.
 
-Function composition inside `sample`:
+**State threading:** the **caller** (SIL bind / trial runner) holds
+`prior_plume` and the truth log. The twin does not.
 
-1. `iss = orbit.state_eci(time.utc_s)`
-2. `plume = plume_model.sample(time.utc_s, prior, wind, earth)`
-3. `look = look_from(iss, plume.cog, vehicle.true_el_rad, earth)`
-4. `centroid = projection.project(iss, vehicle, plume.cog)`
-5. `observation = silhouette.observe(plume, vehicle, projection, rng)`
-6. return `TwinSample(TwinTruth(...), TwinObservation(...))`
+**RNG:** `evaluate_twin(..., rng: Generator)` on every call. No `Twin._rng`.
+Trial seed is `master_seed + trial_id`. `SimGimbal.sim_seed` is an independent
+stream. `build_frames` keeps its local Generator for CI.
 
-Each step is a free function or a Protocol method. Do not build a god-object
-with twenty fields of cached pose.
-
-Registry: `build_twin(config: TwinConfig, rng: Generator) -> Twin`. String
-names resolve through an explicit dict in `sim.twin.registry`. No callable
-dispatch beyond that dict; no plugin discovery.
+**`CameraGeometry`:** built at bind time from `PactConfig` sensor / inference
+fields. Not a world axis. Optional scalar overrides belong under
+`PinholeParams` only.
 
 ---
 
 ## 8. SIL coupling (scene feedback)
 
-`flight.hal.drivers_sim` cannot import `sim`. The bind lives in `sim.sil`.
+`flight.hal.drivers_sim` cannot import `sim`. Binding lives in `sim.sil` as
+`SilTwinBind.pre_step`, invoked from **both** `SilHarness.step` and
+`ValidationHarness.step` (GSE `InProcessBackend` uses the latter).
 
-**Push, not pull.** Keep `SimSensor` as a replay driver. Each SIL step:
+When a twin is bound, each step:
 
-1. Read `true_el_deg` / rate from `SimGimbal` (inspection accessors; not the
-   HAL Protocol).
-2. `sample = twin.sample(TwinTime.from_clock(clock), vehicle)`.
-3. Append or replace the next `SimSensor` frame with `sample.observation.mosaic`.
-4. If compute is scripted, refresh the detector mask.
-5. Call existing `step_once`.
-6. Record `sample.truth` into the analysis sink. Not onto the bus.
+1. Integrate the gimbal plant; read `true_el_deg` / `true_omega_rad_s`.
+2. `time = TwinTime.from_step(clock, now)`.
+3. `shutter = ShutterPose(...)` from those rates plus configured exposure/gain.
+4. `sample = twin.evaluate(time, shutter, rng, prior_plume)`.
+5. `sensor.load_next(sample.feed.mosaic)` with `timestamp_s=now`.
+6. If compute is scripted, `detector.load_mask(sample.feed.mask)`.
+7. Call existing `step_once`.
+8. Append `(shutter, sample.truth)` to the harness truth log. Optionally log
+   HAL `iss_ephemeris` from `SimIssEphemeris.read_state` at the same UTC.
+9. `prior_plume = sample.truth.plume`.
 
-This needs a small, documented mutator on `SimSensor` (for example
-`push_frame(frame)`) or a one-frame buffer the SIL root owns and passes into
-a new `SimSensor` each step. Prefer a **single-slot buffer** on `SimSensor`
-(`load_next(frame)`) over rebuilding the driver. That is a flight-package
-change, composition-root visible, Protocol-free: `ImagingSensor` stays
-`acquire_frame` only.
+This is a **ZOH**: the image is the start-of-step pose; controller catch-up to
+`now` runs after ingest. Do not move twin evaluation to after `advance_inner`.
 
-Do **not** add a `FrameSource` Protocol to `flight.hal.interfaces`. That
-would put world-sampling into the HAL surface that real hardware implements.
+### 8.1 `SimSensor.load_next`
 
-Clock: `SilHarness.run_steps` already advances `ManualClock` after
-`step_once` so `SimGimbal` integrates. Twin sampling must use the same
-`now` / `utc_s` as that step. Sample the twin **before** `acquire_frame`
-using the gimbal pose at the start of the step (shutter time). Document that
-choice; do not silently sample after `advance_inner`.
+Not on `ImagingSensor`. Concrete `SimSensor` only, like `true_el_deg`.
 
-Existing GSE `SceneSpec` (frame count, seed, scalar scripts) remains valid.
-A later GSE field may name a `TwinConfig` TOML. Do not require it for CI.
+Single-slot buffer:
+
+| State | `acquire_frame` |
+| --- | --- |
+| no pending frame and replay exhausted | `Err(CAMERA_STALL)` |
+| pending frame | consume it, slot empty |
+
+A second `load_next` before `acquire_frame` **overwrites** (tested). First
+closed-loop step must `load_next` before the first `step_once` (or pre-seed
+one frame at bind). `select_drivers` may construct `SimSensor` with
+`frames=[]` when the twin will feed every step.
+
+### 8.2 `ScriptedDetector.load_mask`
+
+Closed-loop scripted compute needs a sim-only mutator (mask is immutable
+today; GSE builds `plume_detector()` once). Mirror `load_next`. Without it,
+a moving centroid cannot drive TRACKING.
+
+### 8.3 GSE `SceneSpec`
+
+`SceneSpec` stays a harness recipe (frame count, seed, scalar scripts). It is
+not a world model and not a profile. A later optional
+`twin_config_path: str | None` may name a twin TOML. CI must not require it.
 
 ---
 
 ## 9. Tools that are not world models
 
-These sit *around* the twin.
-
-| Tool | Where it lives | Role |
+| Tool | Where | Role |
 | --- | --- | --- |
-| Simulated clock | `flight.libs.time.ManualClock` (exists) | Sole time source for SIL + twin |
+| Simulated clock | `ManualClock` (exists) | Sole SIL time source |
 | Orbit propagator | `OrbitModel` | Not a separate runner |
-| Trial runner | `analysis` or `tools.analysis` | Nested loops: trial seed × TwinConfig × duration |
-| Monte Carlo | same trial runner | Independent RNG streams per trial; write Parquet |
-| Parameter sweep | same | Cartesian product of named models and numeric params |
+| `TrialSpec` | `analysis` / `tools` | `trial_id`, `master_seed`, `TwinConfig`, `EnvironmentConfig` snapshot, `PactConfig` (or profile hash), `steps`, `dt_s`, `record_truth` |
+| `StepRecord` | same | `step_index`, `ShutterPose`, `TwinTruth` (flight telemetry joined later by `tools.analysis`) |
+| `TrialRecord` | same | spec + summaries: RMS boresight, in-window time, detect rate |
+| Monte Carlo | trial runner | Nested loops; independent Generator per trial |
 | Capture / plots | `tools.analysis` (exists) | Join flight datapoints to `TwinTruth` |
-
-Trial record (frozen, parquet-friendly scalars plus paths to arrays):
-
-- `trial_id`, `seed`, `TwinConfig` as a JSON-stable dict
-- HAL `EnvironmentConfig` axes
-- time series of truth vs flight residuals
-- summary: RMS boresight error, in-window time, smear p90, detect rate
-
-Determinism: one `np.random.Generator` per trial, seeded from
-`master_seed + trial_id`. Do not use global `numpy.random`. `SimGimbal`
-already has `sim_seed`; the trial runner must set it.
 
 ---
 
-## 10. Physics notes (authority and pitfalls)
+## 10. Physics notes
 
-**Earth.** Flight already intersects a WGS-84 ellipsoid at a 2 km height
-proxy. The twin Earth model must hit that same ellipsoid for a zero-error
-geometry study. `analysis.lib.orbit.wgs84_geocentric_radius_km` is a
-sphere-equivalent radius for look-angle papers; it is not the tracking
-surface.
+**Authority.** Closed-loop geometry uses `flight.payload.gimbal.geo` and
+`intersect` only. `analysis.lib` stays for existing paper studies (kilometres,
+sub-satellite epoch, 90 deg nadir). New SIL studies import `sim.twin`.
 
-**Look angles.** Elevation is 90 deg at geocentric nadir and decreases
-toward the limb along-track. Azimuth is optical (unactuated). Reuse flight
-`geo` / analysis `look_at` conventions after a unit conversion. Do not mix
-the analysis kilometre `Look` dataclass with the twin SI records.
+**Height proxy.** Twin Earth and plume CoG use `wgs84_intersect_at_height`
+with the same `height_m` as `cog_height_m`. Do not place plumes with
+`wgs84_geocentric_radius_km` and then intersect the inflated ellipsoid.
 
 **Pinhole.** Principal point is band-plane center. Band-plane pitch is
-`2 * mosaic pitch`. Inverse projection of a CoG must be consistent with
-`pinhole_cam_ray` used in flight `intersect`. A one-pixel convention error
-here silently wrecks residual-filter studies.
+`2 * mosaic pitch`. Image +Y down is **minus** elevation. Inverse `project`
+must round-trip `pinhole_cam_ray`: a nadir CoG at `true_el_rad=0` lands on
+`(width/2, height/2)`.
 
-**Plume height.** 2 km is a tracking proxy, not stereo. Wind advection
-moves the CoG on that ellipsoid. The silhouette has vertical extent; the
-oracle centroid is the CoG, not the brightest pixel, unless a named
-silhouette model says otherwise.
+**Wind.** Tangent-plane advection on the proxy ellipsoid. v1 `still` /
+`fixed_ecef_column` means wind does not change pointing RMS yet.
 
-**Smear.** First pass may omit `pinhole_smear`. When added, integrate true
-elevation rate over `exposure_us` only. Do not smear azimuth with a motor
-that does not exist.
+**Ephemeris error.** Configuration: twin `circular_kepler` versus HAL
+`SimIssEphemeris` with a wrong inclination or epoch. Do not feed twin ISS
+state into the payload predictor. Default shared `EphemerisConfig` means
+observation equals truth — that is a zero-error study, not leakage.
 
-**Ephemeris error.** A useful study is twin truth `circular_kepler` versus
-HAL `SimIssEphemeris` with a wrong inclination or epoch. That is
-configuration, not a new model. Do not secretly feed flight the twin truth
-ISS state.
+**Smear.** v1 omits `pinhole_smear`. Exposure-limited smear p90 claims wait
+for that model.
 
-**Units.** Flight geometry is meters. Analysis lib is kilometres. The twin
-is meters. Report writers convert once.
+**ISS attitude.** Mount equals LVLH. No flex, no residual attitude in v1.
+
+### 10.1 Dangerous mixes (reject or flag at `build_twin` / study setup)
+
+| Mix | Failure |
+| --- | --- |
+| `sphere` Earth + flight `wgs84` intersect | Limb and slant disagree |
+| `analysis.lib.orbit` epoch + twin `circular_kepler` without `u0` | ~quarter-orbit along-track shift |
+| `analysis.lib.look` / `optics` + twin truth | Units, nadir convention, IFOV |
+| `static_gaussian_bandplane` + closed-loop gimbal | Image does not move with elevation |
+| Surface intersect (`height_m=0`) + flight `cog_height_m=2000` | Systematic CoG offset |
+| `oracle_mask` centroid vs `geometric_silhouette` as if they were one truth | Incompatible scoring |
+| Twin evaluated after catch-up | Wrong shutter / smear phase |
+| Twin truth ISS pushed into flight | Fake zero ephemeris error |
+
+**Coherent v1 stack:** `wgs84_ellipsoid` + `circular_kepler` (HAL epoch) +
+`still` + `fixed_ecef_column` + `pinhole` + `geometric_silhouette` or
+`oracle_mask`, sampled at start-of-step true elevation.
 
 ---
 
 ## 11. What not to build
 
 - World fields on `EnvironmentConfig` or `PactConfig`.
-- A `FrameSource` HAL Protocol implemented by real cameras.
+- A `FrameSource` HAL Protocol or `load_next` on `ImagingSensor`.
 - Twin access from any flight app or pure core.
-- `ProcessedFrameMsg` or truth messages on the bus.
-- A second gimbal plant inside the twin (`SimGimbal` is the plant).
+- Truth messages on the bus.
+- A second gimbal plant inside the twin.
 - Aerodynamic or ISS-attitude models in the first pass.
 - Full radiative transfer, MODTRAN, or DEM.
-- SGP4, EGM gravity, or two-body + J2 until a named model is added.
-- Monte Carlo inside `Twin.sample`.
-- Plugin / entry-point discovery for models.
-- Mutable "current pose" caches on the twin.
+- SGP4, EGM, or J2 until a named model is added.
+- Monte Carlo inside `evaluate_twin`.
+- Plugin / entry-point discovery.
+- Mutable pose caches or an RNG field on `Twin`.
+- Importing `analysis.lib` from `sim.twin`.
 - Replacing CI `build_frames` / `plume_detector` in the first pass.
+- Pydantic tagged unions for *runtime* model instances.
 
 ---
 
-## 12. First implementation (ordered)
+## 12. Config loading and `Result`
 
-1. **Records.** `TwinTime`, `VehicleSample`, `PlumeState`, `LookSample`,
-   `TwinTruth`, `TwinObservation`, `TwinSample`, `TwinConfig` — all frozen
-   dataclasses with `slots=True`. Prefer tuples of floats over `np.ndarray`
-   in the truth record so hashing and parquet stay simple.
-2. **Protocols.** One Protocol per world axis, methods as in §6. No extra
-   hooks.
-3. **Wrap existing physics** as named models: `wgs84_ellipsoid`,
-   `circular_kepler`, `still`, `static_gaussian_bandplane`, `pinhole`,
-   `oracle_mask`. `fixed_ecef_column` + `geometric_silhouette` are in
-   scope if they reuse `geo` / `intersect` without new numerics.
-4. **Registry + `build_twin`.** Fail on unknown names. Param blocks are
-   nested frozen dataclasses on `TwinConfig`, not loose `dict[str, Any]`.
-5. **`SimSensor.load_next`.** One-frame push. Tests for stall-when-empty
-   remain.
-6. **Optional SIL path.** `SilHarness` (or a thin wrapper) samples the
-   twin when constructed with one. Default CI stays pre-rendered frames.
-7. **Truth sink.** In-memory list of `TwinTruth` per step, enough for an
-   analysis study to compute RMS error. Do not add matplotlib here.
-8. **Tests.** Pure `sample()` tests with frozen seeds; a SIL test that
-   true elevation motion moves the projected centroid; a test that flight
-   apps still cannot import `sim.twin`.
-9. **Docs.** STE pages for new modules; keep this brief until behavior
-   matches. Do not cite architecture-decision identifiers from STE pages.
+`TwinConfig` is a pydantic frozen dataclass (`extra="forbid"`), **not** a
+member of `PactConfig`.
 
-Later, in other briefs or studies: `advected_gaussian`, `pinhole_smear`,
-`replay_*`, SGP4, ONNX-in-the-loop radiometry, GSE `[[twin]]` TOML, and
-the Monte Carlo trial runner.
+- Axis names are `Literal[...]` unions.
+- Per-axis param records are nested (`CircularKeplerParams`, …). A
+  `@model_validator` rejects a param block that does not match the selected
+  name. Unselected blocks are unused, not junk drawers. No `trial_id`, seeds,
+  or HAL axes on `TwinConfig`.
+- `sim.twin.config_loader.load_twin_config(path) -> Result[TwinConfig, str]`
+  and `load_twin_config_dict`.
+- `TwinConfig()` Python defaults for unit tests. Optional reference file
+  `packages/sim/config/twin_defaults.toml` guarded like
+  `test_config_defaults`.
+- `build_twin(config, camera) -> Result[Twin, str]` — unknown name or param
+  mismatch is `Err`.
+- `evaluate_twin` after a successful build does not return `Result`.
+- GSE `load_scenario` continues to raise `ValidationError`.
+- `SimSensor.load_next` returns `None` (composition-root push). Stall remains
+  `acquire_frame -> Err(CAMERA_STALL)`.
 
 ---
 
-## 13. Package layout (target)
+## 13. First implementation (ordered)
+
+1. Records in §5, `TwinModels`, `TwinConfig` + param blocks, Protocols.
+2. Wrap existing physics: `wgs84_ellipsoid`, `circular_kepler`, `still`,
+   `static_gaussian_bandplane`, `pinhole`, `oracle_mask`. `fixed_ecef_column`
+   + `geometric_silhouette` if they reuse `geo` / `intersect` without new
+   numerics.
+3. `registry.py` per-axis dicts; `build_twin`; `evaluate_twin` pipeline.
+4. `SimSensor.load_next` and `ScriptedDetector.load_mask`.
+5. `SilTwinBind.pre_step` on **both** harnesses; default CI unbound.
+6. Truth log in the bind object. No matplotlib here.
+7. Tests: frozen-seed `evaluate_twin`; true elevation moves the ECEF
+   centroid; bandplane compat skips ECEF; `TwinTime.from_step` vs clock lag;
+   mosaic `timestamp_s=now`; load_next stall/overwrite/bootstrap; zero-error
+   HAL ephemeris equals twin truth; nadir CoG at band-plane center;
+   `flight` still cannot import `sim.twin`.
+8. STE pages for new modules. Keep this brief until behavior matches.
+
+Later: `advected_gaussian` (tangent-plane), `pinhole_smear`, `replay_*`,
+SGP4/J2, `radiometric_mosaic`, `iss_attitude_*`, `atmospheric_refraction`,
+`lens_distortion_map`, GSE `twin_config_path`, Monte Carlo trial runner.
+
+---
+
+## 14. Package layout (target)
 
 ```
 packages/sim/src/sim/twin/
-  __init__.py          # re-export Twin, TwinConfig, build_twin, records
-  config.py            # TwinConfig + per-axis param blocks
-  records.py           # TwinTime, TwinSample, ...
-  protocols.py         # EarthModel, OrbitModel, ...
-  registry.py          # name -> builder
-  twin.py              # Twin.sample composition
+  __init__.py          # Twin, TwinConfig, build_twin, records (not every model)
+  config.py            # TwinConfig + param blocks
+  config_loader.py     # load_twin_config -> Result
+  records.py           # TwinTime, ShutterPose, TwinSample, ...
+  protocols.py
+  registry.py          # one dict per axis
+  pipeline.py          # evaluate_twin and the pure steps
+  twin.py              # Twin.evaluate delegates to pipeline
   models/
     earth.py
-    orbit.py
+    orbit.py           # not "ephemeris" (that word is the HAL axis)
     wind.py
-    plume.py
+    plume.py           # ECEF column models; bandplane calls sim.scene
     projection.py
     silhouette.py
 ```
 
-`sim.scene.plume` stays as the implementation behind
-`static_gaussian_bandplane` until a later cleanup. Do not delete it in the
-first pass.
+`sim.scene.plume` stays behind `static_gaussian_bandplane`. Do not grow
+`sim.scene`. Do not add `sim.twin.scene`.
 
 `packages/analysis/src/analysis/lib/{orbit,look,optics}.py` keep serving
-existing studies. New closed-loop studies import `sim.twin`. A later
-migration can point analysis helpers at twin models; that is out of this
-pass.
+existing studies.
 
 ---
 
-## 14. Naming
+## 15. Naming
 
 | Use | Do not use |
 | --- | --- |
 | twin | digital twin, world engine, simulator core |
 | world axis | fidelity rung, physics HAL, environment axis |
-| named model | fidelity level, plugin, backend (that word is the detector) |
-| truth / observation | ground truth vs "sim" (sim already means HAL stand-in) |
-| sample | tick, propagate (orbit may propagate internally) |
-| trial | run, case (GSE already has scenario cases) |
-| `load_next` | `set_frame`, `inject` (inject is GSE telecommand) |
+| named model | fidelity level, plugin, backend |
+| truth / driver feed | "observation" on the SIL push path (overloaded) |
+| `evaluate` / `evaluate_twin` | `sample()` (collides with housekeeping `sample`) |
+| `ShutterPose` | `VehicleSample` |
+| `LookAngles` | `LookSample` (redundant suffix; also not analysis `Look`) |
+| `TwinDriverFeed` | `TwinObservation` |
+| trial | run, case, profile |
+| `load_next` / `load_mask` | `inject` (GSE telecommands) |
+| `SceneSpec` | world model (it is a harness recipe) |
+| orbit (twin axis) | ephemeris (HAL axis) |
 
-Config field names match axis names: `earth`, `orbit`, `wind`, `plume`,
-`projection`, `silhouette`. Model names are `snake_case` strings stored as
-`Literal` unions on `TwinConfig` so mypy rejects typos.
-
----
-
-## 15. Dataclass and state rules
-
-- Every record and config object is `@dataclass(frozen=True, slots=True)`.
-- Protocols are structural; implementations do not subclass a base Model.
-- `Twin` may be a frozen dataclass of model instances plus the `Generator`
-  if the generator is treated as an opaque seedable handle. If frozen +
-  Generator fights mutation, keep `Twin` as a concrete class with private
-  `_models` and `_rng` and no other fields.
-- No parallel "state dict". If a model is stateful, the state is a frozen
-  dataclass returned from `sample` and passed back as `prior`.
-- Do not cache rotation matrices across steps unless a test proves it
-  matters; ISS state is cheap.
-- Do not store `PactConfig` on the twin. Optics come from a
-  `CameraGeometry` (flight) passed in `TwinConfig`.
-- `LookSample` should be a twin dataclass, not `analysis.lib.look.Look`,
-  so `sim` does not import `analysis`.
+Config field names match axis names. Model names are `snake_case` `Literal`
+unions.
 
 ---
 
-## 16. Risks the first pass must not ignore
+## 16. Dataclass and state rules
 
-1. **Convention drift.** HAL orbit epoch vs analysis sub-satellite epoch vs
-   flight ECI/ECEF alignment at `epoch_utc_s`. One comment and one test
-   that zero-error HAL ephemeris equals twin truth.
-2. **Pixel convention.** Integer vs half-pixel principal point; mosaic vs
-   band-plane; y-down image vs along-track elevation. One test that a
-   nadir CoG projects to band-plane center at nadir elevation.
-3. **Double integration.** Gimbal plant integrates on the clock; a smear
-   model must not integrate the same rate a second time against a
-   different dt.
-4. **Cost.** Geometric silhouette at 1024×1224 inside a Monte Carlo is
-   later. First pass may project CoG + paint a Gaussian; full ellipse fill
-   is optional.
-5. **CI determinism.** Closed-loop rendering must be seed-stable. Noise
-   in `sim.scene.plume` already uses a local Generator; keep that.
-6. **Leakage.** A study that feeds twin truth ISS state into the payload
-   predictor is not an ephemeris-error study. The trial runner must say
-   which ISS state HAL received.
+- Records and config: `@dataclass(frozen=True, slots=True)`.
+- Protocols are structural; no `Model` base class.
+- `Twin` is a small concrete class: `_models`, `_camera`. Nothing else.
+- No parallel state dict. Stateful plume is `prior_plume` held by the caller.
+- Do not cache rotation matrices across steps.
+- Do not store `PactConfig` on the twin.
+- `LookAngles` is twin-local. `IssState` / `MosaicFrame` / `CameraGeometry`
+  are reused.
+- Mask arrays are numpy, not `object`, except where flight.libs already uses
+  `object` to avoid a numpy import.
+
+---
+
+## 17. Risks the first pass must not ignore
+
+1. **Clock lag.** Twin UTC must use `from_step`, not raw `clock.utc_s()`.
+2. **Epoch convention.** HAL ascending node vs analysis sub-satellite `u0`.
+   Shared test vector: zero-error HAL read equals twin truth.
+3. **Pixel convention.** Half-pixel principal point; mosaic vs band-plane;
+   image-y vs elevation sign. Nadir CoG test.
+4. **Double integration.** Smear models must not integrate the plant twice.
+5. **Compat short-circuit.** `static_gaussian_bandplane` must not pretend
+   Earth/orbit/wind ran.
+6. **Harness coverage.** GSE will never sample a twin bound only on
+   `SilHarness`.
+7. **Cost.** Full 1024x1224 ellipse fill is optional in v1; CoG + Gaussian
+   paint is enough.
+8. **Leakage.** A study that feeds twin ISS into the predictor is not an
+   ephemeris-error study. The trial record must say which ISS state HAL used.

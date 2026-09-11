@@ -28,6 +28,9 @@ Satisfies: REQ-AIML-PREP-002.
 
 from __future__ import annotations
 
+# stdlib
+import math
+
 # third-party
 import numpy as np
 
@@ -108,15 +111,23 @@ def scale_to_reference_exposure(
         reference_gain_db (float): Reference analog gain, dB.
 
     Outputs:
-        np.ndarray[float32, (C, H, W)]: Rescaled planes. Returned unchanged (as float32)
-            when either exposure is non-positive, because the ratio is undefined.
+        np.ndarray[float32, (C, H, W)]: Rescaled planes. Returned unchanged (a float32
+            copy) when any scalar is non-finite or either exposure is non-positive —
+            the ratio is undefined for those inputs.
 
     Notes:
         Valid only for dark-corrected (bias-free) signal; the bias offset does not scale
         with exposure. Clipping is not applied here; normalize_dn clips afterwards.
     """
-    if exposure_us <= 0.0 or reference_exposure_us <= 0.0:
-        return planes.astype(np.float32, copy=False)
+    if (
+        not math.isfinite(exposure_us)
+        or not math.isfinite(reference_exposure_us)
+        or exposure_us <= 0.0
+        or reference_exposure_us <= 0.0
+        or not math.isfinite(gain_db)
+        or not math.isfinite(reference_gain_db)
+    ):
+        return planes.astype(np.float32)
     exposure_ratio = reference_exposure_us / exposure_us
     gain_ratio = 10.0 ** ((reference_gain_db - gain_db) / 20.0)
     scaled: np.ndarray = planes * (exposure_ratio * gain_ratio)  # np.ndarray[float32, (C, H, W)]

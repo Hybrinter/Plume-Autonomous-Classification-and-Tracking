@@ -42,7 +42,7 @@ _DEFAULT_PHASE: Final[tuple[int, int]] = (0, 0)
 
 
 def _phase_valid(cfa_phase: tuple[int, int]) -> bool:
-    """True when both phase components are 0 or 1.
+    """True when cfa_phase is a 2-element sequence of values each in {0, 1}.
 
     Inputs:
         cfa_phase (tuple[int, int]): (row, col) phase.
@@ -50,7 +50,10 @@ def _phase_valid(cfa_phase: tuple[int, int]) -> bool:
     Outputs:
         bool: Validity of the phase.
     """
-    return cfa_phase[0] in (0, 1) and cfa_phase[1] in (0, 1)
+    try:
+        return len(cfa_phase) == 2 and cfa_phase[0] in (0, 1) and cfa_phase[1] in (0, 1)
+    except TypeError:
+        return False
 
 
 def separate_bands(

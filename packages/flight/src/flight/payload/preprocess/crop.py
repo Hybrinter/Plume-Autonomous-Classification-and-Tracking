@@ -32,13 +32,11 @@ All functions are pure: they perform no I/O and have no side effects.
 Contains:
   - RoiTransform: crop origin and scale of a tensor relative to the full plane.
   - crop_plane: clamped, size-checked ROI crop; Err(FRAME_MALFORMED) on bad sizes.
-  - crop_to_roi: legacy crop returning a tuple; oversized requests shrink to the plane.
   - decimate_area: anti-aliased integer-factor decimation by box mean.
   - decimate_to_size: centre-crop plus decimate_area to an exact output size.
   - upsample: integer-factor spline upsampling (order 3 = cubic), range-clipped.
   - crop_and_upsample: full-resolution crop plus upsample to an exact output size.
   - plane_to_tensor_px / tensor_to_plane_px: exact float transform and inverse.
-  - backproject_pixel: legacy integer inverse.
 """
 
 from __future__ import annotations
@@ -123,41 +121,6 @@ def crop_plane(
     return Ok((cropped, (x0, y0)))
 
 
-def crop_to_roi(
-    bands: np.ndarray,  # (C, H, W) float32
-    center_px: tuple[int, int],
-    output_size: tuple[int, int],  # (H_out, W_out)
-) -> tuple[np.ndarray, tuple[int, int]]:
-    """Crop a multispectral array to a fixed-size ROI centred at center_px.
-
-    Legacy entry point with an unchecked return type; delegates to crop_plane. A
-    requested size larger than the plane is shrunk to the plane on that axis (instead of
-    producing an empty or mis-shaped slice), so the result is always a valid array.
-
-    Inputs:
-        bands (np.ndarray[float32, (C, H, W)]): Full-frame multispectral array.
-        center_px (tuple[int, int]): (x, y) pixel coordinate of the crop centre in
-            full-frame space.
-        output_size (tuple[int, int]): Desired (H_out, W_out) of the cropped output.
-
-    Outputs:
-        tuple[np.ndarray, tuple[int, int]]: (cropped_bands, crop_origin) where
-            cropped_bands is np.ndarray[float32, (C, min(H_out, H), min(W_out, W))] and
-            crop_origin is the (x, y) top-left corner of the crop in the full frame,
-            used by backproject_pixel() / tensor_to_plane_px() to invert the crop.
-
-    Satisfies: REQ-AIML-PREP-003
-    """
-    _c, h, w = bands.shape
-    h_out = max(1, min(output_size[0], h))
-    w_out = max(1, min(output_size[1], w))
-    result = crop_plane(bands, (float(center_px[0]), float(center_px[1])), (h_out, w_out))
-    if isinstance(result, Err):
-        # Only reachable for a non-rank-3 input; the sizes were clamped above.
-        return bands, (0, 0)
-    return result.value
-
-
 def decimate_area(bands: np.ndarray, factor: int) -> Result[np.ndarray, FaultCode]:
     """Decimate by an integer factor using the box mean of each factor x factor block.
 
@@ -228,7 +191,7 @@ def decimate_to_size(
     return Ok((decimated.value, RoiTransform(crop_origin_px=origin, scale_factor=1.0 / factor)))
 
 
-def upsample(bands: np.ndarray, factor: int, order: int = 3) -> np.ndarray:
+def upsample(bands: np.ndarray, factor: int, order: int = 3) -> Result[np.ndarray, FaultCode]:
     """Upsample each plane by an integer factor with spline interpolation.
 
     Uses scipy.ndimage.zoom with grid_mode=True so the output covers exactly the input
@@ -243,10 +206,14 @@ def upsample(bands: np.ndarray, factor: int, order: int = 3) -> np.ndarray:
         order (int): Spline order in [0, 5]; 3 = cubic.
 
     Outputs:
-        np.ndarray[float32, (C, H * factor, W * factor)]: Upsampled planes.
+        Result[np.ndarray, FaultCode]:
+            Ok(np.ndarray[float32, (C, H * factor, W * factor)]);
+            Err(FaultCode.FRAME_MALFORMED) if factor < 1 or order is outside [0, 5].
     """
+    if factor < 1 or not 0 <= order <= 5:
+        return Err(FaultCode.FRAME_MALFORMED)
     if factor == 1:
-        return bands.astype(np.float32)
+        return Ok(bands.astype(np.float32))
     zoomed: np.ndarray = scipy.ndimage.zoom(
         bands.astype(np.float32),
         zoom=(1, factor, factor),
@@ -257,7 +224,7 @@ def upsample(bands: np.ndarray, factor: int, order: int = 3) -> np.ndarray:
     lo = float(bands.min())
     hi = float(bands.max())
     clipped: np.ndarray = np.clip(zoomed, lo, hi)  # np.ndarray[float32, (C, H*f, W*f)]
-    return clipped.astype(np.float32)
+    return Ok(clipped.astype(np.float32))
 
 
 def crop_and_upsample(
@@ -285,10 +252,11 @@ def crop_and_upsample(
         Result[tuple[np.ndarray, RoiTransform], FaultCode]:
             Ok((tensor, transform)) with tensor np.ndarray[float32, (C, H_out, W_out)]
                 and transform.scale_factor = upsample_factor;
-            Err(FaultCode.FRAME_MALFORMED) if upsample_factor < 1, output_size is not
-                a multiple of it, or the crop window does not fit the plane.
+            Err(FaultCode.FRAME_MALFORMED) if upsample_factor < 1, order is outside
+                [0, 5], output_size is not a multiple of it, or the crop window does
+                not fit the plane.
     """
-    if upsample_factor < 1:
+    if upsample_factor < 1 or not 0 <= order <= 5:
         return Err(FaultCode.FRAME_MALFORMED)
     h_out, w_out = output_size
     if h_out % upsample_factor or w_out % upsample_factor:
@@ -298,7 +266,11 @@ def crop_and_upsample(
         return Err(crop.error)
     cropped, origin = crop.value
     tensor = upsample(cropped, upsample_factor, order)
-    return Ok((tensor, RoiTransform(crop_origin_px=origin, scale_factor=float(upsample_factor))))
+    if isinstance(tensor, Err):
+        return Err(tensor.error)
+    return Ok(
+        (tensor.value, RoiTransform(crop_origin_px=origin, scale_factor=float(upsample_factor)))
+    )
 
 
 def plane_to_tensor_px(
@@ -342,33 +314,3 @@ def tensor_to_plane_px(
         transform.crop_origin_px[0] + tensor_px[0] / transform.scale_factor,
         transform.crop_origin_px[1] + tensor_px[1] / transform.scale_factor,
     )
-
-
-def backproject_pixel(
-    px: tuple[int, int],
-    crop_origin: tuple[int, int],
-    scale_factor: float,
-) -> tuple[int, int]:
-    """Convert a pixel coordinate in the cropped tensor to full-frame pixel space.
-
-    Legacy integer form of tensor_to_plane_px:
-        full_x = crop_origin_x + round(px_x / scale_factor)
-        full_y = crop_origin_y + round(px_y / scale_factor)
-    Prefer tensor_to_plane_px for control use; rounding here quantises the centroid to
-    a whole plane pixel before the angular conversion.
-
-    Inputs:
-        px (tuple[int, int]): (x, y) pixel coordinate in the cropped/scaled tensor.
-        crop_origin (tuple[int, int]): (x, y) top-left corner of the crop in full-frame
-            space, as returned by crop_to_roi().
-        scale_factor (float): Tensor pixels per plane pixel (e.g. 0.5 means the crop
-            was downsampled 2x before inference). Use 1.0 if no scaling.
-
-    Outputs:
-        tuple[int, int]: (x, y) pixel coordinate in the original full-frame space.
-
-    Satisfies: REQ-AIML-PREP-003
-    """
-    full_x: int = crop_origin[0] + round(px[0] / scale_factor)
-    full_y: int = crop_origin[1] + round(px[1] / scale_factor)
-    return (full_x, full_y)

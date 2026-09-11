@@ -24,10 +24,10 @@ with no I/O and no global state.
 
 Re-exports: `CELL_OFFSETS`, `DEFAULT_BAND_NAMES`, `DEFAULT_USABILITY_POLICY`,
 `SATURATION_PIXEL_LEVEL`, `CloudTest`, `MosaicCalibration`, `QualityMetrics`,
-`RoiTransform`, `UsabilityPolicy`, `backproject_pixel`, `band_index`,
+`RoiTransform`, `UsabilityPolicy`, `band_index`,
 `calibrate_mosaic`, `cloud_fraction`, `compute_quality_flags`,
 `compute_quality_metrics`, `correct_bad_pixels`, `crop_and_upsample`, `crop_plane`,
-`crop_to_roi`, `dark_matches_frame`, `decide_usability`, `decimate_area`,
+`dark_matches_frame`, `decide_usability`, `decimate_area`,
 `decimate_to_size`, `flags_from_metrics`, `full_scale_dn`, `interleave_bands`,
 `normalize_dn`, `plane_to_tensor_px`, `predicted_smear_px`,
 `saturated_fraction_normalized`, `saturated_fraction_raw`,

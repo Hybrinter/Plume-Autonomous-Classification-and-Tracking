@@ -19,10 +19,8 @@ REQ-AIML-IMAG-002, REQ-AIML-DATA-003, REQ-AIML-DATA-005.
 from flight.payload.preprocess.band_select import band_index, select_bands
 from flight.payload.preprocess.crop import (
     RoiTransform,
-    backproject_pixel,
     crop_and_upsample,
     crop_plane,
-    crop_to_roi,
     decimate_area,
     decimate_to_size,
     plane_to_tensor_px,
@@ -68,7 +66,6 @@ __all__ = [
     "QualityMetrics",
     "RoiTransform",
     "UsabilityPolicy",
-    "backproject_pixel",
     "band_index",
     "calibrate_mosaic",
     "cloud_fraction",
@@ -77,7 +74,6 @@ __all__ = [
     "correct_bad_pixels",
     "crop_and_upsample",
     "crop_plane",
-    "crop_to_roi",
     "dark_matches_frame",
     "decide_usability",
     "decimate_area",

@@ -21,11 +21,12 @@ Pipeline (calibrate_mosaic):
 
     If the corrected output contains any NaN or Inf (e.g. a zero flat_field pixel or a
     non-finite input value), calibrate_mosaic() returns Err(FaultCode.INFERENCE_NAN). A
-    shape mismatch between the mosaic and the calibration artifacts returns
-    Err(FaultCode.FRAME_MALFORMED). When the frame's exposure/gain are supplied and the
-    calibration records the exposure/gain the dark frame was taken at, a mismatch beyond
-    tolerance returns Err(FaultCode.CALIBRATION_INVALID): a dark frame is only valid at
-    the exposure and gain it was acquired with.
+    shape mismatch between the mosaic and ANY calibration artifact returns
+    Err(FaultCode.FRAME_MALFORMED). Each supplied frame exposure/gain is checked
+    independently against the value the calibration records for its dark frame (None =
+    unrecorded, on either side); a mismatch beyond tolerance returns
+    Err(FaultCode.CALIBRATION_INVALID): a dark frame is only valid at the exposure and
+    gain it was acquired with.
 
 Calibration artifacts (dark, flat, bad_pixel_mask) for flight are loaded from
 checksummed .npy files by flight.payload.calibration_io. The SIL/dev identity
@@ -34,9 +35,9 @@ flight.payload.calibration_io.build_identity_calibration.
 
 Contains:
   - MosaicCalibration: per-pixel dark/flat/bad-pixel artifacts for the raw mosaic plane,
-    plus the exposure/gain the dark frame was acquired at (0.0 = unrecorded).
-  - dark_matches_frame: True when the frame exposure/gain are within tolerance of the
-    dark frame's acquisition exposure/gain (or the calibration does not record them).
+    plus the exposure/gain the dark frame was acquired at (None = unrecorded).
+  - dark_matches_frame: True when every supplied frame value is within tolerance of
+    the dark frame's matching recorded acquisition value (unrecorded fields skip).
   - correct_bad_pixels: replace masked pixels with the mean of their GOOD same-band
     (+/-2) neighbours; falls back to the diagonal +/-2 ring, then leaves the pixel.
   - calibrate_mosaic: (mosaic - dark) / flat, then bad-pixel repair, on the mosaic plane.
@@ -82,10 +83,12 @@ class MosaicCalibration:
             catches this.
         bad_pixel_mask: np.ndarray[bool, (H, W)] True where the pixel is unusable.
             Bad pixels are repaired by correct_bad_pixels after dark/flat correction.
-        dark_exposure_us: float exposure the dark frame was acquired at, microseconds.
-            0.0 means unrecorded; the exposure match check is then skipped.
-        dark_gain_db: float analog gain the dark frame was acquired at, dB. Only
-            checked when dark_exposure_us is recorded (> 0).
+        dark_exposure_us: float | None exposure the dark frame was acquired at,
+            microseconds. None means unrecorded; the exposure match check is then
+            skipped.
+        dark_gain_db: float | None analog gain the dark frame was acquired at, dB.
+            None means unrecorded; the gain match check is then skipped. 0.0 dB is a
+            legitimate recorded gain.
 
     Notes:
         All three arrays must share the same (H, W) shape, matching the sensor mosaic
@@ -95,44 +98,50 @@ class MosaicCalibration:
     dark_frame: np.ndarray  # (H, W) float32
     flat_field: np.ndarray  # (H, W) float32, values ~1.0, mean 1.0 per CFA cell class
     bad_pixel_mask: np.ndarray  # (H, W) bool
-    dark_exposure_us: float = 0.0
-    dark_gain_db: float = 0.0
+    dark_exposure_us: float | None = None
+    dark_gain_db: float | None = None
 
 
 def dark_matches_frame(
     cal: MosaicCalibration,
-    exposure_us: float,
-    gain_db: float,
+    exposure_us: float | None = None,
+    gain_db: float | None = None,
     exposure_tolerance_frac: float = 0.05,
     gain_tolerance_db: float = 0.5,
 ) -> bool:
-    """Return True when the dark frame is valid for a frame at exposure_us / gain_db.
+    """Return True when the dark frame is valid for the supplied frame metadata.
 
     Dark signal is bias + dark_current * t_exp, and both terms scale with analog gain,
     so a dark frame is only a correct subtrahend at (or near) the exposure and gain it
     was acquired with. Without a separate bias frame the two terms cannot be scaled
     independently, so this module checks the match instead of rescaling.
 
+    Each field is checked independently: it applies only when BOTH the frame supplies
+    it and the calibration records it. A field absent on either side is skipped, so a
+    caller that knows only the frame exposure still gets the exposure check.
+
     Inputs:
         cal (MosaicCalibration): Calibration whose dark_exposure_us / dark_gain_db are
-            compared. If cal.dark_exposure_us <= 0.0 the acquisition point is
-            unrecorded and the check passes unconditionally.
-        exposure_us (float): Frame exposure, microseconds.
-        gain_db (float): Frame analog gain, dB.
+            compared; None means that value is unrecorded.
+        exposure_us (float | None): Frame exposure, microseconds; None when the frame
+            metadata does not carry it.
+        gain_db (float | None): Frame analog gain, dB; None when unrecorded.
         exposure_tolerance_frac (float): Allowed |exposure - dark_exposure| as a
             fraction of dark_exposure.
         gain_tolerance_db (float): Allowed |gain - dark_gain| in dB.
 
     Outputs:
-        bool: True when within tolerance (or unrecorded), False otherwise.
+        bool: True when every applicable field is within tolerance, False otherwise.
     """
-    if cal.dark_exposure_us <= 0.0:
-        return True
-    exposure_ok = (
-        abs(exposure_us - cal.dark_exposure_us) <= exposure_tolerance_frac * cal.dark_exposure_us
-    )
-    gain_ok = abs(gain_db - cal.dark_gain_db) <= gain_tolerance_db
-    return exposure_ok and gain_ok
+    if exposure_us is not None and cal.dark_exposure_us is not None:
+        if abs(exposure_us - cal.dark_exposure_us) > exposure_tolerance_frac * abs(
+            cal.dark_exposure_us
+        ):
+            return False
+    if gain_db is not None and cal.dark_gain_db is not None:
+        if abs(gain_db - cal.dark_gain_db) > gain_tolerance_db:
+            return False
+    return True
 
 
 def _neighbour_mean(
@@ -228,17 +237,18 @@ def calibrate_mosaic(
         mosaic (np.ndarray[float32, (H, W)]): Raw mosaic plane. Shape must match
             cal.dark_frame.shape.
         cal (MosaicCalibration): dark_frame, flat_field, bad_pixel_mask of shape (H, W).
-        exposure_us (float | None): Frame exposure, microseconds. When given together
-            with gain_db and the calibration records its dark acquisition point, the
-            dark frame is checked for validity at this exposure/gain.
+        exposure_us (float | None): Frame exposure, microseconds. When given and the
+            calibration records a dark exposure, the dark frame is checked for validity
+            at this exposure; each field is checked independently (dark_matches_frame).
         gain_db (float | None): Frame analog gain, dB. See exposure_us.
 
     Outputs:
         Result[np.ndarray, FaultCode]:
             Ok(np.ndarray[float32, (H, W)]) -- calibrated DN values, all finite.
-            Err(FaultCode.FRAME_MALFORMED) -- mosaic.shape != cal.dark_frame.shape.
-            Err(FaultCode.CALIBRATION_INVALID) -- exposure_us/gain_db supplied and the
-                dark frame was acquired at a different exposure/gain (see
+            Err(FaultCode.FRAME_MALFORMED) -- mosaic.shape differs from any of
+                cal.dark_frame / cal.flat_field / cal.bad_pixel_mask shapes.
+            Err(FaultCode.CALIBRATION_INVALID) -- a supplied frame exposure/gain falls
+                outside tolerance of the dark frame's recorded acquisition value (see
                 dark_matches_frame).
             Err(FaultCode.INFERENCE_NAN) -- any output pixel is non-finite AFTER repair.
                 This covers a division by a zero flat-field element at an unmasked
@@ -253,11 +263,14 @@ def calibrate_mosaic(
         the artifact producer's and loader's responsibility; this function only guards
         against a non-finite result.
     """
-    if mosaic.shape != cal.dark_frame.shape:
+    if (
+        mosaic.shape != cal.dark_frame.shape
+        or mosaic.shape != cal.flat_field.shape
+        or mosaic.shape != cal.bad_pixel_mask.shape
+    ):
         return Err(FaultCode.FRAME_MALFORMED)
-    if exposure_us is not None and gain_db is not None:
-        if not dark_matches_frame(cal, exposure_us, gain_db):
-            return Err(FaultCode.CALIBRATION_INVALID)
+    if not dark_matches_frame(cal, exposure_us, gain_db):
+        return Err(FaultCode.CALIBRATION_INVALID)
     with np.errstate(divide="ignore", invalid="ignore"):
         corrected = (mosaic - cal.dark_frame) / cal.flat_field  # np.ndarray[float32, (H, W)]
     repaired = correct_bad_pixels(corrected, cal.bad_pixel_mask)

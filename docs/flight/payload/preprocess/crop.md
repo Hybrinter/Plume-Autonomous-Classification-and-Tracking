@@ -17,14 +17,12 @@ spline upsampling).
 | --- | --- | --- |
 | `RoiTransform` | dataclass | Crop origin and scale of a tensor relative to the full plane |
 | `crop_plane` | function | Clamped, size-checked ROI crop; `Err(FRAME_MALFORMED)` on bad sizes |
-| `crop_to_roi` | function | Legacy crop returning a tuple; oversized requests shrink to the plane |
 | `decimate_area` | function | Anti-aliased integer-factor decimation by box mean |
 | `decimate_to_size` | function | Centre-crop plus `decimate_area` to an exact output size |
 | `upsample` | function | Integer-factor spline upsampling (order 3 = cubic), range-clipped |
 | `crop_and_upsample` | function | Full-resolution crop plus upsample to an exact output size |
 | `plane_to_tensor_px` | function | Exact float forward transform |
 | `tensor_to_plane_px` | function | Exact float inverse transform |
-| `backproject_pixel` | function | Legacy integer inverse |
 
 ## Inputs and outputs
 
@@ -49,15 +47,17 @@ upsample_factor, order)` returns `Ok((tensor, RoiTransform))` with
 3. `decimate_to_size` picks `factor = min(H // H_out, W // W_out)`, centre-crops to
    `factor * output_size`, then decimates.
 4. `upsample` uses `scipy.ndimage.zoom` with `grid_mode=True` and `reflect` boundary
-   handling, then clips the result to the input `[min, max]` range.
+   handling, then clips the result to the input `[min, max]` range. It returns
+   `Err(FRAME_MALFORMED)` when `factor < 1` or `order` is outside `[0, 5]`.
 5. `crop_and_upsample` crops `output_size / upsample_factor` at full resolution around
    `center_px` and upsamples to `output_size`.
 
 ## Errors and faults
 
-`crop_plane`, `decimate_area`, `decimate_to_size`, and `crop_and_upsample` return
-`Err(FaultCode.FRAME_MALFORMED)` on non-rank-3 input, non-positive or non-fitting
-sizes, non-integer decimation, or an invalid upsample factor.
+`crop_plane`, `decimate_area`, `decimate_to_size`, `upsample`, and
+`crop_and_upsample` return `Err(FaultCode.FRAME_MALFORMED)` on non-rank-3 input,
+non-positive or non-fitting sizes, non-integer decimation, or an invalid upsample
+factor or spline order.
 
 ## Messages
 

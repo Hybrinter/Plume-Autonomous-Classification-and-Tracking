@@ -17,11 +17,13 @@ Flag conditions:
                            and clipping can hide a saturated pixel or fake one), else on
                            the normalized planes against SATURATION_PIXEL_LEVEL.
     MOTION_SMEAR        -- predicted smear in band-plane pixels
-                           smear_px = (|gimbal slew| + platform rate) * t_exp / IFOV
+                           smear_px = |gimbal slew + platform rate| * t_exp / IFOV
                            exceeds cfg.max_motion_smear_px. The platform rate is the
                            ISS ground-track angular rate (~1 deg/s at nadir from 420 km),
                            which smears the scene even with the gimbal still; it is 0.0
-                           unless the caller supplies it.
+                           unless the caller supplies it. Both rates are signed in the
+                           same axis/frame, so a tracking slew cancels the platform
+                           term instead of adding to it.
     CLOUD_CONTAMINATED  -- default (legacy): mean NIR / mean RED exceeds
                            cfg.nir_red_ratio_threshold. Physics caveat: with the flight
                            passbands (665 / 842 nm) a high NIR/RED ratio is the
@@ -168,9 +170,12 @@ def saturated_fraction_normalized(
         level (float): Saturation level in normalized units (strict >).
 
     Outputs:
-        tuple[float, ...]: One fraction per channel, in channel order.
+        tuple[float, ...]: One fraction per channel, in channel order. A zero-area
+            input yields 0.0 per channel (no pixel is saturated).
     """
     n_pixels = bands.shape[1] * bands.shape[2]
+    if n_pixels == 0:
+        return tuple(0.0 for _ in range(int(bands.shape[0])))
     return tuple(float((bands[c] > level).sum()) / n_pixels for c in range(bands.shape[0]))
 
 
@@ -212,27 +217,31 @@ def predicted_smear_px(
 ) -> float:
     """Predicted motion smear length in band-plane pixels over one exposure.
 
-        smear_px = (|slew| + platform_rate) * t_exp / IFOV
+        smear_px = |slew + platform_rate| * t_exp / IFOV
 
-    The scene moves across the focal plane at the sum of the gimbal slew rate and the
-    platform's angular rate relative to the ground (ISS ground track, ~1 deg/s at nadir
-    from 420 km); a stationary gimbal does not mean a stationary scene. The magnitude of
-    the slew is used so that a negative encoder rate smears exactly like a positive one.
+    The scene moves across the focal plane at the signed sum of the gimbal slew rate
+    and the platform's angular rate relative to the ground (ISS ground track, ~1 deg/s
+    at nadir from 420 km); a stationary gimbal does not mean a stationary scene. Both
+    rates are signed in the same axis/frame, so during a good track the slew term
+    cancels the platform term and the residual approaches zero; a worst-case bound can
+    still be had by calling with the slew magnitude and a zero or adverse-sign platform
+    term.
 
     Inputs:
-        slew_rate_deg_per_s (float): Gimbal slew rate over the exposure, deg/s (either
-            sign). 0.0 when unknown.
+        slew_rate_deg_per_s (float): Signed gimbal slew rate over the exposure, deg/s.
+            0.0 when unknown.
         exposure_us (float): Exposure time, microseconds.
         ifov_band_deg_per_px (float): Band-plane IFOV, deg/px.
-        platform_rate_deg_per_s (float): Platform ground-track angular rate, deg/s.
-            Default 0.0 (gimbal-only smear).
+        platform_rate_deg_per_s (float): Signed platform ground-track angular rate,
+            deg/s, same axis/frame as slew_rate_deg_per_s. Default 0.0 (gimbal-only
+            smear).
 
     Outputs:
         float: Smear length in band-plane pixels; 0.0 when ifov is non-positive.
     """
     if ifov_band_deg_per_px <= 0.0:
         return 0.0
-    total_rate = abs(slew_rate_deg_per_s) + platform_rate_deg_per_s
+    total_rate = abs(slew_rate_deg_per_s + platform_rate_deg_per_s)
     return total_rate * (exposure_us * 1e-6) / ifov_band_deg_per_px
 
 
@@ -300,10 +309,16 @@ def compute_quality_metrics(
     Outputs:
         Result[QualityMetrics, FaultCode]:
             Ok(QualityMetrics);
-            Err(FaultCode.FRAME_MALFORMED) if bands is not rank 3, its channel count
-                differs from len(band_names), or raw_mosaic cannot be separated.
+            Err(FaultCode.FRAME_MALFORMED) if bands is not rank 3, has a zero-size
+                spatial axis, its channel count differs from len(band_names), or
+                raw_mosaic cannot be separated.
     """
-    if bands.ndim != 3 or bands.shape[0] != len(band_names):
+    if (
+        bands.ndim != 3
+        or bands.shape[0] != len(band_names)
+        or bands.shape[1] < 1
+        or bands.shape[2] < 1
+    ):
         return Err(FaultCode.FRAME_MALFORMED)
 
     metadata_complete = exposure_us > 0.0 and bool(utc_timestamp)

@@ -1,13 +1,13 @@
 """Co-rotating CoG elevation and optical-azimuth predictor (pure).
 
-Given ISS ECI state and a frozen ECEF CoG, returns signed off-nadir elevation of
-the line of sight, the co-rotating elevation rate, and the unactuated optical
+Given ISS ECI state and a frozen ECEF CoG, returns a LosPrediction with signed
+off-nadir elevation, co-rotating elevation rate, and unactuated optical
 azimuth rate. Does not finite-difference successive intersects.
 
 omega_el includes Earth rotation in the actuated elevation axis; it is not
 orbital mean motion. omega_az is the unactuated lateral rate of
 atan2(ly, hypot(lx, lz)) (equator cross-track Earth rotation at nadir). omega_az
-is never commanded.
+is never commanded. LVLH y_hat is treated as inertially fixed (y_dot = 0).
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 """
@@ -16,12 +16,32 @@ from __future__ import annotations
 
 # stdlib
 import math
+from dataclasses import dataclass
 
 # third-party
 import numpy as np
 
 # internal
 from flight.payload.gimbal.geo import eci_from_ecef, lvlh_axes
+
+
+@dataclass(frozen=True, slots=True)
+class LosPrediction:
+    """Elevation and dual-rate prediction of a frozen ECEF CoG.
+
+    Attributes:
+        elevation_rad: Signed off-nadir elevation, atan2(lx, lz).
+        elevation_rate_rad_s: Analytic omega_el, including Earth rotation.
+        azimuth_rate_rad_s: Unactuated optical-azimuth rate omega_az.
+
+    Notes:
+        LVLH y_hat is treated as inertially fixed (y_dot = 0). Callers read
+        named fields. They do not unpack interchangeable floats.
+    """
+
+    elevation_rad: float
+    elevation_rate_rad_s: float
+    azimuth_rate_rad_s: float
 
 
 def predict_los(
@@ -31,7 +51,7 @@ def predict_los(
     r_cog_ecef_m: tuple[float, float, float],
     omega_earth_rad_s: float,
     epoch_utc_s: float,
-) -> tuple[float, float, float]:
+) -> LosPrediction:
     """Elevation, elevation rate, and unactuated optical-azimuth rate of a frozen ECEF CoG.
 
     Inputs:
@@ -42,7 +62,7 @@ def predict_los(
         epoch_utc_s: UTC seconds at which ECEF and ECI axes coincide.
 
     Outputs:
-        tuple[float, float, float]: (theta_el_rad, omega_el_rad_s, omega_az_rad_s).
+        LosPrediction: Named elevation, elevation rate, and azimuth rate.
 
     Notes:
         omega_el is the analytic Jacobian of atan2(lx, lz) with
@@ -52,7 +72,7 @@ def predict_los(
         off the elevation plane. It is unactuated lateral rate (equator
         cross-track Earth rotation at nadir) and is never commanded. LVLH y_hat
         is treated as inertially fixed (y_dot = 0). A degenerate ISS range
-        returns (theta_el, 0.0, 0.0).
+        returns elevation with both rates 0.0.
     """
     r_iss = np.asarray(r_iss_eci_m, dtype=np.float64)  # np.ndarray[float64, (3,)]
     v_iss = np.asarray(v_iss_eci_m_s, dtype=np.float64)  # np.ndarray[float64, (3,)]
@@ -67,7 +87,11 @@ def predict_los(
 
     r_norm = float(np.linalg.norm(r_iss))
     if r_norm < 1.0:
-        return theta, 0.0, 0.0
+        return LosPrediction(
+            elevation_rad=theta,
+            elevation_rate_rad_s=0.0,
+            azimuth_rate_rad_s=0.0,
+        )
 
     omega_e = np.array([0.0, 0.0, omega_earth_rad_s], dtype=np.float64)  # np.ndarray[float64, (3,)]
     r_cog_dot = np.cross(omega_e, r_cog_eci)  # np.ndarray[float64, (3,)]
@@ -91,4 +115,8 @@ def predict_los(
     else:
         drho = (lx * dlx + lz * dlz) / rho
         omega_az = (rho * dly - ly * drho) / denom_az
-    return theta, float(omega_el), float(omega_az)
+    return LosPrediction(
+        elevation_rad=theta,
+        elevation_rate_rad_s=float(omega_el),
+        azimuth_rate_rad_s=float(omega_az),
+    )

@@ -12,9 +12,13 @@ order the inference model expects.
 
 | Name | Kind | Description |
 | --- | --- | --- |
+| `band_index` | function | Resolves a band name to its index in a name tuple |
 | `select_bands` | function | Gathers planes by band name into model input order |
 
 ## Inputs and outputs
+
+`band_index(names, name)` returns `Result[int, FaultCode]` — `Ok(index)` or
+`Err(FRAME_MALFORMED)` when the name is absent.
 
 `select_bands(planes, layout, band_names)` takes `(len(layout), H, W)` planes in
 mosaic cell order. It returns `Result[np.ndarray, FaultCode]` with shape
@@ -30,7 +34,7 @@ mosaic cell order. It returns `Result[np.ndarray, FaultCode]` with shape
 
 | Result | Trigger |
 | --- | --- |
-| `Err(FRAME_MALFORMED)` | Planes not 3-D, count mismatch, or unknown band name |
+| `Err(FRAME_MALFORMED)` | Planes not 3-D, count mismatch, or unknown band name (both functions) |
 
 ## Messages
 

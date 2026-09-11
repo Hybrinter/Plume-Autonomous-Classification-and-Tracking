@@ -419,6 +419,7 @@ class PayloadApp:
             self.sensor_cfg.ifov_band_deg_per_px,
             raw.timestamp_utc,
             self.preprocessing_cfg,
+            band_names=self.inference_cfg.input_bands,
         )
 
         processed = ProcessedFrameMsg(
@@ -1102,7 +1103,9 @@ class PayloadApp:
                     if isinstance(pos_res, Ok):
                         pos = pos_res.value
                         if prev_pos is not None and now > prev_pos_now:
-                            slew_rate = abs(pos.el_deg - prev_pos.el_deg) / (now - prev_pos_now)
+                            # Signed elevation rate: predicted_smear_px treats slew and
+                            # platform rate as signed terms in the same frame.
+                            slew_rate = (pos.el_deg - prev_pos.el_deg) / (now - prev_pos_now)
                         prev_pos = pos
                         prev_pos_now = now
                     with self.inner_lock:

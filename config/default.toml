@@ -25,6 +25,10 @@ tau_cl_s = 0.010
 [controller.outer]
 dt_s = 0.020
 Kp = 8.0
+rewind_sharp_max_s = 2.0
+
+[controller.predictor]
+cog_height_m = 2000.0
 
 [controller.residual]
 Q_diag = [1.0e-11, 3.0e-8]

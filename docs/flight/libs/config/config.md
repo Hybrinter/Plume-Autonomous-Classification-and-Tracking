@@ -16,11 +16,12 @@ object is constructed.
 | `ArbiterConfig` | class | TRACKING / REWIND / SAFE persistence and limb arrival |
 | `VisionConfig` | class | Blob gates and in-process vision queue depth |
 | `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
-| `OuterLoopConfig` | class | Outer period and proportional error gain |
+| `OuterLoopConfig` | class | Outer period, Kp, and REWIND sharp-window duration |
+| `PredictorConfig` | class | CoG/boresight intersect tracking proxy height |
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
 | `IntegrityConfig` | class | Catch-up cap and light GIMBAL_RUNAWAY detector |
-| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, position, and integrity configs |
+| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, position, integrity, and predictor configs |
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
@@ -80,7 +81,8 @@ Nested tables under `[controller]`:
   `queue_depth`
 - `arbiter`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
 - `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
-- `outer`: `dt_s`, `Kp`
+- `outer`: `dt_s`, `Kp`, `rewind_sharp_max_s`
+- `predictor`: `cog_height_m`
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`
 - `integrity`: `catchup_max_s`, `freeze_strikes`, `r_min_rad_s`,

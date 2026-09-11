@@ -74,10 +74,11 @@ class InnerLoopConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class OuterLoopConfig:
-    """Outer rate law period and proportional error gain."""
+    """Outer rate law period, Kp, and REWIND sharp-window duration before hardware-slew escape."""
 
     dt_s: float = Field(default=0.020, gt=0.0)
     Kp: float = Field(default=8.0, gt=0.0)  # noqa: N815
+    rewind_sharp_max_s: float = Field(default=2.0, ge=0.0)
 
 
 @dataclass(frozen=True, config=_SCHEMA)
@@ -134,8 +135,18 @@ class IntegrityConfig:
 
 
 @dataclass(frozen=True, config=_SCHEMA)
+class PredictorConfig:
+    """Tracking proxy height above WGS-84 for CoG/boresight intersect.
+
+    ``cog_height_m`` is not a plume-physics height.
+    """
+
+    cog_height_m: float = Field(default=2000.0, ge=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
 class ControllerConfig:
-    """Nested configuration for vision gates, arbiter, and cascaded loops."""
+    """Nested configuration for vision gates, arbiter, predictor, and cascaded loops."""
 
     vision: VisionConfig = field(default_factory=VisionConfig)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
@@ -144,6 +155,7 @@ class ControllerConfig:
     residual: ResidualConfig = field(default_factory=ResidualConfig)
     position: PositionLoopConfig = field(default_factory=PositionLoopConfig)
     integrity: IntegrityConfig = field(default_factory=IntegrityConfig)
+    predictor: PredictorConfig = field(default_factory=PredictorConfig)
 
 
 @dataclass(frozen=True, config=_SCHEMA)

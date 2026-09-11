@@ -23,8 +23,9 @@ Design and performance studies live under [`packages/analysis/`](../packages/ana
 2. **ADR pages** under `docs/adr` (repository scope) and
    `docs/<package>/adr` (package scope) record why a decision was made.
 3. **Design briefs** under `docs/design` specify architecture that is not yet
-   as-built. They are not STE-mirrored. The pointing-controller brief is
-   [`design/single-axis-elevation-controller.md`](design/single-axis-elevation-controller.md).
+   as-built. They are not STE-mirrored. Briefs include
+   [`design/single-axis-elevation-controller.md`](design/single-axis-elevation-controller.md)
+   and [`design/simulated-environment.md`](design/simulated-environment.md).
 4. **Requirements** under `docs/requirements` hold the VCRM.
 5. **Validation** under `docs/validation` holds PIL and HIL procedures.
 

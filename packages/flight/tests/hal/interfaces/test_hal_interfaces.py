@@ -50,6 +50,6 @@ def test_real_station_link_satisfies_station_link() -> None:
 
 
 def test_real_gimbal_satisfies_gimbal_actuator() -> None:
-    """RealGimbal conforms to GimbalActuator (torque stub, no vendor SDK)."""
+    """RealGimbal conforms to GimbalActuator without opening serial."""
     gimbal: GimbalActuator = RealGimbal(clock=ManualClock(), cfg=GimbalConfig())
     assert isinstance(gimbal, GimbalActuator)

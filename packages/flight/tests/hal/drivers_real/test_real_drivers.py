@@ -26,8 +26,8 @@ def test_real_sensor_requires_pyspin_when_absent() -> None:
         RealSensor(clock=RealClock())
 
 
-def test_real_gimbal_constructs_without_sdk() -> None:
-    """RealGimbal is a torque stub. Construction does not import a vendor SDK."""
+def test_real_gimbal_constructs_without_opening_serial() -> None:
+    """RealGimbal construction does not open a serial port or claim torque."""
     gimbal = RealGimbal(clock=RealClock())
     result = gimbal.set_torque(0.0, valid_until_s=1.0)
     assert isinstance(result, Err)

@@ -31,6 +31,9 @@ classifier_positive, latency_budget_ms)`.
 
 All implement `detect(ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode]`.
 
+`ScriptedDetector.load_mask(prob_mask)` replaces the scripted segmentor mask. It is
+not on `DetectorBackend`.
+
 ## Behavior
 
 1. `detect` runs the classifier. A negative decision returns a zero mask, an empty
@@ -41,6 +44,8 @@ All implement `detect(ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode
 4. `ScriptedDetector` defaults to an always-positive classifier and reports
    `inference_ms` as 0.0.
 5. `OnnxDetector` constructs `OnnxClassifier` and `OnnxSegmentor` at init.
+6. `ScriptedDetector.load_mask` copies a new probability mask onto the scripted
+   segmentor. The next `detect()` uses that mask.
 
 ## Errors and faults
 

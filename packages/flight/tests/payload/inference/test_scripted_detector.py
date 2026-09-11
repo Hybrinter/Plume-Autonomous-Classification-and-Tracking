@@ -40,6 +40,20 @@ def test_scripted_detector_satisfies_protocol() -> None:
     assert isinstance(detector, DetectorBackend)
 
 
+def test_scripted_detector_load_mask_bootstrap() -> None:
+    """load_mask replaces the constructor mask before the next detect()."""
+    detector = ScriptedDetector(np.zeros((20, 20), dtype=np.float32), min_blob_area_px=4)
+    empty = detector.detect(_processed_frame())
+    assert isinstance(empty, Ok)
+    assert empty.value.blobs == ()
+    mask = np.zeros((20, 20), dtype=np.float32)
+    mask[2:8, 2:8] = 1.0
+    detector.load_mask(mask)
+    result = detector.detect(_processed_frame())
+    assert isinstance(result, Ok)
+    assert len(result.value.blobs) == 1
+
+
 def test_negative_classifier_skips_segmentor() -> None:
     """A negative scripted classifier returns empty blobs and a zero mask."""
     mask = np.ones((20, 20), dtype=np.float32)

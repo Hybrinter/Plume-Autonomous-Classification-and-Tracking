@@ -46,7 +46,15 @@ class ScriptedSegmentor:
         Args:
             prob_mask: (H, W) float32 probabilities in [0, 1].
         """
-        self._prob_mask = np.asarray(prob_mask, dtype=np.float32)  # np.ndarray[float32, (H, W)]
+        self._prob_mask = np.array(prob_mask, dtype=np.float32, copy=True)
+
+    def load_mask(self, prob_mask: np.ndarray) -> None:
+        """Replace the stored probability mask. Not on SegmentorBackend.
+
+        Args:
+            prob_mask: (H, W) float32 probabilities in [0, 1]. Copied on store.
+        """
+        self._prob_mask = np.array(prob_mask, dtype=np.float32, copy=True)
 
     def segment(self, frame: ProcessedFrameMsg) -> Result[np.ndarray, FaultCode]:
         """Return the configured mask. The frame tensor is unused.

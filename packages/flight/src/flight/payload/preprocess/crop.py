@@ -247,7 +247,7 @@ def upsample(bands: np.ndarray, factor: int, order: int = 3) -> np.ndarray:
     """
     if factor == 1:
         return bands.astype(np.float32)
-    zoomed = scipy.ndimage.zoom(
+    zoomed: np.ndarray = scipy.ndimage.zoom(
         bands.astype(np.float32),
         zoom=(1, factor, factor),
         order=order,
@@ -256,7 +256,8 @@ def upsample(bands: np.ndarray, factor: int, order: int = 3) -> np.ndarray:
     )  # np.ndarray[float32, (C, H*f, W*f)]
     lo = float(bands.min())
     hi = float(bands.max())
-    return np.clip(zoomed, lo, hi).astype(np.float32)
+    clipped: np.ndarray = np.clip(zoomed, lo, hi)  # np.ndarray[float32, (C, H*f, W*f)]
+    return clipped.astype(np.float32)
 
 
 def crop_and_upsample(

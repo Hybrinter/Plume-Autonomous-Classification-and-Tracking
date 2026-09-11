@@ -119,4 +119,5 @@ def scale_to_reference_exposure(
         return planes.astype(np.float32, copy=False)
     exposure_ratio = reference_exposure_us / exposure_us
     gain_ratio = 10.0 ** ((reference_gain_db - gain_db) / 20.0)
-    return (planes * (exposure_ratio * gain_ratio)).astype(np.float32)
+    scaled: np.ndarray = planes * (exposure_ratio * gain_ratio)  # np.ndarray[float32, (C, H, W)]
+    return scaled.astype(np.float32)

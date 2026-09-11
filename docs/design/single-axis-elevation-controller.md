@@ -533,9 +533,15 @@ only. Do not invent wind. Recompute (12) with the new ISS state each outer tick.
 On the next accepted vision frame, replace \(\mathbf{r}_{\mathrm{cog}}\) with the
 new intersect. A jump in ECEF is expected (CoG walk).
 
-Without a live CoG (REWIND / no plume), intersect the **current boresight** with
-the same 2 km ellipsoid and predict from that hit. Do not reuse a lost-plume ECEF
-point.
+TRACKING coast (bounded miss) keeps the last \(\mathbf{r}_{\mathrm{cog,ECEF}}\).
+REWIND stores no CoG: \(\mathbf{r}_{\mathrm{cog}}=\texttt{None}\). Intersect the
+**current boresight** with the same 2 km ellipsoid and use that hit as scene rate
+only. Do not write the boresight hit into \(\mathbf{r}_{\mathrm{cog}}\). Do not
+reuse a lost-plume ECEF point.
+
+`select_scene(mode, r_cog, iss, theta_g, …)` owns that choice. Prediction time is
+ISS UTC when navigation is present. Missing ISS is unknown navigation, not
+\(\omega=0\).
 
 Predictor signature (pure):
 
@@ -602,12 +608,22 @@ F=\begin{bmatrix}1&T\\ 0&1\end{bmatrix},
 \tag{17}
 \]
 
-**Every outer tick (predict), even with no blob:**
+**Every TRACKING outer tick (predict), even with no blob:**
 
 1. \(\omega_{t,\mathrm{nom}}[k]\) from section 10 (coasted or freshly intersected
    \(\mathbf{r}_{\mathrm{cog}}\)).
 2. \(\omega_g[k]\leftarrow y_m\) from the inner loop.
 3. \(\hat{\mathbf{x}}^-=F\hat{\mathbf{x}}+\mathbf{u}\), \(P^-=FPF^\top+Q\).
+
+REWIND freezes residual history. Encoder rings on `ControlState` still run for
+the inner loop. Do not submit encoder, boresight-nominal, or vision events for a
+target that does not exist. Do not wipe the filter on disappearance. Reset
+`initial_state` + `initial_history` at the current encoder when TRACKING
+acquires: first blob from cold, blob from REWIND, or TRACKING blobs with no
+overlapping `blob_id` versus the previous `tracked_blobs`. IoU-matched CoG walk
+while already TRACKING keeps the filter and rebases with
+`PredictorReferenceChange` at the current ISS epoch. A single empty TRACKING
+frame keeps the filter and CoG.
 
 **When a vision packet is dequeued (update at shutter time):**
 
@@ -685,11 +701,11 @@ ABSOLUTE / STOW / HOME. Tracking rates are `GimbalRateCommand`.
 | State | Rate reference \(r\) | Notes |
 | --- | --- | --- |
 | TRACKING (cold / limb wait) | \(0\) | No accepted aggregate, or arrived at the science limb after loss. |
-| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at 2 km at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). |
-| Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Ends at the first of `release_persistence_frames` received-empty samples, `max_observation_age_s`, or an estimator uncertainty gate. |
-| REWIND (sharp window) | \(\omega_{\mathrm{el,boresight}}+\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\mathrm{sharp,el}}\) | Hunt after loss below the limb. Boresight ∩ 2 km ellipsoid. Ignore leftover residual. Stamp `rewind_entered_s`. |
-| REWIND (after `rewind_sharp_max_s`) | \(\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) | Escape even if frames smear. |
-| REWIND at limb | → TRACKING with \(r=0\) | Wait. Blob → TRACKING live. |
+| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at 2 km at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). Reset residual on acquire (cold, from REWIND, or unmatched `blob_id`). IoU-matched CoG jump rebases; it does not reset. |
+| Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Ends at the first of `release_persistence_frames` received-empty samples, `max_observation_age_s`, or an estimator uncertainty gate. One empty frame does not reset the residual. |
+| REWIND (sharp window) | \(\omega_{\mathrm{el,boresight}}+\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\mathrm{sharp,el}}\) | Hunt after loss below the limb. No target CoG (\(\mathbf{r}_{\mathrm{cog}}=\texttt{None}\)). Boresight ∩ 2 km is scene rate only; not stored as CoG. Residual frozen (not fed boresight rates, not wiped). Stamp `rewind_entered_s`. |
+| REWIND (after `rewind_sharp_max_s`) | \(\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) | Hardware escape. Keep `rewind_sharp_max_s` = 2 s. |
+| REWIND at limb | → TRACKING with \(r=0\) | Wait. Blob → TRACKING live and residual reset. |
 | SAFE | inhibit drive; request contained HAL STOW | Latch until ground clear. Blobs ignored. |
 
 Arrival at the limb is
@@ -738,7 +754,8 @@ All of these are **pure** (config in, `now` in, new state + values out):
 5. **Polynomial rate fit** -- encoder ring to \(y_m\).
 6. **Position loop** -- STOW/HOME/GOTO \(r\).
 7. **Arbiter** -- discrete mode, no torque math.
-8. **CoG intersect** -- pixel \(\to\) \(\mathbf{r}_{\mathrm{cog}}\) (pure if ISS
+8. **Scene select** -- CoG vs boresight vs none, and residual-reference identity.
+9. **CoG intersect** -- pixel \(\to\) \(\mathbf{r}_{\mathrm{cog}}\) (pure if ISS
    state and \(\theta_g\) are arguments).
 
 **Payload app shell:** threads, encoder read, torque write, vision queue,

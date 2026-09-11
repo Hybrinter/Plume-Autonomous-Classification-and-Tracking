@@ -5,9 +5,9 @@
 
 ## Purpose
 
-The gimbal package holds pure elevation control logic: the pointing FSM, inner and
-outer laws, CoG geometry, pose requests, pre-arbiter safety gates, and the light
-integrity detector.
+The gimbal package holds pure elevation control logic: the pointing FSM, scene
+selection, inner and outer laws, CoG geometry, pose requests, pre-arbiter safety
+gates, and the light integrity detector.
 
 ## Contents
 
@@ -16,6 +16,7 @@ integrity detector.
 | [`arbiter`](gimbal/arbiter.md) | pure module | TRACKING / REWIND / SAFE FSM |
 | [`inner`](gimbal/inner.md) | pure module | PI plus computed torque |
 | [`outer`](gimbal/outer.md) | pure module | Scene match plus elevation-relative smear cap |
+| [`scene`](gimbal/scene.md) | pure module | CoG / boresight / none selection and residual-reference identity |
 | [`position`](gimbal/position.md) | pure module | STOW / HOME / GOTO rate into the inner PI |
 | [`rate_fit`](gimbal/rate_fit.md) | pure module | Causal polynomial encoder-rate estimator |
 | [`intersect`](gimbal/intersect.md) | pure module | Pinhole CoG and boresight height-ellipsoid intersect |
@@ -30,10 +31,12 @@ integrity detector.
 
 Re-exports: `ArbiterState`, `CameraGeometry`, `GimbalArbiter`, `GimbalRequest`,
 `InnerResult`, `IntegrityResult`, `LosPrediction`, `RateDecision`, `RayHit`,
+`SceneEstimate`, `SceneSource`, `acquire_resets_residual`,
 `apply_confidence_gate`, `apply_min_area_gate`, `boresight_error_deg`,
 `check_integrity`, `clip_rate`, `fit_rate`, `inner_step`, `intersect_boresight`,
 `intersect_cog`, `lock_hold_rate`, `outer_rate`, `pinhole_error_rad`,
-`position_rate`, `predict_los`, `smear_cap_rad_s`, `target_displacement_px`.
+`position_rate`, `predict_los`, `select_scene`, `smear_cap_rad_s`,
+`target_displacement_px`.
 
 ## Interactions
 

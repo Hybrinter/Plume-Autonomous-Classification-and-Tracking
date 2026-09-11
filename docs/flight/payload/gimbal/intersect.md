@@ -26,7 +26,7 @@ Earth-rotation scalars, `CameraGeometry`, and `height_m`. It returns `RayHit` or
 
 `intersect_boresight` takes gimbal elevation, ISS ECI state, Earth-rotation
 scalars, and `height_m`. It does not take a pixel centroid. A miss is `None`.
-Callers keep the last CoG.
+Callers use a hit as REWIND scene rate. They do not store it as a CoG.
 
 ## Behavior
 
@@ -59,4 +59,5 @@ not a geodetic-height solver.
 
 - [`flight.payload.gimbal.geo`](geo.md)
 - [`flight.payload.gimbal.predictor`](predictor.md)
+- [`flight.payload.gimbal.scene`](scene.md)
 - [`flight.payload.control`](../control.md)

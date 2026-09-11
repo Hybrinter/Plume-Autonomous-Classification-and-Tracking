@@ -1,9 +1,9 @@
 """Payload control: cascaded elevation inner/outer loops (pure cores).
 
 Inner: encoder ring -> polynomial y_m -> PI + computed torque.
-Outer: CoG intersect -> co-rotating predictor -> residual KF -> r, plus the
-TRACKING/REWIND/SAFE arbiter. STOW/HOME/GOTO write r through the position loop
-into the same inner PI.
+Outer: CoG update (TRACKING) -> scene select -> residual KF (TRACKING only) ->
+r, plus the TRACKING/REWIND/SAFE arbiter. REWIND hunts with no target CoG.
+STOW/HOME/GOTO write r through the position loop into the same inner PI.
 
 Pure: no I/O, no bus, no clock reads. Time, encoder angle, ISS state, and vision
 samples are arguments.
@@ -32,16 +32,17 @@ from flight.payload.gimbal import (
     CameraGeometry,
     GimbalArbiter,
     GimbalRequest,
+    acquire_resets_residual,
     apply_confidence_gate,
     apply_min_area_gate,
     fit_rate_timed,
     inner_step,
-    intersect_boresight,
     intersect_cog,
     outer_rate,
     pinhole_error_rad,
     position_rate,
     predict_los,
+    select_scene,
 )
 from flight.payload.tracking import (
     EncoderSample,
@@ -110,7 +111,7 @@ class ControlState:
         residual_history: Timestamped residual events and stable posterior anchor.
         encoder_ring: Encoder elevations in radians, oldest to newest.
         integrator: Inner PI integrator.
-        r_cog_ecef_m: Last good CoG Earth point, ECEF meters.
+        r_cog_ecef_m: Last good CoG Earth point, ECEF meters. None in REWIND.
         r_rad_s: Last rate reference.
         y_m: Last encoder-rate estimate, rad/s.
         last_inner_s: Monotonic time of the last inner step, or None if not started.
@@ -473,14 +474,14 @@ class PayloadController:
         reference_change: PredictorReferenceChange | None = None,
         detailed_plant: bool = True,
     ) -> OuterTick:
-        """One outer tick: timestamped encoder history, predictor, and rate reference.
+        """One outer tick: scene select, residual events in TRACKING, and rate reference.
 
         Inputs:
             state: Current control state.
             now: Monotonic seconds of this tick.
             encoder: Valid timestamped, unwrapped encoder sample for this tick.
             vision: Dequeued vision sample, or None on coast.
-            iss: ISS ECI state, or None (omega_t_nom = 0).
+            iss: ISS ECI state, or None (unknown navigation, not omega_t_nom = 0).
             safe_commanded, safe_cleared: FDIR SAFE flags.
             dt_s: Outer period; defaults to cfg.outer.dt_s.
             timestamp_utc: ISO stamp for pointing telemetry (empty skips the event).
@@ -488,6 +489,11 @@ class PayloadController:
 
         Outputs:
             OuterTick: Updated state, optional STOW request, telemetry.
+
+        Notes:
+            Previous tracked blobs are state.arbiter.tracked_blobs before
+            arbiter.step. REWIND stores no CoG and does not submit residual
+            events. TRACKING acquire cold-starts the residual filter.
         """
         del dt_s  # Detailed-plant cadence is retained by inner_step only.
         theta_g_rad = encoder.angle_rad
@@ -527,6 +533,7 @@ class PayloadController:
         history = state.residual_history
         vision_disposition = "none"
         omega_az = state.last_omega_az_nom
+        in_rewind = new_arbiter.gimbal_state is GimbalState.REWIND
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us
@@ -552,11 +559,11 @@ class PayloadController:
             shutter_iss = vision.iss if vision is not None else None
             shutter_theta = vision.theta_g_rad if vision is not None else None
             if (
-                vision is not None
+                new_arbiter.gimbal_state is GimbalState.TRACKING
+                and vision is not None
                 and vision.p_cog is not None
                 and shutter_iss is not None
                 and shutter_theta is not None
-                and new_arbiter.gimbal_state is not GimbalState.REWIND
             ):
                 inter = intersect_cog(
                     vision.p_cog,
@@ -578,86 +585,98 @@ class PayloadController:
                 )
                 if inter is not None:
                     r_cog = inter.point_ecef_m
+            if in_rewind:
+                r_cog = None
 
-            omega_t_nom = 0.0
-            theta_los = 0.0
-            omega_az = 0.0
-            scene_ecef = r_cog
-            if new_arbiter.gimbal_state is GimbalState.REWIND and iss is not None:
-                bore = intersect_boresight(
-                    theta_g_rad,
-                    iss.r_m,
-                    iss.v_m_s,
-                    iss.utc_s,
-                    self.eph.epoch_utc_s,
-                    self.eph.omega_earth_rad_s,
-                    self.eph.wgs84_a_m,
-                    self.eph.wgs84_f,
-                    height_m,
-                )
-                scene_ecef = bore.point_ecef_m if bore is not None else None
-            if scene_ecef is not None and iss is not None:
-                los = predict_los(
-                    iss.utc_s,
-                    iss.r_m,
-                    iss.v_m_s,
-                    scene_ecef,
-                    self.eph.omega_earth_rad_s,
-                    self.eph.epoch_utc_s,
-                )
-                theta_los = los.elevation_rad
-                omega_t_nom = los.elevation_rate_rad_s
-                omega_az = los.azimuth_rate_rad_s
-            if (
-                reference_change is None
-                and r_cog is not None
-                and state.r_cog_ecef_m is not None
-                and r_cog != state.r_cog_ecef_m
-                and iss is not None
-            ):
-                old = predict_los(
-                    iss.utc_s,
-                    iss.r_m,
-                    iss.v_m_s,
-                    state.r_cog_ecef_m,
-                    self.eph.omega_earth_rad_s,
-                    self.eph.epoch_utc_s,
-                )
-                reference_change = PredictorReferenceChange(
-                    change_id=f"cog:{encoder.sample_id}",
-                    t_s=encoder.t_s,
-                    old_rate_rad_s=old.elevation_rate_rad_s,
-                    new_rate_rad_s=omega_t_nom,
-                )
-
-            history, _ = submit_event(history, encoder, now_s=now)
-            nominal = NominalRateSample(
-                sample_id=f"nominal:{encoder.sample_id}",
-                t_s=encoder.t_s,
-                rate_rad_s=omega_t_nom,
+            reset_residual = acquire_resets_residual(
+                previous_mode=state.arbiter.gimbal_state,
+                new_mode=new_arbiter.gimbal_state,
+                previous_aggregate_live=state.arbiter.aggregate_live,
+                previous_blob_ids=frozenset(blob.blob_id for blob in state.arbiter.tracked_blobs),
+                new_blob_ids=frozenset(blob.blob_id for blob in blobs),
             )
-            history, _ = submit_event(history, nominal, now_s=now)
-            if reference_change is not None:
-                history, _ = submit_event(history, reference_change, now_s=now)
-            if vision is not None and vision.z_v is not None:
-                observation = VisionObservation(
-                    frame_id=vision.frame_id,
-                    t_s=vision.t_s,
-                    error_rad=vision.z_v,
-                    measurement_variance_rad2=self.residual_filt.r_v,
+            if reset_residual:
+                residual = self.residual_filt.initial_state()
+                history = self.residual_filt.initial_history(
+                    t_s=encoder.t_s,
+                    encoder_angle_rad=encoder.angle_rad,
+                    encoder_endpoint_variance_rad2=encoder.angle_variance_rad2,
                 )
-                history, _ = submit_event(history, observation, now_s=now)
-            estimate = estimate_at(history, self.residual_filt, encoder.t_s)
-            residual = estimate.state
-            history = estimate.history
-            if vision is not None:
-                matching = [
-                    item.disposition.value
-                    for item in estimate.dispositions
-                    if item.event_id == vision.frame_id
-                ]
-                if matching:
-                    vision_disposition = matching[-1]
+
+            scene = select_scene(
+                new_arbiter.gimbal_state,
+                r_cog,
+                None if iss is None else iss.r_m,
+                None if iss is None else iss.v_m_s,
+                None if iss is None else iss.utc_s,
+                theta_g_rad,
+                height_m,
+                self.eph.omega_earth_rad_s,
+                self.eph.epoch_utc_s,
+                self.eph.wgs84_a_m,
+                self.eph.wgs84_f,
+            )
+            if scene.los is None:
+                omega_t_nom = 0.0
+                theta_los = 0.0
+                omega_az = 0.0
+            else:
+                omega_t_nom = scene.los.elevation_rate_rad_s
+                theta_los = scene.los.elevation_rad
+                omega_az = scene.los.azimuth_rate_rad_s
+
+            if new_arbiter.gimbal_state is GimbalState.TRACKING:
+                if (
+                    not reset_residual
+                    and reference_change is None
+                    and r_cog is not None
+                    and state.r_cog_ecef_m is not None
+                    and r_cog != state.r_cog_ecef_m
+                    and iss is not None
+                ):
+                    old = predict_los(
+                        iss.utc_s,
+                        iss.r_m,
+                        iss.v_m_s,
+                        state.r_cog_ecef_m,
+                        self.eph.omega_earth_rad_s,
+                        self.eph.epoch_utc_s,
+                    )
+                    reference_change = PredictorReferenceChange(
+                        change_id=f"cog:{encoder.sample_id}",
+                        t_s=encoder.t_s,
+                        old_rate_rad_s=old.elevation_rate_rad_s,
+                        new_rate_rad_s=omega_t_nom,
+                    )
+                history, _ = submit_event(history, encoder, now_s=now)
+                if scene.los is not None:
+                    nominal = NominalRateSample(
+                        sample_id=f"nominal:{encoder.sample_id}",
+                        t_s=encoder.t_s,
+                        rate_rad_s=omega_t_nom,
+                    )
+                    history, _ = submit_event(history, nominal, now_s=now)
+                if reference_change is not None:
+                    history, _ = submit_event(history, reference_change, now_s=now)
+                if vision is not None and vision.z_v is not None:
+                    observation = VisionObservation(
+                        frame_id=vision.frame_id,
+                        t_s=vision.t_s,
+                        error_rad=vision.z_v,
+                        measurement_variance_rad2=self.residual_filt.r_v,
+                    )
+                    history, _ = submit_event(history, observation, now_s=now)
+                estimate = estimate_at(history, self.residual_filt, encoder.t_s)
+                residual = estimate.state
+                history = estimate.history
+                if vision is not None:
+                    matching = [
+                        item.disposition.value
+                        for item in estimate.dispositions
+                        if item.event_id == vision.frame_id
+                    ]
+                    if matching:
+                        vision_disposition = matching[-1]
 
         # Vision establishes aggregate liveness; navigation only contributes an
         # optional nominal-rate prediction. This permits startup and tracking
@@ -665,7 +684,6 @@ class PayloadController:
         live = new_arbiter.aggregate_live
         e_hat = float(residual.x[0])
         omega_res = float(residual.x[1])
-        in_rewind = new_arbiter.gimbal_state is GimbalState.REWIND
         if in_rewind:
             omega_scene_el = omega_t_nom
         elif new_arbiter.gimbal_state is GimbalState.TRACKING and live:

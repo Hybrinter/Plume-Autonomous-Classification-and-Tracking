@@ -46,27 +46,29 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
 2. `inner_step` keeps the timestamped encoder ring, fits `y_m`, and runs the
    detailed-plant PI. `y_m` remains available for inner integrity checks and
    simulation. It is not an outer residual-estimator input.
-3. `outer_step` submits the encoder sample and a nominal-rate sample. It submits
-   an explicit reference change when one is present. It submits a vision event
-   at its shutter time and requests replay at the current encoder sample time.
+3. `outer_step` updates CoG from vision while TRACKING. It cold-starts the
+   residual on TRACKING acquire. It then calls `select_scene`. Residual encoder,
+   nominal, and vision events run only in TRACKING. REWIND freezes the residual
+   and sets `r_cog_ecef_m` to `None`.
 4. Residual replay uses encoder angle displacement, encoder uncertainty, and
    reversal uncertainty. A vision event is accepted only when its shutter time
    has an exact encoder sample or a valid bracket.
-5. The predictor supplies nominal elevation rate and unactuated azimuth rate of a
-   frozen ECEF CoG locked at `cog_height_m`. A smooth sampled change uses the
-   zero-order-hold rate history. An explicit CoG replacement rebases residual
-   rate with the old CoG at the current ISS time. ISS motion between ticks is
-   not a reference jump.
+5. `select_scene` supplies nominal elevation rate of a frozen ECEF CoG in
+   TRACKING, or of the boresight height-proxy hit in REWIND. Missing ISS is
+   unknown navigation. It is not a zero-rate scene. An IoU-matched CoG
+   replacement rebases residual rate with the old CoG at the current ISS time.
+   ISS motion between ticks is not a reference jump.
 6. The tracking/rewind path calls `outer_rate` and stores
    `RateDecision.commanded_rate_rad_s` on `ControlState.r_rad_s`. TRACKING matches
    `omega_t_nom + omega_t_res` and smear-caps only `Kp * e`. REWIND matches
    boresight-ground `omega_el` and hunts at `+omega_sharp` for
    `rewind_sharp_max_s`. After that window it escapes at `+omega_hw`. Residual
-   is ignored in REWIND. Visual tracking can run without navigation. The pose
-   path writes a float `r` from `position_rate`.
+   is ignored and is not fed boresight rates. Visual tracking can run without
+   navigation. The pose path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE entry and SAFE exit reset the residual checkpoint. REWIND ignores residual
-   rate in the tracking law and does not drop encoder history.
+   SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND does
+   not drop the inner encoder rings. A single TRACKING miss keeps the residual
+   and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets it.
 8. The state starts with `last_inner_s` and `last_outer_s` set to `None`.
 
 ## Errors and faults
@@ -99,5 +101,6 @@ hardware uses the rate-command HAL path selected by the app shell.
 ## Related documents
 
 - [`flight.payload.gimbal`](gimbal.md)
+- [`flight.payload.gimbal.scene`](gimbal/scene.md)
 - [`flight.payload.tracking`](tracking.md)
 - [`flight.payload.app`](app.md)

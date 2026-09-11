@@ -57,4 +57,5 @@ predictor never commands `omega_az`. Callers read named `LosPrediction` fields.
 
 - [`flight.payload.gimbal.geo`](geo.md)
 - [`flight.payload.gimbal.intersect`](intersect.md)
+- [`flight.payload.gimbal.scene`](scene.md)
 - [`flight.payload.gimbal.outer`](outer.md)

@@ -1,12 +1,14 @@
 """Tests for the PayloadController cascaded inner/outer cores."""
 
 import math
+from dataclasses import replace
 
 import numpy as np
 from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, SensorConfig
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import IssSample, PayloadController, VisionSample
+from flight.payload.gimbal.arbiter import ArbiterState
 from flight.payload.gimbal.intersect import intersect_cog
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.tracking import EncoderSample
@@ -420,3 +422,37 @@ def test_exit_safe_resets_residual() -> None:
     assert cleared.state.residual.has_measurement is False
     assert float(cleared.state.residual.x[0]) == 0.0
     assert float(cleared.state.residual.x[1]) == 0.0
+
+
+def test_rewind_production_zeros_outward_rate_at_sci_min() -> None:
+    """Production rate mode (infinite stopping limits) holds r=0 at sci_min in REWIND."""
+    controller = _controller()
+    iss = _iss()
+    state = replace(
+        controller.initial_state(),
+        arbiter=ArbiterState(
+            gimbal_state=GimbalState.REWIND,
+            tracked_blobs=(),
+            current_target_id=None,
+            miss_count=0,
+            aggregate_live=False,
+            last_observation_s=None,
+            loss_handled=True,
+            rewind_entered_s=0.0,
+        ),
+        last_exposure_us=1.0e6,
+    )
+    tick = controller.outer_step(
+        state,
+        0.1,
+        _encoder(0.1, 0.0),
+        None,
+        iss,
+        False,
+        False,
+        detailed_plant=False,
+    )
+    assert tick.state.arbiter.gimbal_state is GimbalState.REWIND
+    assert tick.state.r_rad_s == 0.0
+    assert math.isfinite(tick.state.r_rad_s)
+    assert tick.state.last_omega_t_nom < 0.0

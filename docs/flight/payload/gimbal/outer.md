@@ -31,7 +31,7 @@ sharp-window duration, and diagnostic `omega_az`. It returns `r` in rad/s.
 2. In REWIND, if elevation is at the science limb, `r` is 0. Inside
    `rewind_sharp_max_s`, `r = omega_t_nom + sign(θ_sci,max − θ_g) * omega_sharp`
    (residual is ignored). After that window, `r` is the hardware cap toward the
-   limb.
+   limb. A negative `r` at `theta_sci_min` is 0.
 3. In TRACKING with a live aggregate, `omega_scene = omega_t_nom + omega_t_res`
    is not smear-clipped. Only `K_p * e_hat` is clipped to `±omega_sharp`. Then
    `r = omega_scene + omega_rel`. Zero `r` that would leave
@@ -39,7 +39,8 @@ sharp-window duration, and diagnostic `omega_az`. It returns `r` in rad/s.
    sample, `omega_t_nom` is zero and visual residual feedback remains active.
 4. Otherwise return `0.0` (limb wait, cold TRACKING, or unused SAFE path).
 5. Hardware slew and the science-window stopping governor clip the absolute `r`
-   last.
+   last. A zero remaining angle yields a zero cap before any infinite stopping
+   product.
 
 For motion toward either science boundary, a stopping-distance governor also
 limits the commanded rate by both `sqrt(2 * tau_max/J * remaining_angle)` and

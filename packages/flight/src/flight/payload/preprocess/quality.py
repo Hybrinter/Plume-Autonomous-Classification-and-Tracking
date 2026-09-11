@@ -63,8 +63,8 @@ def compute_quality_flags(
         bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised band array.
             C >= 4, band ordering [BLUE, GREEN, RED, NIR].
         exposure_us (float): Camera exposure time in microseconds.
-        slew_rate_deg_per_s (float): Commanded/observed gimbal elevation rate in degrees
-            per second over the exposure (0.0 when unknown).
+        slew_rate_deg_per_s (float): Gimbal elevation rate in degrees per second
+            over the exposure. ``0.0`` is a stationary gimbal.
         ifov_band_deg_per_px (float): Instantaneous field of view per band-plane pixel,
             degrees per pixel (SensorConfig.ifov_band_deg_per_px).
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
@@ -78,8 +78,8 @@ def compute_quality_flags(
     Notes:
         MOTION_SMEAR uses elevation-relative blur: the mismatch between gimbal and scene
         elevation rates during the exposure, converted to band-plane pixels via the IFOV.
-        When both rates are 0.0 (unknown), the smear gate never flags. Azimuth motion is
-        not modeled and cannot raise MOTION_SMEAR.
+        Matching rates, including both zero, do not flag. Azimuth motion is not modeled
+        and cannot raise MOTION_SMEAR.
     """
     flags: set[FrameUsabilityTag] = set()
 

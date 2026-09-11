@@ -163,3 +163,26 @@ def test_science_window_zeros_outward_r() -> None:
     assert at_min == 0.0
     at_max = _tracking(e_hat=math.radians(4.0), theta_g_rad=math.radians(45.0))
     assert at_max == 0.0
+
+
+def test_rewind_zeros_outward_rate_at_sci_min() -> None:
+    """Sharp REWIND at theta_sci_min does not command a negative rate."""
+    r = outer_rate(
+        omega_t_nom=-0.02,
+        omega_t_res=0.0,
+        e_hat=0.0,
+        k_p=8.0,
+        mode=GimbalState.REWIND,
+        live=False,
+        theta_g_rad=0.0,
+        theta_sci_max_rad=1.0,
+        omega_hw_rad_s=0.2,
+        exposure_us=1.0e6,
+        max_motion_smear_px=1.0,
+        ifov_band_deg_per_px=_IFOV,
+        theta_sci_min_rad=0.0,
+        max_decel_rad_s2=math.inf,
+        rate_loop_bandwidth_s=math.inf,
+    )
+    assert r == 0.0
+    assert math.isfinite(r)

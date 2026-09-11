@@ -113,23 +113,34 @@ def outer_rate(
     omega_sharp = smear_cap_rad_s(exposure_us, max_motion_smear_px, ifov_band_deg_per_px)
     rate_cap = omega_hw_rad_s
 
+    def stopping_cap(remaining_rad: float) -> float:
+        """Finite speed cap from remaining angle. Zero remaining is a zero cap."""
+        remaining = max(0.0, remaining_rad)
+        if remaining <= 0.0:
+            return 0.0
+        cap = math.inf
+        if math.isfinite(max_decel_rad_s2):
+            cap = min(cap, math.sqrt(2.0 * max_decel_rad_s2 * remaining))
+        if math.isfinite(rate_loop_bandwidth_s):
+            cap = min(cap, rate_loop_bandwidth_s * remaining)
+        return cap
+
     def boundary_limited(rate_rad_s: float) -> float:
         """Limit commanded speed to the stopping distance inside the science window."""
         if rate_rad_s > 0.0:
-            remaining = max(0.0, theta_sci_max_rad - theta_g_rad)
-            stopping_cap = math.sqrt(2.0 * max_decel_rad_s2 * remaining)
-            stopping_cap = min(stopping_cap, rate_loop_bandwidth_s * remaining)
-            return min(rate_rad_s, stopping_cap)
+            return min(rate_rad_s, stopping_cap(theta_sci_max_rad - theta_g_rad))
         if rate_rad_s < 0.0:
-            remaining = max(0.0, theta_g_rad - theta_sci_min_rad)
-            stopping_cap = math.sqrt(2.0 * max_decel_rad_s2 * remaining)
-            stopping_cap = min(stopping_cap, rate_loop_bandwidth_s * remaining)
-            return max(rate_rad_s, -stopping_cap)
+            return max(rate_rad_s, -stopping_cap(theta_g_rad - theta_sci_min_rad))
         return 0.0
 
     def finish(rate_rad_s: float) -> float:
-        """Apply hardware slew then the science-window stopping governor."""
-        return boundary_limited(clip_rate(rate_rad_s, rate_cap))
+        """Apply hardware slew, the stopping governor, and science-window guards."""
+        limited = boundary_limited(clip_rate(rate_rad_s, rate_cap))
+        if theta_g_rad <= theta_sci_min_rad + 1e-9 and limited < 0.0:
+            return 0.0
+        if theta_g_rad >= theta_sci_max_rad - 1e-9 and limited > 0.0:
+            return 0.0
+        return limited
 
     if mode is GimbalState.REWIND:
         if theta_g_rad >= theta_sci_max_rad - 1e-9:
@@ -143,11 +154,6 @@ def outer_rate(
     if mode is GimbalState.TRACKING and live:
         omega_scene = omega_t_nom + omega_t_res
         omega_rel = clip_rate(k_p * e_hat, omega_sharp)
-        r = finish(omega_scene + omega_rel)
-        if theta_g_rad <= theta_sci_min_rad + 1e-9 and r < 0.0:
-            return 0.0
-        if theta_g_rad >= theta_sci_max_rad - 1e-9 and r > 0.0:
-            return 0.0
-        return r
+        return finish(omega_scene + omega_rel)
 
     return 0.0

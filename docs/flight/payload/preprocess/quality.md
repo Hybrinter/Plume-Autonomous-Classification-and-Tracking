@@ -30,7 +30,7 @@ utc_timestamp, cfg, omega_scene_el_deg_per_s=0.0)` returns
 3. Compute elevation-relative smear length as
    `abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s) * exposure_s / ifov`.
    Raise `MOTION_SMEAR` when it exceeds `max_motion_smear_px`. Azimuth motion does not
-   contribute. When both rates are 0.0 (unknown), the smear gate never flags.
+   contribute. Matching rates, including both zero, do not flag.
 4. Raise `CLOUD_CONTAMINATED` when the NIR-to-Red mean ratio exceeds
    `nir_red_ratio_threshold` (bands at indices 2 and 3 after select).
 5. Raise `SUNGLINT` when mean NIR exceeds `sunglint_nir_mean_threshold`.
@@ -51,8 +51,8 @@ Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_
 
 ## Constraints
 
-Quality evaluation runs on the full band plane. Unknown gimbal and scene elevation rates
-(both 0.0) disable motion smear flagging.
+Quality evaluation runs on the full band plane. A zero gimbal rate is a stationary
+measurement. The payload app supplies measured, encoder, or commanded elevation rate.
 
 ## Related documents
 

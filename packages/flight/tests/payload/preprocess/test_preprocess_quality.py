@@ -16,8 +16,8 @@ from flight.libs.types import FrameUsabilityTag
 # module under test
 from flight.payload.preprocess import compute_quality_flags
 
-# Shared test constants. slew_rate 0.0 keeps the physical smear gate inactive so the
-# saturation tests isolate only the SATURATED flag.
+# Shared test constants. slew_rate 0.0 is a stationary gimbal, so saturation tests
+# isolate only the SATURATED flag when the scene rate is also 0.0.
 _TS: str = "2026-04-03T00:00:00.000Z"
 _CFG: PreprocessingConfig = PreprocessingConfig()
 _IFOV: float = 0.04  # degrees per band-plane pixel
@@ -117,7 +117,7 @@ def test_motion_smear_from_slew_and_exposure() -> None:
         bands, exposure_us, 2.0, ifov, ts, cfg, omega_scene_el_deg_per_s=2.0
     )
     assert FrameUsabilityTag.MOTION_SMEAR not in flags
-    # Both rates unknown (0, 0) -> never flags
+    # Both rates zero (stationary, no scene rate) -> never flags
     flags = compute_quality_flags(bands, exposure_us, 0.0, ifov, ts, cfg)
     assert FrameUsabilityTag.MOTION_SMEAR not in flags
 

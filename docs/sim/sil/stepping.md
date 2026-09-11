@@ -28,7 +28,7 @@ threads payload and FDIR state in and out.
    on step 1. Poll mode changes and lock. Apply payload pose commands from the
    prior cycle.
 2. Acquire one frame from the sensor. On success, read gimbal position and call
-   `process_frame`.
+   `process_frame` with that position.
 3. For each `T_out` slice: `advance_inner` up to tick `t`, then one `outer_step`
    at `t`. Then trailing inner to `now`. A first step with `last_outer_s is None`
    runs outer then inner once so origins stamp.

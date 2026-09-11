@@ -7,6 +7,8 @@ from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, 
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import IssSample, PayloadController, VisionSample
+from flight.payload.gimbal.intersect import intersect_cog
+from flight.payload.gimbal.predictor import predict_los
 from flight.payload.tracking import EncoderSample
 
 _BORESIGHT_X = 612.0
@@ -83,12 +85,66 @@ def test_cold_outer_holds_r_zero_without_vision() -> None:
     assert tick.fault is None
 
 
-def _iss() -> IssSample:
-    """Circular-LEO IssSample at the ephemeris epoch."""
+def _iss(dt_s: float = 0.0) -> IssSample:
+    """Circular-LEO IssSample `dt_s` after the ephemeris epoch."""
     eph = EphemerisConfig()
     radius = 6_378_137.0 + 400_000.0
     speed = math.sqrt(eph.mu_m3_s2 / radius)
-    return IssSample(r_m=(radius, 0.0, 0.0), v_m_s=(0.0, speed, 0.0), utc_s=eph.epoch_utc_s)
+    theta = (speed / radius) * dt_s
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    return IssSample(
+        r_m=(radius * cos_t, radius * sin_t, 0.0),
+        v_m_s=(-speed * sin_t, speed * cos_t, 0.0),
+        utc_s=eph.epoch_utc_s + dt_s,
+    )
+
+
+def _predict(
+    controller: PayloadController,
+    iss: IssSample,
+    r_cog_ecef_m: tuple[float, float, float],
+) -> float:
+    """Elevation rate of a frozen ECEF CoG at one ISS sample."""
+    _theta, omega_el, _omega_az = predict_los(
+        iss.utc_s,
+        iss.r_m,
+        iss.v_m_s,
+        r_cog_ecef_m,
+        controller.eph.omega_earth_rad_s,
+        controller.eph.epoch_utc_s,
+    )
+    return omega_el
+
+
+def _intersect(
+    controller: PayloadController,
+    p_cog: tuple[float, float],
+    theta_g_rad: float,
+    iss: IssSample,
+    last_r_cog_ecef_m: tuple[float, float, float] | None,
+) -> tuple[float, float, float]:
+    """Height-proxy CoG intersect using the controller pinhole geometry."""
+    result = intersect_cog(
+        p_cog,
+        theta_g_rad,
+        iss.r_m,
+        iss.v_m_s,
+        iss.utc_s,
+        controller.eph.epoch_utc_s,
+        controller.eph.omega_earth_rad_s,
+        controller.eph.wgs84_a_m,
+        controller.eph.wgs84_f,
+        controller.plane_width_px,
+        controller.plane_height_px,
+        controller.pixel_pitch_m,
+        controller.focal_m,
+        last_r_cog_ecef_m,
+        controller.cfg.predictor.cog_height_m,
+    )
+    assert result.hit is True
+    assert result.r_cog_ecef_m is not None
+    return result.r_cog_ecef_m
 
 
 def test_blob_above_boresight_commands_positive_r() -> None:
@@ -279,6 +335,47 @@ def test_rewind_uses_boresight_not_plume_cog() -> None:
     )
     assert abs(expired.state.last_omega_t_nom - omega_bore) < 1e-9
     assert abs(omega_bore - omega_plume) > 1e-8
+
+
+def test_cog_jump_rebases_against_old_cog_at_current_iss() -> None:
+    """A new CoG intersect rebases omega_res using the old CoG at this ISS sample."""
+    from dataclasses import replace
+
+    controller = _controller()
+    theta_g = math.radians(35.0)
+    iss0 = _iss(0.0)
+    iss1 = _iss(10.0)
+    p_cog = (_BORESIGHT_X, _BORESIGHT_Y)
+    p1 = _intersect(controller, p_cog, theta_g, iss0, None)
+    p2 = _intersect(controller, p_cog, theta_g, iss1, p1)
+    assert p2 != p1
+    omega_old0 = _predict(controller, iss0, p1)
+    omega_old1 = _predict(controller, iss1, p1)
+    omega_new1 = _predict(controller, iss1, p2)
+    assert abs(omega_old1 - omega_old0) > 1e-8
+
+    state = replace(
+        controller.initial_state(),
+        r_cog_ecef_m=p1,
+        last_omega_t_nom=omega_old0,
+    )
+    vision = VisionSample(
+        t_s=10.0,
+        frame_id="cog-jump",
+        z_v=0.0,
+        p_cog=p_cog,
+        exposure_us=1000.0,
+        blobs=(),
+        mode_flags=0,
+        iss=iss1,
+        theta_g_rad=theta_g,
+    )
+    tick = controller.outer_step(state, 10.0, _encoder(10.0, theta_g), vision, iss1, False, False)
+    changes = tick.state.residual_history.reference_changes
+    assert len(changes) == 1
+    assert abs(changes[0].old_rate_rad_s - omega_old1) < 1e-12
+    assert abs(changes[0].old_rate_rad_s - omega_old0) > 1e-8
+    assert abs(changes[0].new_rate_rad_s - omega_new1) < 1e-12
 
 
 def test_home_request_sets_pose_mode() -> None:

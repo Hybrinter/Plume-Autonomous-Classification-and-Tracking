@@ -54,8 +54,9 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
    has an exact encoder sample or a valid bracket.
 5. The predictor supplies nominal elevation rate and unactuated azimuth rate of a
    frozen ECEF CoG locked at `cog_height_m`. A smooth sampled change uses the
-   zero-order-hold rate history. An explicit reference replacement rebases the
-   residual rate and keeps total target rate continuous.
+   zero-order-hold rate history. An explicit CoG replacement rebases residual
+   rate with the old CoG at the current ISS time. ISS motion between ticks is
+   not a reference jump.
 6. The tracking rate law matches `omega_t_nom + omega_t_res` and smear-caps only
    `Kp * e`. REWIND matches boresight-ground `omega_el` and hunts at the
    elevation smear cap for `rewind_sharp_max_s`. After that window it escapes at

@@ -609,11 +609,20 @@ class PayloadController:
                 and r_cog is not None
                 and state.r_cog_ecef_m is not None
                 and r_cog != state.r_cog_ecef_m
+                and iss is not None
             ):
+                _theta_old, old_omega, _omega_az_old = predict_los(
+                    iss.utc_s,
+                    iss.r_m,
+                    iss.v_m_s,
+                    state.r_cog_ecef_m,
+                    self.eph.omega_earth_rad_s,
+                    self.eph.epoch_utc_s,
+                )
                 reference_change = PredictorReferenceChange(
                     change_id=f"cog:{encoder.sample_id}",
                     t_s=encoder.t_s,
-                    old_rate_rad_s=state.last_omega_t_nom,
+                    old_rate_rad_s=old_omega,
                     new_rate_rad_s=omega_t_nom,
                 )
 

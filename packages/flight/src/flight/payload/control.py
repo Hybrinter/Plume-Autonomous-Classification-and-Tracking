@@ -535,10 +535,7 @@ class PayloadController:
             omega_t_nom = 0.0
             theta_los = state.last_theta_los
         else:
-            if safe_cleared or (
-                new_arbiter.gimbal_state is GimbalState.REWIND
-                and state.arbiter.gimbal_state is not GimbalState.REWIND
-            ):
+            if safe_cleared:
                 residual = self.residual_filt.initial_state()
                 history = self.residual_filt.initial_history(
                     t_s=encoder.t_s,

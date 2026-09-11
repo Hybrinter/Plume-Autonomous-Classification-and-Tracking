@@ -8,36 +8,37 @@ from flight.payload.gimbal.outer import outer_rate, smear_cap_rad_s
 _IFOV = 0.002636
 
 
-def _tracking(**kwargs: float | bool) -> float:
+def _tracking(
+    *,
+    omega_t_nom: float = 0.0,
+    omega_t_res: float = 0.0,
+    e_hat: float = 0.0,
+    k_p: float = 8.0,
+    live: bool = True,
+    theta_g_rad: float | None = None,
+    theta_sci_max_rad: float | None = None,
+    omega_hw_rad_s: float | None = None,
+    exposure_us: float = 1000.0,
+    max_motion_smear_px: float = 1.0,
+    ifov_band_deg_per_px: float = _IFOV,
+) -> float:
     """TRACKING live outer_rate with defaults for unused kinematics."""
-    args: dict[str, float | bool | GimbalState] = {
-        "omega_t_nom": 0.0,
-        "omega_t_res": 0.0,
-        "e_hat": 0.0,
-        "k_p": 8.0,
-        "mode": GimbalState.TRACKING,
-        "live": True,
-        "theta_g_rad": math.radians(10.0),
-        "theta_sci_max_rad": math.radians(45.0),
-        "omega_hw_rad_s": math.radians(10.0),
-        "exposure_us": 1000.0,
-        "max_motion_smear_px": 1.0,
-        "ifov_band_deg_per_px": _IFOV,
-    }
-    args.update(kwargs)
+    theta = math.radians(10.0) if theta_g_rad is None else theta_g_rad
+    theta_max = math.radians(45.0) if theta_sci_max_rad is None else theta_sci_max_rad
+    omega_hw = math.radians(10.0) if omega_hw_rad_s is None else omega_hw_rad_s
     return outer_rate(
-        omega_t_nom=float(args["omega_t_nom"]),
-        omega_t_res=float(args["omega_t_res"]),
-        e_hat=float(args["e_hat"]),
-        k_p=float(args["k_p"]),
+        omega_t_nom=omega_t_nom,
+        omega_t_res=omega_t_res,
+        e_hat=e_hat,
+        k_p=k_p,
         mode=GimbalState.TRACKING,
-        live=bool(args["live"]),
-        theta_g_rad=float(args["theta_g_rad"]),
-        theta_sci_max_rad=float(args["theta_sci_max_rad"]),
-        omega_hw_rad_s=float(args["omega_hw_rad_s"]),
-        exposure_us=float(args["exposure_us"]),
-        max_motion_smear_px=float(args["max_motion_smear_px"]),
-        ifov_band_deg_per_px=float(args["ifov_band_deg_per_px"]),
+        live=live,
+        theta_g_rad=theta,
+        theta_sci_max_rad=theta_max,
+        omega_hw_rad_s=omega_hw,
+        exposure_us=exposure_us,
+        max_motion_smear_px=max_motion_smear_px,
+        ifov_band_deg_per_px=ifov_band_deg_per_px,
     )
 
 
@@ -72,22 +73,36 @@ def test_tracking_live_clips_to_hardware_when_smear_is_loose() -> None:
 
 def test_azimuth_rate_does_not_change_elevation_command() -> None:
     """omega_az is diagnostic and must not shrink the elevation smear cap."""
-    kwargs = {
-        "omega_t_nom": 0.0,
-        "omega_t_res": 0.0,
-        "e_hat": math.radians(-5.0),
-        "k_p": 8.0,
-        "mode": GimbalState.TRACKING,
-        "live": True,
-        "theta_g_rad": math.radians(10.0),
-        "theta_sci_max_rad": math.radians(45.0),
-        "omega_hw_rad_s": math.radians(10.0),
-        "exposure_us": 1000.0,
-        "max_motion_smear_px": 1.0,
-        "ifov_band_deg_per_px": _IFOV,
-    }
-    a = outer_rate(**kwargs, omega_az=0.0)
-    b = outer_rate(**kwargs, omega_az=1.0)
+    a = outer_rate(
+        omega_t_nom=0.0,
+        omega_t_res=0.0,
+        e_hat=math.radians(-5.0),
+        k_p=8.0,
+        mode=GimbalState.TRACKING,
+        live=True,
+        theta_g_rad=math.radians(10.0),
+        theta_sci_max_rad=math.radians(45.0),
+        omega_hw_rad_s=math.radians(10.0),
+        exposure_us=1000.0,
+        max_motion_smear_px=1.0,
+        ifov_band_deg_per_px=_IFOV,
+        omega_az=0.0,
+    )
+    b = outer_rate(
+        omega_t_nom=0.0,
+        omega_t_res=0.0,
+        e_hat=math.radians(-5.0),
+        k_p=8.0,
+        mode=GimbalState.TRACKING,
+        live=True,
+        theta_g_rad=math.radians(10.0),
+        theta_sci_max_rad=math.radians(45.0),
+        omega_hw_rad_s=math.radians(10.0),
+        exposure_us=1000.0,
+        max_motion_smear_px=1.0,
+        ifov_band_deg_per_px=_IFOV,
+        omega_az=1.0,
+    )
     assert a == b
 
 

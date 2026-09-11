@@ -218,9 +218,7 @@ class GimbalArbiter:
             events.append(self._transition_event(old_gs, new_gs, timestamp_utc))
 
         if new_gs is GimbalState.REWIND:
-            rewind_entered_s = (
-                now if old_gs is not GimbalState.REWIND else state.rewind_entered_s
-            )
+            rewind_entered_s = now if old_gs is not GimbalState.REWIND else state.rewind_entered_s
             if rewind_entered_s is None:
                 rewind_entered_s = now
         else:

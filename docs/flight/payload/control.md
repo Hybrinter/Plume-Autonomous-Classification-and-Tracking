@@ -62,7 +62,8 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
    the hardware slew. Residual is ignored in REWIND. Visual tracking can run
    without navigation.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE entry, SAFE exit, and REWIND entry reset the residual checkpoint.
+   SAFE entry and SAFE exit reset the residual checkpoint. REWIND ignores residual
+   rate in the tracking law and does not drop encoder history.
 8. The state starts with `last_inner_s` and `last_outer_s` set to `None`.
 
 ## Errors and faults

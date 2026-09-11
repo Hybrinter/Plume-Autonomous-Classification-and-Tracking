@@ -1,20 +1,25 @@
 """Thin-lens FOV from pixel pitch, array size, and focal length.
 
-A distortion shrink is applied after the thin-lens FOV so a study can take
-the most restrictive usable field. Datasheet 2/3-inch HFOV is stored only
-as a cross-check against the computed 8.8 mm value; it is not the camera FOV.
+km/deg study facade. Pinhole projection into the band plane lives in
+``sim.environment.models.optics``. A distortion shrink is applied after the
+thin-lens FOV so a study can take the most restrictive usable field.
+Datasheet 2/3-inch HFOV is stored only as a cross-check against the computed
+8.8 mm value; it is not the camera FOV.
 
 Contains:
   - OpticsSpec: pixel / array / lens inputs.
   - Optics: computed raw and usable FOV.
   - fov_deg / ifov_deg_per_px / band_gsd_along_m: thin-lens helpers.
   - build_optics: OpticsSpec -> Optics.
+  - camera_from_optics_spec: band-plane CameraGeometry for sim evaluate.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+
+from flight.payload.gimbal.intersect import CameraGeometry
 
 
 @dataclass(frozen=True)
@@ -160,4 +165,23 @@ def build_optics(spec: OpticsSpec) -> Optics:
         sensor_height_mm=spec.n_along_px * spec.pixel_um / 1000.0,
         datasheet_hfov_deg=spec.datasheet_hfov_2_3_deg,
         computed_2_3_hfov_deg=computed_23,
+    )
+
+
+def camera_from_optics_spec(spec: OpticsSpec) -> CameraGeometry:
+    """Build band-plane CameraGeometry from mosaic-pitch OpticsSpec.
+
+    Band-plane pitch is twice the mosaic pitch. Size is half the mosaic array.
+
+    Args:
+        spec: Mosaic pixel pitch, array size, and focal length.
+
+    Returns:
+        CameraGeometry in SI metres, matching ``camera_from_sensor``.
+    """
+    return CameraGeometry(
+        width_px=spec.n_lateral_px // 2,
+        height_px=spec.n_along_px // 2,
+        pixel_pitch_m=2.0 * spec.pixel_um * 1.0e-6,
+        focal_length_m=spec.focal_length_mm * 1.0e-3,
     )

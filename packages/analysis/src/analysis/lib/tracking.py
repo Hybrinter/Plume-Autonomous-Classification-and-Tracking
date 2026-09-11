@@ -1,5 +1,6 @@
 """Pass sampling, science-window masks, and T(lat, R) interpolation.
 
+Uses analysis.lib km/deg facades (orbit, look, optics) over sim SI models.
 A pass is sampled in ECI with Earth rotation applied to the ECEF target.
 In-frame means at least half the covering-disk area is on the sensor chip
 after pointing. One-axis parks at az = 0 (elevation tracks the origin).

@@ -1,7 +1,8 @@
 """WGS-84 and Earth-rotation constants shared by design studies.
 
-These are physical constants, not study assumptions. Study-specific TLE
-elements, gimbal boxes, and optics live in each study's assumptions module.
+Values are the km/deg view of flight ``EphemerisConfig`` SI constants.
+Study-specific TLE elements, gimbal boxes, and optics live in each study's
+assumptions module.
 
 Contains:
   - MU_KM3_S2: Earth gravitational parameter.
@@ -12,8 +13,12 @@ Contains:
 
 from __future__ import annotations
 
-MU_KM3_S2: float = 398600.4418
-OMEGA_EARTH_RAD_S: float = 7.2921159e-5
-WGS84_A_KM: float = 6378.137
-WGS84_B_KM: float = 6356.752314245
+from flight.libs.config import EphemerisConfig
+
+_EPH = EphemerisConfig()
+
+MU_KM3_S2: float = _EPH.mu_m3_s2 / 1.0e9
+OMEGA_EARTH_RAD_S: float = _EPH.omega_earth_rad_s
+WGS84_A_KM: float = _EPH.wgs84_a_m / 1000.0
+WGS84_B_KM: float = _EPH.wgs84_a_m * (1.0 - _EPH.wgs84_f) / 1000.0
 MEAN_EARTH_RADIUS_KM: float = 6371.0

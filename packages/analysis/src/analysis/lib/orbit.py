@@ -1,10 +1,10 @@
 """Circular ISS orbit from a two-line mean-motion TLE, plus ECI kinematics.
 
-The circular-orbit model uses SMA from mean motion unless ``use_perigee``
-selects perigee radius. Node is on the ECI X axis and argument of perigee
-is zero, so t = 0 is the northern-hemisphere sub-satellite point at the
-requested geocentric latitude. ECI and ECEF are aligned at t = 0; Earth
-rotation is applied by the look-angle sampler, not here.
+km/deg facade over ``sim.environment`` circular Kepler (SI metres) and WGS-84
+geocentric radius. Node is on the ECI X axis and argument of perigee is zero,
+so t = 0 is the northern-hemisphere sub-satellite point at the requested
+geocentric latitude. ECI and ECEF are aligned at t = 0; Earth rotation is
+applied by the look-angle sampler, not here.
 
 Contains:
   - IssTle: mean elements used to build the orbit.
@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from typing import cast
 
 import numpy as np
+from sim.environment.models.earth import geocentric_radius_m
+from sim.environment.models.orbit import CircularKepler
 
 from analysis.lib.constants import MU_KM3_S2, WGS84_A_KM, WGS84_B_KM
 
@@ -121,10 +123,9 @@ def wgs84_geocentric_radius_km(lat_rad: float) -> float:
     Returns:
         Radius in kilometres.
     """
-    c_lat, s_lat = math.cos(lat_rad), math.sin(lat_rad)
-    num = (WGS84_A_KM**2 * c_lat) ** 2 + (WGS84_B_KM**2 * s_lat) ** 2
-    den = (WGS84_A_KM * c_lat) ** 2 + (WGS84_B_KM * s_lat) ** 2
-    return math.sqrt(num / den)
+    a_m = WGS84_A_KM * 1000.0
+    f = 1.0 - WGS84_B_KM / WGS84_A_KM
+    return geocentric_radius_m(a_m, f, lat_rad) / 1000.0
 
 
 def build_orbit(tle: IssTle, *, use_perigee: bool = False) -> Orbit:
@@ -203,16 +204,19 @@ def iss_eci(t_s: float, orbit: Orbit, u0: float) -> tuple[np.ndarray, np.ndarray
     Returns:
         Position (km) and inertial velocity (km/s). # np.ndarray[float64, (3,)]
     """
-    u_arg = u0 + orbit.n_rad_s * t_s
-    inc = orbit.inclination_rad
-    radius = orbit.radius_km
-    pos = radius * np.array(
-        [math.cos(u_arg), math.sin(u_arg) * math.cos(inc), math.sin(u_arg) * math.sin(inc)]
+    n_rad_s = orbit.n_rad_s
+    rev_per_day = n_rad_s * 86400.0 / (2.0 * math.pi)
+    kepler = CircularKepler(
+        inclination_deg=orbit.inclination_deg,
+        mean_motion_rev_per_day=rev_per_day,
+        mu_m3_s2=MU_KM3_S2 * 1.0e9,
+        epoch_utc_s=0.0,
     )
-    drdu = radius * np.array(
-        [-math.sin(u_arg), math.cos(u_arg) * math.cos(inc), math.cos(u_arg) * math.sin(inc)]
-    )
-    return pos, orbit.n_rad_s * drdu
+    utc_s = t_s + (u0 / n_rad_s if abs(n_rad_s) > 1e-18 else 0.0)
+    state = kepler.state_eci(utc_s)
+    pos_km = np.array(state.r_m, dtype=np.float64) / 1000.0
+    vel_km_s = np.array(state.v_m_s, dtype=np.float64) / 1000.0
+    return pos_km, vel_km_s
 
 
 def origin_ecef(orbit: Orbit, lat_deg: float) -> np.ndarray:

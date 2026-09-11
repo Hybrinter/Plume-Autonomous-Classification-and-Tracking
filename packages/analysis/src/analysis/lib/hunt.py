@@ -1,5 +1,6 @@
 """Elevation-rewind and limb-scan hunt kinematics.
 
+Uses analysis.lib km/deg facades (orbit, look, optics) over sim SI models.
 After track loss the gimbal slews elevation toward the science limb stop.
 During that slew the look point races ahead of the ISS and the FOV ribbon
 can acquire a new stack. After the limb stop, one-axis waits on orbital

@@ -27,7 +27,7 @@ deterministically. GSE imports this surface and does not touch flight compositio
 
 **`ValidationHarness.step(now) -> None`**
 
-- Same contract as `SilHarness.step`. Delegates to `step_once`.
+- Same contract as `SilHarness.step`. Optional bind, then `step_once`.
 
 **`load_profile_config(config_path, override_path) -> PactConfig`**
 
@@ -41,7 +41,8 @@ deterministically. GSE imports this surface and does not touch flight compositio
 2. It creates a new `MessageBus` and calls `select_drivers` with the supplied config.
 3. It builds identity mosaic calibration from sensor dimensions.
 4. It wires every app via `build_apps` with `MONITORED_SUBSYSTEMS`.
-5. `ValidationHarness` seeds payload and fault state, then steps like `SilHarness`.
+5. `ValidationHarness` seeds payload and fault state, then steps like `SilHarness`,
+   including an optional `SilEnvironmentBind`.
 6. `load_profile_config` calls `flight.core.config_loader.load_config` and raises on failure.
 
 ## Errors and faults
@@ -70,5 +71,6 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 
 - [`sim.sil`](sil.md)
 - [`sim.sil.runner`](runner.md)
+- [`sim.sil.environment_bind`](environment_bind.md)
 - [`sim.sil.stepping`](stepping.md)
 - [`gse.harness`](gse/harness.md)

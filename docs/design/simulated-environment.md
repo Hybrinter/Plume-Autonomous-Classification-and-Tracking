@@ -31,6 +31,7 @@ own a clock, bus, or gimbal.
 
 ## Binding
 
-A SIL bind is opt-in. Default CI and GSE keep pre-rendered `sim.scene.plume`
-frames until a harness constructs an `Environment` and feeds mosaics or masks
-into sim drivers.
+A SIL bind is opt-in on `SilHarness` and `ValidationHarness`. Default CI and GSE
+keep pre-rendered `sim.scene.plume` frames. A harness that constructs an
+`Environment` feeds mosaics or masks into sim drivers only when those fields are
+not `None`.

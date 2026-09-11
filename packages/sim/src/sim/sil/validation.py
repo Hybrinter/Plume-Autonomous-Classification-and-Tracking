@@ -43,6 +43,7 @@ from flight.libs.types import GimbalState, Ok
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.control import ControlState
 
+from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
 
 
@@ -126,13 +127,15 @@ def build_validation_system(
 class ValidationHarness:
     """Deterministic single-threaded driver for a ValidationSystem (no scheduler threads)."""
 
-    def __init__(self, system: ValidationSystem) -> None:
+    def __init__(self, system: ValidationSystem, bind: SilEnvironmentBind | None = None) -> None:
         """Seed the payload control state and the FDIR watchdog entries.
 
         Args:
             system: The wired ValidationSystem to drive.
+            bind: Optional world evaluate + driver feed run before each step_once.
         """
         self._system = system
+        self._bind = bind
         self._now = 0.0
         self._payload_state: ControlState = system.apps.payload.controller.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
@@ -149,6 +152,8 @@ class ValidationHarness:
         """
         self._now = now
         system = self._system
+        if self._bind is not None:
+            self._bind.pre_step(now)
         self._payload_state, self._fault_entries = step_once(
             system.apps,
             system.sensor,

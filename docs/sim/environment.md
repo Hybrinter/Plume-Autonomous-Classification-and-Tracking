@@ -40,8 +40,8 @@ not use the message bus. Flight does not import `sim.environment`.
 
 - Models do not read a clock. Callers pass `EnvTime.from_step`.
 - `EnvironmentConfig` is not a field of `PactConfig`.
-- Default CI SIL uses `sim.scene.plume` frames. This package does not bind to
-  a harness.
+- Default CI SIL uses `sim.scene.plume` frames unless a harness attaches
+  `SilEnvironmentBind`.
 
 ## Related documents
 

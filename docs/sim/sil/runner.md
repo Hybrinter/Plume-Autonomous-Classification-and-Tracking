@@ -29,7 +29,8 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 **`SilHarness.step(now) -> None`**
 
 - Input: monotonic seconds for arbiter and watchdog.
-- Side effect: advances one cycle via `step_once`; updates threaded payload and fault state.
+- Side effect: optional `bind.pre_step`, then one cycle via `step_once`; updates
+  threaded payload and fault state.
 
 **`SilHarness.run_steps(count, dt=1.0) -> None`**
 
@@ -46,7 +47,8 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 2. It replaces `config.drivers` with all `"sim"` axes and host `"x86_64"`.
 3. It calls `build_validation_system` and casts driver fields to concrete sim types.
 4. `SilHarness.__init__` seeds payload `ControlState` and FDIR watchdog entries.
-5. `SilHarness.step` delegates to `step_once` with apps, protocols, bus, clock, and state.
+5. `SilHarness.step` runs `bind.pre_step` when a bind is present, then delegates
+   to `step_once`.
 6. `run_steps` continues from the last `now`, adds `dt` each step, and advances the
    shared clock. A later `run_steps` call does not reset time.
 
@@ -75,5 +77,6 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 ## Related documents
 
 - [`sim.sil`](sil.md)
+- [`sim.sil.environment_bind`](environment_bind.md)
 - [`sim.sil.stepping`](stepping.md)
 - [`sim.sil.validation`](validation.md)

@@ -14,6 +14,48 @@ from flight.payload.gimbal.geo import ecef_from_eci, eci_from_ecef, lvlh_axes
 from sim.environment.models.earth import EarthModel
 from sim.environment.records import LookAngles
 
+_OCCLUDE_EPS_M = 1.0
+
+
+def earth_occludes_cog(
+    iss: IssState,
+    cog_ecef_m: tuple[float, float, float],
+    earth: EarthModel,
+    omega_earth_rad_s: float,
+    epoch_utc_s: float,
+) -> bool:
+    """Return True when the nearest height-0 Earth hit is closer than the CoG.
+
+    Args:
+        iss: Truth ISS ECI state.
+        cog_ecef_m: Plume CoG in ECEF meters.
+        earth: Earth model (height-proxy intersect).
+        omega_earth_rad_s: Earth rotation rate.
+        epoch_utc_s: ECI/ECEF alignment epoch.
+
+    Returns:
+        True if an Earth surface hit lies in front of the CoG. A ray that
+        misses Earth is not occlusion.
+    """
+    r_iss = np.asarray(iss.r_m, dtype=np.float64)
+    cog_ecef = np.asarray(cog_ecef_m, dtype=np.float64)
+    cog_eci = eci_from_ecef(cog_ecef, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
+    look = cog_eci - r_iss
+    slant = float(np.linalg.norm(look))
+    if slant < 1.0:
+        return False
+    unit = look / slant
+    r_iss_ecef = ecef_from_eci(r_iss, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
+    d_ecef = ecef_from_eci(unit, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
+    d_n = float(np.linalg.norm(d_ecef))
+    if d_n <= 1e-18:
+        return False
+    hit = earth.intersect_at_height(r_iss_ecef, d_ecef / d_n, 0.0)
+    if hit is None:
+        return False
+    _point, hit_slant = hit
+    return float(hit_slant) + _OCCLUDE_EPS_M < slant
+
 
 def look_angles_at(
     iss: IssState,
@@ -32,7 +74,7 @@ def look_angles_at(
         epoch_utc_s: ECI/ECEF alignment epoch.
 
     Returns:
-        LookAngles. visible is the height-proxy hit, not FOV.
+        LookAngles. visible is an unoccluded height-0 Earth hit, not FOV.
     """
     r_iss = np.asarray(iss.r_m, dtype=np.float64)
     v_iss = np.asarray(iss.v_m_s, dtype=np.float64)
@@ -64,7 +106,9 @@ def look_angles_at(
     visible = False
     if d_n > 1e-18:
         hit = earth.intersect_at_height(r_iss_ecef, d_ecef / d_n, 0.0)
-        visible = hit is not None
+        if hit is not None:
+            _point, hit_slant = hit
+            visible = float(hit_slant) + _OCCLUDE_EPS_M >= slant
     return LookAngles(
         az_rad=az_rad,
         el_rad=el_rad,

@@ -89,6 +89,7 @@ def test_nadir_ecef_column_projects_to_principal_point() -> None:
     u_px, v_px = sample.truth.centroid_band_px
     assert abs(u_px - camera.width_px / 2.0) < 1e-6
     assert abs(v_px - camera.height_px / 2.0) < 1e-6
+    assert sample.truth.look.visible is True
 
 
 def test_pinhole_round_trip_intersect_cog() -> None:
@@ -128,6 +129,29 @@ def test_pinhole_round_trip_intersect_cog() -> None:
     assert abs(hit.point_ecef_m[0] - cog[0]) < 5.0
     assert abs(hit.point_ecef_m[1] - cog[1]) < 5.0
     assert abs(hit.point_ecef_m[2] - cog[2]) < 5.0
+
+
+def test_far_side_ecef_column_suppresses_centroid() -> None:
+    """A CoG behind Earth has no projected centroid and a zero oracle mask."""
+    from sim.environment.config import EcefColumnParams
+
+    eph = EphemerisConfig()
+    camera = camera_from_sensor(SensorConfig())
+    cfg = EnvironmentConfig(
+        plume="ecef_column",
+        ecef_column=EcefColumnParams(cog_ecef_m=(-eph.wgs84_a_m - 2000.0, 0.0, 0.0)),
+    )
+    built = build_environment(cfg, camera, eph)
+    assert isinstance(built, Ok)
+    sample = built.value.evaluate(
+        EnvTime(0.0, eph.epoch_utc_s),
+        ShutterPose(0.0, 0.0, 13.0, 0.0),
+        np.random.default_rng(0),
+    )
+    assert sample.truth.look.visible is False
+    assert sample.truth.centroid_band_px is None
+    assert sample.feed.mask is not None
+    assert float(np.max(sample.feed.mask)) == 0.0
 
 
 def test_load_default_environment_toml() -> None:

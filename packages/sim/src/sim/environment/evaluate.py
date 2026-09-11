@@ -12,7 +12,7 @@ from flight.hal.interfaces.ephemeris import IssState
 from flight.libs.config import EphemerisConfig
 from flight.payload.gimbal.intersect import CameraGeometry
 
-from sim.environment.look import look_angles_at
+from sim.environment.look import earth_occludes_cog, look_angles_at
 from sim.environment.models.appearance import AppearanceModel
 from sim.environment.models.earth import EarthModel
 from sim.environment.models.optics import OpticsModel
@@ -115,12 +115,19 @@ def _build_scene_geometry(
             eph.omega_earth_rad_s,
             eph.epoch_utc_s,
         )
-        centroid = models.optics.project_centroid(
+        if not earth_occludes_cog(
             iss,
-            shutter,
             plume.cog_ecef_m,
-            camera,
+            models.earth,
             eph.omega_earth_rad_s,
             eph.epoch_utc_s,
-        )
+        ):
+            centroid = models.optics.project_centroid(
+                iss,
+                shutter,
+                plume.cog_ecef_m,
+                camera,
+                eph.omega_earth_rad_s,
+                eph.epoch_utc_s,
+            )
     return SceneGeometry(iss=iss, plume=plume, look=look, centroid_band_px=centroid)

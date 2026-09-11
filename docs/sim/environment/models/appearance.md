@@ -26,7 +26,9 @@ The appearance module supplies the `AppearanceModel` Protocol and
 
 1. `OracleMask` allocates a zero band-plane mask of camera height and width.
 2. When a centroid exists, it paints a 50-by-50 square of ones around it.
-3. `mosaic` stays `None`.
+3. Each edge of the square clips to the image independently.
+4. A wholly off-frame centroid leaves the mask at zero.
+5. `mosaic` stays `None`.
 
 ## Errors and faults
 

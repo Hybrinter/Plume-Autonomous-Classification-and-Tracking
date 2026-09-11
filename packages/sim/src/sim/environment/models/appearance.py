@@ -48,9 +48,12 @@ class OracleMask:
         mask = np.zeros((camera.height_px, camera.width_px), dtype=np.float32)
         if centroid is not None:
             u_c, v_c = centroid
-            u0 = max(0, int(round(u_c)) - _MASK_HALF)
-            v0 = max(0, int(round(v_c)) - _MASK_HALF)
-            u1 = min(camera.width_px, u0 + 2 * _MASK_HALF)
-            v1 = min(camera.height_px, v0 + 2 * _MASK_HALF)
-            mask[v0:v1, u0:u1] = 1.0
+            u_mid = int(round(u_c))
+            v_mid = int(round(v_c))
+            u0 = max(0, u_mid - _MASK_HALF)
+            v0 = max(0, v_mid - _MASK_HALF)
+            u1 = min(camera.width_px, u_mid + _MASK_HALF)
+            v1 = min(camera.height_px, v_mid + _MASK_HALF)
+            if u0 < u1 and v0 < v1:
+                mask[v0:v1, u0:u1] = 1.0
         return DriverFeed(mosaic=None, mask=mask)

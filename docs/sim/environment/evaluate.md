@@ -28,7 +28,8 @@ The evaluate module runs the world-model pipeline for one shutter.
 2. `plume.evaluate(...)` returns `PlumeState`.
 3. Band-plane plumes copy `centroid_band_px` and skip ECEF look and project.
 4. ECEF plumes call `look_angles_at` and `optics.project_centroid`.
-5. `appearance.render_feed` writes the driver feed.
+5. An Earth hit closer than the CoG slant drops the centroid.
+6. `appearance.render_feed` writes the driver feed.
 
 ## Errors and faults
 

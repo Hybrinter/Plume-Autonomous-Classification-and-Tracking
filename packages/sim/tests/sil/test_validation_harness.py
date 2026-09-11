@@ -5,7 +5,7 @@ import dataclasses
 import pytest
 from flight.core.select_drivers import SimDriverInputs
 from flight.hal.drivers_sim import SimSensor, SimStationLink
-from flight.libs.config import EnvironmentConfig, PactConfig
+from flight.libs.config import DriverConfig, PactConfig
 from flight.libs.messages import InferenceResultMsg
 from flight.libs.time import ManualClock
 from sim.scene import build_frames, plume_detector
@@ -19,7 +19,7 @@ from sim.sil import (
 
 def _all_sim_config() -> PactConfig:
     """Return a PactConfig whose every deployment axis is a sim stand-in."""
-    sim_env = EnvironmentConfig(
+    sim_drivers = DriverConfig(
         sensor="sim",
         gimbal="sim",
         compute="sim",
@@ -27,7 +27,7 @@ def _all_sim_config() -> PactConfig:
         clock="sim",
         host="x86_64",
     )
-    return dataclasses.replace(PactConfig(), environment=sim_env)
+    return dataclasses.replace(PactConfig(), drivers=sim_drivers)
 
 
 def _sim_inputs() -> SimDriverInputs:
@@ -69,11 +69,11 @@ def test_validation_harness_drives_inference_per_frame() -> None:
 
 
 def test_load_profile_config_loads_sim_profile() -> None:
-    """The SIL profile override yields an all-sim environment PactConfig."""
+    """The SIL profile override yields an all-sim driver PactConfig."""
     config = load_profile_config("config/default.toml", "profiles/sil.toml")
 
-    env = config.environment
-    assert (env.sensor, env.gimbal, env.compute, env.link, env.clock) == (
+    drivers = config.drivers
+    assert (drivers.sensor, drivers.gimbal, drivers.compute, drivers.link, drivers.clock) == (
         "sim",
         "sim",
         "sim",

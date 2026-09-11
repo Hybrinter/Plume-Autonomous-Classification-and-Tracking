@@ -3,7 +3,7 @@
 # This profile is committed for completeness but is NOT executed by CI (no Jetson in CI).
 # OVERRIDE applied on top of config/default.toml.
 
-[environment]
+[drivers]
 sensor = "sim"
 gimbal = "sim"
 compute = "real"

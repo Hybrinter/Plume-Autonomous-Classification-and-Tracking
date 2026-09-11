@@ -3,7 +3,7 @@
 # This profile is committed for completeness but is NOT executed by CI (no hardware in CI).
 # OVERRIDE applied on top of config/default.toml.
 
-[environment]
+[drivers]
 sensor = "real"
 gimbal = "real"
 compute = "real"

@@ -3,7 +3,7 @@
 # the GSE StationEmulator end-to-end on x86_64, without flight camera/gimbal/compute.
 # OVERRIDE applied on top of config/default.toml.
 
-[environment]
+[drivers]
 sensor = "sim"
 gimbal = "sim"
 compute = "sim"

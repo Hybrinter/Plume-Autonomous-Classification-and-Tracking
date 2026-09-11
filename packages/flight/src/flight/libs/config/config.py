@@ -562,7 +562,7 @@ AxisMode = Literal["sim", "real"]
 
 
 @dataclass(frozen=True, config=_SCHEMA)
-class EnvironmentConfig:
+class DriverConfig:
     """Per-axis sim/real wiring selector for the composition root.
 
     Each field names a deployment axis the composition root must resolve to a
@@ -606,7 +606,7 @@ class PactConfig:
     command_ingress: CommandIngressConfig = field(default_factory=CommandIngressConfig)
     command_router: CommandRouterConfig = field(default_factory=CommandRouterConfig)
     ephemeris: EphemerisConfig = field(default_factory=EphemerisConfig)
-    environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    drivers: DriverConfig = field(default_factory=DriverConfig)
 
     @model_validator(mode="after")
     def _input_bands_in_mosaic(self) -> Self:

@@ -20,7 +20,10 @@ descriptive pages.
 | housekeeping | Thermal and electrical scalar telemetry |
 | mosaic frame | Raw 2x2 filter mosaic image from the sensor |
 | payload | Science subsystem that runs acquire through point |
-| profile | Environment config that selects real or sim drivers per axis |
+| profile | Deployment profile TOML that merges with `config/default.toml` |
+| driver config | Per-axis sim/real HAL wiring (`DriverConfig`, `[drivers]`) |
+| drivers | Per-axis sim/real HAL wiring in `PactConfig.drivers` and profile TOML |
+| environment | Reserved: simulated world around the payload (not HAL wiring) |
 | SAFE | System mode that stows motion and waits for ground exit |
 | scene | Synthetic imagery and readings used by SIL |
 | SIL | Software-in-the-loop harness that steps flight apps |

@@ -28,7 +28,7 @@ from flight.core.select_drivers import SimDriverInputs
 from flight.fault.watchdog import WatchdogEntry
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.bus import MessageBus
-from flight.libs.config import EnvironmentConfig, PactConfig
+from flight.libs.config import DriverConfig, PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalState, MosaicFrame
 from flight.payload.control import ControlState
@@ -81,9 +81,9 @@ def build_sil_system(
         A SilSystem holding the wired apps, the shared bus/clock, and the sim drivers.
 
     Notes:
-        Forces an all-"sim" EnvironmentConfig (host "x86_64") and delegates to the general
-        build_validation_system, so the SIL exercises the exact same env-driven selection +
-        wiring path the flight entry and the GSE backend use. The all-sim env guarantees the
+        Forces an all-"sim" DriverConfig (host "x86_64") and delegates to the general
+        build_validation_system, so the SIL exercises the exact same driver-driven selection +
+        wiring path the flight entry and the GSE backend use. The all-sim driver config guarantees the
         returned ValidationSystem carries the concrete sim drivers, which are cast back to
         their concrete sim types here for the SilSystem's inspection fields.
     """
@@ -95,7 +95,7 @@ def build_sil_system(
         power_readings=power_readings or [],
         launch_lock_engaged=launch_lock_engaged,
     )
-    sil_env = EnvironmentConfig(
+    sil_env = DriverConfig(
         sensor="sim",
         gimbal="sim",
         compute="sim",
@@ -104,7 +104,7 @@ def build_sil_system(
         ephemeris="sim",
         host="x86_64",
     )
-    sil_config = dataclasses.replace(config, environment=sil_env)
+    sil_config = dataclasses.replace(config, drivers=sil_env)
     system = build_validation_system(sil_config, clock, sim_inputs, uplink_key)
     return SilSystem(
         apps=system.apps,

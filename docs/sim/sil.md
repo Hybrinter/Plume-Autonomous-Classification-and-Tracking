@@ -37,7 +37,7 @@ thread. It exposes builders, harnesses, and the shared `step_once` cycle body.
 SIL imports flight composition, config, HAL protocols, payload, and fault modules. It calls
 `flight.core.composition.build_apps` and `flight.core.select_drivers.select_drivers`.
 
-`EnvironmentConfig` selects sim or real drivers per axis (`sensor`, `gimbal`, `compute`,
+`DriverConfig` selects sim or real drivers per axis (`sensor`, `gimbal`, `compute`,
 `link`, `clock`, plus `host`). Profiles under `profiles/*.toml` override `config/default.toml`.
 
 Command-path tests build signed telecommands with `flight.libs.commands.build_tc_packet` and

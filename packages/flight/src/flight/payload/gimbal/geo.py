@@ -253,3 +253,37 @@ def wgs84_intersect(
     t_hit = min(hits)
     hit = r0_ecef_m + t_hit * d_ecef
     return hit, t_hit
+
+
+def wgs84_intersect_at_height(
+    r0_ecef_m: np.ndarray,
+    d_ecef: np.ndarray,
+    a_m: float,
+    f: float,
+    height_m: float,
+) -> tuple[np.ndarray, float] | None:
+    """Forward intersect of a ray with a constant geodetic-height ellipsoid.
+
+    Inputs:
+        r0_ecef_m: Ray origin ECEF meters (ISS position).
+        d_ecef: Unit look direction in ECEF.
+        a_m: WGS-84 semi-major axis meters.
+        f: WGS-84 flattening.
+        height_m: Height above the WGS-84 ellipsoid, meters. Non-positive uses
+            the surface ellipsoid.
+
+    Outputs:
+        (r_hit_ecef_m, slant_m) for the nearest forward hit, or None on a miss.
+
+    Notes:
+        Uses a' = a + h and b' = b + h with b = a * (1 - f) and f' = 1 - b'/a'.
+        height_m <= 0 uses the surface ellipsoid. This is a tracking proxy, not a
+        geodetic height solver.
+    """
+    if height_m <= 0.0:
+        return wgs84_intersect(r0_ecef_m, d_ecef, a_m, f)
+    b_m = a_m * (1.0 - f)
+    a_h = a_m + height_m
+    b_h = b_m + height_m
+    f_h = 1.0 - b_h / a_h
+    return wgs84_intersect(r0_ecef_m, d_ecef, a_h, f_h)

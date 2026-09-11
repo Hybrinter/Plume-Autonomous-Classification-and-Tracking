@@ -78,15 +78,13 @@ def step_once(
     acquired = sensor.acquire_frame()
     if isinstance(acquired, Ok):
         pos = gimbal.read_position()
-        slew = 0.0
         payload_state, _ = apps.payload.process_frame(
             acquired.value,
             payload_state,
             now,
-            slew,
-            pos.value if isinstance(pos, Ok) else None,
-            safe_commanded,
-            safe_cleared,
+            gimbal_pos=pos.value if isinstance(pos, Ok) else None,
+            safe_commanded=safe_commanded,
+            safe_cleared=safe_cleared,
         )
     dt_out = apps.payload.controller.cfg.outer.dt_s
     t_out = payload_state.last_outer_s

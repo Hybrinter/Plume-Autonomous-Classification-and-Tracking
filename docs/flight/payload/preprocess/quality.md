@@ -19,16 +19,18 @@ dataset classification.
 ## Inputs and outputs
 
 `compute_quality_flags(bands, exposure_us, slew_rate_deg_per_s, ifov_band_deg_per_px,
-utc_timestamp, cfg)` returns `frozenset[FrameUsabilityTag]`. An empty set means a clean
-frame.
+utc_timestamp, cfg, omega_scene_el_deg_per_s=0.0)` returns
+`frozenset[FrameUsabilityTag]`. An empty set means a clean frame.
 
 ## Behavior
 
 1. Raise `INCOMPLETE_METADATA` when exposure is nonpositive or the timestamp is empty.
 2. Raise `SATURATED` when any band exceeds `saturation_fraction_threshold` of pixels
    above `SATURATION_PIXEL_LEVEL`.
-3. Compute smear length as `slew_rate * exposure_s / ifov`. Raise `MOTION_SMEAR` when
-   it exceeds `max_motion_smear_px`.
+3. Compute elevation-relative smear length as
+   `abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s) * exposure_s / ifov`.
+   Raise `MOTION_SMEAR` when it exceeds `max_motion_smear_px`. Azimuth motion does not
+   contribute. Matching rates, including both zero, do not flag.
 4. Raise `CLOUD_CONTAMINATED` when the NIR-to-Red mean ratio exceeds
    `nir_red_ratio_threshold` (bands at indices 2 and 3 after select).
 5. Raise `SUNGLINT` when mean NIR exceeds `sunglint_nir_mean_threshold`.
@@ -49,8 +51,8 @@ Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_
 
 ## Constraints
 
-Quality evaluation runs on the full band plane. A slew
-rate of 0.0 disables motion smear flagging when the rate is unknown.
+Quality evaluation runs on the full band plane. A zero gimbal rate is a stationary
+measurement. The payload app supplies measured, encoder, or commanded elevation rate.
 
 ## Related documents
 

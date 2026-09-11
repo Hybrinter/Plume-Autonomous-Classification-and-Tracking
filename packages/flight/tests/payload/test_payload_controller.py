@@ -1,12 +1,16 @@
 """Tests for the PayloadController cascaded inner/outer cores."""
 
 import math
+from dataclasses import replace
 
 import numpy as np
 from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, SensorConfig
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import IssSample, PayloadController, VisionSample
+from flight.payload.gimbal.arbiter import ArbiterState
+from flight.payload.gimbal.intersect import intersect_cog
+from flight.payload.gimbal.predictor import predict_los
 from flight.payload.tracking import EncoderSample
 
 _BORESIGHT_X = 612.0
@@ -83,12 +87,66 @@ def test_cold_outer_holds_r_zero_without_vision() -> None:
     assert tick.fault is None
 
 
-def _iss() -> IssSample:
-    """Circular-LEO IssSample at the ephemeris epoch."""
+def _iss(dt_s: float = 0.0) -> IssSample:
+    """Circular-LEO IssSample `dt_s` after the ephemeris epoch."""
     eph = EphemerisConfig()
     radius = 6_378_137.0 + 400_000.0
     speed = math.sqrt(eph.mu_m3_s2 / radius)
-    return IssSample(r_m=(radius, 0.0, 0.0), v_m_s=(0.0, speed, 0.0), utc_s=eph.epoch_utc_s)
+    theta = (speed / radius) * dt_s
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    return IssSample(
+        r_m=(radius * cos_t, radius * sin_t, 0.0),
+        v_m_s=(-speed * sin_t, speed * cos_t, 0.0),
+        utc_s=eph.epoch_utc_s + dt_s,
+    )
+
+
+def _predict(
+    controller: PayloadController,
+    iss: IssSample,
+    r_cog_ecef_m: tuple[float, float, float],
+) -> float:
+    """Elevation rate of a frozen ECEF CoG at one ISS sample."""
+    _theta, omega_el, _omega_az = predict_los(
+        iss.utc_s,
+        iss.r_m,
+        iss.v_m_s,
+        r_cog_ecef_m,
+        controller.eph.omega_earth_rad_s,
+        controller.eph.epoch_utc_s,
+    )
+    return omega_el
+
+
+def _intersect(
+    controller: PayloadController,
+    p_cog: tuple[float, float],
+    theta_g_rad: float,
+    iss: IssSample,
+    last_r_cog_ecef_m: tuple[float, float, float] | None,
+) -> tuple[float, float, float]:
+    """Height-proxy CoG intersect using the controller pinhole geometry."""
+    result = intersect_cog(
+        p_cog,
+        theta_g_rad,
+        iss.r_m,
+        iss.v_m_s,
+        iss.utc_s,
+        controller.eph.epoch_utc_s,
+        controller.eph.omega_earth_rad_s,
+        controller.eph.wgs84_a_m,
+        controller.eph.wgs84_f,
+        controller.plane_width_px,
+        controller.plane_height_px,
+        controller.pixel_pitch_m,
+        controller.focal_m,
+        last_r_cog_ecef_m,
+        controller.cfg.predictor.cog_height_m,
+    )
+    assert result.hit is True
+    assert result.r_cog_ecef_m is not None
+    return result.r_cog_ecef_m
 
 
 def test_blob_above_boresight_commands_positive_r() -> None:
@@ -196,7 +254,7 @@ def test_inner_step_writes_torque() -> None:
 
 
 def test_iss_sample_feeds_predictor() -> None:
-    """An IssSample with a stored CoG produces a finite omega_t_nom."""
+    """An IssSample with a stored CoG at the 2 km proxy produces a finite omega_t_nom."""
     controller = _controller()
     from dataclasses import replace
 
@@ -218,6 +276,108 @@ def test_iss_sample_feeds_predictor() -> None:
     )
     tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
     assert math.isfinite(tick.state.last_omega_t_nom)
+    assert math.isfinite(tick.state.last_omega_az_nom)
+
+
+def test_rewind_uses_boresight_not_plume_cog() -> None:
+    """REWIND predicts from current boresight at 2 km, not the lost-plume ECEF point."""
+    from dataclasses import replace
+
+    from flight.payload.gimbal.intersect import intersect_boresight
+    from flight.payload.gimbal.predictor import predict_los
+
+    controller = _controller()
+    eph = EphemerisConfig()
+    iss = _iss()
+    plume = (eph.wgs84_a_m, 0.0, 0.0)
+    state, sample = controller.ingest_inference(
+        controller.initial_state(),
+        _result(1, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0)),
+        0.0,
+        1000.0,
+        iss,
+    )
+    live = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False).state
+    live = replace(live, r_cog_ecef_m=plume)
+    now = controller.cfg.arbiter.max_observation_age_s + 0.04
+    theta_g = math.radians(20.0)
+    expired = controller.outer_step(live, now, _encoder(now, theta_g), None, iss, False, False)
+    assert expired.state.arbiter.gimbal_state is GimbalState.REWIND
+    assert expired.state.r_cog_ecef_m == plume
+    assert float(expired.state.residual.x[1]) == 0.0
+    height_m = controller.cfg.predictor.cog_height_m
+    bore = intersect_boresight(
+        theta_g,
+        iss.r_m,
+        iss.v_m_s,
+        iss.utc_s,
+        eph.epoch_utc_s,
+        eph.omega_earth_rad_s,
+        eph.wgs84_a_m,
+        eph.wgs84_f,
+        None,
+        height_m,
+    )
+    assert bore.hit is True and bore.r_cog_ecef_m is not None
+    _th_b, omega_bore, _az_b = predict_los(
+        iss.utc_s,
+        iss.r_m,
+        iss.v_m_s,
+        bore.r_cog_ecef_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    _th_p, omega_plume, _az_p = predict_los(
+        iss.utc_s,
+        iss.r_m,
+        iss.v_m_s,
+        plume,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert abs(expired.state.last_omega_t_nom - omega_bore) < 1e-9
+    assert abs(omega_bore - omega_plume) > 1e-8
+
+
+def test_cog_jump_rebases_against_old_cog_at_current_iss() -> None:
+    """A new CoG intersect rebases omega_res using the old CoG at this ISS sample."""
+    from dataclasses import replace
+
+    controller = _controller()
+    theta_g = math.radians(35.0)
+    iss0 = _iss(0.0)
+    iss1 = _iss(10.0)
+    p_cog = (_BORESIGHT_X, _BORESIGHT_Y)
+    p1 = _intersect(controller, p_cog, theta_g, iss0, None)
+    p2 = _intersect(controller, p_cog, theta_g, iss1, p1)
+    assert p2 != p1
+    omega_old0 = _predict(controller, iss0, p1)
+    omega_old1 = _predict(controller, iss1, p1)
+    omega_new1 = _predict(controller, iss1, p2)
+    assert abs(omega_old1 - omega_old0) > 1e-8
+
+    state = replace(
+        controller.initial_state(),
+        r_cog_ecef_m=p1,
+        last_omega_t_nom=omega_old0,
+    )
+    vision = VisionSample(
+        t_s=10.0,
+        frame_id="cog-jump",
+        z_v=0.0,
+        p_cog=p_cog,
+        exposure_us=1000.0,
+        blobs=(),
+        mode_flags=0,
+        iss=iss1,
+        theta_g_rad=theta_g,
+    )
+    tick = controller.outer_step(state, 10.0, _encoder(10.0, theta_g), vision, iss1, False, False)
+    changes = tick.state.residual_history.reference_changes
+    assert len(changes) == 1
+    assert abs(changes[0].old_rate_rad_s - omega_old1) < 1e-12
+    assert abs(changes[0].old_rate_rad_s - omega_old0) > 1e-8
+    assert abs(changes[0].new_rate_rad_s - omega_new1) < 1e-12
 
 
 def test_home_request_sets_pose_mode() -> None:
@@ -262,3 +422,37 @@ def test_exit_safe_resets_residual() -> None:
     assert cleared.state.residual.has_measurement is False
     assert float(cleared.state.residual.x[0]) == 0.0
     assert float(cleared.state.residual.x[1]) == 0.0
+
+
+def test_rewind_production_zeros_outward_rate_at_sci_min() -> None:
+    """Production rate mode (infinite stopping limits) holds r=0 at sci_min in REWIND."""
+    controller = _controller()
+    iss = _iss()
+    state = replace(
+        controller.initial_state(),
+        arbiter=ArbiterState(
+            gimbal_state=GimbalState.REWIND,
+            tracked_blobs=(),
+            current_target_id=None,
+            miss_count=0,
+            aggregate_live=False,
+            last_observation_s=None,
+            loss_handled=True,
+            rewind_entered_s=0.0,
+        ),
+        last_exposure_us=1.0e6,
+    )
+    tick = controller.outer_step(
+        state,
+        0.1,
+        _encoder(0.1, 0.0),
+        None,
+        iss,
+        False,
+        False,
+        detailed_plant=False,
+    )
+    assert tick.state.arbiter.gimbal_state is GimbalState.REWIND
+    assert tick.state.r_rad_s == 0.0
+    assert math.isfinite(tick.state.r_rad_s)
+    assert tick.state.last_omega_t_nom < 0.0

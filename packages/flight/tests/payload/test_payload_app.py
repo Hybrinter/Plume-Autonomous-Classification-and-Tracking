@@ -1,11 +1,13 @@
 """Integration tests for the payload application shell."""
 
+import math
 import threading
 from dataclasses import replace
 
 import numpy as np
 import pytest
 from flight.hal.drivers_sim import SimGimbal, SimIssEphemeris, SimSensor
+from flight.hal.interfaces import GimbalPosition
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
@@ -23,6 +25,7 @@ from flight.libs.types import (
     DownlinkPriority,
     Err,
     FaultCode,
+    FrameUsabilityTag,
     GimbalCommandMode,
     GimbalState,
     LaunchLockState,
@@ -73,6 +76,19 @@ def _plume_detector() -> ScriptedDetector:
     mask = np.zeros((1024, 1224), dtype=np.float32)
     mask[99:149, 587:637] = 1.0
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
+
+
+class _FlagDetector:
+    """Scripted detector that records quality flags from each processed frame."""
+
+    def __init__(self) -> None:
+        self.flags: list[frozenset[FrameUsabilityTag]] = []
+        self._inner = _plume_detector()
+
+    def detect(self, frame: ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode]:
+        """Capture quality flags, then run the wrapped plume detector."""
+        self.flags.append(frame.quality_flags)
+        return self._inner.detect(frame)
 
 
 def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGimbal, ManualClock]:
@@ -304,6 +320,40 @@ def test_ground_goto_latches_pose_mode() -> None:
     published = cmd_sub.get_nowait()
     assert published.mode is GimbalCommandMode.ABSOLUTE
     assert published.el_value_deg == 20.0
+
+
+def test_process_frame_preserves_measured_zero_slew() -> None:
+    """A stationary measured gimbal rate flags MOTION_SMEAR against a moving scene."""
+    detector = _FlagDetector()
+    app, _bus, _gimbal, _clock = _build_app(detector)
+    state = replace(
+        app.controller.initial_state(),
+        r_rad_s=math.radians(1.0),
+        last_omega_scene_el=math.radians(1.0),
+    )
+    raw = replace(_mosaic_frame(1), exposure_us=100_000.0)
+    _state, outcome = app.process_frame(raw, state, now=1.0, slew_rate_deg_per_s=0.0)
+    assert outcome.fault is None
+    assert detector.flags
+    assert FrameUsabilityTag.MOTION_SMEAR in detector.flags[0]
+
+
+def test_process_frame_uses_encoder_when_command_and_motion_disagree() -> None:
+    """Missing measured slew uses encoder motion, not the commanded rate."""
+    detector = _FlagDetector()
+    app, _bus, _gimbal, _clock = _build_app(detector)
+    app._record_encoder(GimbalPosition(el_deg=10.0, timestamp_s=0.9, sequence=1))
+    pos = GimbalPosition(el_deg=10.0, timestamp_s=1.0, sequence=2)
+    state = replace(
+        app.controller.initial_state(),
+        r_rad_s=math.radians(1.0),
+        last_omega_scene_el=math.radians(1.0),
+    )
+    raw = replace(_mosaic_frame(1), timestamp_s=1.0, exposure_us=100_000.0)
+    _state, outcome = app.process_frame(raw, state, now=1.0, gimbal_pos=pos)
+    assert outcome.fault is None
+    assert detector.flags
+    assert FrameUsabilityTag.MOTION_SMEAR in detector.flags[0]
 
 
 def _drain_telem(subscription: object) -> list[TelemetryEventMsg]:

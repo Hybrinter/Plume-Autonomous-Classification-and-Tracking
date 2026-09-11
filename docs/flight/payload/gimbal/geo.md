@@ -22,11 +22,12 @@ All functions are side-effect free. Angles are radians unless a name says otherw
 | `cam_ray_to_mount` | function | Camera ray into the mount frame |
 | `mount_to_eci` | function | Mount vector into ECI via LVLH |
 | `wgs84_intersect` | function | Forward ellipsoid intersect |
+| `wgs84_intersect_at_height` | function | Forward intersect with a constant-height ellipsoid |
 
 ## Inputs and outputs
 
-Vector inputs are ECI or ECEF meters as length-3 arrays. `wgs84_intersect` returns
-`(hit_ecef_m, slant_m)` or `None` on a miss.
+Vector inputs are ECI or ECEF meters as length-3 arrays. `wgs84_intersect` and
+`wgs84_intersect_at_height` return `(hit_ecef_m, slant_m)` or `None` on a miss.
 
 ## Behavior
 
@@ -36,6 +37,8 @@ Vector inputs are ECI or ECEF meters as length-3 arrays. `wgs84_intersect` retur
 3. `cam_ray_to_mount` maps camera `+X` (image right) onto mount `+y` (starboard)
    and camera `+Y` (image down) onto mount `-x`, then applies `R_y(theta_g)`.
 4. `wgs84_intersect` solves the ellipsoid quadratic and keeps the nearest forward hit.
+5. `wgs84_intersect_at_height` uses `a' = a + h` and `b' = b + h` with
+   `f' = 1 - b'/a'`. A non-positive `height_m` uses the surface ellipsoid.
 
 ## Errors and faults
 

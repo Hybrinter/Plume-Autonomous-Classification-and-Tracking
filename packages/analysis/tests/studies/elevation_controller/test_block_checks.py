@@ -97,14 +97,14 @@ def test_predictor_matches_theta_finite_difference() -> None:
     r_norm = math.hypot(*r_iss)
     scale = eph.wgs84_a_m / r_norm
     r_cog = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
-    _theta, omega = predict_los(
+    _theta, omega, _omega_az = predict_los(
         t0, r_iss, s0.value.v_m_s, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
     )
     dt = 0.05
     sp = sim.read_state(t0 + dt)
     sm = sim.read_state(t0 - dt)
     assert isinstance(sp, Ok) and isinstance(sm, Ok)
-    tp, _ = predict_los(
+    tp, _, _ = predict_los(
         t0 + dt,
         sp.value.r_m,
         sp.value.v_m_s,
@@ -112,7 +112,7 @@ def test_predictor_matches_theta_finite_difference() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     )
-    tm, _ = predict_los(
+    tm, _, _ = predict_los(
         t0 - dt,
         sm.value.r_m,
         sm.value.v_m_s,
@@ -137,13 +137,13 @@ def test_walking_cog_at_same_iss_time() -> None:
     scale = eph.wgs84_a_m / r_norm
     p1 = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
     p2 = (p1[0], p1[1] + 20_000.0, p1[2])
-    _th1, w1 = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    _th2, w2 = predict_los(t0, r_iss, v_iss, p2, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    _th1, w1, _az1 = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    _th2, w2, _az2 = predict_los(t0, r_iss, v_iss, p2, eph.omega_earth_rad_s, eph.epoch_utc_s)
     assert abs(w1 - w2) > 1e-8
     s1 = sim.read_state(t0 + 1.0)
     assert isinstance(s1, Ok)
-    th1, _ = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    th2, w2_later = predict_los(
+    th1, _, _ = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    th2, w2_later, _az_later = predict_los(
         t0 + 1.0,
         s1.value.r_m,
         s1.value.v_m_s,
@@ -167,8 +167,8 @@ def test_earth_rate_changes_nominal_rate() -> None:
     r_norm = math.hypot(*r_iss)
     scale = eph.wgs84_a_m / r_norm
     r_cog = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
-    _th, w_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    _th0, w_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
+    _th, w_on, _az_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    _th0, w_off, _az_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
     assert abs(w_on - w_off) > 1e-8
 
 
@@ -263,7 +263,7 @@ def test_rewind_posterior_matches_discrete_oracle() -> None:
 
 
 def test_smear_oracle_is_separate_from_control_rate() -> None:
-    """Optical smear scales with exposure without reducing control authority."""
+    """Long exposure limits |Kp e| and sharp REWIND hunt, not |omega_scene|."""
     ifov = 0.002636
     ifov_rad = math.radians(ifov)
     hw = math.radians(10.0)
@@ -286,8 +286,9 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
     assert abs(abs(r_13) - hw) < 1e-12
     t_exp = 2000e-6
     oracle = 1.0 * ifov_rad / t_exp
+    nom = math.radians(1.0)
     r_long = outer_rate(
-        0.0,
+        nom,
         0.0,
         math.radians(4.0),
         8.0,
@@ -301,7 +302,40 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
         ifov,
     )
     assert oracle < hw
-    assert abs(abs(r_long) - hw) < 1e-12
+    assert abs(r_long - (nom + oracle)) < 1e-12
+    r_az = outer_rate(
+        nom,
+        0.0,
+        math.radians(4.0),
+        8.0,
+        GimbalState.TRACKING,
+        True,
+        math.radians(10.0),
+        math.radians(45.0),
+        hw,
+        2000.0,
+        1.0,
+        ifov,
+        omega_az=1.0,
+    )
+    assert r_az == r_long
+    r_rewind = outer_rate(
+        nom,
+        math.radians(9.0),
+        0.0,
+        8.0,
+        GimbalState.REWIND,
+        False,
+        math.radians(10.0),
+        math.radians(45.0),
+        hw,
+        2000.0,
+        1.0,
+        ifov,
+        rewind_elapsed_s=0.1,
+        rewind_sharp_max_s=2.0,
+    )
+    assert abs(r_rewind - (nom + oracle)) < 1e-12
 
 
 def test_safe_position_loop_and_cold_start() -> None:

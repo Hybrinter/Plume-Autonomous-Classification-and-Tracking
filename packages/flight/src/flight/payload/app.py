@@ -335,7 +335,7 @@ class PayloadApp:
         self.encoder_stream.consumed_ids.add(selected.sample_id)
         return selected
 
-    def _encoder_angle_at(self, t_s: float) -> float | None:
+    def _encoder_angle_at(self, t_s: float, *, max_span_s: float | None = None) -> float | None:
         """Interpolate a shutter angle only from a valid bounded sample bracket."""
         ordered = sorted(self.encoder_stream.samples, key=lambda sample: sample.t_s)
         exact = [sample for sample in ordered if abs(sample.t_s - t_s) <= 1.0e-12]
@@ -348,10 +348,42 @@ class PayloadApp:
         left = before[-1]
         right = after[0]
         span = right.t_s - left.t_s
-        if span <= 0.0 or span > self.controller.cfg.residual.interpolation_span_max_s:
+        span_limit = (
+            self.controller.cfg.residual.interpolation_span_max_s
+            if max_span_s is None
+            else max_span_s
+        )
+        if span <= 0.0 or span > span_limit:
             return None
         alpha = (t_s - left.t_s) / span
         return left.angle_rad + alpha * (right.angle_rad - left.angle_rad)
+
+    def _encoder_rate_over_exposure_deg_per_s(self, raw: MosaicFrame) -> float | None:
+        """Mean elevation rate across the exposure from encoder brackets, or None."""
+        dt_exp_s = raw.exposure_us * 1.0e-6
+        if dt_exp_s <= 0.0:
+            return None
+        t_end = raw.timestamp_s
+        t_start = t_end - dt_exp_s
+        theta_end = self._encoder_angle_at(t_end, max_span_s=math.inf)
+        theta_start = self._encoder_angle_at(t_start, max_span_s=math.inf)
+        if theta_end is None or theta_start is None:
+            return None
+        return math.degrees((theta_end - theta_start) / dt_exp_s)
+
+    def _smear_gimbal_rate_deg_per_s(
+        self,
+        raw: MosaicFrame,
+        state: ControlState,
+        measured_rate_deg_per_s: float | None,
+    ) -> float:
+        """Elevation rate for MOTION_SMEAR: measured, else encoder, else command."""
+        if measured_rate_deg_per_s is not None:
+            return measured_rate_deg_per_s
+        encoder_rate = self._encoder_rate_over_exposure_deg_per_s(raw)
+        if encoder_rate is not None:
+            return encoder_rate
+        return math.degrees(state.r_rad_s)
 
     @staticmethod
     def _invalidate_encoder_state(state: ControlState) -> ControlState:
@@ -382,7 +414,7 @@ class PayloadApp:
         raw: MosaicFrame,
         state: ControlState,
         now: float,
-        slew_rate_deg_per_s: float = 0.0,
+        slew_rate_deg_per_s: float | None = None,
         gimbal_pos: GimbalPosition | None = None,
         safe_commanded: bool = False,
         safe_cleared: bool = False,
@@ -390,6 +422,8 @@ class PayloadApp:
         """Preprocess, detect, and enqueue a vision sample. Does not write torque.
 
         SAFE flags are accepted for call-site compatibility; the outer loop applies them.
+        ``slew_rate_deg_per_s`` is a measured elevation rate. ``0.0`` is stationary.
+        ``None`` uses encoder motion over the exposure, then the commanded rate.
         """
         del safe_commanded, safe_cleared
         mosaic = np.asarray(raw.mosaic, dtype=np.float32)
@@ -412,13 +446,25 @@ class PayloadApp:
             self._publish_fault(selected.error, f"band select failed frame_id={raw.frame_id}")
             return state, self._fault_outcome(raw.frame_id, selected.error, state)
 
+        if gimbal_pos is None:
+            position = self._read_position()
+            if isinstance(position, Ok):
+                gimbal_pos = position.value
+            else:
+                state = self._invalidate_encoder_state(state)
+        else:
+            self._record_encoder(gimbal_pos)
+
+        gimbal_rate_deg_per_s = self._smear_gimbal_rate_deg_per_s(raw, state, slew_rate_deg_per_s)
+        omega_scene_el_deg_per_s = math.degrees(state.last_omega_scene_el)
         quality_flags = compute_quality_flags(
             selected.value,
             raw.exposure_us,
-            slew_rate_deg_per_s,
+            gimbal_rate_deg_per_s,
             self.sensor_cfg.ifov_band_deg_per_px,
             raw.timestamp_utc,
             self.preprocessing_cfg,
+            omega_scene_el_deg_per_s=omega_scene_el_deg_per_s,
         )
 
         processed = ProcessedFrameMsg(
@@ -437,14 +483,6 @@ class PayloadApp:
         self.bus.publish(inference)
         self._store_mask_product(inference)
 
-        if gimbal_pos is None:
-            position = self._read_position()
-            if isinstance(position, Ok):
-                gimbal_pos = position.value
-            else:
-                state = self._invalidate_encoder_state(state)
-        else:
-            self._record_encoder(gimbal_pos)
         iss, eph_err = self._read_iss_at(raw.timestamp_s if raw.timestamp_s else now)
         if eph_err is not None:
             self._publish_fault(eph_err, "ephemeris read failed")
@@ -993,8 +1031,6 @@ class PayloadApp:
         holder: dict[str, ControlState] = {"state": self.controller.initial_state()}
         heartbeat_seq = 0
         last_heartbeat = self.clock.monotonic_s()
-        prev_pos: GimbalPosition | None = None
-        prev_pos_now = 0.0
 
         def inner_loop() -> None:
             """One inner_step + set_torque per T_in after origin init."""
@@ -1096,18 +1132,11 @@ class PayloadApp:
                 self.handle_commands()
                 acq = self.sensor.acquire_frame()
                 if isinstance(acq, Ok):
-                    slew_rate = 0.0
                     pos_res = self._read_position()
-                    pos: GimbalPosition | None = None
-                    if isinstance(pos_res, Ok):
-                        pos = pos_res.value
-                        if prev_pos is not None and now > prev_pos_now:
-                            slew_rate = abs(pos.el_deg - prev_pos.el_deg) / (now - prev_pos_now)
-                        prev_pos = pos
-                        prev_pos_now = now
+                    pos: GimbalPosition | None = pos_res.value if isinstance(pos_res, Ok) else None
                     with self.inner_lock:
                         current = holder["state"]
-                    current, _outcome = self.process_frame(acq.value, current, now, slew_rate, pos)
+                    current, _outcome = self.process_frame(acq.value, current, now, gimbal_pos=pos)
                     with self.inner_lock:
                         latest = holder["state"]
                         holder["state"] = replace(latest, last_e_az=current.last_e_az)

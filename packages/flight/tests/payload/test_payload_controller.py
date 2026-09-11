@@ -452,6 +452,45 @@ def test_plume_during_rewind_acquires_with_new_cog_and_resets_residual() -> None
     assert "1" not in {obs.frame_id for obs in tick.state.residual_history.vision_observations}
 
 
+def test_acquire_applies_vision_when_encoder_sample_is_stale() -> None:
+    """A REWIND acquire snaps residual error when the encoder timestamp lags the shutter."""
+    controller = _controller()
+    iss = _iss()
+    theta_g = math.radians(20.0)
+    planted = replace(
+        controller.initial_state(),
+        arbiter=ArbiterState(
+            gimbal_state=GimbalState.REWIND,
+            tracked_blobs=(),
+            current_target_id=None,
+            miss_count=0,
+            aggregate_live=False,
+            last_observation_s=None,
+            loss_handled=True,
+            rewind_entered_s=0.0,
+        ),
+        residual=replace(
+            controller.initial_state().residual,
+            x=np.array([0.15, 0.04], dtype=np.float64),
+            has_measurement=True,
+        ),
+        last_exposure_us=1000.0,
+    )
+    state, sample = controller.ingest_inference(
+        planted,
+        _result(3, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0)),
+        2.0,
+        1000.0,
+        iss,
+        theta_g,
+    )
+    tick = controller.outer_step(state, 2.0, _encoder(0.95, theta_g), sample, iss, False, False)
+    assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
+    assert tick.state.residual.has_measurement is True
+    assert tick.state.r_rad_s > 0.0
+    assert abs(float(tick.state.residual.x[0]) - 0.15) > 1e-6
+
+
 def test_single_miss_does_not_reset_residual() -> None:
     """One empty frame while still TRACKING keeps the residual filter and CoG."""
     controller = _controller()

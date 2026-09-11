@@ -493,7 +493,9 @@ class PayloadController:
         Notes:
             Previous tracked blobs are state.arbiter.tracked_blobs before
             arbiter.step. REWIND stores no CoG and does not submit residual
-            events. TRACKING acquire cold-starts the residual filter.
+            events. TRACKING acquire cold-starts the residual filter at the vision
+            shutter (or the encoder if the shutter is after now) and then submits
+            the vision observation.
         """
         del dt_s  # Detailed-plant cadence is retained by inner_step only.
         theta_g_rad = encoder.angle_rad
@@ -596,10 +598,19 @@ class PayloadController:
                 new_blob_ids=frozenset(blob.blob_id for blob in blobs),
             )
             if reset_residual:
+                seed_t_s = encoder.t_s
+                seed_angle_rad = encoder.angle_rad
+                if vision is not None and vision.z_v is not None:
+                    seed_t_s = vision.t_s
+                    if vision.theta_g_rad is not None:
+                        seed_angle_rad = vision.theta_g_rad
+                    if seed_t_s > now + 1e-12:
+                        seed_t_s = encoder.t_s
+                        seed_angle_rad = encoder.angle_rad
                 residual = self.residual_filt.initial_state()
                 history = self.residual_filt.initial_history(
-                    t_s=encoder.t_s,
-                    encoder_angle_rad=encoder.angle_rad,
+                    t_s=seed_t_s,
+                    encoder_angle_rad=seed_angle_rad,
                     encoder_endpoint_variance_rad2=encoder.angle_variance_rad2,
                 )
 
@@ -666,7 +677,10 @@ class PayloadController:
                         measurement_variance_rad2=self.residual_filt.r_v,
                     )
                     history, _ = submit_event(history, observation, now_s=now)
-                estimate = estimate_at(history, self.residual_filt, encoder.t_s)
+                estimate_t_s = encoder.t_s
+                if reset_residual:
+                    estimate_t_s = max(estimate_t_s, history.checkpoint.t_s)
+                estimate = estimate_at(history, self.residual_filt, estimate_t_s)
                 residual = estimate.state
                 history = estimate.history
                 if vision is not None:

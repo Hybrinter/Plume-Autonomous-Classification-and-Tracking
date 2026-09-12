@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
 
-from analysis.lib.plot_style import C_BLUE, C_ORANGE, C_RED, C_SKY, C_TEAL, apply
 from analysis.studies.orin_nano_full_frame_inference.assumptions import (
     CAMERA_PREPROCESS_GB,
     CLS_ACC_FP16,
@@ -54,6 +53,7 @@ from analysis.studies.orin_nano_full_frame_inference.latency import (
     mean_time_ms,
     mixed_knee_detect_ms,
 )
+from analysis.studies.plot_style import C_BLUE, C_ORANGE, C_RED, C_SKY, C_TEAL, apply
 
 
 def _save(fig: Figure, name: str) -> Path:

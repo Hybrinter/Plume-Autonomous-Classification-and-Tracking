@@ -25,11 +25,7 @@ from typing import Literal
 
 import numpy as np
 
-from analysis.lib.hunt import HuntModel, HuntResult
-from analysis.lib.optics import Optics, build_optics
-from analysis.lib.orbit import Orbit, build_orbit
-from analysis.lib.plot_style import apply as apply_plot_style
-from analysis.lib.tracking import SampleSpan, TimeLostFn
+from analysis.studies.plot_style import apply as apply_plot_style
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     CACHE_DIR,
     GIMBAL_BOX,
@@ -48,6 +44,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     omega_rel_max_deg_s,
 )
 from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import origin_window
+from analysis.studies.single_axis_vs_dual_axis_gimbal.hunt import HuntModel, HuntResult
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import (
     Cluster,
     build_clusters,
@@ -56,6 +53,8 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import (
     load_clusters_csv,
     load_gppd,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import Optics, build_optics
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import Orbit, build_orbit
 from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import (
     RadiusProfile,
     build_radius_profile,
@@ -63,6 +62,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import (
     folded_band_rows,
     hunt_at_lat,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.tracking import SampleSpan, TimeLostFn
 
 Weight = Literal["area", "stacks", "emissions"]
 

@@ -24,10 +24,15 @@ from typing import cast
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
-from analysis.lib.constants import OMEGA_EARTH_RAD_S
-from analysis.lib.look import GimbalBox, WindowMode, look_at, rotate_z
-from analysis.lib.optics import Optics
-from analysis.lib.orbit import (
+from analysis.studies.single_axis_vs_dual_axis_gimbal.constants import OMEGA_EARTH_RAD_S
+from analysis.studies.single_axis_vs_dual_axis_gimbal.look import (
+    GimbalBox,
+    WindowMode,
+    look_at,
+    rotate_z,
+)
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import Optics
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import (
     Orbit,
     argument_of_latitude,
     heading_from_north_deg,

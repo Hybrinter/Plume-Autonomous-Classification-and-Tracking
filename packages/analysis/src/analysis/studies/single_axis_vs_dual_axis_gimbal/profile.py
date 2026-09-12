@@ -10,7 +10,7 @@ reacquire.
 
 Contains:
   - LatBandRow / RadiusProfile.
-  - build_radius_profile / folded_band_rows.
+  - build_radius_profile / folded_band_rows / poisson_latitude_params.
   - encounter_time_s / reacquire_s / cycle_s / ground_speed_km_s / hunt_at_lat.
 """
 
@@ -20,17 +20,19 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from sim.environment.config import PoissonLatitudeParams
+from sim.environment.models.plume import mean_encounter_time_s
 
-from analysis.lib.constants import MEAN_EARTH_RADIUS_KM
-from analysis.lib.hunt import HuntModel, HuntResult
-from analysis.lib.orbit import Orbit
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     FOLDED_LAT_BANDS,
     LAT_BIN_DEG,
     PLUME_R_KM,
     TLE,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.constants import MEAN_EARTH_RADIUS_KM
+from analysis.studies.single_axis_vs_dual_axis_gimbal.hunt import HuntModel, HuntResult
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import Cluster
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import Orbit
 
 
 def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
@@ -141,6 +143,23 @@ class RadiusProfile:
         hi = float(self.signed_lat[-1])
         x = min(hi, max(lo, float(lat_deg)))
         return float(np.interp(x, self.signed_lat, self.stack_dens_per_km2))
+
+    def poisson_latitude_params(self, cross_track_half_km: float = 5.0) -> PoissonLatitudeParams:
+        """Fill sim PoissonLatitude tables from signed-latitude stack density.
+
+        Args:
+            cross_track_half_km: World-corridor half-width for the 1-D process.
+
+        Returns:
+            PoissonLatitudeParams for TrialSpec.world.
+        """
+        lats = tuple(float(x) for x in self.signed_lat)
+        dens = tuple(float(x) for x in self.stack_dens_per_km2)
+        return PoissonLatitudeParams(
+            signed_lat_deg=lats,
+            dens_per_km2=dens,
+            cross_track_half_km=cross_track_half_km,
+        )
 
 
 def _folded_band_area_km2(lat_lo: float, lat_hi: float) -> float:
@@ -361,12 +380,9 @@ def encounter_time_s(dens_per_km2: float, swath_km: float, v_scan_km_s: float) -
         v_scan_km_s: Along-track scan speed in km/s.
 
     Returns:
-        Mean encounter time in seconds, or inf if density or speed is 0.
+        Mean encounter time in seconds from sim ``mean_encounter_time_s``.
     """
-    rate = dens_per_km2 * swath_km * v_scan_km_s
-    if rate <= 0.0:
-        return math.inf
-    return 1.0 / rate
+    return mean_encounter_time_s(dens_per_km2, 0.5 * swath_km, v_scan_km_s)
 
 
 def reacquire_s(t_enc_s: float) -> float:

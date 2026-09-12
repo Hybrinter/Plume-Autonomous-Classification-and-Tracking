@@ -6,7 +6,7 @@ import math
 from dataclasses import field
 from typing import Literal
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from sim.environment.config import EnvironmentConfig
@@ -22,7 +22,7 @@ class RewindThenLimbParams:
 
     el_start_rad: float = 0.0
     el_limb_rad: float = math.radians(45.0)
-    omega_img_rad_s: float = math.radians(1.72)
+    omega_img_rad_s: float = Field(default=math.radians(1.72), gt=0.0, allow_inf_nan=False)
 
 
 @pydantic_dataclass(config=_SCHEMA)
@@ -46,7 +46,7 @@ class TrialSpec:
     master_seed: int
     world: EnvironmentConfig = field(default_factory=EnvironmentConfig)
     steps: int = 1
-    dt_s: float = 1.0
+    dt_s: float = Field(default=1.0, gt=0.0, allow_inf_nan=False)
     shutter: ShutterKind = "constant"
     true_el_rad: float = 0.0
     rewind: RewindThenLimbParams = field(default_factory=RewindThenLimbParams)

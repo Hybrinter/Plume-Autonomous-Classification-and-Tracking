@@ -44,8 +44,6 @@ def shutter_pose_at(spec: TrialSpec, now: float) -> ShutterPose:
         return ShutterPose(spec.true_el_rad, 0.0, spec.exposure_us, spec.gain_db)
     rw = spec.rewind
     delta = rw.el_limb_rad - rw.el_start_rad
-    if rw.omega_img_rad_s <= 0.0:
-        return ShutterPose(rw.el_limb_rad, 0.0, spec.exposure_us, spec.gain_db)
     t_slew = abs(delta) / rw.omega_img_rad_s
     sign = 1.0 if delta >= 0.0 else -1.0
     if now < t_slew:

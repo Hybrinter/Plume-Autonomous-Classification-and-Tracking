@@ -5,7 +5,9 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pytest
 from flight.libs.config import EphemerisConfig
+from pydantic import ValidationError
 from sim.environment.config import EnvironmentConfig, PoissonLatitudeParams
 from sim.environment.models.plume import _along_track_ahead_m, mean_encounter_time_s
 from sim.trial import TrialSpec, run_open_loop, shutter_pose_at, spawn_trial_rngs
@@ -54,6 +56,20 @@ def test_rewind_then_limb_reaches_limb() -> None:
     assert abs(early.true_el_rad - 0.1) < 1e-12
     assert abs(late.true_el_rad - 0.2) < 1e-12
     assert late.true_el_rate_rad_s == 0.0
+
+
+def test_trial_spec_rejects_nonpositive_dt_s() -> None:
+    """dt_s must be a finite positive step."""
+    for dt_s in (0.0, -1.0, math.inf):
+        with pytest.raises(ValidationError):
+            TrialSpec(n_trials=1, master_seed=0, dt_s=dt_s)
+
+
+def test_rewind_rejects_nonpositive_rate() -> None:
+    """A zero or negative imaging slew rate is not a completed rewind."""
+    for omega in (0.0, -0.1, math.inf):
+        with pytest.raises(ValidationError):
+            RewindThenLimbParams(omega_img_rad_s=omega)
 
 
 def test_mean_time_to_nadir_matches_encounter_formula() -> None:

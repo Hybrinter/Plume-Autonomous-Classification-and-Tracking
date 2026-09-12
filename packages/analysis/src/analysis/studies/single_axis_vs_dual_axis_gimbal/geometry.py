@@ -54,7 +54,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import (
     Orbit,
     argument_of_latitude,
     build_orbit,
-    ephemeris_from_tle,
+    ephemeris_from_orbit,
     iss_eci,
     origin_ecef,
 )
@@ -235,6 +235,7 @@ def one_axis_window_from_environment(
     """Return the 1-axis science-window length from Environment.evaluate.
 
     The CoG is the equator sub-satellite point at epoch (ascending node).
+    The ISS trajectory comes from ``orbit``, including a perigee-radius Orbit.
     Two-axis tables still use ``sample_pass``.
 
     Args:
@@ -252,7 +253,7 @@ def one_axis_window_from_environment(
     """
     origin = origin_ecef(orbit, 0.0)
     cog = (float(origin[0]) * 1000.0, float(origin[1]) * 1000.0, float(origin[2]) * 1000.0)
-    eph = ephemeris_from_tle(TLE)
+    eph = ephemeris_from_orbit(orbit)
     world = EnvironmentConfig(
         plume="ecef_column",
         ecef_column=EcefColumnParams(cog_ecef_m=cog),

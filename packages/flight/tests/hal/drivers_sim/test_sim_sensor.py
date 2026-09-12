@@ -72,6 +72,19 @@ def test_load_next_overwrites_unread_slot() -> None:
     assert stalled.error is FaultCode.CAMERA_STALL
 
 
+def test_unread_scripted_count_tracks_constructor_list() -> None:
+    """unread_scripted_count ignores the live slot and drops as frames are acquired."""
+    sensor = SimSensor([_frame(1), _frame(2)])
+    sensor.load_next(_frame(99))
+    assert sensor.unread_scripted_count() == 2
+    sensor.acquire_frame()
+    assert sensor.unread_scripted_count() == 2
+    sensor.acquire_frame()
+    assert sensor.unread_scripted_count() == 1
+    sensor.acquire_frame()
+    assert sensor.unread_scripted_count() == 0
+
+
 def test_load_next_prefers_slot_over_scripted_list() -> None:
     """The live slot is returned before remaining constructor frames."""
     sensor = SimSensor([_frame(1), _frame(2)])

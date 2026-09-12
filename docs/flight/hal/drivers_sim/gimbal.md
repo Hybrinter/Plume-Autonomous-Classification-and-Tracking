@@ -27,10 +27,12 @@ and the inner period used for frozen-clock catch-up.
 | `home()` | None | `Ok(None)` |
 | `stow()` | None | `Ok(None)` |
 | `read_position()` | None | `Result[GimbalPosition, FaultCode]` |
+| `advance_plant()` | None | None (sim-only plant integrate) |
 | `read_stow_switch()` | None | `Result[bool, FaultCode]` |
 | `freeze_encoder()` | None | Hold encoder reads at the current pose |
 
-Observability properties: `true_el_deg`, `true_omega_rad_s`.
+Observability properties: `true_el_deg`, `true_omega_rad_s`. `advance_plant` is
+sim-only and is not on `GimbalActuator`.
 
 ## Behavior
 
@@ -41,9 +43,11 @@ Observability properties: `true_el_deg`, `true_omega_rad_s`.
    The driver does not close a position or rate loop.
 4. `read_position` quantizes true elevation to encoder counts and adds Gaussian
    noise.
-5. `read_stow_switch` is true after `stow()` and when elevation is within 0.5 deg of
+5. `advance_plant` integrates the plant to the clock. It does not sample the
+   encoder or update last-feedback time.
+6. `read_stow_switch` is true after `stow()` and when elevation is within 0.5 deg of
    the stow pose.
-6. Travel and slew clips apply inside the ODE step.
+7. Travel and slew clips apply inside the ODE step.
 
 ## Errors and faults
 

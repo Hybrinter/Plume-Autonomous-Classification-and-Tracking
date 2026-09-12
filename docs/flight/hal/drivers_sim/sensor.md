@@ -22,6 +22,7 @@ Construction takes an ordered `list[MosaicFrame]`.
 | --- | --- | --- |
 | `acquire_frame()` | None | `Result[MosaicFrame, FaultCode]` |
 | `load_next(frame)` | `MosaicFrame` | None (sim-only slot write) |
+| `unread_scripted_count()` | None | Remaining constructor frames |
 | `set_exposure_us(exposure)` | Microseconds (ignored) | `Ok(None)` |
 | `set_gain_db(gain)` | dB (ignored) | `Ok(None)` |
 | `start_acquisition()` | None | `Ok(None)` |
@@ -34,8 +35,10 @@ Construction takes an ordered `list[MosaicFrame]`.
 3. After both the slot and the list are empty, `acquire_frame()` returns
    `Err(CAMERA_STALL)`.
 4. `load_next` overwrites the unread live slot. It is not on `ImagingSensor`.
-5. Exposure, gain, and acquisition control calls are no-ops that always succeed.
-6. `start_acquisition()` and `stop_acquisition()` toggle an internal acquiring flag only.
+5. `unread_scripted_count` returns constructor frames that `acquire_frame` has
+   not yet returned. The live slot does not change this count.
+6. Exposure, gain, and acquisition control calls are no-ops that always succeed.
+7. `start_acquisition()` and `stop_acquisition()` toggle an internal acquiring flag only.
 
 ## Errors and faults
 
@@ -58,6 +61,7 @@ None. Frames are supplied at construction by the SIL or test harness.
 - Frames are typically rendered by `sim.scene`.
 - `load_next` is a sim-only mutator. Real drivers have no counterpart.
 - Callers must not overlap `load_next` with `acquire_frame`. The slot has no lock.
+- `unread_scripted_count` is a sim-only observer. Real drivers have no counterpart.
 
 ## Related documents
 

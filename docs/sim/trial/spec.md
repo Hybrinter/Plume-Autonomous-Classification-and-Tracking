@@ -27,7 +27,8 @@ None. This module holds data classes.
 
 ## Errors and faults
 
-Pydantic rejects extra keys.
+Pydantic rejects extra keys, non-positive `dt_s`, and non-positive
+`omega_img_rad_s`.
 
 ## Messages
 

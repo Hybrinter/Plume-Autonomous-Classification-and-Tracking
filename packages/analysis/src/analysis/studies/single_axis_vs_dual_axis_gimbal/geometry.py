@@ -62,6 +62,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.tracking import (
     PassSamples,
     SampleSpan,
     disk_half_in_chip,
+    in_elevation_window,
     in_science_window,
     mask_time_s,
     sample_pass,
@@ -236,14 +237,16 @@ def one_axis_window_from_environment(
 
     The CoG is the equator sub-satellite point at epoch (ascending node).
     The ISS trajectory comes from ``orbit``, including a perigee-radius Orbit.
-    Two-axis tables still use ``sample_pass``.
+    Elevation membership uses ``box.window_mode`` (same rule as
+    ``in_elevation_window``). Two-axis tables still use ``sample_pass``.
 
     Args:
         orbit: Circular ISS orbit (places the ECEF CoG).
-        box: Elevation window (nadir and limb in the 90-at-nadir convention).
+        box: Elevation window (nadir, limb, and window mode).
         dt_s: Sample step in seconds.
         t_min_s: First sample from epoch, seconds.
-        t_max_s: Last sample from epoch, seconds.
+        t_max_s: Last sample from epoch, seconds. Two-sided windows may
+            need a larger t_max_s than the one-sided default.
 
     Returns:
         Time from first to last in-window sample, seconds.
@@ -264,13 +267,15 @@ def one_axis_window_from_environment(
     env = built.value
     shutter = ShutterPose(0.0, 0.0, 13.0, 0.0)
     rng = np.random.default_rng(0)
-    eta_max = math.radians(box.el_nadir_deg - box.el_limb_deg)
     ts = np.arange(t_min_s, t_max_s + dt_s * 0.5, dt_s)
     in_win = np.zeros(ts.size, dtype=bool)
     for i, now in enumerate(ts):
         time = EnvTime(float(now), eph.epoch_utc_s + float(now))
         look = env.evaluate(time, shutter, rng, None).truth.look
-        in_win[i] = look.visible and 0.0 <= look.el_rad <= eta_max
+        el_deg = box.el_nadir_deg - math.degrees(look.el_rad)
+        in_win[i] = look.visible and bool(
+            in_elevation_window(np.array([el_deg], dtype=np.float64), box)[0]
+        )
     if not np.any(in_win):
         return 0.0
     idx = np.where(in_win)[0]

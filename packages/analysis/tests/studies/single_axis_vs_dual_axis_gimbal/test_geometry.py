@@ -1,5 +1,7 @@
 """Geometry-window sanity for the single-axis vs dual-axis study."""
 
+from dataclasses import replace
+
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DESIGN_LAT_DEG,
     GIMBAL_BOX,
@@ -16,8 +18,9 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import (
     one_axis_window_from_environment,
     origin_window,
 )
-from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import build_optics
-from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import build_orbit
+from analysis.studies.single_axis_vs_dual_axis_gimbal.look import GimbalBox, WindowMode
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import Optics, build_optics
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import Orbit, build_orbit
 
 
 def test_science_window_is_shorter_than_old_60deg_stop() -> None:
@@ -77,21 +80,42 @@ def test_offset_plume_seconds_innermost_survives() -> None:
     assert far.two_axis_n_in == OFFSET_STACK_N
 
 
+def _env_matches_origin_window(
+    orbit: Orbit,
+    optics: Optics,
+    box: GimbalBox,
+    *,
+    dt_s: float = 1.0,
+) -> tuple[float, float]:
+    """Return (evaluate window, sample_pass window) and require 2*dt agreement."""
+    times, _ = origin_window(orbit, optics, box, 0.0, 0.0)
+    env_s = one_axis_window_from_environment(orbit, box, dt_s=dt_s)
+    assert abs(env_s - times.along_track_s) <= 2.0 * dt_s
+    return env_s, times.along_track_s
+
+
 def test_one_axis_window_from_environment_matches_sample_pass() -> None:
-    """Equator elevation window from evaluate is near the km/deg sampler."""
+    """Equator elevation window from evaluate matches the km/deg sampler."""
     optics = build_optics(OPTICS_SPEC)
     orbit = build_orbit(TLE, use_perigee=False)
-    times, _ = origin_window(orbit, optics, GIMBAL_BOX, 0.0, 0.0)
-    env_s = one_axis_window_from_environment(orbit, GIMBAL_BOX, dt_s=1.0)
-    assert env_s > 40.0
-    assert abs(env_s - times.along_track_s) / times.along_track_s < 0.20
+    env45, _ = _env_matches_origin_window(orbit, optics, GIMBAL_BOX)
+    limb60 = replace(GIMBAL_BOX, el_limb_deg=60.0)
+    env60, _ = _env_matches_origin_window(orbit, optics, limb60)
+    assert env60 < env45 - 1.0
+
+
+def test_one_axis_window_from_environment_two_sided() -> None:
+    """TWO_SIDED includes look-back; length matches origin_window."""
+    optics = build_optics(OPTICS_SPEC)
+    orbit = build_orbit(TLE, use_perigee=False)
+    two = replace(GIMBAL_BOX, window_mode=WindowMode.TWO_SIDED)
+    env_two, _ = _env_matches_origin_window(orbit, optics, two)
+    env_one = one_axis_window_from_environment(orbit, GIMBAL_BOX, dt_s=1.0)
+    assert env_two > env_one + 10.0
 
 
 def test_one_axis_window_from_environment_uses_supplied_orbit() -> None:
     """A perigee Orbit is flown, not the global TLE SMA."""
     optics = build_optics(OPTICS_SPEC)
     orbit = build_orbit(TLE, use_perigee=True)
-    times, _ = origin_window(orbit, optics, GIMBAL_BOX, 0.0, 0.0)
-    env_s = one_axis_window_from_environment(orbit, GIMBAL_BOX, dt_s=1.0)
-    assert env_s > 40.0
-    assert abs(env_s - times.along_track_s) / times.along_track_s < 0.20
+    _env_matches_origin_window(orbit, optics, GIMBAL_BOX)

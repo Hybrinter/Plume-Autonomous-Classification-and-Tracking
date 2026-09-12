@@ -22,7 +22,12 @@ from sim.environment.models.appearance import OracleMask
 from sim.environment.models.earth import EarthModel, SphereEarth, Wgs84Ellipsoid
 from sim.environment.models.optics import PinholeOptics
 from sim.environment.models.orbit import CircularKepler
-from sim.environment.models.plume import BandplaneGaussian, EcefColumn, PlumeModel
+from sim.environment.models.plume import (
+    BandplaneGaussian,
+    EcefColumn,
+    PlumeModel,
+    PoissonLatitude,
+)
 from sim.environment.models.wind import ConstantEcefWind, StillWind, WindModel
 
 _SCHEMA = ConfigDict(extra="forbid", frozen=True)
@@ -30,7 +35,7 @@ _SCHEMA = ConfigDict(extra="forbid", frozen=True)
 EarthName = Literal["wgs84_ellipsoid", "sphere"]
 OrbitName = Literal["circular_kepler"]
 WindName = Literal["still", "constant_ecef"]
-PlumeName = Literal["bandplane_gaussian", "ecef_column"]
+PlumeName = Literal["bandplane_gaussian", "ecef_column", "poisson_latitude"]
 OpticsName = Literal["pinhole"]
 AppearanceName = Literal["oracle_mask"]
 
@@ -55,6 +60,18 @@ class EcefColumnParams:
 
 
 @pydantic_dataclass(config=_SCHEMA)
+class PoissonLatitudeParams:
+    """Signed-latitude stack density and corridor width for PoissonLatitude."""
+
+    signed_lat_deg: tuple[float, ...] = (-90.0, 90.0)
+    dens_per_km2: tuple[float, ...] = (0.0, 0.0)
+    along_sigma_m: float = 200.0
+    cross_sigma_m: float = 200.0
+    height_proxy_m: float = 2000.0
+    cross_track_half_km: float = 5.0
+
+
+@pydantic_dataclass(config=_SCHEMA)
 class EnvironmentConfig:
     """Named world models. Fidelity is inferred from the names, not a rung."""
 
@@ -66,6 +83,7 @@ class EnvironmentConfig:
     appearance: AppearanceName = "oracle_mask"
     constant_ecef: ConstantEcefWindParams = field(default_factory=ConstantEcefWindParams)
     ecef_column: EcefColumnParams = field(default_factory=EcefColumnParams)
+    poisson_latitude: PoissonLatitudeParams = field(default_factory=PoissonLatitudeParams)
 
 
 _CONFIG_ADAPTER = TypeAdapter(EnvironmentConfig)
@@ -105,6 +123,21 @@ def build_models(config: EnvironmentConfig, eph: EphemerisConfig) -> Result[Envi
             along_sigma_m=p.along_sigma_m,
             cross_sigma_m=p.cross_sigma_m,
             height_proxy_m=p.height_proxy_m,
+        )
+    elif config.plume == "poisson_latitude":
+        src = config.poisson_latitude
+        if len(src.signed_lat_deg) != len(src.dens_per_km2) or len(src.signed_lat_deg) < 1:
+            return Err("poisson_latitude tables must be non-empty and equal length")
+        lats = src.signed_lat_deg
+        if any(lats[i] >= lats[i + 1] for i in range(len(lats) - 1)):
+            return Err("poisson_latitude signed_lat_deg must be strictly increasing")
+        plume = PoissonLatitude(
+            signed_lat_deg=src.signed_lat_deg,
+            dens_per_km2=src.dens_per_km2,
+            along_sigma_m=src.along_sigma_m,
+            cross_sigma_m=src.cross_sigma_m,
+            height_proxy_m=src.height_proxy_m,
+            cross_track_half_km=src.cross_track_half_km,
         )
     else:
         plume = BandplaneGaussian()

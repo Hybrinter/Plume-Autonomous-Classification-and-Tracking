@@ -23,7 +23,7 @@ dev = [
     # CI) makes flight/sim/tools/gse/analysis importable for the smoke tests, mypy, and import-linter.
     "pact-flight",
     "pact-sim",
-    "pact-tools[inference]",
+    "pact-tools",
     "pact-gse",
     "pact-analysis",
     "pact-xeryon-vendor",
@@ -47,7 +47,7 @@ dev-ci-flight = [
 # of dev (ONNX serialization plus the GeoTIFF readers the Zenodo preprocess step uses). CI
 # syncs `dev` alone and stays free of both. Use: uv sync --extra dev --extra train
 train = [
-    "pact-tools[export,data,inference]",
+    "pact-tools[export,data]",
 ]
 
 [tool.pytest.ini_options]

@@ -35,8 +35,6 @@ _HAS_ORT = importlib.util.find_spec("onnxruntime") is not None
 _skip_no_onnx = pytest.mark.skipif(not _HAS_ONNX, reason="onnx extra not installed")
 _skip_no_ort = pytest.mark.skipif(not _HAS_ORT, reason="onnxruntime extra not installed")
 
-pytestmark = pytest.mark.slow
-
 
 def _gold_mask_for(tensor: torch.Tensor, scenes: list[GoldenScene]) -> torch.Tensor:
     """Return the gold mask of the matching scene (perfect predictor)."""
@@ -118,6 +116,7 @@ def test_calibration_batches_from_pack(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
+@pytest.mark.slow
 def test_export_segmentor_then_accept(tmp_path: Path) -> None:
     """1-step synthetic 256 segmentor exports ONNX logits and passes injected accept."""
     ckpt = tmp_path / "seg.pt"
@@ -172,6 +171,7 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
+@pytest.mark.slow
 def test_export_dilatenet_resizes_logits_to_input_hw(
     tmp_path: Path, tiny_dilatenet_ckpt: Path
 ) -> None:
@@ -197,6 +197,7 @@ def test_export_dilatenet_resizes_logits_to_input_hw(
 
 
 @_skip_no_onnx
+@pytest.mark.slow
 def test_export_override_spatial_uses_config_hw(tmp_path: Path, tiny_dilatenet_ckpt: Path) -> None:
     """``override_spatial`` exports at ExportConfig H/W, not the checkpoint size."""
     ckpt = tiny_dilatenet_ckpt
@@ -215,6 +216,7 @@ def test_export_override_spatial_uses_config_hw(tmp_path: Path, tiny_dilatenet_c
 
 
 @_skip_no_onnx
+@pytest.mark.slow
 def test_reexport_spatial_copies_weights_and_changes_hw(
     tmp_path: Path, tiny_dilatenet_16_ckpt: Path
 ) -> None:
@@ -252,6 +254,7 @@ def test_reexport_spatial_copies_weights_and_changes_hw(
 
 
 @_skip_no_onnx
+@pytest.mark.slow
 def test_export_classifier_then_accept(tmp_path: Path) -> None:
     """1-step synthetic 256 classifier exports (1, 1) logits and passes injected accept."""
     ckpt = tmp_path / "clf.pt"
@@ -292,6 +295,7 @@ def test_export_classifier_then_accept(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
+@pytest.mark.slow
 def test_export_int8_requires_onnxruntime(tmp_path: Path, tiny_segmentor_ckpt: Path) -> None:
     """INT8 export raises ImportError when onnxruntime is missing."""
     if _HAS_ORT:
@@ -310,6 +314,7 @@ def test_export_int8_requires_onnxruntime(tmp_path: Path, tiny_segmentor_ckpt: P
 
 @_skip_no_onnx
 @_skip_no_ort
+@pytest.mark.slow
 def test_export_int8_writes_qdq_sibling(tmp_path: Path, tiny_segmentor_ckpt: Path) -> None:
     """INT8 PTQ writes a sibling ONNX whose I/O stays float32."""
     ckpt = tiny_segmentor_ckpt
@@ -347,6 +352,7 @@ def test_export_int8_writes_qdq_sibling(tmp_path: Path, tiny_segmentor_ckpt: Pat
 
 @_skip_no_onnx
 @_skip_no_ort
+@pytest.mark.slow
 def test_convert_fp16_keeps_float_io(tmp_path: Path, tiny_classifier_ckpt: Path) -> None:
     """FP16 conversion keeps graph I/O as float32 and records quantization."""
     ckpt = tiny_classifier_ckpt
@@ -377,6 +383,7 @@ def test_convert_fp16_keeps_float_io(tmp_path: Path, tiny_classifier_ckpt: Path)
 
 @_skip_no_onnx
 @_skip_no_ort
+@pytest.mark.slow
 def test_quantize_knee_overwrites_with_mixed_precision(
     tmp_path: Path,
     tiny_classifier_ckpt: Path,

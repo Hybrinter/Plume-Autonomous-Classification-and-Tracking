@@ -169,6 +169,55 @@ jobs:
       - name: Slow tests
         run: uv run pytest -m "slow" -n 2
 
+  # Fan-in merge predicate. Add new blocking jobs to needs and the result checks
+  # below. Do not skip this job: a missing gates check hangs required status.
+  gates:
+    if: always()
+    needs:
+      - changes
+      - static
+      - test-flight
+      - test-sim
+      - test-gse
+      - test-tools
+      - test-slow
+      - flight-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge predicate
+        run: |
+          set -euo pipefail
+          fail=0
+          require_success() {
+            local job="$1"
+            local result="$2"
+            if [[ "$result" != "success" ]]; then
+              echo "$job: $result (required success)"
+              fail=1
+            else
+              echo "$job: $result"
+            fi
+          }
+          require_success_or_skipped() {
+            local job="$1"
+            local result="$2"
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "$job: $result (required success or skipped)"
+              fail=1
+            else
+              echo "$job: $result"
+            fi
+          }
+          require_success changes "${{ needs.changes.result }}"
+          require_success static "${{ needs.static.result }}"
+          require_success flight-image "${{ needs.flight-image.result }}"
+          require_success_or_skipped test-flight "${{ needs.test-flight.result }}"
+          require_success_or_skipped test-sim "${{ needs.test-sim.result }}"
+          require_success_or_skipped test-gse "${{ needs.test-gse.result }}"
+          require_success_or_skipped test-tools "${{ needs.test-tools.result }}"
+          require_success_or_skipped test-slow "${{ needs.test-slow.result }}"
+          exit "$fail"
+
   flight-image:
     runs-on: ubuntu-latest
     steps:

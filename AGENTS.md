@@ -17,8 +17,10 @@ you normally do not need to install anything yourself.
   scripts`, `uv run mypy packages scripts`, `uv run lint-imports`, `uv run python
   scripts/check_vcrm.py`, `uv run python scripts/check_docs.py --strict`, `uv run python
   scripts/check_adr.py --strict`. Tests are sharded in CI (`static`, `test-flight`, `test-sim`,
-  `test-gse`, `test-tools`, `test-slow` on `main`/nightly, `flight-image`). PRs run
-  `uv run pytest -m "not slow and not e2e" -n 2`; `main` and nightly also run `-m "slow"`.
+  `test-gse`, `test-tools`, `test-slow` on `main`/nightly, `flight-image`). Job `gates` is the
+  required merge check: it fans in those jobs and treats path-filtered or PR-skipped shards as
+  pass. PRs run `uv run pytest -m "not slow and not e2e" -n 2`; `main` and nightly also run
+  `-m "slow"`. Mark `@pytest.mark.slow` on the expensive test, not the whole module.
   Full local gates: `uv run pytest -m "not e2e"`.
 - There is no GUI and no long-running service to start for development. The product runs
   in-process: the primary end-to-end path is the GSE harness stepping the real flight apps over sim

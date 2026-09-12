@@ -45,7 +45,7 @@ packages scripts`, `uv run mypy packages scripts`, `uv run lint-imports`, `uv ru
 scripts/check_vcrm.py`, `uv run python scripts/check_docs.py --strict`, `uv run python
 scripts/check_adr.py --strict`, `uv run python scripts/check_flight_image.py`, and
 `uv run pytest -m "not e2e"`. PR CI runs the fast subset (`-m "not slow and not e2e"`); `main`
-push and nightly cron run `-m "slow"` as well. The repo root is a virtual `uv`
+push and nightly cron run `-m "slow"` as well. The required merge check is job `gates`. The repo root is a virtual `uv`
 workspace root (`[tool.uv] package = false`); it builds no package and carries no runtime deps of
 its own.
 

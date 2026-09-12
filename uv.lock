@@ -860,7 +860,7 @@ dev = [
     { name = "pact-flight" },
     { name = "pact-gse" },
     { name = "pact-sim" },
-    { name = "pact-tools", extra = ["inference"] },
+    { name = "pact-tools" },
     { name = "pact-xeryon-vendor" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -883,7 +883,7 @@ dev-ci-flight = [
     { name = "ruff" },
 ]
 train = [
-    { name = "pact-tools", extra = ["data", "export", "inference"] },
+    { name = "pact-tools", extra = ["data", "export"] },
 ]
 
 [package.metadata]
@@ -900,8 +900,8 @@ requires-dist = [
     { name = "pact-gse", marker = "extra == 'dev-ci-flight'", editable = "packages/gse" },
     { name = "pact-sim", marker = "extra == 'dev'", editable = "packages/sim" },
     { name = "pact-sim", marker = "extra == 'dev-ci-flight'", editable = "packages/sim" },
-    { name = "pact-tools", extras = ["export", "data", "inference"], marker = "extra == 'train'", editable = "packages/tools" },
-    { name = "pact-tools", extras = ["inference"], marker = "extra == 'dev'", editable = "packages/tools" },
+    { name = "pact-tools", marker = "extra == 'dev'", editable = "packages/tools" },
+    { name = "pact-tools", extras = ["export", "data"], marker = "extra == 'train'", editable = "packages/tools" },
     { name = "pact-xeryon-vendor", marker = "extra == 'dev'", editable = "packages/xeryon-vendor" },
     { name = "pact-xeryon-vendor", marker = "extra == 'dev-ci-flight'", editable = "packages/xeryon-vendor" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
@@ -1012,6 +1012,10 @@ dependencies = [
     { name = "pact-sim" },
     { name = "pandas" },
     { name = "pyarrow" },
+    { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
+    { name = "torchvision", version = "0.28.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
+    { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
     { name = "typer" },
 ]
 
@@ -1022,12 +1026,6 @@ data = [
 export = [
     { name = "onnx" },
     { name = "onnxruntime" },
-]
-inference = [
-    { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
-    { name = "torchvision", version = "0.28.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
-    { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'win32'" },
 ]
 
 [package.metadata]
@@ -1040,13 +1038,13 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.1" },
     { name = "pyarrow", specifier = ">=14.0" },
     { name = "rasterio", marker = "extra == 'data'", specifier = ">=1.3" },
-    { name = "torch", marker = "sys_platform == 'win32' and extra == 'inference'", specifier = ">=2.2", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torch", marker = "sys_platform != 'win32' and extra == 'inference'", specifier = ">=2.2" },
-    { name = "torchvision", marker = "sys_platform == 'win32' and extra == 'inference'", specifier = ">=0.17", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torchvision", marker = "sys_platform != 'win32' and extra == 'inference'", specifier = ">=0.17" },
+    { name = "torch", marker = "sys_platform != 'win32'", specifier = ">=2.2" },
+    { name = "torch", marker = "sys_platform == 'win32'", specifier = ">=2.2", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torchvision", marker = "sys_platform != 'win32'", specifier = ">=0.17" },
+    { name = "torchvision", marker = "sys_platform == 'win32'", specifier = ">=0.17", index = "https://download.pytorch.org/whl/cu130" },
     { name = "typer", specifier = ">=0.27.1" },
 ]
-provides-extras = ["inference", "export", "data"]
+provides-extras = ["export", "data"]
 
 [[package]]
 name = "pact-xeryon-vendor"

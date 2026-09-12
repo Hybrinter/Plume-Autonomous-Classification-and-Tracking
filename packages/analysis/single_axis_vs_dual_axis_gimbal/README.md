@@ -2,7 +2,8 @@
 
 TEMPORARY ANALYSIS. Not flight software. Design study for dropping
 the azimuth gimbal axis. Dual-axis hunt and covering-disk math live in
-the study package. 1-axis waits use sim.environment and sim.trial.
+the study package. 1-axis encounter rates use the sim Poisson
+intensity helpers.
 This folder holds generated reports, PNGs, and local inventory downloads.
 
 ```text

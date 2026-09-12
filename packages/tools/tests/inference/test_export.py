@@ -35,6 +35,8 @@ _HAS_ORT = importlib.util.find_spec("onnxruntime") is not None
 _skip_no_onnx = pytest.mark.skipif(not _HAS_ONNX, reason="onnx extra not installed")
 _skip_no_ort = pytest.mark.skipif(not _HAS_ORT, reason="onnxruntime extra not installed")
 
+pytestmark = pytest.mark.slow
+
 
 def _gold_mask_for(tensor: torch.Tensor, scenes: list[GoldenScene]) -> torch.Tensor:
     """Return the gold mask of the matching scene (perfect predictor)."""
@@ -170,24 +172,11 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
-def test_export_dilatenet_resizes_logits_to_input_hw(tmp_path: Path) -> None:
+def test_export_dilatenet_resizes_logits_to_input_hw(
+    tmp_path: Path, tiny_dilatenet_ckpt: Path
+) -> None:
     """A decoder-free dilatenet exports full-resolution logits through bilinear resize."""
-    ckpt = tmp_path / "dilate.pt"
-    train(
-        TrainConfig(
-            kind="segmentor",
-            arch="dilatenet_w32",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=32,
-            input_width_px=32,
-            checkpoint_path=str(ckpt),
-            run_dir=str(tmp_path / "runs"),
-            seed=0,
-            device="cpu",
-        )
-    )
+    ckpt = tiny_dilatenet_ckpt
     onnx_path, _manifest_path, manifest = export(
         ExportConfig(
             kind="segmentor",
@@ -208,24 +197,9 @@ def test_export_dilatenet_resizes_logits_to_input_hw(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
-def test_export_override_spatial_uses_config_hw(tmp_path: Path) -> None:
+def test_export_override_spatial_uses_config_hw(tmp_path: Path, tiny_dilatenet_ckpt: Path) -> None:
     """``override_spatial`` exports at ExportConfig H/W, not the checkpoint size."""
-    ckpt = tmp_path / "dilate.pt"
-    train(
-        TrainConfig(
-            kind="segmentor",
-            arch="dilatenet_w32",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=32,
-            input_width_px=32,
-            checkpoint_path=str(ckpt),
-            run_dir=str(tmp_path / "runs"),
-            seed=0,
-            device="cpu",
-        )
-    )
+    ckpt = tiny_dilatenet_ckpt
     _onnx_path, _manifest_path, manifest = export(
         ExportConfig(
             kind="segmentor",
@@ -241,24 +215,11 @@ def test_export_override_spatial_uses_config_hw(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
-def test_reexport_spatial_copies_weights_and_changes_hw(tmp_path: Path) -> None:
+def test_reexport_spatial_copies_weights_and_changes_hw(
+    tmp_path: Path, tiny_dilatenet_16_ckpt: Path
+) -> None:
     """Spatial re-export keeps trained weights and writes a new I/O contract."""
-    ckpt = tmp_path / "dilate.pt"
-    train(
-        TrainConfig(
-            kind="segmentor",
-            arch="dilatenet_w32",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=16,
-            input_width_px=16,
-            checkpoint_path=str(ckpt),
-            run_dir=str(tmp_path / "runs"),
-            seed=0,
-            device="cpu",
-        )
-    )
+    ckpt = tiny_dilatenet_16_ckpt
     src, _src_manifest_path, src_manifest = export(
         ExportConfig(
             kind="segmentor",
@@ -331,24 +292,11 @@ def test_export_classifier_then_accept(tmp_path: Path) -> None:
 
 
 @_skip_no_onnx
-def test_export_int8_requires_onnxruntime(tmp_path: Path) -> None:
+def test_export_int8_requires_onnxruntime(tmp_path: Path, tiny_segmentor_ckpt: Path) -> None:
     """INT8 export raises ImportError when onnxruntime is missing."""
     if _HAS_ORT:
         pytest.skip("onnxruntime installed")
-    ckpt = tmp_path / "seg.pt"
-    train(
-        TrainConfig(
-            kind="segmentor",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=32,
-            input_width_px=32,
-            checkpoint_path=str(ckpt),
-            run_dir=str(tmp_path / "runs"),
-            seed=0,
-        )
-    )
+    ckpt = tiny_segmentor_ckpt
     with pytest.raises(ImportError, match="onnxruntime"):
         export(
             ExportConfig(
@@ -362,25 +310,12 @@ def test_export_int8_requires_onnxruntime(tmp_path: Path) -> None:
 
 @_skip_no_onnx
 @_skip_no_ort
-def test_export_int8_writes_qdq_sibling(tmp_path: Path) -> None:
+def test_export_int8_writes_qdq_sibling(tmp_path: Path, tiny_segmentor_ckpt: Path) -> None:
     """INT8 PTQ writes a sibling ONNX whose I/O stays float32."""
-    ckpt = tmp_path / "seg.pt"
+    ckpt = tiny_segmentor_ckpt
     pack_dir = tmp_path / "pack"
     images, masks, labels = make_synthetic_pack(6, 4, 32, 32, seed=0)
     write_processed_pack(pack_dir, images, masks, labels, SplitRecipe())
-    train(
-        TrainConfig(
-            kind="segmentor",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=32,
-            input_width_px=32,
-            checkpoint_path=str(ckpt),
-            run_dir=str(tmp_path / "runs"),
-            seed=0,
-        )
-    )
     onnx_path, _manifest_path, manifest = export(
         ExportConfig(
             kind="segmentor",
@@ -412,22 +347,9 @@ def test_export_int8_writes_qdq_sibling(tmp_path: Path) -> None:
 
 @_skip_no_onnx
 @_skip_no_ort
-def test_convert_fp16_keeps_float_io(tmp_path: Path) -> None:
+def test_convert_fp16_keeps_float_io(tmp_path: Path, tiny_classifier_ckpt: Path) -> None:
     """FP16 conversion keeps graph I/O as float32 and records quantization."""
-    ckpt = tmp_path / "cls.pt"
-    train(
-        TrainConfig(
-            kind="classifier",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=32,
-            input_width_px=32,
-            checkpoint_path=str(ckpt),
-            run_dir=str(tmp_path / "runs"),
-            seed=0,
-        )
-    )
+    ckpt = tiny_classifier_ckpt
     onnx_path, _manifest_path, manifest = export(
         ExportConfig(
             kind="classifier",
@@ -455,36 +377,14 @@ def test_convert_fp16_keeps_float_io(tmp_path: Path) -> None:
 
 @_skip_no_onnx
 @_skip_no_ort
-def test_quantize_knee_overwrites_with_mixed_precision(tmp_path: Path) -> None:
+def test_quantize_knee_overwrites_with_mixed_precision(
+    tmp_path: Path,
+    tiny_classifier_ckpt: Path,
+    tiny_segmentor_ckpt: Path,
+) -> None:
     """Knee conversion writes classifier FP16 and segmentor INT8 in place."""
-    cls_ckpt = tmp_path / "cls.pt"
-    seg_ckpt = tmp_path / "seg.pt"
-    train(
-        TrainConfig(
-            kind="classifier",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=32,
-            input_width_px=32,
-            checkpoint_path=str(cls_ckpt),
-            run_dir=str(tmp_path / "runs_cls"),
-            seed=0,
-        )
-    )
-    train(
-        TrainConfig(
-            kind="segmentor",
-            epochs=1,
-            batch_size=2,
-            synthetic_samples=4,
-            input_height_px=32,
-            input_width_px=32,
-            checkpoint_path=str(seg_ckpt),
-            run_dir=str(tmp_path / "runs_seg"),
-            seed=0,
-        )
-    )
+    cls_ckpt = tiny_classifier_ckpt
+    seg_ckpt = tiny_segmentor_ckpt
     cls_onnx, _, _ = export(
         ExportConfig(
             kind="classifier",

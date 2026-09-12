@@ -4,9 +4,12 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from tools.analysis.cli import main
 from tools.analysis.report import write_run_report, write_suite_report
 from tools.analysis.runner import ScenarioSpec, run_scenario
+
+pytestmark = pytest.mark.slow
 
 
 def _small_spec(name: str = "test_small") -> ScenarioSpec:

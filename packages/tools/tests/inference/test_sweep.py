@@ -7,6 +7,8 @@ import pytest
 from tools.inference.cli import main
 from tools.inference.sweep import load_sweep_space, sweep
 
+pytestmark = pytest.mark.slow
+
 
 def test_load_sweep_space_cartesian(tmp_path: Path) -> None:
     """List axes expand in sorted-name cartesian order and honor max_runs."""

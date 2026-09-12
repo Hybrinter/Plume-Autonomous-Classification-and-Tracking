@@ -20,6 +20,8 @@ from tools.inference.train import (
     train,
 )
 
+pytestmark = pytest.mark.slow
+
 
 def test_load_train_config_defaults() -> None:
     """load_train_config() without a file returns frozen defaults."""

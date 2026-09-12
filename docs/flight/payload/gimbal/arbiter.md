@@ -68,5 +68,6 @@ Reads `ArbiterConfig.release_persistence_frames`, `max_observation_age_s`, and
 ## Related documents
 
 - [`flight.payload.gimbal.request`](request.md)
+- [`flight.payload.gimbal.scene`](scene.md)
 - [`flight.payload.gimbal.outer`](outer.md)
 - [`flight.payload.control`](../control.md)

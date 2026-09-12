@@ -139,7 +139,10 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
     now = 0.0
     for frame_id in range(1, 9):
         now += 1.0
-        state, _outcome = app.process_frame(_mosaic_frame(frame_id), state, now)
+        position = gimbal.read_position()
+        assert isinstance(position, Ok)
+        shutter = replace(position.value, timestamp_s=now)
+        state, _outcome = app.process_frame(_mosaic_frame(frame_id), state, now, gimbal_pos=shutter)
         state, _outer = app.advance_outer(state, now)
         state = app.advance_inner(state, now)
         clock.advance(1.0)

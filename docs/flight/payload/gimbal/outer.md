@@ -87,5 +87,6 @@ passes finite deceleration and rate-loop bandwidth.
 ## Related documents
 
 - [`flight.payload.gimbal.predictor`](predictor.md)
+- [`flight.payload.gimbal.scene`](scene.md)
 - [`flight.payload.tracking.residual`](../tracking/residual.md)
 - [`flight.payload.control`](../control.md)

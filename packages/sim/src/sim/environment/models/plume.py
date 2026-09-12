@@ -6,7 +6,7 @@ half-width. FOV and hunt waits are observer geometry, not this model.
 
 Contains:
   - PlumeModel, BandplaneGaussian, EcefColumn, PoissonLatitude
-  - along_track_intensity_per_km
+  - along_track_intensity_per_km, mean_encounter_time_s
 """
 
 from __future__ import annotations
@@ -68,6 +68,28 @@ def along_track_intensity_per_km(dens_per_km2: float, cross_track_half_km: float
     if dens_per_km2 <= 0.0 or cross_track_half_km <= 0.0:
         return 0.0
     return dens_per_km2 * 2.0 * cross_track_half_km
+
+
+def mean_encounter_time_s(
+    dens_per_km2: float,
+    cross_track_half_km: float,
+    ground_speed_km_s: float,
+) -> float:
+    """Return mean time between along-track encounters at constant ground speed.
+
+    Args:
+        dens_per_km2: Area density of stacks.
+        cross_track_half_km: Half-width of the generation corridor.
+        ground_speed_km_s: ISS ground-track speed.
+
+    Returns:
+        1 / (intensity_per_km * ground_speed_km_s), or inf when the rate is 0.
+    """
+    lam = along_track_intensity_per_km(dens_per_km2, cross_track_half_km)
+    rate = lam * ground_speed_km_s
+    if rate <= 0.0:
+        return math.inf
+    return 1.0 / rate
 
 
 def _ecef_state(

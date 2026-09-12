@@ -110,7 +110,7 @@ def lvlh_axes(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """ISS body axes in ECI: +x along-track, +y starboard (-h-hat), +z nadir.
 
-    Matches analysis.lib.look.body_axes. Elevation hinge is +y.
+    Matches flight lvlh_axes. Elevation hinge is +y.
 
     Inputs:
         r_eci_m: ISS position ECI meters, shape (3,).

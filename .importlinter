@@ -86,13 +86,6 @@ source_modules =
 forbidden_modules =
     gse
 
-[importlinter:contract:analysis-layers]
-name = Analysis studies depend on lib
-type = layers
-layers =
-    analysis.studies
-    analysis.lib
-
 [importlinter:contract:analysis-isolation]
 name = Analysis must not import tools
 type = forbidden

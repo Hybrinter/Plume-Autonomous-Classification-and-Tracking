@@ -1,7 +1,5 @@
 """Geometry-window sanity for the single-axis vs dual-axis study."""
 
-from analysis.lib.optics import build_optics
-from analysis.lib.orbit import build_orbit
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DESIGN_LAT_DEG,
     GIMBAL_BOX,
@@ -15,8 +13,11 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import (
     cluster_stack_offsets_km,
     latitude_table,
     offset_times,
+    one_axis_window_from_environment,
     origin_window,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import build_optics
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import build_orbit
 
 
 def test_science_window_is_shorter_than_old_60deg_stop() -> None:
@@ -74,3 +75,13 @@ def test_offset_plume_seconds_innermost_survives() -> None:
     assert far.one_axis_n_in == 0
     assert far.two_axis_plume_s > 0.85 * full
     assert far.two_axis_n_in == OFFSET_STACK_N
+
+
+def test_one_axis_window_from_environment_matches_sample_pass() -> None:
+    """Equator elevation window from evaluate is near the km/deg sampler."""
+    optics = build_optics(OPTICS_SPEC)
+    orbit = build_orbit(TLE, use_perigee=False)
+    times, _ = origin_window(orbit, optics, GIMBAL_BOX, 0.0, 0.0)
+    env_s = one_axis_window_from_environment(orbit, GIMBAL_BOX, dt_s=1.0)
+    assert env_s > 40.0
+    assert abs(env_s - times.along_track_s) / times.along_track_s < 0.20

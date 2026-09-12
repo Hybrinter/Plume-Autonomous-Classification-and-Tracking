@@ -1,8 +1,14 @@
-"""Unit tests for analysis.lib.hunt -- rewind/limb Poisson waits and scan rate."""
+"""Unit tests for rewind/limb Poisson waits and smear-limited az scan rate."""
 
 import math
 
-from analysis.lib.hunt import (
+from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
+    DESIGN_LAT_DEG,
+    GIMBAL_BOX,
+    OPTICS_SPEC,
+    TLE,
+)
+from analysis.studies.single_axis_vs_dual_axis_gimbal.hunt import (
     az_scan_rate_deg_s,
     d_look_ahead_d_eta_km_per_rad,
     ground_central_angle_rad,
@@ -10,14 +16,8 @@ from analysis.lib.hunt import (
     reacquire,
     two_phase_mean_wait_s,
 )
-from analysis.lib.optics import band_gsd_along_m, build_optics
-from analysis.lib.orbit import build_orbit
-from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
-    DESIGN_LAT_DEG,
-    GIMBAL_BOX,
-    OPTICS_SPEC,
-    TLE,
-)
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import band_gsd_along_m, build_optics
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import build_orbit
 
 
 def test_two_phase_wait_single_rate() -> None:

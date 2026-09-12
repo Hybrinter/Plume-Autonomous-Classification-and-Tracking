@@ -34,7 +34,7 @@ object is constructed.
 | `CommandIngressConfig` | class | HMAC key path, auth flag, accepted sources |
 | `CommandRouterConfig` | class | Hazardous ARM window duration |
 | `EphemerisConfig` | class | Circular-orbit ISS elements and WGS-84 constants |
-| `EnvironmentConfig` | class | Per-axis sim/real wiring selector |
+| `DriverConfig` | class | Per-axis sim/real wiring selector |
 | `PactConfig` | class | Top-level config composing all sub-configs |
 | `AxisMode` | type alias | `"sim"` or `"real"` |
 
@@ -54,7 +54,7 @@ into `PactConfig`.
 4. Unknown keys and out-of-range values fail at construction.
 5. `PactConfig` requires inference `H,W` to equal the demosaiced band plane
    (`height_px/2`, `width_px/2`).
-6. `EnvironmentConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
+6. `DriverConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
 7. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
 8. `CommandIngressConfig` names the HMAC key path and accepted command sources.
 9. Routable targets and hazardous commands come from the command dictionary, not from router
@@ -149,7 +149,7 @@ ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
 - Default field values must match `config/default.toml` exactly.
 - No subsystem reads TOML directly.
 - `calibration_dir=""` selects identity calibration (SIL only).
-- Launch-lock axis is not in `EnvironmentConfig`.
+- Launch-lock axis is not in `DriverConfig`.
 - Science elevation must lie inside hardware travel. Stow and home must lie inside
   hardware travel.
 - `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have

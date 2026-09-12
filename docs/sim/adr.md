@@ -13,6 +13,7 @@ Package-local decisions for `packages/sim`. New records use files under
 | ADR-REPO-0006 | ISS-attached reliability posture |
 | ADR-REPO-0008 | Closed-loop gimbal pointing |
 | ADR-REPO-0010 | Validation as a configuration matrix with a VCRM spine |
+| ADR-REPO-0014 | DriverConfig for HAL axes; environment reserved for simulated world |
 
 ## Records
 

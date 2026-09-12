@@ -33,7 +33,7 @@ every app, and runs them under the thread scheduler until shutdown.
 1. Load config with `load_config`. Exit on `Err`.
 2. Load mosaic calibration from `sensor.calibration_dir`, or build an identity calibration.
 3. Create a bounded `MessageBus` with `default_bus_policy()`.
-4. Select `RealClock` or `ManualClock` from `environment.clock`.
+4. Select `RealClock` or `ManualClock` from `drivers.clock`.
 5. Subscribe to `HeartbeatMsg` before the scheduler starts.
 6. Call `build_flight_system` to wire apps.
 7. Register ten apps on the scheduler in fixed order: payload, fault, iss_iface, thermal,
@@ -65,13 +65,13 @@ attempts.
 ## Configuration
 
 Reads the full `PactConfig` through `load_config`. Uses `sensor.calibration_dir`,
-`environment.clock`, `command_ingress.hmac_key_path`, and `fault.watchdog_interval_s`.
+`drivers.clock`, `command_ingress.hmac_key_path`, and `fault.watchdog_interval_s`.
 
 ## Constraints
 
 - Real driver SDK modules load only inside `select_drivers`.
 - The bus uses bounded queues per `default_bus_policy()`.
-- `sim_inputs` is always `None` in flight. Every environment axis must be `real`.
+- `sim_inputs` is always `None` in flight. Every driver axis must be `real`.
 - Daemon threads share the in-process bus.
 
 ## Related documents

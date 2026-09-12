@@ -192,7 +192,7 @@ class InProcessBackend:
         Args:
             scenario: The scenario (scene spec + command timeline) to realize.
             profile_path: Path to the profile TOML applied as an override over
-                config/default.toml (selects the per-axis sim/real environment).
+                config/default.toml (selects the per-axis sim/real driver config).
 
         Notes:
             For a real link axis, frees a TCP/UDP port pair, replaces LinkConfig so
@@ -207,7 +207,7 @@ class InProcessBackend:
             any step so no published message is missed (the bus only delivers to live subs).
         """
         config = load_profile_config("config/default.toml", profile_path)
-        self._link_real = config.environment.link == "real"
+        self._link_real = config.drivers.link == "real"
 
         frames = build_frames(scenario.scene.num_frames, scenario.scene.seed)
         detector = plume_detector()

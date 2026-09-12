@@ -6,7 +6,7 @@
 ## Purpose
 
 This package holds concrete drivers for real flight hardware. The flight composition root
-constructs these drivers when the environment config selects a real axis.
+constructs these drivers when the driver config selects a real axis.
 
 ## Contents
 

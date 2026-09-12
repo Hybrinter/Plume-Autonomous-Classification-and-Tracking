@@ -180,6 +180,7 @@ def origin_window(
     box: GimbalBox,
     lat_deg: float,
     origin_cross_km: float,
+    span: SampleSpan | None = None,
 ) -> tuple[WindowTimes, PassSamples]:
     """Return elevation-window times for a nadir-latitude origin, possibly offset.
 
@@ -189,11 +190,13 @@ def origin_window(
         box: Gimbal box.
         lat_deg: Pass latitude in degrees.
         origin_cross_km: Cross-track offset of the origin in kilometres.
+        span: Time grid. Default is the design-pass SampleSpan.
 
     Returns:
         Window summary and the origin pass samples.
     """
-    data = sample_pass(orbit, box, lat_deg, 0.0, origin_cross_km, _span())
+    used = span if span is not None else _span()
+    data = sample_pass(orbit, box, lat_deg, 0.0, origin_cross_km, used)
     el_mask = in_science_window(data, box)
     empty = WindowTimes(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     if not np.any(el_mask):

@@ -2,8 +2,9 @@
 
 Each accepted vision frame rebuilds the line of sight through the blob center of
 geometry, rotates it into ECI, and intersects a 2 km height proxy ellipsoid.
-The hit is a RayHit in ECEF meters. A miss is None. Callers keep the last CoG.
-`intersect_boresight` uses the principal-point ray at the current elevation.
+The hit is a RayHit in ECEF meters. A miss is None. TRACKING callers keep the
+last CoG. `intersect_boresight` uses the principal-point ray at the current
+elevation for REWIND scene rate.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 """
@@ -170,11 +171,11 @@ def intersect_boresight(
         height_m: Height-proxy offset meters (2 km tracking ellipsoid).
 
     Outputs:
-        RayHit: New ECEF point on a hit. None on a miss. Callers keep the last CoG.
+        RayHit: New ECEF point on a hit. None on a miss.
 
     Notes:
         The ray is mount boresight at theta_g_rad (camera principal point). Callers
-        use this for REWIND / no-plume scene rate.
+        use this for REWIND scene rate. They do not store the hit as a CoG.
     """
     r_iss = np.asarray(r_iss_eci_m, dtype=np.float64)  # np.ndarray[float64, (3,)]
     v_iss = np.asarray(v_iss_eci_m_s, dtype=np.float64)  # np.ndarray[float64, (3,)]

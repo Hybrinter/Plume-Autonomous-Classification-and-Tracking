@@ -33,9 +33,18 @@ the visible mask, and near-nadir pairs have no altitude lever arm.
   smear budget and is not commanded.
 - TRACKING commands `r = (ω_el + ω_res) + clip(K_p e, ±ω_sharp,el)` then hardware
   and science-window clips. Never smear-clip the matching scene rate.
-- REWIND uses boresight intersect at 2 km as the scene rate, hunts at
-  `ω_el + sign · ω_sharp,el` for `rewind_sharp_max_s`, then escapes at the
-  hardware slew. Residual from a lost target is ignored in REWIND.
+- REWIND is a hunt, not tracking. It stores no CoG (`r_cog_ecef_m = None`).
+  Boresight intersect at 2 km is scene rate only and is not written to
+  `r_cog_ecef_m`. Hunt at `ω_el + sign · ω_sharp,el` for `rewind_sharp_max_s`
+  (keep 2 s), then escape at the hardware slew.
+- Do not submit boresight `ω_el` as `NominalRateSample`. Residual history is
+  frozen in REWIND (inner encoder rings still run). Residual is ignored in the
+  REWIND rate law.
+- Residual KF is not wiped on disappearance. Coast uses
+  `release_persistence_frames = 5` and `max_observation_age_s = 0.25`. Reset on
+  TRACKING acquire (first blob from cold, blob from REWIND, or unmatched
+  `blob_id`), not on loss. IoU-matched CoG walk while already TRACKING keeps the
+  filter and rebases at the current ISS epoch.
 - `r` remains an absolute elevation rate for `set_rate` (production) or the
   detailed-plant inner PI (SIL).
 - `MOTION_SMEAR` uses `|(ω_g − ω_scene,el)| Δt / IFOV`, not absolute slew and not
@@ -46,6 +55,8 @@ the visible mask, and near-nadir pairs have no altitude lever arm.
 - Long exposures limit centering and sharp REWIND hunt, not feedforward match.
 - A starved REWIND may fail to walk toward the limb until the escape timeout.
 - Height error of the 2 km proxy remains in the residual at a small rate fraction.
+- A hunt moves the gimbal, so a plume that returns from REWIND always cold-starts
+  residual. Catch-up vision during REWIND does not re-lock the old filter.
 - STE pages and the elevation-controller design brief must match this law.
 
 ## Alternatives considered

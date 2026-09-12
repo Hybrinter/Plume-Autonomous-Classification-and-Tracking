@@ -11,7 +11,7 @@ Satisfies: REQ-AIML-PREP-001, REQ-AIML-PREP-002, REQ-AIML-IMAG-001.
 from flight.payload.preprocess.band_select import select_bands
 from flight.payload.preprocess.demosaic import CELL_OFFSETS, interleave_bands, separate_bands
 from flight.payload.preprocess.normalize import normalize_dn
-from flight.payload.preprocess.quality import compute_quality_flags
+from flight.payload.preprocess.quality import SmearRateSource, compute_quality_flags
 from flight.payload.preprocess.radiometric import (
     MosaicCalibration,
     calibrate_mosaic,
@@ -21,6 +21,7 @@ from flight.payload.preprocess.radiometric import (
 __all__ = [
     "CELL_OFFSETS",
     "MosaicCalibration",
+    "SmearRateSource",
     "calibrate_mosaic",
     "compute_quality_flags",
     "correct_bad_pixels",

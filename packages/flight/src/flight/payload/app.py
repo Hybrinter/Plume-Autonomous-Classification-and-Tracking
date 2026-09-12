@@ -73,6 +73,7 @@ from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
     MosaicCalibration,
+    SmearRateSource,
     calibrate_mosaic,
     compute_quality_flags,
     normalize_dn,
@@ -376,25 +377,32 @@ class PayloadApp:
         raw: MosaicFrame,
         state: ControlState,
         measured_rate_deg_per_s: float | None,
-    ) -> float:
-        """Elevation rate for MOTION_SMEAR: measured, else encoder, else command."""
+    ) -> tuple[float, SmearRateSource]:
+        """Elevation rate for MOTION_SMEAR: measured, else encoder, else command.
+
+        ``0.0`` is a valid measured, encoder, or commanded rate. Unknown is a
+        missing measured value plus a failed encoder bracket, which falls back
+        to the commanded rate and labels it COMMANDED.
+        """
         if measured_rate_deg_per_s is not None:
-            return measured_rate_deg_per_s
+            return measured_rate_deg_per_s, SmearRateSource.MEASURED
         encoder_rate = self._encoder_rate_over_exposure_deg_per_s(raw)
         if encoder_rate is not None:
-            return encoder_rate
-        return math.degrees(state.r_rad_s)
+            return encoder_rate, SmearRateSource.ENCODER
+        return math.degrees(state.commanded_rate_rad_s), SmearRateSource.COMMANDED
 
     @staticmethod
     def _invalidate_encoder_state(state: ControlState) -> ControlState:
         """Remove motion authority and detailed-plant encoder baseline after a read fault."""
         return replace(
             state,
-            encoder_ring=(),
-            encoder_timestamp_ring=(),
-            last_theta_enc_rad=None,
-            y_m=0.0,
-            r_rad_s=0.0,
+            encoder=replace(
+                state.encoder,
+                samples=(),
+                last_theta_enc_rad=None,
+                measured_rate_rad_s=0.0,
+            ),
+            commanded_rate_rad_s=0.0,
         )
 
     def _fresh_recovery_state(self, state: ControlState, sample: EncoderSample) -> ControlState:
@@ -455,8 +463,10 @@ class PayloadApp:
         else:
             self._record_encoder(gimbal_pos)
 
-        gimbal_rate_deg_per_s = self._smear_gimbal_rate_deg_per_s(raw, state, slew_rate_deg_per_s)
-        omega_scene_el_deg_per_s = math.degrees(state.last_omega_scene_el)
+        gimbal_rate_deg_per_s, _ = self._smear_gimbal_rate_deg_per_s(
+            raw, state, slew_rate_deg_per_s
+        )
+        omega_scene_el_deg_per_s = math.degrees(state.target.last_omega_scene_el)
         quality_flags = compute_quality_flags(
             selected.value,
             raw.exposure_us,
@@ -523,7 +533,10 @@ class PayloadApp:
         if self.pose_intent.mode is not None:
             pose_mode = self.pose_intent.mode
             pose_el = self.pose_intent.el_deg
-            current = replace(current, pose_mode=pose_mode, pose_el_deg=pose_el)
+            current = replace(
+                current,
+                pose=replace(current.pose, pose_mode=pose_mode, pose_el_deg=pose_el),
+            )
             issued = self._actuate_pose(
                 GimbalRequest(mode=pose_mode, el_deg=pose_el, reason="ground_pose"),
                 current,
@@ -556,8 +569,11 @@ class PayloadApp:
                     current = replace(
                         current,
                         arbiter=replace(current.arbiter, gimbal_state=GimbalState.SAFE),
-                        pose_mode=GimbalCommandMode.STOW,
-                        pose_el_deg=self.controller.gimbal.stow_el_deg,
+                        pose=replace(
+                            current.pose,
+                            pose_mode=GimbalCommandMode.STOW,
+                            pose_el_deg=self.controller.gimbal.stow_el_deg,
+                        ),
                     )
                 safe_commanded = False
                 safe_cleared = False
@@ -571,7 +587,10 @@ class PayloadApp:
             if eph_err is not None:
                 self._publish_fault(eph_err, "ephemeris read failed")
             theta = encoder.angle_rad
-            current = replace(current, last_theta_enc_rad=theta)
+            current = replace(
+                current,
+                encoder=replace(current.encoder, last_theta_enc_rad=theta),
+            )
             if self.actuator_safety.recovery_pending_reset:
                 current = self._fresh_recovery_state(current, encoder)
             tick = self.controller.outer_step(
@@ -588,7 +607,7 @@ class PayloadApp:
             )
             current = tick.state
             if self.lock_gate.engaged:
-                current = replace(current, r_rad_s=0.0)
+                current = replace(current, commanded_rate_rad_s=0.0)
             for event in tick.telemetry:
                 if (
                     self.lock_gate.engaged
@@ -609,7 +628,7 @@ class PayloadApp:
                 if (
                     not self.lock_gate.engaged
                     and current.arbiter.gimbal_state is GimbalState.SAFE
-                    and current.pose_mode is GimbalCommandMode.STOW
+                    and current.pose.pose_mode is GimbalCommandMode.STOW
                 ):
                     with self.actuator_io_lock:
                         stow_result = self.gimbal.stow_reference_step(t)
@@ -618,7 +637,9 @@ class PayloadApp:
                         self._publish_fault(stow_result.error, "bounded gimbal stow failed")
                         self._inhibit_motion("bounded stow failed")
                 else:
-                    self._write_rate(math.degrees(current.r_rad_s), t, self.lock_gate.engaged)
+                    self._write_rate(
+                        math.degrees(current.commanded_rate_rad_s), t, self.lock_gate.engaged
+                    )
             safe_commanded = False
             safe_cleared = False
         if (
@@ -654,17 +675,17 @@ class PayloadApp:
         dt = self.controller.cfg.inner.dt_s
         current = state
         self.poll_lock_state()
-        if current.last_inner_s is None:
+        if current.inner.last_inner_s is None:
             origin = min(self.clock.monotonic_s(), now)
-            current = replace(current, last_inner_s=origin)
-        t = current.last_inner_s
+            current = replace(current, inner=replace(current.inner, last_inner_s=origin))
+        t = current.inner.last_inner_s
         assert t is not None
         gap = now - t
         cap = self.controller.cfg.integrity.catchup_max_s
         if gap > cap:
             self._publish_fault(FaultCode.GIMBAL_FAULT, "inner catch-up cap exceeded")
             t = now - cap
-            current = replace(current, last_inner_s=t)
+            current = replace(current, inner=replace(current.inner, last_inner_s=t))
         while t + dt <= now + 1e-12:
             t = t + dt
             pos = self._read_position()
@@ -673,16 +694,16 @@ class PayloadApp:
                 encoder_timestamp_s = pos.value.timestamp_s
             else:
                 self._publish_fault(pos.error, "encoder unavailable")
-                current = replace(current, r_rad_s=0.0)
+                current = replace(current, commanded_rate_rad_s=0.0)
                 break
             if self.actuator_safety.recovery_pending_reset:
                 current = self._fresh_inner_state(current)
             enc_rate = 0.0
-            if current.last_theta_enc_rad is not None and current.encoder_timestamp_ring:
-                prior_s = current.encoder_timestamp_ring[-1]
+            if current.encoder.last_theta_enc_rad is not None and current.encoder.samples:
+                prior_s = current.encoder.samples[-1].t_s
                 measured_dt_s = encoder_timestamp_s - prior_s
                 if measured_dt_s > 0.0:
-                    enc_rate = (theta - current.last_theta_enc_rad) / measured_dt_s
+                    enc_rate = (theta - current.encoder.last_theta_enc_rad) / measured_dt_s
             locked = self.lock_gate.engaged
             tick = self.controller.inner_step(
                 current,
@@ -717,25 +738,28 @@ class PayloadApp:
     ) -> tuple[ControlState, FaultCode | None]:
         """Latch lock-hold pose, run the detector, and stamp strikes onto tick state."""
         motion, ref_th, ref_t = lock_hold_rate(
-            locked, theta, now, prior.lock_theta_ref_rad, prior.lock_ref_s
+            locked, theta, now, prior.integrity.lock_theta_ref_rad, prior.integrity.lock_ref_s
         )
         integrity = check_integrity(
             self.controller.cfg.integrity,
-            tick_state.r_rad_s,
-            tick_state.y_m,
+            tick_state.commanded_rate_rad_s,
+            tick_state.encoder.measured_rate_rad_s,
             tau_nm,
             enc_rate,
             locked,
-            prior.integrity_freeze_strikes,
-            prior.integrity_lock_strikes,
+            prior.integrity.freeze_strikes,
+            prior.integrity.lock_strikes,
             motion,
         )
         updated = replace(
             tick_state,
-            integrity_freeze_strikes=integrity.freeze_strikes,
-            integrity_lock_strikes=integrity.lock_fight_strikes,
-            lock_theta_ref_rad=ref_th,
-            lock_ref_s=ref_t,
+            integrity=replace(
+                tick_state.integrity,
+                freeze_strikes=integrity.freeze_strikes,
+                lock_strikes=integrity.lock_fight_strikes,
+                lock_theta_ref_rad=ref_th,
+                lock_ref_s=ref_t,
+            ),
         )
         return updated, integrity.fault
 
@@ -906,14 +930,14 @@ class PayloadApp:
         """Discard dynamic controller memory before resuming after an I/O outage."""
         return replace(
             state,
-            encoder_ring=(),
-            encoder_timestamp_ring=(),
-            integrator=0.0,
-            y_m=0.0,
-            last_theta_enc_rad=None,
-            last_tau_nm=0.0,
-            integrity_freeze_strikes=0,
-            integrity_lock_strikes=0,
+            encoder=replace(
+                state.encoder,
+                samples=(),
+                last_theta_enc_rad=None,
+                measured_rate_rad_s=0.0,
+            ),
+            inner=replace(state.inner, integrator=0.0, last_tau_nm=0.0),
+            integrity=replace(state.integrity, freeze_strikes=0, lock_strikes=0),
         )
 
     def _publish_actuator_recovery(self, state: str) -> None:
@@ -1042,10 +1066,12 @@ class PayloadApp:
                     snap = holder["state"]
                     locked = self.lock_gate.engaged
                     safe = self.safe_latch.commanded
-                    if snap.last_inner_s is None:
-                        holder["state"] = replace(snap, last_inner_s=now_inner)
+                    if snap.inner.last_inner_s is None:
+                        holder["state"] = replace(
+                            snap, inner=replace(snap.inner, last_inner_s=now_inner)
+                        )
                         snap = holder["state"]
-                if snap.last_inner_s == now_inner:
+                if snap.inner.last_inner_s == now_inner:
                     stop_event.wait(timeout=dt)
                     continue
                 pos = self._read_position()
@@ -1056,16 +1082,16 @@ class PayloadApp:
                     self._publish_fault(pos.error, "encoder unavailable")
                     with self.inner_lock:
                         latest = holder["state"]
-                        holder["state"] = replace(latest, r_rad_s=0.0)
+                        holder["state"] = replace(latest, commanded_rate_rad_s=0.0)
                     stop_event.wait(timeout=dt)
                     continue
                 if self.actuator_safety.recovery_pending_reset:
                     snap = self._fresh_inner_state(snap)
                 enc_rate = 0.0
-                if snap.last_theta_enc_rad is not None and snap.encoder_timestamp_ring:
-                    measured_dt_s = encoder_timestamp_s - snap.encoder_timestamp_ring[-1]
+                if snap.encoder.last_theta_enc_rad is not None and snap.encoder.samples:
+                    measured_dt_s = encoder_timestamp_s - snap.encoder.samples[-1].t_s
                     if measured_dt_s > 0.0:
-                        enc_rate = (theta - snap.last_theta_enc_rad) / measured_dt_s
+                        enc_rate = (theta - snap.encoder.last_theta_enc_rad) / measured_dt_s
                 tick = self.controller.inner_step(
                     snap,
                     now_inner,
@@ -1088,24 +1114,20 @@ class PayloadApp:
                 with self.inner_lock:
                     latest = holder["state"]
                     merged_r = (
-                        stamped.r_rad_s
-                        if (locked or safe or latest.pose_mode is not None)
-                        else latest.r_rad_s
+                        stamped.commanded_rate_rad_s
+                        if (locked or safe or latest.pose.pose_mode is not None)
+                        else latest.commanded_rate_rad_s
                     )
                     holder["state"] = replace(
                         latest,
-                        encoder_ring=stamped.encoder_ring,
-                        encoder_timestamp_ring=stamped.encoder_timestamp_ring,
-                        integrator=stamped.integrator,
-                        y_m=stamped.y_m,
-                        r_rad_s=merged_r,
-                        last_inner_s=now_inner,
-                        last_theta_enc_rad=theta,
-                        last_tau_nm=tick.tau_nm,
-                        integrity_freeze_strikes=stamped.integrity_freeze_strikes,
-                        integrity_lock_strikes=stamped.integrity_lock_strikes,
-                        lock_theta_ref_rad=stamped.lock_theta_ref_rad,
-                        lock_ref_s=stamped.lock_ref_s,
+                        encoder=stamped.encoder,
+                        inner=replace(
+                            stamped.inner,
+                            last_inner_s=now_inner,
+                            last_tau_nm=tick.tau_nm,
+                        ),
+                        commanded_rate_rad_s=merged_r,
+                        integrity=stamped.integrity,
                     )
                 stop_event.wait(timeout=dt)
 
@@ -1159,17 +1181,9 @@ class PayloadApp:
                     latest = holder["state"]
                     holder["state"] = replace(
                         current,
-                        encoder_ring=latest.encoder_ring,
-                        encoder_timestamp_ring=latest.encoder_timestamp_ring,
-                        integrator=latest.integrator,
-                        y_m=latest.y_m,
-                        last_inner_s=latest.last_inner_s,
-                        last_theta_enc_rad=latest.last_theta_enc_rad,
-                        last_tau_nm=latest.last_tau_nm,
-                        integrity_freeze_strikes=latest.integrity_freeze_strikes,
-                        integrity_lock_strikes=latest.integrity_lock_strikes,
-                        lock_theta_ref_rad=latest.lock_theta_ref_rad,
-                        lock_ref_s=latest.lock_ref_s,
+                        encoder=latest.encoder,
+                        inner=latest.inner,
+                        integrity=latest.integrity,
                     )
                 stop_event.wait(timeout=self.controller.cfg.outer.dt_s)
         finally:

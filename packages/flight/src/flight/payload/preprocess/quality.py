@@ -26,12 +26,14 @@ Band index assumptions (for a (C, H, W) array after select_bands), order
     index 3 -> NIR
 
 Contains:
+  - SmearRateSource: provenance of the elevation rate used for MOTION_SMEAR.
   - compute_quality_flags: evaluate the heuristics and return the raised-flag frozenset.
 """
 
 from __future__ import annotations
 
 # stdlib
+from enum import Enum
 from typing import Final
 
 # third-party
@@ -43,6 +45,19 @@ from flight.libs.types import FrameUsabilityTag
 
 # Saturation pixel level is a fixed normalisation constant, not a tunable threshold.
 SATURATION_PIXEL_LEVEL: Final[float] = 0.95  # normalised DN units
+
+
+class SmearRateSource(Enum):
+    """Provenance of the elevation rate used for MOTION_SMEAR.
+
+    String values mirror member names. ``0.0`` is a valid measured, encoder, or
+    commanded rate. Unknown measured plus a failed encoder bracket falls back
+    to the commanded rate and labels it COMMANDED.
+    """
+
+    MEASURED = "MEASURED"
+    ENCODER = "ENCODER"
+    COMMANDED = "COMMANDED"
 
 
 def compute_quality_flags(

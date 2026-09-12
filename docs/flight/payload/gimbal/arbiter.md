@@ -64,9 +64,11 @@ Reads `ArbiterConfig.release_persistence_frames`, `max_observation_age_s`, and
 
 `step` is a pure function. Transition telemetry uses the injected `timestamp_utc`.
 `GimbalArbiter` holds no mutable instance state; `ArbiterState` threads externally.
+`ArbiterState` is a frozen slotted dataclass.
 
 ## Related documents
 
 - [`flight.payload.gimbal.request`](request.md)
+- [`flight.payload.gimbal.scene`](scene.md)
 - [`flight.payload.gimbal.outer`](outer.md)
 - [`flight.payload.control`](../control.md)

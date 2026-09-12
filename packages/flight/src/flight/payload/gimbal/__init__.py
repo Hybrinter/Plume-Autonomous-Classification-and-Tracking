@@ -3,6 +3,7 @@
 arbiter -- TRACKING / REWIND / SAFE mode selection;
 inner -- PI + computed torque;
 outer -- scene match, smear clip, and RateDecision;
+scene -- CoG / boresight / none selection and residual-reference identity;
 position -- STOW/HOME/GOTO rate into the inner PI;
 rate_fit -- causal polynomial encoder-rate estimator;
 intersect -- pinhole CoG and boresight height-ellipsoid intersect;
@@ -33,6 +34,12 @@ from flight.payload.gimbal.predictor import LosPrediction, predict_los
 from flight.payload.gimbal.rate_fit import fit_rate, fit_rate_timed
 from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.gimbal.safety import apply_confidence_gate, apply_min_area_gate
+from flight.payload.gimbal.scene import (
+    SceneEstimate,
+    SceneSource,
+    acquire_resets_residual,
+    select_scene,
+)
 
 __all__ = [
     "ArbiterState",
@@ -44,6 +51,9 @@ __all__ = [
     "LosPrediction",
     "RateDecision",
     "RayHit",
+    "SceneEstimate",
+    "SceneSource",
+    "acquire_resets_residual",
     "apply_confidence_gate",
     "apply_min_area_gate",
     "boresight_error_deg",
@@ -59,6 +69,7 @@ __all__ = [
     "pinhole_error_rad",
     "position_rate",
     "predict_los",
+    "select_scene",
     "smear_cap_rad_s",
     "target_displacement_px",
 ]

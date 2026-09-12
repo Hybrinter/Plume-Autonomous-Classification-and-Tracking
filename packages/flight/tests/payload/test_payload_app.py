@@ -38,6 +38,7 @@ from flight.libs.types import (
 from flight.payload.app import PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.inference import DetectorBackend, ScriptedDetector
+from flight.payload.preprocess import SmearRateSource
 
 
 class _MemStorage:
@@ -139,7 +140,10 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
     now = 0.0
     for frame_id in range(1, 9):
         now += 1.0
-        state, _outcome = app.process_frame(_mosaic_frame(frame_id), state, now)
+        position = gimbal.read_position()
+        assert isinstance(position, Ok)
+        shutter = replace(position.value, timestamp_s=now)
+        state, _outcome = app.process_frame(_mosaic_frame(frame_id), state, now, gimbal_pos=shutter)
         state, _outer = app.advance_outer(state, now)
         state = app.advance_inner(state, now)
         clock.advance(1.0)
@@ -239,7 +243,7 @@ def test_clock_origin_does_not_replay_from_zero() -> None:
     clock.advance(3600.0)
     fault_sub = bus.subscribe(FaultEventMsg)
     state = app.advance_inner(app.controller.initial_state(), now=3600.0)
-    assert state.last_inner_s == 3600.0
+    assert state.inner.last_inner_s == 3600.0
     faults = []
     while not fault_sub.empty():
         faults.append(fault_sub.get_nowait())
@@ -257,10 +261,10 @@ def test_lock_engaged_writes_zero_torque() -> None:
             state=LaunchLockState.ENGAGED,
         )
     )
-    state = replace(app.controller.initial_state(), r_rad_s=0.1)
+    state = replace(app.controller.initial_state(), commanded_rate_rad_s=0.1)
     state = app.advance_inner(state, now=1.0)
     assert gimbal._tau_nm == 0.0
-    assert state.r_rad_s == 0.0
+    assert state.commanded_rate_rad_s == 0.0
 
 
 def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:
@@ -268,7 +272,12 @@ def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:
     app, _bus, gimbal, _clock = _build_app(_plume_detector())
     assert isinstance(gimbal.set_torque(0.2, valid_until_s=1.0), Ok)
     app.safe_latch.commanded = True
-    state = replace(app.controller.initial_state(), last_inner_s=0.0, r_rad_s=0.1)
+    initial = app.controller.initial_state()
+    state = replace(
+        initial,
+        inner=replace(initial.inner, last_inner_s=0.0),
+        commanded_rate_rad_s=0.1,
+    )
     app.advance_inner(state, now=0.001)
     assert gimbal._tau_nm <= 0.0
 
@@ -284,11 +293,12 @@ def test_encoder_failure_contains_motion_and_commands_safe(
         "read_position",
         lambda: Err(FaultCode.GIMBAL_FAULT),
     )
+    initial = app.controller.initial_state()
     state = replace(
-        app.controller.initial_state(),
-        last_inner_s=0.0,
-        last_theta_enc_rad=0.1,
-        r_rad_s=0.1,
+        initial,
+        inner=replace(initial.inner, last_inner_s=0.0),
+        encoder=replace(initial.encoder, last_theta_enc_rad=0.1),
+        commanded_rate_rad_s=0.1,
     )
     state = app.advance_inner(state, now=0.001)
     assert gimbal._tau_nm == 0.0
@@ -315,8 +325,8 @@ def test_ground_goto_latches_pose_mode() -> None:
     app.handle_commands()
     state, outcome = app.advance_outer(app.controller.initial_state(), now=1.0)
     assert outcome.command_issued is True
-    assert state.pose_mode is GimbalCommandMode.ABSOLUTE
-    assert state.pose_el_deg == 20.0
+    assert state.pose.pose_mode is GimbalCommandMode.ABSOLUTE
+    assert state.pose.pose_el_deg == 20.0
     published = cmd_sub.get_nowait()
     assert published.mode is GimbalCommandMode.ABSOLUTE
     assert published.el_value_deg == 20.0
@@ -326,12 +336,16 @@ def test_process_frame_preserves_measured_zero_slew() -> None:
     """A stationary measured gimbal rate flags MOTION_SMEAR against a moving scene."""
     detector = _FlagDetector()
     app, _bus, _gimbal, _clock = _build_app(detector)
+    initial = app.controller.initial_state()
     state = replace(
-        app.controller.initial_state(),
-        r_rad_s=math.radians(1.0),
-        last_omega_scene_el=math.radians(1.0),
+        initial,
+        commanded_rate_rad_s=math.radians(1.0),
+        target=replace(initial.target, last_omega_scene_el=math.radians(1.0)),
     )
     raw = replace(_mosaic_frame(1), exposure_us=100_000.0)
+    rate_deg_per_s, source = app._smear_gimbal_rate_deg_per_s(raw, state, 0.0)
+    assert rate_deg_per_s == 0.0
+    assert source is SmearRateSource.MEASURED
     _state, outcome = app.process_frame(raw, state, now=1.0, slew_rate_deg_per_s=0.0)
     assert outcome.fault is None
     assert detector.flags
@@ -344,12 +358,17 @@ def test_process_frame_uses_encoder_when_command_and_motion_disagree() -> None:
     app, _bus, _gimbal, _clock = _build_app(detector)
     app._record_encoder(GimbalPosition(el_deg=10.0, timestamp_s=0.9, sequence=1))
     pos = GimbalPosition(el_deg=10.0, timestamp_s=1.0, sequence=2)
+    app._record_encoder(pos)
+    initial = app.controller.initial_state()
     state = replace(
-        app.controller.initial_state(),
-        r_rad_s=math.radians(1.0),
-        last_omega_scene_el=math.radians(1.0),
+        initial,
+        commanded_rate_rad_s=math.radians(1.0),
+        target=replace(initial.target, last_omega_scene_el=math.radians(1.0)),
     )
     raw = replace(_mosaic_frame(1), timestamp_s=1.0, exposure_us=100_000.0)
+    rate_deg_per_s, source = app._smear_gimbal_rate_deg_per_s(raw, state, None)
+    assert source is SmearRateSource.ENCODER
+    assert abs(rate_deg_per_s) < 1e-12
     _state, outcome = app.process_frame(raw, state, now=1.0, gimbal_pos=pos)
     assert outcome.fault is None
     assert detector.flags

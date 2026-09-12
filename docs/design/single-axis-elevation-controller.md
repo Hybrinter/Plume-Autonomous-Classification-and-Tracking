@@ -106,7 +106,7 @@ along-track (ISS velocity), \(-\) look-back. One actuated axis.
 
 ### 5.1 Mount and camera frames
 
-Right-handed mount frame, matching `analysis.lib.look.body_axes`:
+Right-handed mount frame, matching flight `lvlh_axes`:
 
 - \(\hat z\): geocentric nadir (boresight at \(\theta_g=0\))
 - \(\hat x\): along-track (ISS velocity)

@@ -3,8 +3,11 @@
 import math
 
 import numpy as np
-from analysis.lib.optics import Optics
-from analysis.lib.tracking import disk_frac_in_rect, disk_half_in_chip
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import Optics
+from analysis.studies.single_axis_vs_dual_axis_gimbal.tracking import (
+    disk_frac_in_rect,
+    disk_half_in_chip,
+)
 
 
 def test_disk_frac_full_when_centered_and_small() -> None:

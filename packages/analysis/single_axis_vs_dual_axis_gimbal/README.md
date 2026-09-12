@@ -1,8 +1,9 @@
 # Single-axis vs dual-axis gimbal
 
 TEMPORARY ANALYSIS. Not flight software. Design study for dropping
-the azimuth gimbal axis. Shared geometry lives in `analysis.lib`;
-this folder holds generated reports, PNGs, and local inventory downloads.
+the azimuth gimbal axis. Dual-axis hunt and covering-disk math live in
+the study package. 1-axis waits use sim.environment and sim.trial.
+This folder holds generated reports, PNGs, and local inventory downloads.
 
 ```text
 uv run python -m analysis.studies.single_axis_vs_dual_axis_gimbal geometry

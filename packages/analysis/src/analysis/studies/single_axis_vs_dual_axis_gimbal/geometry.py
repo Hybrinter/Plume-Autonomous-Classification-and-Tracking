@@ -1,4 +1,4 @@
-"""Design-pass tracking-time tables wrapping analysis.lib.
+"""Design-pass tracking-time tables.
 
 Computes the one-sided elevation window, Earth-rotation az walk, and
 one-axis vs two-axis off-track plume-seconds. On-track dwell still uses
@@ -9,7 +9,7 @@ loss is when the innermost plume fails the half-disk-on-chip test.
 Contains:
   - WindowTimes / LatitudeRow / OffsetRow / GeometryResult.
   - origin_window / latitude_table / cluster_stack_offsets_km / offset_times.
-  - self_check / run_geometry.
+  - one_axis_window_from_environment / self_check / run_geometry.
 """
 
 from __future__ import annotations
@@ -19,21 +19,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from flight.libs.config import SensorConfig
+from flight.libs.types import Err
+from sim.environment import EnvironmentConfig, build_environment, camera_from_sensor
+from sim.environment.config import EcefColumnParams
+from sim.environment.records import EnvTime, ShutterPose
 
-from analysis.lib.hunt import HuntModel, HuntResult
-from analysis.lib.look import GimbalBox, look_at
-from analysis.lib.optics import Optics, band_gsd_along_m, build_optics
-from analysis.lib.orbit import Orbit, argument_of_latitude, build_orbit, iss_eci, origin_ecef
-from analysis.lib.plot_style import apply as apply_plot_style
-from analysis.lib.tracking import (
-    PassSamples,
-    SampleSpan,
-    disk_half_in_chip,
-    in_science_window,
-    mask_time_s,
-    sample_pass,
-    staring_in_frame,
-)
+from analysis.studies.plot_style import apply as apply_plot_style
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     DESIGN_LAT_DEG,
     GEOMETRY_DT_S,
@@ -50,6 +42,30 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     TLE,
     omega_img_rewind_deg_s,
     omega_rel_max_deg_s,
+)
+from analysis.studies.single_axis_vs_dual_axis_gimbal.hunt import HuntModel, HuntResult
+from analysis.studies.single_axis_vs_dual_axis_gimbal.look import GimbalBox, look_at
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import (
+    Optics,
+    band_gsd_along_m,
+    build_optics,
+)
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import (
+    Orbit,
+    argument_of_latitude,
+    build_orbit,
+    ephemeris_from_tle,
+    iss_eci,
+    origin_ecef,
+)
+from analysis.studies.single_axis_vs_dual_axis_gimbal.tracking import (
+    PassSamples,
+    SampleSpan,
+    disk_half_in_chip,
+    in_science_window,
+    mask_time_s,
+    sample_pass,
+    staring_in_frame,
 )
 
 
@@ -206,6 +222,58 @@ def origin_window(
         ),
         data,
     )
+
+
+def one_axis_window_from_environment(
+    orbit: Orbit,
+    box: GimbalBox,
+    *,
+    dt_s: float = GEOMETRY_DT_S,
+    t_min_s: float = -250.0,
+    t_max_s: float = 50.0,
+) -> float:
+    """Return the 1-axis science-window length from Environment.evaluate.
+
+    The CoG is the equator sub-satellite point at epoch (ascending node).
+    Two-axis tables still use ``sample_pass``.
+
+    Args:
+        orbit: Circular ISS orbit (places the ECEF CoG).
+        box: Elevation window (nadir and limb in the 90-at-nadir convention).
+        dt_s: Sample step in seconds.
+        t_min_s: First sample from epoch, seconds.
+        t_max_s: Last sample from epoch, seconds.
+
+    Returns:
+        Time from first to last in-window sample, seconds.
+
+    Raises:
+        ValueError: build_environment fails.
+    """
+    origin = origin_ecef(orbit, 0.0)
+    cog = (float(origin[0]) * 1000.0, float(origin[1]) * 1000.0, float(origin[2]) * 1000.0)
+    eph = ephemeris_from_tle(TLE)
+    world = EnvironmentConfig(
+        plume="ecef_column",
+        ecef_column=EcefColumnParams(cog_ecef_m=cog),
+    )
+    built = build_environment(world, camera_from_sensor(SensorConfig()), eph)
+    if isinstance(built, Err):
+        raise ValueError(built.error)
+    env = built.value
+    shutter = ShutterPose(0.0, 0.0, 13.0, 0.0)
+    rng = np.random.default_rng(0)
+    eta_max = math.radians(box.el_nadir_deg - box.el_limb_deg)
+    ts = np.arange(t_min_s, t_max_s + dt_s * 0.5, dt_s)
+    in_win = np.zeros(ts.size, dtype=bool)
+    for i, now in enumerate(ts):
+        time = EnvTime(float(now), eph.epoch_utc_s + float(now))
+        look = env.evaluate(time, shutter, rng, None).truth.look
+        in_win[i] = look.visible and 0.0 <= look.el_rad <= eta_max
+    if not np.any(in_win):
+        return 0.0
+    idx = np.where(in_win)[0]
+    return float(ts[idx[-1]] - ts[idx[0]])
 
 
 def latitude_table(

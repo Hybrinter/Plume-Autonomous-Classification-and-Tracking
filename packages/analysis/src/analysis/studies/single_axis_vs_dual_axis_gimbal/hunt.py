@@ -17,10 +17,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from analysis.lib.constants import OMEGA_EARTH_RAD_S
-from analysis.lib.look import GimbalBox, look_at, rotate_z
-from analysis.lib.optics import Optics
-from analysis.lib.orbit import (
+from sim.environment.models.plume import along_track_intensity_per_km
+
+from analysis.studies.single_axis_vs_dual_axis_gimbal.constants import OMEGA_EARTH_RAD_S
+from analysis.studies.single_axis_vs_dual_axis_gimbal.look import GimbalBox, look_at, rotate_z
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import Optics
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import (
     Orbit,
     argument_of_latitude,
     heading_from_north_deg,
@@ -382,9 +384,9 @@ def reacquire(
     t_rw1, v_rw1, w_rw1 = _rewind_leg(t_dwell_1_s)
     t_rw2, v_rw2, w_rw2 = _rewind_leg(t_dwell_2_s)
 
-    lam_a1 = dens_per_km2 * w_rw1 * v_rw1
+    lam_a1 = along_track_intensity_per_km(dens_per_km2, 0.5 * w_rw1) * v_rw1
+    lam_b1 = along_track_intensity_per_km(dens_per_km2, 0.5 * swath_limb_1) * v_g
     lam_a2 = dens_per_km2 * w_rw2 * v_rw2
-    lam_b1 = dens_per_km2 * swath_limb_1 * v_g
     lam_b2 = dens_per_km2 * swath_limb_2 * v_g
     return HuntResult(
         t_reacq_1_s=two_phase_mean_wait_s(lam_a1, t_rw1, lam_b1),

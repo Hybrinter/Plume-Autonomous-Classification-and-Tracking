@@ -22,9 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from analysis.lib.hunt import HuntResult
-from analysis.lib.plot_style import C_BLUE, C_INK, C_ORANGE, C_RED, C_TEAL
-from analysis.lib.tracking import angular_rate_deg_s, in_science_window
+from analysis.studies.plot_style import C_BLUE, C_INK, C_ORANGE, C_RED, C_TEAL
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     AZ_WALK_LATS_DEG,
     LAT_BIN_DEG,
@@ -35,8 +33,13 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     POLAR_TASK_LAT_DEG,
     TLE,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.hunt import HuntResult
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import Cluster
 from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import RadiusProfile
+from analysis.studies.single_axis_vs_dual_axis_gimbal.tracking import (
+    angular_rate_deg_s,
+    in_science_window,
+)
 
 if TYPE_CHECKING:
     from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import GeometryResult

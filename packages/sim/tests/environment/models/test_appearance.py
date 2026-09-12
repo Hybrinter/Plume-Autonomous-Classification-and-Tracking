@@ -27,6 +27,7 @@ def _geom(centroid: tuple[float, float] | None) -> SceneGeometry:
             along_sigma_m=0.0,
             cross_sigma_m=0.0,
             height_proxy_m=2000.0,
+            present=True,
         ),
         look=LookAngles(0.0, 0.0, 0.0, 0.0, 0.0, False),
         centroid_band_px=centroid,

@@ -25,7 +25,8 @@ The evaluate module runs the world-model pipeline for one shutter.
 ## Behavior
 
 1. `orbit.state_eci(time.utc_s)` supplies ISS truth.
-2. `plume.evaluate(...)` returns `PlumeState`.
+2. `plume.evaluate(...)` returns `PlumeState`. The pipeline passes `rng` into
+   the plume model.
 3. Band-plane plumes copy `centroid_band_px` and skip ECEF look and project.
 4. ECEF plumes call `look_angles_at` and `optics.project_centroid`.
 5. An Earth hit closer than the CoG slant drops the centroid.

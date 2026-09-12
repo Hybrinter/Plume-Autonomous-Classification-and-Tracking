@@ -59,8 +59,8 @@ def evaluate_environment(
         eph: WGS-84 / epoch constants (same as HAL ephemeris config).
         time: Step time (from_step).
         shutter: True gimbal pose.
-        rng: Per-trial generator (appearance noise).
-        prior_plume: Previous PlumeState for later advected models.
+        rng: Per-trial generator (plume draws and appearance noise).
+        prior_plume: Previous PlumeState for PoissonLatitude and later advection.
 
     Returns:
         EnvSample with EnvTruth and DriverFeed.
@@ -75,6 +75,7 @@ def evaluate_environment(
         models.orbit,
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
+        rng,
     )
     geom = _build_scene_geometry(models, camera, eph, iss, plume, shutter)
     truth = EnvTruth(

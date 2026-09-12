@@ -15,7 +15,7 @@ implementations that satisfy it.
 | [`earth`](models/earth.md) | module | `EarthModel`, `Wgs84Ellipsoid`, `SphereEarth` |
 | [`orbit`](models/orbit.md) | module | `OrbitModel`, `CircularKepler` |
 | [`wind`](models/wind.md) | module | `WindModel`, `StillWind`, `ConstantEcefWind` |
-| [`plume`](models/plume.md) | module | `PlumeModel`, `BandplaneGaussian`, `EcefColumn` |
+| [`plume`](models/plume.md) | module | `PlumeModel`, `BandplaneGaussian`, `EcefColumn`, `PoissonLatitude` |
 | [`optics`](models/optics.md) | module | `OpticsModel`, `PinholeOptics` |
 | [`appearance`](models/appearance.md) | module | `AppearanceModel`, `OracleMask` |
 

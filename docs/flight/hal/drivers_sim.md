@@ -41,6 +41,8 @@ type (stall, hold-last, or empty queue).
 - `SimGimbal` integrates the plant on `set_torque` and on clock jumps after catch-up
   debt. The harness advances the clock after the payload catch-up methods.
 - `SimStationLink.sent` is a test inspection hook with no real-driver counterpart.
+- `SimSensor.load_next` and `SimGimbal.true_el_deg` are sim-only mutators and
+  observability hooks. They are not on the HAL Protocols.
 
 ## Related documents
 

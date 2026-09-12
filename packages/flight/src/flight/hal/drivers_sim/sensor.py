@@ -5,6 +5,9 @@ once exhausted (matching real stall semantics). Satisfies the ImagingSensor prot
 structurally. Frames are rendered by sim.scene; the driver itself does no image
 processing (acquire-only contract).
 
+load_next is a sim-only single-slot mutator (not on ImagingSensor). A closed-loop
+bind may overwrite the unread slot each step. Empty constructor plus no slot stalls.
+
 Contains:
   - SimSensor: replays pre-loaded MosaicFrame frames one per acquire_frame() call.
 """
@@ -20,25 +23,43 @@ class SimSensor:
 
         Inputs:
             frames (list[MosaicFrame]): Raw mosaic frames returned one per
-                acquire_frame() call, in order.
+                acquire_frame() call, in order. An empty list stalls until
+                load_next supplies a slot.
 
         Outputs:
             None.
         """
         self._frames = frames
         self._index = 0
+        self._slot: MosaicFrame | None = None
         self._acquiring = False
 
+    def load_next(self, frame: MosaicFrame) -> None:
+        """Overwrite the single unread live slot.
+
+        Not on ImagingSensor. An unread slot is discarded when this is called
+        again. acquire_frame prefers the slot over remaining constructor frames.
+        Callers must not overlap load_next with acquire_frame. The slot has no lock.
+
+        Args:
+            frame: Mosaic to return on the next acquire_frame.
+        """
+        self._slot = frame
+
     def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
-        """Return the next mosaic frame, or Err(CAMERA_STALL) once exhausted.
+        """Return the live slot, else the next scripted frame, else CAMERA_STALL.
 
         Inputs:
             None.
 
         Returns:
-            Result[MosaicFrame, FaultCode]: Ok(frame) while frames remain;
-            Err(FaultCode.CAMERA_STALL) after the replay list is exhausted.
+            Result[MosaicFrame, FaultCode]: Ok(frame) while a slot or scripted
+            frame remains; Err(FaultCode.CAMERA_STALL) when both are empty.
         """
+        if self._slot is not None:
+            frame = self._slot
+            self._slot = None
+            return Ok(frame)
         if self._index >= len(self._frames):
             return Err(FaultCode.CAMERA_STALL)
         frame = self._frames[self._index]

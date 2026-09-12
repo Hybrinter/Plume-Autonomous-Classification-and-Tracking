@@ -160,15 +160,28 @@ class ScriptedDetector(Detector):
             classifier_positive: If False, skip the segmentor every frame.
             latency_budget_ms: Wall-clock budget for detect(); 0 disables it.
         """
+        segmentor = ScriptedSegmentor(prob_mask)
         super().__init__(
             classifier=ScriptedClassifier(positive=classifier_positive),
-            segmentor=ScriptedSegmentor(prob_mask),
+            segmentor=segmentor,
             confidence_gate=confidence_gate,
             min_blob_area_px=min_blob_area_px,
             model_version=model_version,
             latency_budget_ms=latency_budget_ms,
             record_wall_clock=False,
         )
+        self._scripted_segmentor = segmentor
+
+    def load_mask(self, prob_mask: np.ndarray) -> None:
+        """Replace the scripted segmentor mask. Not on DetectorBackend.
+
+        Args:
+            prob_mask: (H, W) float32 probabilities used on the next detect().
+
+        Notes:
+            Callers must not overlap load_mask with detect. The slot has no lock.
+        """
+        self._scripted_segmentor.load_mask(prob_mask)
 
 
 class OnnxDetector(Detector):

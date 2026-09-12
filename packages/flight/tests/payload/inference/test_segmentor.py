@@ -36,6 +36,21 @@ def test_scripted_segmentor_satisfies_protocol() -> None:
     assert isinstance(segmentor, SegmentorBackend)
 
 
+def test_scripted_segmentor_load_mask_overwrites() -> None:
+    """load_mask replaces the stored mask; a later segment sees the new array."""
+    first = np.zeros((8, 8), dtype=np.float32)
+    first[0, 0] = 1.0
+    second = np.zeros((8, 8), dtype=np.float32)
+    second[4, 4] = 1.0
+    segmentor = ScriptedSegmentor(first)
+    segmentor.load_mask(second)
+    second[4, 4] = 0.0
+    result = segmentor.segment(_processed_frame())
+    assert isinstance(result, Ok)
+    assert float(result.value[4, 4]) == 1.0
+    assert float(result.value[0, 0]) == 0.0
+
+
 @pytest.mark.skipif(
     importlib.util.find_spec("onnxruntime") is not None,
     reason="onnxruntime is installed; the absent-runtime guard cannot be exercised",

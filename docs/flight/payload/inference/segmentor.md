@@ -27,13 +27,18 @@ expected_output_shape)`.
 Both implement `segment(ProcessedFrameMsg) -> Result[np.ndarray, FaultCode]` with a
 `(H, W)` float32 probability mask.
 
+`ScriptedSegmentor.load_mask(prob_mask)` replaces the stored mask. It is not on
+`SegmentorBackend`.
+
 ## Behavior
 
 1. `ScriptedSegmentor.segment` returns the configured mask. It does not read the
    frame tensor.
-2. `OnnxSegmentor.__init__` opens an onnxruntime session through the shared session
+2. `ScriptedSegmentor.load_mask` copies a new `(H, W)` float32 mask into the
+   stored slot.
+3. `OnnxSegmentor.__init__` opens an onnxruntime session through the shared session
    loader. Hash and shape checks are optional.
-3. `OnnxSegmentor.segment` adds a batch dimension, runs the session, applies
+4. `OnnxSegmentor.segment` adds a batch dimension, runs the session, applies
    sigmoid, and returns `probs[0, 0]`. The exported graph emits logits. Sigmoid is
    not part of the graph.
 
@@ -57,7 +62,8 @@ root.
 ## Constraints
 
 onnxruntime loads only when `OnnxSegmentor` is constructed. The module never imports
-real or sim HAL drivers.
+real or sim HAL drivers. Callers must not overlap `load_mask` with `segment`. The
+slot has no lock.
 
 ## Related documents
 

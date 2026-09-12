@@ -14,13 +14,14 @@ the real flight apps over sim HAL drivers and steps them deterministically.
 | --- | --- | --- |
 | [`scene`](sim/scene.md) | package | Synthetic mosaic frames and scripted detections |
 | [`environment`](sim/environment.md) | package | Named world models and the evaluate pipeline |
+| [`trial`](sim/trial.md) | package | Open-loop evaluate series and per-trial RNGs |
 | [`sil`](sim/sil.md) | package | SIL and validation harness builders and steppers |
 | [`twin`](sim/twin.md) | stub | Deferred dynamics twin scaffold (empty) |
 
 ## Package interface
 
 `sim` has no top-level `__init__.py` exports. Import from `sim.scene`, `sim.environment`,
-`sim.sil`, or `sim.sil.stepping`.
+`sim.trial`, `sim.sil`, or `sim.sil.stepping`.
 
 The SIL harness shares one cycle body: `sim.sil.stepping.step_once`. GSE and analysis reuse
 that function.
@@ -49,6 +50,7 @@ Tools analysis imports `sim.scene` and `sim.sil` for passive capture runs.
 
 - [`sim.scene`](sim/scene.md)
 - [`sim.environment`](sim/environment.md)
+- [`sim.trial`](sim/trial.md)
 - [`sim.sil`](sim/sil.md)
 - [`sim.twin`](sim/twin.md)
 - [`gse`](gse.md)

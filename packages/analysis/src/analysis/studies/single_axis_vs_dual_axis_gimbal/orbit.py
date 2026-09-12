@@ -8,7 +8,8 @@ Contains:
   - IssTle: mean elements used to build the orbit.
   - Orbit: SMA, radius, rates, and local altitude vs latitude.
   - wgs84_geocentric_radius_km: WGS-84 geocentric radius.
-  - ephemeris_from_tle / build_orbit / argument_of_latitude / heading_from_north_deg.
+  - ephemeris_from_tle / ephemeris_from_orbit / build_orbit.
+  - argument_of_latitude / heading_from_north_deg.
   - iss_eci / origin_ecef / offset_ecef.
 """
 
@@ -139,6 +140,30 @@ def ephemeris_from_tle(tle: IssTle) -> EphemerisConfig:
     return EphemerisConfig(
         inclination_deg=tle.inclination_deg,
         mean_motion_rev_per_day=tle.mean_motion_rev_per_day,
+        mu_m3_s2=base.mu_m3_s2,
+        omega_earth_rad_s=base.omega_earth_rad_s,
+        wgs84_a_m=base.wgs84_a_m,
+        wgs84_f=base.wgs84_f,
+        epoch_utc_s=base.epoch_utc_s,
+    )
+
+
+def ephemeris_from_orbit(orbit: Orbit) -> EphemerisConfig:
+    """Return flight ephemeris constants matching this circular orbit.
+
+    Mean motion is taken from ``orbit.n_rad_s`` so a perigee-radius Orbit
+    does not silently fly at SMA.
+
+    Args:
+        orbit: Circular orbit (SMA or perigee radius).
+
+    Returns:
+        EphemerisConfig. WGS-84 and mu stay the flight defaults.
+    """
+    base = EphemerisConfig()
+    return EphemerisConfig(
+        inclination_deg=orbit.inclination_deg,
+        mean_motion_rev_per_day=orbit.n_rad_s * 86400.0 / (2.0 * math.pi),
         mu_m3_s2=base.mu_m3_s2,
         omega_earth_rad_s=base.omega_earth_rad_s,
         wgs84_a_m=base.wgs84_a_m,

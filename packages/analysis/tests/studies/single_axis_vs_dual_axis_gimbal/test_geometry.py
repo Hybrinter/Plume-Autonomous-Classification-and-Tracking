@@ -85,3 +85,13 @@ def test_one_axis_window_from_environment_matches_sample_pass() -> None:
     env_s = one_axis_window_from_environment(orbit, GIMBAL_BOX, dt_s=1.0)
     assert env_s > 40.0
     assert abs(env_s - times.along_track_s) / times.along_track_s < 0.20
+
+
+def test_one_axis_window_from_environment_uses_supplied_orbit() -> None:
+    """A perigee Orbit is flown, not the global TLE SMA."""
+    optics = build_optics(OPTICS_SPEC)
+    orbit = build_orbit(TLE, use_perigee=True)
+    times, _ = origin_window(orbit, optics, GIMBAL_BOX, 0.0, 0.0)
+    env_s = one_axis_window_from_environment(orbit, GIMBAL_BOX, dt_s=1.0)
+    assert env_s > 40.0
+    assert abs(env_s - times.along_track_s) / times.along_track_s < 0.20

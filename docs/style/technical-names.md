@@ -23,7 +23,7 @@ descriptive pages.
 | profile | Deployment profile TOML that merges with `config/default.toml` |
 | driver config | Per-axis sim/real HAL wiring (`DriverConfig`, `[drivers]`) |
 | drivers | Per-axis sim/real HAL wiring in `PactConfig.drivers` and profile TOML |
-| environment | Reserved: simulated world around the payload (not HAL wiring) |
+| environment | Simulated world in pact-sim (`EnvironmentConfig`, named models) |
 | SAFE | System mode that stows motion and waits for ground exit |
 | scene | Synthetic imagery and readings used by SIL |
 | SIL | Software-in-the-loop harness that steps flight apps |

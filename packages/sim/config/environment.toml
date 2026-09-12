@@ -1,0 +1,7 @@
+[environment]
+earth = "wgs84_ellipsoid"
+orbit = "circular_kepler"
+wind = "still"
+plume = "bandplane_gaussian"
+optics = "pinhole"
+appearance = "oracle_mask"

@@ -994,12 +994,14 @@ source = { editable = "packages/sim" }
 dependencies = [
     { name = "numpy" },
     { name = "pact-flight" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=1.24" },
     { name = "pact-flight", editable = "packages/flight" },
+    { name = "pydantic", specifier = ">=2.12" },
 ]
 
 [[package]]

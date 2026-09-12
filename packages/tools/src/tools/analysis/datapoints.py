@@ -502,21 +502,21 @@ def _payload_signals() -> list[Signal]:
             "payload",
             "Outer rate reference",
             "rad/s",
-            lambda ctx: float(ctx.payload_state.r_rad_s),
+            lambda ctx: float(ctx.payload_state.commanded_rate_rad_s),
         ),
         _num(
             "payload.y_m",
             "payload",
             "Encoder rate estimate",
             "rad/s",
-            lambda ctx: float(ctx.payload_state.y_m),
+            lambda ctx: float(ctx.payload_state.encoder.measured_rate_rad_s),
         ),
         _num(
             "payload.tau_nm",
             "payload",
             "Inner torque command",
             "N*m",
-            lambda ctx: float(ctx.payload_state.last_tau_nm),
+            lambda ctx: float(ctx.payload_state.inner.last_tau_nm),
         ),
         _num(
             "payload.e_hat",
@@ -537,7 +537,7 @@ def _payload_signals() -> list[Signal]:
             "payload",
             "Co-rotating predictor rate",
             "rad/s",
-            lambda ctx: float(ctx.payload_state.last_omega_t_nom),
+            lambda ctx: float(ctx.payload_state.target.last_omega_t_nom),
         ),
         _num(
             "payload.residual_p_trace",

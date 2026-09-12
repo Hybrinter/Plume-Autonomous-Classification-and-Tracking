@@ -19,7 +19,7 @@ from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ArbiterState:
     """Immutable arbiter snapshot.
 

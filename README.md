@@ -72,6 +72,33 @@ uv run python scripts/check_flight_image.py
 uv run pytest -m "not e2e"
 ```
 
+**Fast local iteration** (matches PR CI — skips `slow` integration/training tests):
+
+```bash
+uv run pytest -m "not slow and not e2e" -n 2
+```
+
+**Package-scoped** while editing one member:
+
+```bash
+uv run pytest packages/flight -m "not slow and not e2e"
+uv run pytest packages/tools -m "not slow and not e2e"
+```
+
+**Full suite** (matches `main` push + nightly slow job):
+
+```bash
+uv run pytest -m "not e2e" -n auto
+uv run pytest -m "slow" -n 2
+```
+
+CI shards tests across parallel jobs (`test-flight`, `test-sim`, `test-gse`, `test-tools`).
+The required merge check is the fan-in job `gates`. Lean shards sync with
+`uv sync --extra dev-ci-flight` and omit `pact-tools`. See
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+Mark `@pytest.mark.slow` on the expensive test, not on the whole module.
+
 ### Flight-only (payload computer / experiment image)
 
 ```bash

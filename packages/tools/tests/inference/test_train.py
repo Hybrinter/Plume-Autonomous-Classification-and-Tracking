@@ -51,6 +51,7 @@ def test_overlay_train_config_cli() -> None:
     assert cfg.batch_size == 2
 
 
+@pytest.mark.slow
 def test_train_writes_run_directory(tmp_path: Path) -> None:
     """One SGD epoch writes history, last, best, config, and summary."""
     run_dir = tmp_path / "runs"
@@ -129,6 +130,7 @@ def test_fit_batch_size_raises_when_size_one_still_ooms() -> None:
         fit_batch_size(4, attempt)
 
 
+@pytest.mark.slow
 def test_train_one_step_classifier(tmp_path: Path) -> None:
     """One SGD epoch on a 32 px classifier writes a classifier checkpoint."""
     root = train(
@@ -148,6 +150,7 @@ def test_train_one_step_classifier(tmp_path: Path) -> None:
     assert payload["arch"] == "pactnet"
 
 
+@pytest.mark.slow
 def test_train_processed_pack_splits(tmp_path: Path) -> None:
     """Train reads train/val indices from a processed pack."""
     pack_dir = tmp_path / "pack"
@@ -170,6 +173,7 @@ def test_train_processed_pack_splits(tmp_path: Path) -> None:
     assert summary["dataset_hash"]
 
 
+@pytest.mark.slow
 def test_train_disk_adapter(tmp_path: Path) -> None:
     """Train reads a packed numpy directory when data_dir has no splits.json."""
     images = np.zeros((2, 4, 32, 32), dtype=np.float32)
@@ -205,6 +209,7 @@ def test_config_digest_changes_with_learning_rate() -> None:
     assert config_digest(base) == config_digest(same_dir)
 
 
+@pytest.mark.slow
 def test_train_default_run_id_includes_digest(tmp_path: Path) -> None:
     """Empty run_id writes {kind}-{arch}-{seed}-{digest8}."""
     cfg = TrainConfig(
@@ -222,6 +227,7 @@ def test_train_default_run_id_includes_digest(tmp_path: Path) -> None:
     assert root.name == f"segmentor-dilatenet-0-{digest}"
 
 
+@pytest.mark.slow
 def test_train_refuses_existing_run(tmp_path: Path) -> None:
     """A second train on the same run_id raises FileExistsError."""
     cfg = TrainConfig(
@@ -240,6 +246,7 @@ def test_train_refuses_existing_run(tmp_path: Path) -> None:
         train(cfg)
 
 
+@pytest.mark.slow
 def test_train_overwrite_replaces(tmp_path: Path) -> None:
     """overwrite=True replaces an existing run directory."""
     cfg = TrainConfig(
@@ -267,6 +274,7 @@ def test_overlay_learning_rate_and_overwrite() -> None:
     assert cfg.momentum == 0.9
 
 
+@pytest.mark.slow
 def test_train_adamw_cosine(tmp_path: Path) -> None:
     """AdamW plus cosine writes optimizer fields into summary.json."""
     root = train(
@@ -288,6 +296,7 @@ def test_train_adamw_cosine(tmp_path: Path) -> None:
     assert summary["scheduler"] == "cosine"
 
 
+@pytest.mark.slow
 def test_train_shuffle_pos_weight_augment(tmp_path: Path) -> None:
     """shuffle, pos_weight, and augment complete one epoch."""
     root = train(

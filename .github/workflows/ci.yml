@@ -3,9 +3,49 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "0 6 * * *"
 
 jobs:
-  gates:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      shared: ${{ steps.filter.outputs.shared }}
+      flight: ${{ steps.filter.outputs.flight }}
+      sim: ${{ steps.filter.outputs.sim }}
+      gse: ${{ steps.filter.outputs.gse }}
+      tools: ${{ steps.filter.outputs.tools }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - config/**
+              - profiles/**
+              - scenarios/**
+              - pyproject.toml
+              - uv.lock
+              - .github/workflows/ci.yml
+            flight:
+              - packages/flight/**
+              - packages/analysis/**
+              - packages/xeryon-vendor/**
+            sim:
+              - packages/sim/**
+              - packages/flight/**
+            gse:
+              - packages/gse/**
+              - packages/flight/**
+              - packages/sim/**
+            tools:
+              - packages/tools/**
+              - packages/flight/**
+              - packages/sim/**
+              - data/models/**
+
+  static:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -13,8 +53,16 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.14"
+          enable-cache: true
       - name: Sync dependencies
         run: uv sync --extra dev
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-${{ hashFiles('packages/**/*.py', 'scripts/**/*.py', 'pyproject.toml') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-
       - name: Ruff lint
         run: uv run ruff check packages scripts
       - name: Ruff format check
@@ -29,9 +77,146 @@ jobs:
         run: uv run python scripts/check_docs.py --strict
       - name: ADR integrity
         run: uv run python scripts/check_adr.py --strict
+
+  test-flight:
+    needs: changes
+    if: |
+      github.event_name == 'schedule' ||
+      needs.changes.outputs.flight == 'true' ||
+      needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra dev-ci-flight
       - name: Tests
-        # testpaths scope collection to packages/*/tests/.
-        run: uv run pytest -m "not e2e"
+        run: uv run pytest packages/flight packages/analysis -m "not slow and not e2e" -n 2
+
+  test-sim:
+    needs: changes
+    if: |
+      github.event_name == 'schedule' ||
+      needs.changes.outputs.sim == 'true' ||
+      needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra dev-ci-flight
+      - name: Tests
+        run: uv run pytest packages/sim -m "not slow and not e2e" -n 2
+
+  test-gse:
+    needs: changes
+    if: |
+      github.event_name == 'schedule' ||
+      needs.changes.outputs.gse == 'true' ||
+      needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra dev-ci-flight
+      - name: Tests
+        run: uv run pytest packages/gse -m "not slow and not e2e" -n 2
+
+  test-tools:
+    needs: changes
+    if: |
+      github.event_name == 'schedule' ||
+      needs.changes.outputs.tools == 'true' ||
+      needs.changes.outputs.shared == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra dev
+      - name: Tests
+        run: uv run pytest packages/tools -m "not slow and not e2e" -n 2
+
+  test-slow:
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra dev
+      - name: Slow tests
+        run: uv run pytest -m "slow" -n 2
+
+  # Fan-in merge predicate. Add new blocking jobs to needs and the result checks
+  # below. Do not skip this job: a missing gates check hangs required status.
+  gates:
+    if: always()
+    needs:
+      - changes
+      - static
+      - test-flight
+      - test-sim
+      - test-gse
+      - test-tools
+      - test-slow
+      - flight-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge predicate
+        run: |
+          set -euo pipefail
+          fail=0
+          require_success() {
+            local job="$1"
+            local result="$2"
+            if [[ "$result" != "success" ]]; then
+              echo "$job: $result (required success)"
+              fail=1
+            else
+              echo "$job: $result"
+            fi
+          }
+          require_success_or_skipped() {
+            local job="$1"
+            local result="$2"
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "$job: $result (required success or skipped)"
+              fail=1
+            else
+              echo "$job: $result"
+            fi
+          }
+          require_success changes "${{ needs.changes.result }}"
+          require_success static "${{ needs.static.result }}"
+          require_success flight-image "${{ needs.flight-image.result }}"
+          require_success_or_skipped test-flight "${{ needs.test-flight.result }}"
+          require_success_or_skipped test-sim "${{ needs.test-sim.result }}"
+          require_success_or_skipped test-gse "${{ needs.test-gse.result }}"
+          require_success_or_skipped test-tools "${{ needs.test-tools.result }}"
+          require_success_or_skipped test-slow "${{ needs.test-slow.result }}"
+          exit "$fail"
 
   flight-image:
     runs-on: ubuntu-latest

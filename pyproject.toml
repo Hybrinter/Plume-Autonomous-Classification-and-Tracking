@@ -15,6 +15,7 @@ dev = [
     "pytest>=7.4",
     "pytest-cov>=4.0",
     "pytest-timeout>=2.1",   # required for the e2e test 60-second timeout assertion
+    "pytest-xdist>=3.5",
     "mypy>=1.5",
     "ruff>=0.1",
     "import-linter>=2.0",
@@ -23,6 +24,21 @@ dev = [
     "pact-flight",
     "pact-sim",
     "pact-tools",
+    "pact-gse",
+    "pact-analysis",
+    "pact-xeryon-vendor",
+]
+# Lean CI sync for flight/sim/gse/analysis test shards (no torch/CUDA wheels).
+dev-ci-flight = [
+    "pytest>=7.4",
+    "pytest-cov>=4.0",
+    "pytest-timeout>=2.1",
+    "pytest-xdist>=3.5",
+    "mypy>=1.5",
+    "ruff>=0.1",
+    "import-linter>=2.0",
+    "pact-flight",
+    "pact-sim",
     "pact-gse",
     "pact-analysis",
     "pact-xeryon-vendor",
@@ -37,7 +53,7 @@ train = [
 [tool.pytest.ini_options]
 # import-mode=importlib lets the workspace-member smoke tests share the basename test_import.py
 # across packages without an __init__.py-induced module-name collision.
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -n auto"
 testpaths = [
     "packages/flight/tests",
     "packages/sim/tests",
@@ -47,6 +63,7 @@ testpaths = [
 ]
 markers = [
     "e2e: end-to-end smoke tests (exclude from fast CI with -m 'not e2e')",
+    "slow: SIL recorder matrix, training loops, report bundles (main/nightly only)",
 ]
 
 [tool.mypy]

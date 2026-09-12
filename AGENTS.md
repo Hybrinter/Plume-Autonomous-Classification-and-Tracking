@@ -13,9 +13,15 @@ you normally do not need to install anything yourself.
   not the system `python3` which is 3.12). Always invoke tools through `uv run ...` so they use the
   workspace `.venv`.
 - Standard commands are documented in `README.md` ("Run the gates") and `.github/workflows/ci.yml`.
-  The full gate set is: `uv run ruff check packages scripts`, `uv run ruff format --check packages
+  Static gates: `uv run ruff check packages scripts`, `uv run ruff format --check packages
   scripts`, `uv run mypy packages scripts`, `uv run lint-imports`, `uv run python
-  scripts/check_vcrm.py`, and `uv run pytest -m "not e2e"`.
+  scripts/check_vcrm.py`, `uv run python scripts/check_docs.py --strict`, `uv run python
+  scripts/check_adr.py --strict`. Tests are sharded in CI (`static`, `test-flight`, `test-sim`,
+  `test-gse`, `test-tools`, `test-slow` on `main`/nightly, `flight-image`). Job `gates` is the
+  required merge check: it fans in those jobs and treats path-filtered or PR-skipped shards as
+  pass. PRs run `uv run pytest -m "not slow and not e2e" -n 2`; `main` and nightly also run
+  `-m "slow"`. Mark `@pytest.mark.slow` on the expensive test, not the whole module.
+  Full local gates: `uv run pytest -m "not e2e"`.
 - There is no GUI and no long-running service to start for development. The product runs
   in-process: the primary end-to-end path is the GSE harness stepping the real flight apps over sim
   (or real-loopback) drivers. Nothing needs `docker`, a database, or external daemons.
@@ -33,5 +39,5 @@ you normally do not need to install anything yourself.
 - `flight.core.main` is the production entry point for real payload hardware (PySpin, pyserial,
   onnxruntime, camera/gimbal, HMAC key file). It is not runnable in this environment and is not
   needed for dev/CI; use the SIL/GSE paths instead.
-- The `pytest` `e2e` marker is defined but currently unused (`-m "e2e"` selects zero tests); the
-  full suite runs under `-m "not e2e"`.
+- The `pytest` `e2e` marker is defined but currently unused (`-m "e2e"` selects zero tests). PR CI
+  excludes `slow` (SIL recorder matrix, training loops, report bundles) via `-m "not slow and not e2e"`.

@@ -16,6 +16,8 @@ _skip_export = pytest.mark.skipif(
     not (_HAS_ONNX and _HAS_ORT), reason="onnx and onnxruntime extras not installed"
 )
 
+pytestmark = pytest.mark.slow
+
 
 @_skip_export
 def test_finalize_writes_eval_export_and_report(tmp_path: Path) -> None:

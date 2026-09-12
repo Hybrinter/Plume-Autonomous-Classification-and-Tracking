@@ -28,3 +28,4 @@ Package-local decisions for `packages/tools`. New records use files under
 | ADR-TOOLS-0009 | [0009-unique-run-directories.md](adr/0009-unique-run-directories.md) | Unique run directories; refuse overwrite | Accepted |
 | ADR-TOOLS-0010 | [0010-local-cartesian-sweep.md](adr/0010-local-cartesian-sweep.md) | Local cartesian sweep over the run catalog | Accepted |
 | ADR-TOOLS-0011 | [0011-windows-cuda-torch-index.md](adr/0011-windows-cuda-torch-index.md) | Windows tools installs CUDA torch wheels | Accepted |
+| ADR-TOOLS-0012 | [0012-ci-omits-tools-torch.md](adr/0012-ci-omits-tools-torch.md) | Lean CI shards omit pact-tools | Accepted |

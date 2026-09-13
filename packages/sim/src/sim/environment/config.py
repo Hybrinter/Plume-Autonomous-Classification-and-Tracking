@@ -165,4 +165,6 @@ def _poisson_latitude_table_error(src: PoissonLatitudeParams) -> str | None:
         return "poisson_latitude dens_per_km2 must be finite and non-negative"
     if any(lats[i] >= lats[i + 1] for i in range(len(lats) - 1)):
         return "poisson_latitude signed_lat_deg must be strictly increasing"
+    if not math.isfinite(src.cross_track_half_km) or src.cross_track_half_km <= 0.0:
+        return "poisson_latitude cross_track_half_km must be finite and positive"
     return None

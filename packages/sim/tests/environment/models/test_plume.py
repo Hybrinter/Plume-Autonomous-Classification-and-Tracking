@@ -153,7 +153,7 @@ def test_poisson_latitude_rejects_unsorted_lats() -> None:
 
 
 def test_poisson_latitude_rejects_non_finite_or_negative_tables() -> None:
-    """NaN latitudes, NaN densities, and negative densities return Err."""
+    """NaN latitudes, NaN densities, negative densities, and bad corridors return Err."""
     camera = camera_from_sensor(SensorConfig())
     nan = float("nan")
     cases = (
@@ -161,6 +161,21 @@ def test_poisson_latitude_rejects_non_finite_or_negative_tables() -> None:
         PoissonLatitudeParams(signed_lat_deg=(-90.0, 90.0), dens_per_km2=(nan, 1.0e-3)),
         PoissonLatitudeParams(signed_lat_deg=(-90.0, 90.0), dens_per_km2=(-1.0e-3, 1.0e-3)),
         PoissonLatitudeParams(signed_lat_deg=(-90.0, 90.0), dens_per_km2=(1.0, float("inf"))),
+        PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, 90.0),
+            dens_per_km2=(1.0e-3, 1.0e-3),
+            cross_track_half_km=float("nan"),
+        ),
+        PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, 90.0),
+            dens_per_km2=(1.0e-3, 1.0e-3),
+            cross_track_half_km=0.0,
+        ),
+        PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, 90.0),
+            dens_per_km2=(1.0e-3, 1.0e-3),
+            cross_track_half_km=-1.0,
+        ),
     )
     for params in cases:
         built = build_environment(
@@ -278,7 +293,21 @@ def test_sparse_poisson_evaluate_redraws_after_wrap() -> None:
     first = env.evaluate(time, _shutter(), rng)
     assert first.truth.plume.present is False
     assert first.truth.plume.cog_ecef_m is None
-    via_prior = env.evaluate(time, _shutter(), np.random.default_rng(1), first.truth.plume)
-    fresh = env.evaluate(time, _shutter(), np.random.default_rng(1))
-    assert via_prior.truth.plume.present == fresh.truth.plume.present
-    assert via_prior.truth.plume.cog_ecef_m == fresh.truth.plume.cog_ecef_m
+    dense_built = build_environment(
+        EnvironmentConfig(
+            plume="poisson_latitude",
+            poisson_latitude=PoissonLatitudeParams(
+                signed_lat_deg=(-90.0, 90.0),
+                dens_per_km2=(1.0e-3, 1.0e-3),
+                cross_track_half_km=5.0,
+            ),
+        ),
+        camera,
+    )
+    assert isinstance(dense_built, Ok)
+    redraw = dense_built.value.evaluate(
+        time, _shutter(), np.random.default_rng(7), first.truth.plume
+    )
+    assert redraw.truth.plume is not first.truth.plume
+    assert redraw.truth.plume.present is True
+    assert redraw.truth.plume.cog_ecef_m is not None

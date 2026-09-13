@@ -63,8 +63,8 @@ and corridor width.
 does not apply Earth rotation to the inertial arc. The corridor half-width
 is exact only at the draw instant. A gap of π rad or more is absent and
 does not stay in prior; the next shutter draws again. The realized gap is
-an exponential right-truncated at πR. Area densities at or below
-`5e-5` stacks per km² are not faithful.
+an exponential right-truncated at πR. Mean gaps that are not well below
+πR (about 20,000 km) are not faithful.
 
 ## Related documents
 

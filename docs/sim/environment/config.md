@@ -32,13 +32,14 @@ The config module names world models and builds the Protocol bundle.
 1. Axis fields are `Literal` unions (`wgs84_ellipsoid`, `circular_kepler`, ...).
 2. `build_models` constructs Earth, orbit, wind, plume, optics, and appearance.
 3. `poisson_latitude` tables must match in length, latitudes must increase,
-   latitudes must be finite, and densities must be finite and non-negative.
+   latitudes must be finite, densities must be finite and non-negative, and
+   `cross_track_half_km` must be finite and positive.
 
 ## Errors and faults
 
 `Err` on pydantic validation failure. Unknown names cannot pass the Literal
 types. Unequal, unsorted, non-finite, or negative `poisson_latitude` tables
-return `Err`.
+return `Err`. A non-finite or non-positive `cross_track_half_km` returns `Err`.
 
 ## Messages
 

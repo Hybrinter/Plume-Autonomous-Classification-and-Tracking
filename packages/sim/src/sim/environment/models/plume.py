@@ -6,7 +6,7 @@ sub-satellite point times twice the cross-track half-width. A draw does not
 integrate intensity along the prospective track. Placement is the inertial
 LVLH +x arc at the draw instant; gaps of pi rad or more of that arc are
 absent and the next shutter draws again, so the realized gap is exponential
-right-truncated at pi R. Densities at or below 5e-5 per km2 are not
+right-truncated at pi R. Mean gaps that are not well below pi R are not
 faithful. FOV and hunt waits are observer geometry, not this model.
 
 Contains:

@@ -7,7 +7,7 @@ import math
 import numpy as np
 from flight.libs.config import EphemerisConfig, SensorConfig
 from flight.libs.types import Err, Ok
-from flight.payload.gimbal.geo import ecef_from_eci, eci_from_ecef
+from flight.payload.gimbal.geo import eci_from_ecef
 from sim.environment import EnvironmentConfig, build_environment, camera_from_sensor
 from sim.environment.config import PoissonLatitudeParams
 from sim.environment.models.earth import Wgs84Ellipsoid
@@ -184,7 +184,7 @@ def test_place_along_track_keeps_ground_arc_and_height_proxy() -> None:
     ssp = sample.truth.plume.cog_ecef_m
     assert ssp is not None
     height_m = sample.truth.plume.height_proxy_m
-    along_m = 2.0e6
+    along_m = 3.0e6
     placed = _place_along_track(
         sample.truth.iss,
         ssp,
@@ -213,14 +213,8 @@ def test_place_along_track_keeps_ground_arc_and_height_proxy() -> None:
     cos_ang = float(np.dot(ssp_eci, cog_eci) / (radius * cog_n))
     arc_m = radius * math.acos(min(1.0, max(-1.0, cos_ang)))
     assert abs(arc_m - along_m) / along_m < 0.02
-    iss_ecef = ecef_from_eci(
-        np.asarray(sample.truth.iss.r_m, dtype=np.float64),
-        eph.omega_earth_rad_s,
-        sample.truth.iss.epoch_utc_s,
-        eph.epoch_utc_s,
-    )
     cog = np.asarray(placed, dtype=np.float64)
-    look = cog - iss_ecef
-    hit = earth.intersect_at_height(iss_ecef, look / float(np.linalg.norm(look)), height_m)
+    radial = cog / float(np.linalg.norm(cog))
+    hit = earth.intersect_at_height(radial * 1.0e8, -radial, height_m)
     assert hit is not None
     assert float(np.linalg.norm(hit[0] - cog)) < 1.0

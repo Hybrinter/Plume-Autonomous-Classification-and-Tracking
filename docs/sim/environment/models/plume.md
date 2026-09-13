@@ -37,8 +37,8 @@ ECEF-column, and latitude Poisson implementations.
    A new draw uses an exponential along-track gap at the intensity at the
    current sub-satellite latitude,
    `dens(lat) * 2 * cross_track_half_km`. Placement walks that ground arc
-   and reintersects the configured Earth at the height proxy. Zero density
-   sets `present` false.
+   and hits the configured Earth along the geocentric radial at the height
+   proxy. Zero density sets `present` false.
 
 ## Errors and faults
 

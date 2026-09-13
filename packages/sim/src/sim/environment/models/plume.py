@@ -34,6 +34,8 @@ _BANDPLANE_X_PX = 612.0
 _BANDPLANE_Y_PX = 124.0
 _MIN_NORM = 1.0e-12
 _PASSED_AHEAD_M = 1.0
+# Origin outside the inflated ellipsoid for an inbound radial reintersect.
+_RADIAL_ORIGIN_M = 1.0e8
 
 
 @runtime_checkable
@@ -335,7 +337,7 @@ def _place_along_track(
     earth: EarthModel,
     height_proxy_m: float,
 ) -> tuple[float, float, float] | None:
-    """Walk the sampled ground arc, then reintersect the height-proxy Earth."""
+    """Walk the sampled ground arc, then hit the height-proxy Earth radially."""
     r_iss = np.asarray(iss.r_m, dtype=np.float64)
     v_iss = np.asarray(iss.v_m_s, dtype=np.float64)
     ssp_ecef = np.asarray(ssp_ecef_m, dtype=np.float64)
@@ -362,14 +364,15 @@ def _place_along_track(
     target_n = float(np.linalg.norm(target_u))
     if target_n < _MIN_NORM:
         return None
-    target_eci = (target_u / target_n) * radius
-    iss_ecef = ecef_from_eci(r_iss, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
-    target_ecef = ecef_from_eci(target_eci, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
-    look = target_ecef - iss_ecef
-    look_n = float(np.linalg.norm(look))
-    if look_n < _MIN_NORM:
-        return ssp_ecef_m
-    hit = earth.intersect_at_height(iss_ecef, look / look_n, height_proxy_m)
+    target_eci_u = target_u / target_n
+    target_ecef_u = ecef_from_eci(target_eci_u, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
+    dir_n = float(np.linalg.norm(target_ecef_u))
+    if dir_n < _MIN_NORM:
+        return None
+    target_ecef_u = target_ecef_u / dir_n
+    # ISS sightlines wrap at the limb. An inbound geocentric radial does not.
+    origin = target_ecef_u * _RADIAL_ORIGIN_M
+    hit = earth.intersect_at_height(origin, -target_ecef_u, height_proxy_m)
     if hit is None:
         return None
     point, _slant = hit

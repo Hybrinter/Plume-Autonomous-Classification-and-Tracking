@@ -256,3 +256,29 @@ def test_place_along_track_rejects_wrap_past_antipode() -> None:
             height_m,
         )
         assert placed is None
+
+
+def test_sparse_poisson_evaluate_redraws_after_wrap() -> None:
+    """A wrap through evaluate is absent, and the next shutter draws again."""
+    camera = camera_from_sensor(SensorConfig())
+    cfg = EnvironmentConfig(
+        plume="poisson_latitude",
+        poisson_latitude=PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, 90.0),
+            dens_per_km2=(1.0e-7, 1.0e-7),
+            cross_track_half_km=5.0,
+        ),
+    )
+    built = build_environment(cfg, camera)
+    assert isinstance(built, Ok)
+    env = built.value
+    eph = EphemerisConfig()
+    time = EnvTime(0.0, eph.epoch_utc_s)
+    rng = np.random.default_rng(0)
+    first = env.evaluate(time, _shutter(), rng)
+    assert first.truth.plume.present is False
+    assert first.truth.plume.cog_ecef_m is None
+    via_prior = env.evaluate(time, _shutter(), np.random.default_rng(1), first.truth.plume)
+    fresh = env.evaluate(time, _shutter(), np.random.default_rng(1))
+    assert via_prior.truth.plume.present == fresh.truth.plume.present
+    assert via_prior.truth.plume.cog_ecef_m == fresh.truth.plume.cog_ecef_m

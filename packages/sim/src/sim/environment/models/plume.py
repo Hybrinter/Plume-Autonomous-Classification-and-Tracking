@@ -5,7 +5,9 @@ a ground-track corridor. Intensity at a draw is dens(lat) at the current
 sub-satellite point times twice the cross-track half-width. A draw does not
 integrate intensity along the prospective track. Placement is the inertial
 LVLH +x arc at the draw instant; gaps of pi rad or more of that arc are
-absent. FOV and hunt waits are observer geometry, not this model.
+absent and the next shutter draws again, so the realized gap is exponential
+right-truncated at pi R. Densities at or below 5e-5 per km2 are not
+faithful. FOV and hunt waits are observer geometry, not this model.
 
 Contains:
   - PlumeModel, BandplaneGaussian, EcefColumn, PoissonLatitude
@@ -230,8 +232,9 @@ class PoissonLatitude:
     Tables are piecewise-linear in geocentric latitude (degrees). Intensity
     along-track at a draw is dens(lat) at the current sub-satellite point
     times the corridor width 2 * cross_track_half_km. Placement is the
-    inertial LVLH +x arc at the draw; a gap of pi rad or more is absent.
-    The next CoG lives in prior until the ISS along-track coordinate passes it.
+    inertial LVLH +x arc at the draw; a gap of pi rad or more is absent
+    and the next shutter draws again. The next CoG lives in prior until the
+    ISS along-track coordinate passes it.
     """
 
     signed_lat_deg: tuple[float, ...]

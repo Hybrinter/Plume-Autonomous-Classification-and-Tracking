@@ -60,7 +60,11 @@ and corridor width.
 
 `BandplaneGaussian` ignores Earth, orbit, wind, rng, and shutter elevation.
 `PoissonLatitude` does not model rewind hunt or azimuth raster. Placement
-does not apply Earth rotation to the inertial arc.
+does not apply Earth rotation to the inertial arc. The corridor half-width
+is exact only at the draw instant. A gap of π rad or more is absent and
+does not stay in prior; the next shutter draws again. The realized gap is
+an exponential right-truncated at πR. Area densities at or below
+`5e-5` stacks per km² are not faithful.
 
 ## Related documents
 

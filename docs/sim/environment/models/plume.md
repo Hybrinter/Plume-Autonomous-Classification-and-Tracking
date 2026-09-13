@@ -34,8 +34,11 @@ ECEF-column, and latitude Poisson implementations.
 3. `EcefColumn` with `cog_ecef_m is None` places the CoG at the nadir
    height-proxy hit.
 4. `PoissonLatitude` keeps the prior CoG while it stays ahead of the ISS.
-   A new draw uses an exponential along-track gap at intensity
-   `dens(lat) * 2 * cross_track_half_km`. Zero density sets `present` false.
+   A new draw uses an exponential along-track gap at the intensity at the
+   current sub-satellite latitude,
+   `dens(lat) * 2 * cross_track_half_km`. Placement walks that ground arc
+   and reintersects the configured Earth at the height proxy. Zero density
+   sets `present` false.
 
 ## Errors and faults
 

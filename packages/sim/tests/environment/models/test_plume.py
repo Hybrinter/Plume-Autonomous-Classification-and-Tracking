@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from flight.libs.config import EphemerisConfig, SensorConfig
 from flight.libs.types import Err, Ok
+from flight.payload.gimbal.geo import ecef_from_eci, eci_from_ecef
 from sim.environment import EnvironmentConfig, build_environment, camera_from_sensor
 from sim.environment.config import PoissonLatitudeParams
-from sim.environment.models.plume import _along_track_ahead_m, along_track_intensity_per_km
+from sim.environment.models.earth import Wgs84Ellipsoid
+from sim.environment.models.plume import (
+    _along_track_ahead_m,
+    _place_along_track,
+    along_track_intensity_per_km,
+)
 from sim.environment.records import EnvTime, ShutterPose
 
 
@@ -142,3 +150,77 @@ def test_poisson_latitude_rejects_unsorted_lats() -> None:
     )
     built = build_environment(cfg, camera)
     assert isinstance(built, Err)
+
+
+def test_poisson_latitude_rejects_non_finite_or_negative_tables() -> None:
+    """NaN latitudes, NaN densities, and negative densities return Err."""
+    camera = camera_from_sensor(SensorConfig())
+    nan = float("nan")
+    cases = (
+        PoissonLatitudeParams(signed_lat_deg=(nan, 90.0), dens_per_km2=(1.0e-3, 1.0e-3)),
+        PoissonLatitudeParams(signed_lat_deg=(-90.0, 90.0), dens_per_km2=(nan, 1.0e-3)),
+        PoissonLatitudeParams(signed_lat_deg=(-90.0, 90.0), dens_per_km2=(-1.0e-3, 1.0e-3)),
+        PoissonLatitudeParams(signed_lat_deg=(-90.0, 90.0), dens_per_km2=(1.0, float("inf"))),
+    )
+    for params in cases:
+        built = build_environment(
+            EnvironmentConfig(plume="poisson_latitude", poisson_latitude=params),
+            camera,
+        )
+        assert isinstance(built, Err)
+
+
+def test_place_along_track_keeps_ground_arc_and_height_proxy() -> None:
+    """A long along-track offset keeps arc length and the Earth height proxy."""
+    camera = camera_from_sensor(SensorConfig())
+    cfg = EnvironmentConfig(plume="ecef_column")
+    built = build_environment(cfg, camera)
+    assert isinstance(built, Ok)
+    env = built.value
+    eph = EphemerisConfig()
+    earth = Wgs84Ellipsoid(a_m=eph.wgs84_a_m, f=eph.wgs84_f)
+    time = EnvTime(0.0, eph.epoch_utc_s)
+    sample = env.evaluate(time, _shutter(), np.random.default_rng(0))
+    ssp = sample.truth.plume.cog_ecef_m
+    assert ssp is not None
+    height_m = sample.truth.plume.height_proxy_m
+    along_m = 2.0e6
+    placed = _place_along_track(
+        sample.truth.iss,
+        ssp,
+        along_m,
+        0.0,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+        earth,
+        height_m,
+    )
+    assert placed is not None
+    ssp_eci = eci_from_ecef(
+        np.asarray(ssp, dtype=np.float64),
+        eph.omega_earth_rad_s,
+        sample.truth.iss.epoch_utc_s,
+        eph.epoch_utc_s,
+    )
+    cog_eci = eci_from_ecef(
+        np.asarray(placed, dtype=np.float64),
+        eph.omega_earth_rad_s,
+        sample.truth.iss.epoch_utc_s,
+        eph.epoch_utc_s,
+    )
+    radius = float(np.linalg.norm(ssp_eci))
+    cog_n = float(np.linalg.norm(cog_eci))
+    cos_ang = float(np.dot(ssp_eci, cog_eci) / (radius * cog_n))
+    arc_m = radius * math.acos(min(1.0, max(-1.0, cos_ang)))
+    assert abs(arc_m - along_m) / along_m < 0.02
+    iss_ecef = ecef_from_eci(
+        np.asarray(sample.truth.iss.r_m, dtype=np.float64),
+        eph.omega_earth_rad_s,
+        sample.truth.iss.epoch_utc_s,
+        eph.epoch_utc_s,
+    )
+    cog = np.asarray(placed, dtype=np.float64)
+    look = cog - iss_ecef
+    hit = earth.intersect_at_height(iss_ecef, look / float(np.linalg.norm(look)), height_m)
+    assert hit is not None
+    assert float(np.linalg.norm(hit[0] - cog)) < 1.0

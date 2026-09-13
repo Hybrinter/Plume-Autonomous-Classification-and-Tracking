@@ -1,8 +1,10 @@
 """Plume models: CI band-plane Gaussian, frozen ECEF column, latitude Poisson.
 
 PoissonLatitude draws the next along-track CoG from a 1-D Poisson process in
-a ground-track corridor. Intensity is dens(lat) times twice the cross-track
-half-width. FOV and hunt waits are observer geometry, not this model.
+a ground-track corridor. Intensity at a draw is dens(lat) at the current
+sub-satellite point times twice the cross-track half-width. A draw does not
+integrate intensity along the prospective track. FOV and hunt waits are
+observer geometry, not this model.
 
 Contains:
   - PlumeModel, BandplaneGaussian, EcefColumn, PoissonLatitude
@@ -223,8 +225,9 @@ class PoissonLatitude:
     """Along-track Poisson stacks at signed-latitude area density.
 
     Tables are piecewise-linear in geocentric latitude (degrees). Intensity
-    along-track is dens(lat) times the corridor width 2 * cross_track_half_km.
-    The next CoG lives in prior until the ISS along-track coordinate passes it.
+    along-track at a draw is dens(lat) at the current sub-satellite point
+    times the corridor width 2 * cross_track_half_km. The next CoG lives in
+    prior until the ISS along-track coordinate passes it.
     """
 
     signed_lat_deg: tuple[float, ...]
@@ -300,7 +303,18 @@ class PoissonLatitude:
             cross_km * 1000.0,
             omega_earth_rad_s,
             epoch_utc_s,
+            earth,
+            self.height_proxy_m,
         )
+        if cog is None:
+            return _ecef_state(
+                "ecef",
+                None,
+                self.along_sigma_m,
+                self.cross_sigma_m,
+                self.height_proxy_m,
+                present=False,
+            )
         return _ecef_state(
             "ecef",
             cog,
@@ -318,28 +332,45 @@ def _place_along_track(
     cross_m: float,
     omega_earth_rad_s: float,
     epoch_utc_s: float,
-) -> tuple[float, float, float]:
-    """Offset the height-proxy SSP along and across track, then reproject."""
+    earth: EarthModel,
+    height_proxy_m: float,
+) -> tuple[float, float, float] | None:
+    """Walk the sampled ground arc, then reintersect the height-proxy Earth."""
     r_iss = np.asarray(iss.r_m, dtype=np.float64)
     v_iss = np.asarray(iss.v_m_s, dtype=np.float64)
     ssp_ecef = np.asarray(ssp_ecef_m, dtype=np.float64)
     ssp_eci = eci_from_ecef(ssp_ecef, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
+    radius = float(np.linalg.norm(ssp_eci))
+    if radius < _MIN_NORM:
+        return None
     x_hat, y_hat, _z_hat = lvlh_axes(r_iss, v_iss)
-    radial = ssp_eci / float(np.linalg.norm(ssp_eci))
+    radial = ssp_eci / radius
     along = x_hat - radial * float(np.dot(x_hat, radial))
     along_n = float(np.linalg.norm(along))
-    if along_n < _MIN_NORM:
-        along_u = x_hat
-    else:
-        along_u = along / along_n
+    along_u = x_hat if along_n < _MIN_NORM else along / along_n
     cross = y_hat - radial * float(np.dot(y_hat, radial))
     cross_n = float(np.linalg.norm(cross))
-    if cross_n < _MIN_NORM:
-        cross_u = y_hat
-    else:
-        cross_u = cross / cross_n
-    target = ssp_eci + along_u * along_m + cross_u * cross_m
-    radius = float(np.linalg.norm(ssp_eci))
-    target = target / float(np.linalg.norm(target)) * radius
-    ecef = ecef_from_eci(target, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
-    return (float(ecef[0]), float(ecef[1]), float(ecef[2]))
+    cross_u = y_hat if cross_n < _MIN_NORM else cross / cross_n
+    theta = along_m / radius
+    phi = cross_m / radius
+    stepped = radial * math.cos(theta) + along_u * math.sin(theta)
+    stepped_n = float(np.linalg.norm(stepped))
+    if stepped_n < _MIN_NORM:
+        return None
+    stepped = stepped / stepped_n
+    target_u = stepped * math.cos(phi) + cross_u * math.sin(phi)
+    target_n = float(np.linalg.norm(target_u))
+    if target_n < _MIN_NORM:
+        return None
+    target_eci = (target_u / target_n) * radius
+    iss_ecef = ecef_from_eci(r_iss, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
+    target_ecef = ecef_from_eci(target_eci, omega_earth_rad_s, iss.epoch_utc_s, epoch_utc_s)
+    look = target_ecef - iss_ecef
+    look_n = float(np.linalg.norm(look))
+    if look_n < _MIN_NORM:
+        return ssp_ecef_m
+    hit = earth.intersect_at_height(iss_ecef, look / look_n, height_proxy_m)
+    if hit is None:
+        return None
+    point, _slant = hit
+    return (float(point[0]), float(point[1]), float(point[2]))

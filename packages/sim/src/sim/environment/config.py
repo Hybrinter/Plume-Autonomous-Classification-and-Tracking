@@ -6,6 +6,7 @@ This config is sim-only. It is not a member of PactConfig.
 from __future__ import annotations
 
 # stdlib
+import math
 from dataclasses import field
 from typing import Literal
 
@@ -126,11 +127,9 @@ def build_models(config: EnvironmentConfig, eph: EphemerisConfig) -> Result[Envi
         )
     elif config.plume == "poisson_latitude":
         src = config.poisson_latitude
-        if len(src.signed_lat_deg) != len(src.dens_per_km2) or len(src.signed_lat_deg) < 1:
-            return Err("poisson_latitude tables must be non-empty and equal length")
-        lats = src.signed_lat_deg
-        if any(lats[i] >= lats[i + 1] for i in range(len(lats) - 1)):
-            return Err("poisson_latitude signed_lat_deg must be strictly increasing")
+        table_err = _poisson_latitude_table_error(src)
+        if table_err is not None:
+            return Err(table_err)
         plume = PoissonLatitude(
             signed_lat_deg=src.signed_lat_deg,
             dens_per_km2=src.dens_per_km2,
@@ -152,3 +151,18 @@ def build_models(config: EnvironmentConfig, eph: EphemerisConfig) -> Result[Envi
             appearance=OracleMask(),
         )
     )
+
+
+def _poisson_latitude_table_error(src: PoissonLatitudeParams) -> str | None:
+    """Return a table-validation error, or None when the tables are usable."""
+    if len(src.signed_lat_deg) != len(src.dens_per_km2) or len(src.signed_lat_deg) < 1:
+        return "poisson_latitude tables must be non-empty and equal length"
+    lats = src.signed_lat_deg
+    dens = src.dens_per_km2
+    if any(not math.isfinite(lat) for lat in lats):
+        return "poisson_latitude signed_lat_deg must be finite"
+    if any(not math.isfinite(value) or value < 0.0 for value in dens):
+        return "poisson_latitude dens_per_km2 must be finite and non-negative"
+    if any(lats[i] >= lats[i + 1] for i in range(len(lats) - 1)):
+        return "poisson_latitude signed_lat_deg must be strictly increasing"
+    return None

@@ -36,13 +36,15 @@ ECEF-column, and latitude Poisson implementations.
 4. `PoissonLatitude` keeps the prior CoG while it stays ahead of the ISS.
    A new draw uses an exponential along-track gap at the intensity at the
    current sub-satellite latitude,
-   `dens(lat) * 2 * cross_track_half_km`. Placement walks that ground arc
-   and hits the configured Earth along the geocentric radial at the height
-   proxy. Zero density sets `present` false.
+   `dens(lat) * 2 * cross_track_half_km`. Placement walks the inertial LVLH
+   `+x` arc at the draw instant, then hits the Earth along the geocentric
+   radial at the height proxy. A gap of π rad or more of that arc is absent.
+   Zero density sets `present` false.
 
 ## Errors and faults
 
-None. A nadir miss sets `cog_ecef_m` to `None`.
+None. A nadir miss or a placement failure sets `cog_ecef_m` to `None` and
+`present` false.
 
 ## Messages
 
@@ -57,7 +59,8 @@ and corridor width.
 ## Constraints
 
 `BandplaneGaussian` ignores Earth, orbit, wind, rng, and shutter elevation.
-`PoissonLatitude` does not model rewind hunt or azimuth raster.
+`PoissonLatitude` does not model rewind hunt or azimuth raster. Placement
+does not apply Earth rotation to the inertial arc.
 
 ## Related documents
 

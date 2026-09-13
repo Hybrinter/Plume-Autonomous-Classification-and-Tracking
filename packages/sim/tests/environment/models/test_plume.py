@@ -7,7 +7,7 @@ import math
 import numpy as np
 from flight.libs.config import EphemerisConfig, SensorConfig
 from flight.libs.types import Err, Ok
-from flight.payload.gimbal.geo import eci_from_ecef
+from flight.payload.gimbal.geo import eci_from_ecef, height_proxy_semiaxes, lvlh_axes
 from sim.environment import EnvironmentConfig, build_environment, camera_from_sensor
 from sim.environment.config import PoissonLatitudeParams
 from sim.environment.models.earth import Wgs84Ellipsoid
@@ -16,7 +16,7 @@ from sim.environment.models.plume import (
     _place_along_track,
     along_track_intensity_per_km,
 )
-from sim.environment.records import EnvTime, ShutterPose
+from sim.environment.records import EnvSample, EnvTime, ShutterPose
 
 
 def _shutter() -> ShutterPose:
@@ -170,26 +170,31 @@ def test_poisson_latitude_rejects_non_finite_or_negative_tables() -> None:
         assert isinstance(built, Err)
 
 
-def test_place_along_track_keeps_ground_arc_and_height_proxy() -> None:
-    """A long along-track offset keeps arc length and the Earth height proxy."""
+def _nadir_sample() -> tuple[EnvSample, Wgs84Ellipsoid, tuple[float, float, float], float]:
+    """Return sample, earth, SSP ECEF, and height proxy at epoch nadir."""
     camera = camera_from_sensor(SensorConfig())
-    cfg = EnvironmentConfig(plume="ecef_column")
-    built = build_environment(cfg, camera)
+    built = build_environment(EnvironmentConfig(plume="ecef_column"), camera)
     assert isinstance(built, Ok)
-    env = built.value
     eph = EphemerisConfig()
     earth = Wgs84Ellipsoid(a_m=eph.wgs84_a_m, f=eph.wgs84_f)
-    time = EnvTime(0.0, eph.epoch_utc_s)
-    sample = env.evaluate(time, _shutter(), np.random.default_rng(0))
+    sample = built.value.evaluate(
+        EnvTime(0.0, eph.epoch_utc_s), _shutter(), np.random.default_rng(0)
+    )
     ssp = sample.truth.plume.cog_ecef_m
     assert ssp is not None
-    height_m = sample.truth.plume.height_proxy_m
+    return sample, earth, ssp, sample.truth.plume.height_proxy_m
+
+
+def test_place_along_track_keeps_ground_arc_and_height_proxy() -> None:
+    """A long along-track offset keeps arc length and the Earth height proxy."""
+    sample, earth, ssp, height_m = _nadir_sample()
+    eph = EphemerisConfig()
     along_m = 3.0e6
     placed = _place_along_track(
         sample.truth.iss,
         ssp,
         along_m,
-        0.0,
+        5.0e3,
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
         earth,
@@ -213,8 +218,41 @@ def test_place_along_track_keeps_ground_arc_and_height_proxy() -> None:
     cos_ang = float(np.dot(ssp_eci, cog_eci) / (radius * cog_n))
     arc_m = radius * math.acos(min(1.0, max(-1.0, cos_ang)))
     assert abs(arc_m - along_m) / along_m < 0.02
+    assert (
+        _along_track_ahead_m(sample.truth.iss, placed, eph.omega_earth_rad_s, eph.epoch_utc_s) > 0.0
+    )
     cog = np.asarray(placed, dtype=np.float64)
-    radial = cog / float(np.linalg.norm(cog))
-    hit = earth.intersect_at_height(radial * 1.0e8, -radial, height_m)
-    assert hit is not None
-    assert float(np.linalg.norm(hit[0] - cog)) < 1.0
+    a_h, b_h = height_proxy_semiaxes(eph.wgs84_a_m, eph.wgs84_f, height_m)
+    residual = (cog[0] ** 2 + cog[1] ** 2) / (a_h * a_h) + (cog[2] ** 2) / (b_h * b_h)
+    assert abs(residual - 1.0) < 1.0e-8
+    _x_hat, y_hat, _z_hat = lvlh_axes(
+        np.asarray(sample.truth.iss.r_m, dtype=np.float64),
+        np.asarray(sample.truth.iss.v_m_s, dtype=np.float64),
+    )
+    cross_m = float(np.dot(cog_eci - ssp_eci, y_hat))
+    assert abs(cross_m - 5.0e3) / 5.0e3 < 0.05
+
+
+def test_place_along_track_rejects_wrap_past_antipode() -> None:
+    """Gaps of pi rad or more of the inertial arc do not wrap behind the ISS."""
+    sample, earth, ssp, height_m = _nadir_sample()
+    eph = EphemerisConfig()
+    ssp_eci = eci_from_ecef(
+        np.asarray(ssp, dtype=np.float64),
+        eph.omega_earth_rad_s,
+        sample.truth.iss.epoch_utc_s,
+        eph.epoch_utc_s,
+    )
+    radius = float(np.linalg.norm(ssp_eci))
+    for along_m in (1.25 * math.pi * radius, 2.1 * math.pi * radius):
+        placed = _place_along_track(
+            sample.truth.iss,
+            ssp,
+            along_m,
+            0.0,
+            eph.omega_earth_rad_s,
+            eph.epoch_utc_s,
+            earth,
+            height_m,
+        )
+        assert placed is None

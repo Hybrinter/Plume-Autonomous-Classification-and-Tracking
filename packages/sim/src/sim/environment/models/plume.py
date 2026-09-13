@@ -3,8 +3,9 @@
 PoissonLatitude draws the next along-track CoG from a 1-D Poisson process in
 a ground-track corridor. Intensity at a draw is dens(lat) at the current
 sub-satellite point times twice the cross-track half-width. A draw does not
-integrate intensity along the prospective track. FOV and hunt waits are
-observer geometry, not this model.
+integrate intensity along the prospective track. Placement is the inertial
+LVLH +x arc at the draw instant; gaps of pi rad or more of that arc are
+absent. FOV and hunt waits are observer geometry, not this model.
 
 Contains:
   - PlumeModel, BandplaneGaussian, EcefColumn, PoissonLatitude
@@ -228,8 +229,9 @@ class PoissonLatitude:
 
     Tables are piecewise-linear in geocentric latitude (degrees). Intensity
     along-track at a draw is dens(lat) at the current sub-satellite point
-    times the corridor width 2 * cross_track_half_km. The next CoG lives in
-    prior until the ISS along-track coordinate passes it.
+    times the corridor width 2 * cross_track_half_km. Placement is the
+    inertial LVLH +x arc at the draw; a gap of pi rad or more is absent.
+    The next CoG lives in prior until the ISS along-track coordinate passes it.
     """
 
     signed_lat_deg: tuple[float, ...]
@@ -337,7 +339,11 @@ def _place_along_track(
     earth: EarthModel,
     height_proxy_m: float,
 ) -> tuple[float, float, float] | None:
-    """Walk the sampled ground arc, then hit the height-proxy Earth radially."""
+    """Walk the inertial LVLH +x arc, then hit the height-proxy Earth radially.
+
+    Gaps of pi rad or more of that arc return None so the CoG cannot wrap
+    behind the ISS.
+    """
     r_iss = np.asarray(iss.r_m, dtype=np.float64)
     v_iss = np.asarray(iss.v_m_s, dtype=np.float64)
     ssp_ecef = np.asarray(ssp_ecef_m, dtype=np.float64)
@@ -354,6 +360,8 @@ def _place_along_track(
     cross_n = float(np.linalg.norm(cross))
     cross_u = y_hat if cross_n < _MIN_NORM else cross / cross_n
     theta = along_m / radius
+    if not math.isfinite(theta) or theta < 0.0 or theta >= math.pi:
+        return None
     phi = cross_m / radius
     stepped = radial * math.cos(theta) + along_u * math.sin(theta)
     stepped_n = float(np.linalg.norm(stepped))

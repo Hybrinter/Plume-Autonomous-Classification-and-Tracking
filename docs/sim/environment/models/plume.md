@@ -35,7 +35,11 @@ ECEF-column, and latitude Poisson implementations.
    height-proxy hit.
 4. `PoissonLatitude` keeps the prior CoG while it stays ahead of the ISS.
    A new draw uses an exponential along-track gap at intensity
-   `dens(lat) * 2 * cross_track_half_km`. Zero density sets `present` false.
+   `dens(lat) * 2 * cross_track_half_km`. Placement advances the ISS along
+   `orbit.state_eci` until cumulative ground-track distance between successive
+   nadir height-proxy hits matches the gap, then offsets starboard in LVLH and
+   re-intersects the configured Earth model at `height_proxy_m`. Zero density
+   sets `present` false.
 
 ## Errors and faults
 

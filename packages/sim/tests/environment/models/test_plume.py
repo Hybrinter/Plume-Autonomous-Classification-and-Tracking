@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from flight.libs.config import EphemerisConfig, SensorConfig
 from flight.libs.types import Err, Ok
+from flight.payload.gimbal.geo import ecef_from_eci, height_proxy_semiaxes
 from sim.environment import EnvironmentConfig, build_environment, camera_from_sensor
 from sim.environment.config import PoissonLatitudeParams
-from sim.environment.models.plume import _along_track_ahead_m, along_track_intensity_per_km
+from sim.environment.models.earth import Wgs84Ellipsoid
+from sim.environment.models.orbit import CircularKepler
+from sim.environment.models.plume import (
+    _advance_iss_along_ground_track,
+    _along_track_ahead_m,
+    _nadir_hit_ecef,
+    _place_along_track,
+    _ssp_ground_separation_m,
+    along_track_intensity_per_km,
+)
 from sim.environment.records import EnvTime, ShutterPose
 
 
@@ -128,6 +140,102 @@ def test_ecef_column_ignores_rng() -> None:
     b = env.evaluate(time, _shutter(), np.random.default_rng(2))
     assert a.truth.plume.present is True
     assert a.truth.plume.cog_ecef_m == b.truth.plume.cog_ecef_m
+
+
+def test_large_along_track_gap_preserves_ground_distance() -> None:
+    """Ground-track arc distance matches the requested gap, not R * atan(along/R)."""
+    eph = EphemerisConfig()
+    earth = Wgs84Ellipsoid(a_m=eph.wgs84_a_m, f=eph.wgs84_f)
+    orbit = CircularKepler.from_ephemeris_config(eph)
+    iss = orbit.state_eci(eph.epoch_utc_s)
+    height_m = 2000.0
+    ssp0 = _nadir_hit_ecef(earth, iss, height_m, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    assert ssp0 is not None
+    along_m = 2_000_000.0
+    cross_m = 0.0
+    cog = _place_along_track(
+        earth,
+        orbit,
+        iss,
+        along_m,
+        cross_m,
+        height_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert cog is not None
+    iss_ahead = _advance_iss_along_ground_track(
+        earth,
+        orbit,
+        iss,
+        along_m,
+        height_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert iss_ahead is not None
+    ssp1 = _nadir_hit_ecef(
+        earth, iss_ahead, height_m, eph.omega_earth_rad_s, eph.epoch_utc_s
+    )
+    assert ssp1 is not None
+    arc_m = _ssp_ground_separation_m(
+        np.asarray(ssp0, dtype=np.float64), np.asarray(ssp1, dtype=np.float64)
+    )
+    assert abs(arc_m - along_m) / along_m < 0.01
+    r0 = float(np.linalg.norm(np.asarray(ssp0, dtype=np.float64)))
+    old_sphere_arc = r0 * math.atan(along_m / r0)
+    assert abs(arc_m - old_sphere_arc) / along_m > 0.01
+
+
+def test_wgs84_cog_on_height_proxy_after_latitude_gap() -> None:
+    """After a long along-track step, CoG lies on the height-proxy ellipsoid."""
+    eph = EphemerisConfig()
+    earth = Wgs84Ellipsoid(a_m=eph.wgs84_a_m, f=eph.wgs84_f)
+    orbit = CircularKepler.from_ephemeris_config(eph)
+    iss = orbit.state_eci(eph.epoch_utc_s)
+    height_m = 2000.0
+    ssp0 = _nadir_hit_ecef(earth, iss, height_m, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    assert ssp0 is not None
+    along_m = 800_000.0
+    cog = _place_along_track(
+        earth,
+        orbit,
+        iss,
+        along_m,
+        2500.0,
+        height_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert cog is not None
+    r0 = float(np.linalg.norm(np.asarray(ssp0, dtype=np.float64)))
+    r_cog = float(np.linalg.norm(np.asarray(cog, dtype=np.float64)))
+    assert abs(r_cog - r0) > 100.0
+    a_h, b_h = height_proxy_semiaxes(eph.wgs84_a_m, eph.wgs84_f, height_m)
+    x, y, z = cog
+    ellipsoid_norm = (x * x + y * y) / (a_h * a_h) + (z * z) / (b_h * b_h)
+    assert abs(ellipsoid_norm - 1.0) < 1.0e-6
+    iss_ahead = _advance_iss_along_ground_track(
+        earth,
+        orbit,
+        iss,
+        along_m,
+        height_m,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert iss_ahead is not None
+    r_iss_ecef = ecef_from_eci(
+        np.asarray(iss_ahead.r_m, dtype=np.float64),
+        eph.omega_earth_rad_s,
+        iss_ahead.epoch_utc_s,
+        eph.epoch_utc_s,
+    )
+    look = np.asarray(cog, dtype=np.float64) - r_iss_ecef
+    hit = earth.intersect_at_height(r_iss_ecef, look / float(np.linalg.norm(look)), height_m)
+    assert hit is not None
+    point, _slant = hit
+    assert np.linalg.norm(point - np.asarray(cog, dtype=np.float64)) < 1.0
 
 
 def test_poisson_latitude_rejects_unsorted_lats() -> None:

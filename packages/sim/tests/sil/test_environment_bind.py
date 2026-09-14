@@ -387,6 +387,7 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
 ) -> None:
     """Catch-up before bind aligns shutter, encoder, and frame time for the predictor."""
     live = build_frames(1)[0].mosaic
+    assert isinstance(live, np.ndarray)
     _inject_live_mosaic(monkeypatch, live)
     config = _with_outer_dt(PactConfig(), outer_dt_s)
     clock = ManualClock(monotonic_s=clock0)

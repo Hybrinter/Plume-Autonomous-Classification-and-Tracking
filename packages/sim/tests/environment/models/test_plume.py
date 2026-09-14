@@ -15,6 +15,7 @@ from sim.environment.models.orbit import CircularKepler
 from sim.environment.models.plume import (
     _advance_iss_along_ground_track,
     _along_track_ahead_m,
+    _geocentric_lat_deg,
     _nadir_hit_ecef,
     _place_along_track,
     _ssp_ground_separation_m,
@@ -127,6 +128,54 @@ def test_mean_along_track_gap_matches_intensity() -> None:
     assert abs(mean - expected) / expected < 0.20
 
 
+def test_poisson_skips_zero_density_band_ahead() -> None:
+    """CoGs ahead of the ISS never land in a zero-density latitude band."""
+    camera = camera_from_sensor(SensorConfig())
+    dens = 2.0e-3
+    zero_lo = 2.0
+    zero_hi = 40.0
+    cfg = EnvironmentConfig(
+        plume="poisson_latitude",
+        poisson_latitude=PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, 0.5, zero_lo, zero_hi, 42.0, 90.0),
+            dens_per_km2=(dens, dens, 0.0, 0.0, dens, dens),
+            cross_track_half_km=5.0,
+        ),
+    )
+    built = build_environment(cfg, camera)
+    assert isinstance(built, Ok)
+    env = built.value
+    eph = EphemerisConfig()
+    time = EnvTime(0.0, eph.epoch_utc_s)
+    orbit = CircularKepler.from_ephemeris_config(eph)
+    iss = orbit.state_eci(eph.epoch_utc_s)
+    ssp0 = _nadir_hit_ecef(
+        Wgs84Ellipsoid(a_m=eph.wgs84_a_m, f=eph.wgs84_f),
+        iss,
+        2000.0,
+        eph.omega_earth_rad_s,
+        eph.epoch_utc_s,
+    )
+    assert ssp0 is not None
+    start_lat = _geocentric_lat_deg(np.asarray(ssp0, dtype=np.float64))
+    assert abs(start_lat) < 2.0
+    n_present = 0
+    n_after_band = 0
+    for seed in range(400):
+        sample = env.evaluate(time, _shutter(), np.random.default_rng(seed))
+        if not sample.truth.plume.present:
+            continue
+        n_present += 1
+        cog = sample.truth.plume.cog_ecef_m
+        assert cog is not None
+        lat = _geocentric_lat_deg(np.asarray(cog, dtype=np.float64))
+        assert lat <= zero_lo + 0.5 or lat >= zero_hi - 0.5
+        if lat >= zero_hi - 0.5:
+            n_after_band += 1
+    assert n_present > 0
+    assert n_after_band > 0
+
+
 def test_ecef_column_ignores_rng() -> None:
     """Frozen ECEF column CoG does not depend on the generator."""
     camera = camera_from_sensor(SensorConfig())
@@ -174,9 +223,7 @@ def test_large_along_track_gap_preserves_ground_distance() -> None:
         eph.epoch_utc_s,
     )
     assert iss_ahead is not None
-    ssp1 = _nadir_hit_ecef(
-        earth, iss_ahead, height_m, eph.omega_earth_rad_s, eph.epoch_utc_s
-    )
+    ssp1 = _nadir_hit_ecef(earth, iss_ahead, height_m, eph.omega_earth_rad_s, eph.epoch_utc_s)
     assert ssp1 is not None
     arc_m = _ssp_ground_separation_m(
         np.asarray(ssp0, dtype=np.float64), np.asarray(ssp1, dtype=np.float64)

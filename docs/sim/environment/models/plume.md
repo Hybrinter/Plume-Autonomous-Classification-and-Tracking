@@ -34,12 +34,15 @@ ECEF-column, and latitude Poisson implementations.
 3. `EcefColumn` with `cog_ecef_m is None` places the CoG at the nadir
    height-proxy hit.
 4. `PoissonLatitude` keeps the prior CoG while it stays ahead of the ISS.
-   A new draw uses an exponential along-track gap at intensity
-   `dens(lat) * 2 * cross_track_half_km`. Placement advances the ISS along
-   `orbit.state_eci` until cumulative ground-track distance between successive
-   nadir height-proxy hits matches the gap, then offsets starboard in LVLH and
-   re-intersects the configured Earth model at `height_proxy_m`. Zero density
-   sets `present` false.
+5. Zero nadir intensity `dens(lat) * 2 * cross_track_half_km` returns
+   `present` false and does not search the orbit.
+6. A new draw samples unit-exponential hazard `H ~ Exp(1)` and integrates
+   intensity times ground-track arc in 1 s orbit steps (trapezoid rule).
+7. The walk stops when cumulative hazard reaches `H`, or after one
+   ground-track revolution (~2 pi R_earth). Zero-intensity segments add no
+   hazard and receive no CoG.
+8. Placement uses the ISS state at the hazard crossing, offsets starboard in
+   LVLH, and re-intersects the Earth model at `height_proxy_m`.
 
 ## Errors and faults
 

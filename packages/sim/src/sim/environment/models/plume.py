@@ -32,6 +32,9 @@ _BANDPLANE_X_PX = 612.0
 _BANDPLANE_Y_PX = 124.0
 _MIN_NORM = 1.0e-12
 _PASSED_AHEAD_M = 1.0
+_WGS84_A_M = 6_378_137.0
+_ONE_ORBIT_GROUND_M = 2.0 * math.pi * _WGS84_A_M
+_GROUND_TRACK_DT_S = 1.0
 
 
 @runtime_checkable
@@ -280,8 +283,7 @@ class PoissonLatitude:
                 present=False,
             )
         lat_deg = _geocentric_lat_deg(np.asarray(ssp, dtype=np.float64))
-        dens = self.density_per_km2(lat_deg)
-        lam = along_track_intensity_per_km(dens, self.cross_track_half_km)
+        lam = self._along_track_intensity_at_lat(lat_deg)
         if lam <= 0.0:
             return _ecef_state(
                 "ecef",
@@ -291,13 +293,30 @@ class PoissonLatitude:
                 self.height_proxy_m,
                 present=False,
             )
-        ds_km = float(rng.exponential(1.0 / lam))
-        cross_km = float(rng.uniform(-self.cross_track_half_km, self.cross_track_half_km))
-        cog = _place_along_track(
+        hazard_h = float(rng.exponential(1.0))
+        iss_event = _poisson_hazard_iss(
+            self,
             earth,
             orbit,
             iss,
-            ds_km * 1000.0,
+            hazard_h,
+            self.height_proxy_m,
+            omega_earth_rad_s,
+            epoch_utc_s,
+        )
+        if iss_event is None:
+            return _ecef_state(
+                "ecef",
+                None,
+                self.along_sigma_m,
+                self.cross_sigma_m,
+                self.height_proxy_m,
+                present=False,
+            )
+        cross_km = float(rng.uniform(-self.cross_track_half_km, self.cross_track_half_km))
+        cog = _cog_at_cross_offset(
+            earth,
+            iss_event,
             cross_km * 1000.0,
             self.height_proxy_m,
             omega_earth_rad_s,
@@ -320,6 +339,26 @@ class PoissonLatitude:
             self.height_proxy_m,
             present=True,
         )
+
+    def _along_track_intensity_at_lat(self, lat_deg: float) -> float:
+        """Return along-track Poisson intensity at geocentric latitude."""
+        dens = self.density_per_km2(lat_deg)
+        return along_track_intensity_per_km(dens, self.cross_track_half_km)
+
+    def _along_track_intensity_at_iss(
+        self,
+        earth: EarthModel,
+        iss: IssState,
+        height_proxy_m: float,
+        omega_earth_rad_s: float,
+        epoch_utc_s: float,
+    ) -> float | None:
+        """Return along-track intensity at the ISS nadir, or None on a miss."""
+        ssp = _nadir_hit_ecef(earth, iss, height_proxy_m, omega_earth_rad_s, epoch_utc_s)
+        if ssp is None:
+            return None
+        lat_deg = _geocentric_lat_deg(np.asarray(ssp, dtype=np.float64))
+        return self._along_track_intensity_at_lat(lat_deg)
 
 
 def _ssp_ground_separation_m(
@@ -345,17 +384,21 @@ def _advance_iss_along_ground_track(
     height_proxy_m: float,
     omega_earth_rad_s: float,
     epoch_utc_s: float,
+    *,
+    max_along_m: float = _ONE_ORBIT_GROUND_M,
 ) -> IssState | None:
     """Step orbit forward until cumulative nadir ground-track distance reaches along_m."""
     if along_m <= 0.0:
         return iss
+    if along_m > max_along_m:
+        return None
     ssp = _nadir_hit_ecef(earth, iss, height_proxy_m, omega_earth_rad_s, epoch_utc_s)
     if ssp is None:
         return None
     ssp_ecef = np.asarray(ssp, dtype=np.float64)
     t_s = iss.epoch_utc_s
     dist_m = 0.0
-    dt_s = 1.0
+    dt_s = _GROUND_TRACK_DT_S
     while dist_m < along_m:
         t_next_s = t_s + dt_s
         iss_next = orbit.state_eci(t_next_s)
@@ -373,10 +416,122 @@ def _advance_iss_along_ground_track(
             frac = (along_m - dist_m) / seg_m
             return orbit.state_eci(t_s + frac * dt_s)
         dist_m += seg_m
+        if dist_m >= max_along_m:
+            return None
         t_s = t_next_s
         iss = iss_next
         ssp_ecef = ssp_next_ecef
     return iss
+
+
+def _hazard_within_segment(
+    lam_start: float,
+    lam_end: float,
+    seg_m: float,
+    hazard_acc: float,
+    hazard_h: float,
+) -> float | None:
+    """Return the fraction along a segment where cumulative hazard reaches hazard_h.
+
+    Intensity varies linearly with arc length (trapezoid rule). Returns None when
+    the segment does not reach hazard_h.
+    """
+    if seg_m < _MIN_NORM:
+        return None
+    remaining = hazard_h - hazard_acc
+    if remaining <= 0.0:
+        return 0.0
+    seg_km = seg_m / 1000.0
+    delta_lam = lam_end - lam_start
+    if abs(delta_lam) < _MIN_NORM:
+        if lam_start <= 0.0:
+            return None
+        frac = remaining / (lam_start * seg_km)
+        if frac > 1.0:
+            return None
+        return frac
+    # hazard(s) = lam_start * s_km + 0.5 * delta_lam * s_km^2 / seg_km
+    a = 0.5 * delta_lam / seg_km
+    b = lam_start
+    c = -remaining
+    disc = b * b - 4.0 * a * c
+    if disc < 0.0:
+        return None
+    sqrt_disc = math.sqrt(disc)
+    denom = 2.0 * a
+    if abs(denom) < _MIN_NORM:
+        return None
+    s_km = (-b + sqrt_disc) / denom
+    if s_km < 0.0:
+        s_km = (-b - sqrt_disc) / denom
+    if s_km < 0.0 or s_km > seg_km:
+        return None
+    return s_km / seg_km
+
+
+def _poisson_hazard_iss(
+    model: PoissonLatitude,
+    earth: EarthModel,
+    orbit: OrbitModel,
+    iss: IssState,
+    hazard_h: float,
+    height_proxy_m: float,
+    omega_earth_rad_s: float,
+    epoch_utc_s: float,
+) -> IssState | None:
+    """Advance ISS along the ground track until integrated hazard reaches hazard_h."""
+    lam_start = model._along_track_intensity_at_iss(
+        earth, iss, height_proxy_m, omega_earth_rad_s, epoch_utc_s
+    )
+    if lam_start is None or lam_start <= 0.0:
+        return None
+    ssp = _nadir_hit_ecef(earth, iss, height_proxy_m, omega_earth_rad_s, epoch_utc_s)
+    if ssp is None:
+        return None
+    ssp_ecef = np.asarray(ssp, dtype=np.float64)
+    t_s = iss.epoch_utc_s
+    dist_m = 0.0
+    hazard_acc = 0.0
+    dt_s = _GROUND_TRACK_DT_S
+    while dist_m < _ONE_ORBIT_GROUND_M:
+        t_next_s = t_s + dt_s
+        iss_next = orbit.state_eci(t_next_s)
+        ssp_next = _nadir_hit_ecef(earth, iss_next, height_proxy_m, omega_earth_rad_s, epoch_utc_s)
+        if ssp_next is None:
+            return None
+        ssp_next_ecef = np.asarray(ssp_next, dtype=np.float64)
+        seg_m = _ssp_ground_separation_m(ssp_ecef, ssp_next_ecef)
+        if seg_m < _MIN_NORM:
+            t_s = t_next_s
+            iss = iss_next
+            ssp_ecef = ssp_next_ecef
+            lam_start = model._along_track_intensity_at_iss(
+                earth, iss, height_proxy_m, omega_earth_rad_s, epoch_utc_s
+            )
+            if lam_start is None:
+                return None
+            continue
+        lam_end = model._along_track_intensity_at_iss(
+            earth, iss_next, height_proxy_m, omega_earth_rad_s, epoch_utc_s
+        )
+        if lam_end is None:
+            return None
+        seg_km = seg_m / 1000.0
+        delta_hazard = 0.5 * (lam_start + lam_end) * seg_km
+        if delta_hazard > 0.0:
+            if hazard_acc + delta_hazard >= hazard_h:
+                frac = _hazard_within_segment(lam_start, lam_end, seg_m, hazard_acc, hazard_h)
+                if frac is None:
+                    frac = (hazard_h - hazard_acc) / delta_hazard
+                frac = min(1.0, max(0.0, frac))
+                return orbit.state_eci(t_s + frac * dt_s)
+            hazard_acc += delta_hazard
+        dist_m += seg_m
+        t_s = t_next_s
+        iss = iss_next
+        ssp_ecef = ssp_next_ecef
+        lam_start = lam_end
+    return None
 
 
 def _cog_at_cross_offset(

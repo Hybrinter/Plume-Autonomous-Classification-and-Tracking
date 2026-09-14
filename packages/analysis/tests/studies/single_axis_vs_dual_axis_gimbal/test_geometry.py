@@ -131,7 +131,7 @@ def test_one_axis_window_from_environment_uses_supplied_orbit() -> None:
     optics = build_optics(OPTICS_SPEC)
     sma = build_orbit(TLE, use_perigee=False)
     peri = build_orbit(TLE, use_perigee=True)
-    env_sma = one_axis_window_from_environment(sma, GIMBAL_BOX, dt_s=1.0)
-    env_peri = one_axis_window_from_environment(peri, GIMBAL_BOX, dt_s=1.0)
+    env_sma = one_axis_window_from_environment(sma, GIMBAL_BOX, dt_s=0.05)
+    env_peri = one_axis_window_from_environment(peri, GIMBAL_BOX, dt_s=0.05)
     assert env_peri < env_sma
-    _env_matches_origin_window(peri, optics, GIMBAL_BOX)
+    _env_matches_origin_window(peri, optics, GIMBAL_BOX, dt_s=0.05)

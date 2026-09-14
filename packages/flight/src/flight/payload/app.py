@@ -305,6 +305,11 @@ class PayloadApp:
         """Return whether the injected actuator exposes the production rate path."""
         return isinstance(self.gimbal, GimbalRateActuator)
 
+    def _prune_consumed_ids(self) -> None:
+        """Drop consumption markers for samples no longer in the retained history."""
+        retained = {sample.sample_id for sample in self.encoder_stream.samples}
+        self.encoder_stream.consumed_ids &= retained
+
     def _record_encoder(self, position: GimbalPosition) -> EncoderSample:
         """Record one valid feedback frame and return its estimator-domain sample."""
         sample_id = (
@@ -320,6 +325,7 @@ class PayloadApp:
         )
         if all(existing.sample_id != sample.sample_id for existing in self.encoder_stream.samples):
             self.encoder_stream.samples.append(sample)
+            self._prune_consumed_ids()
         return sample
 
     def _encoder_for_tick(self, tick_s: float) -> EncoderSample | None:
@@ -334,6 +340,7 @@ class PayloadApp:
             return None
         selected = max(candidates, key=lambda sample: (sample.t_s, sample.sample_id))
         self.encoder_stream.consumed_ids.add(selected.sample_id)
+        self._prune_consumed_ids()
         return selected
 
     def _encoder_angle_at(self, t_s: float, *, max_span_s: float | None = None) -> float | None:

@@ -86,12 +86,14 @@ source_modules =
 forbidden_modules =
     gse
 
-[importlinter:contract:analysis-layers]
-name = Analysis studies depend on lib
-type = layers
-layers =
-    analysis.studies
-    analysis.lib
+[importlinter:contract:analysis-study-independence]
+name = Analysis studies must not import sibling studies
+type = independence
+modules =
+    analysis.studies.elevation_controller
+    analysis.studies.orin_nano_full_frame_inference
+    analysis.studies.single_axis_vs_dual_axis_gimbal
+    analysis.studies.tracking_estimator
 
 [importlinter:contract:analysis-isolation]
 name = Analysis must not import tools

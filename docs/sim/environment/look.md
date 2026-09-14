@@ -49,7 +49,7 @@ None.
 
 ## Constraints
 
-Angles are radians. Slant is meters. This is not `analysis.lib.look.Look`.
+Angles are radians. Slant is meters. This is not the study km/deg Look type.
 
 ## Related documents
 

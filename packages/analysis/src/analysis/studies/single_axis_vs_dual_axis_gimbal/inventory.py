@@ -26,7 +26,6 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis.lib.constants import MEAN_EARTH_RADIUS_KM
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     CACHE_DIR,
     CLUSTER_EPS_KM,
@@ -36,6 +35,7 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     PLUME_R_KM,
     RAW_DIR,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.constants import MEAN_EARTH_RADIUS_KM
 
 CT_CORE_SUBSECTORS = frozenset(
     {

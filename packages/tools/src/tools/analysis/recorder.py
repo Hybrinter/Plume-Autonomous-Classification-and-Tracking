@@ -6,8 +6,9 @@ it can observe the state those two apps keep off ``self`` (threaded through ``st
 is fully passive: it subscribes to all nineteen message types on the shared bus, and because the
 bus is fan-out (each subscriber gets its own queue) draining the recorder's subscriptions steals
 nothing from the apps. Each step it drains its subscriptions, takes one self-consistent
-``DeviceSample`` of the sim drivers, builds a ``SampleContext``, and evaluates every registered
-signal; an extractor that raises is recorded as NaN (numeric) or "" (categorical).
+``DeviceSample`` from ``SimGimbal.snapshot`` and other sim driver fields, builds a
+``SampleContext``, and evaluates every registered signal; an extractor that raises is
+recorded as NaN (numeric) or "" (categorical).
 
 The result is a tidy long frame (one row per step per emitted column) plus one wide frame per group
 (step-indexed, one column per signal), with a cumulative running-total column added for each
@@ -15,7 +16,7 @@ per-step event-count signal. Nothing here mutates flight state.
 
 Contains:
   - CaptureResult: the long + per-group wide frames and the run's column/step counts.
-  - sample_devices: one-shot read of the sim HAL drivers for a step.
+  - sample_devices: non-mutating snapshot of last delivered encoder and plant truth.
   - record_run: run the passive capture loop and return a CaptureResult.
 
 Satisfies: REQ-OBS-SIL-001.
@@ -32,7 +33,6 @@ import pandas as pd
 
 # internal
 from flight.libs.bus import Subscription
-from flight.libs.types import Ok
 from sim.sil import SilSystem, step_once
 
 from tools.analysis.datapoints import (
@@ -81,35 +81,30 @@ def _drain(subscription: Subscription[object]) -> tuple[object, ...]:
 
 
 def sample_devices(system: SilSystem) -> DeviceSample:
-    """Read the sim HAL drivers once for the current step (self-consistent, deterministic).
+    """Take a non-mutating snapshot of sim HAL drivers for the current step.
 
     Args:
         system: The wired SilSystem whose sim drivers + mechanical app state to read.
 
     Returns:
-        A DeviceSample snapshot. ``read_position`` is called exactly once (it redraws seeded
-        encoder noise per call); the clean integrated pose is read from the gimbal driver truth,
-        and the launch-lock state is taken from the mechanical app's last cached read.
+        A DeviceSample. ``gimbal_el_meas_deg`` is the last encoder elevation
+        ``read_position`` delivered to flight (NaN if none yet), not a new draw.
 
     Notes:
-        All reads are read-only and side-effect-free with respect to flight behavior.
+        Gimbal fields come from ``SimGimbal.snapshot``. Observation does not
+        integrate the plant, draw encoder noise, update last-feedback time,
+        expire a command lease, or call ``read_stow_switch``.
     """
     gimbal = system.gimbal
-    position = gimbal.read_position()
-    if isinstance(position, Ok):
-        el_meas = position.value.el_deg
-    else:
-        el_meas = float("nan")
-    stow = gimbal.read_stow_switch()
-    stow_engaged = isinstance(stow, Ok) and stow.value is True
-    pose_mode = "STOW" if gimbal._stow_commanded else "NONE"
+    snap = gimbal.snapshot()
+    pose_mode = "STOW" if snap.stow_commanded else "NONE"
     return DeviceSample(
-        gimbal_el_meas_deg=el_meas,
-        gimbal_el_true_deg=gimbal.true_el_deg,
-        gimbal_omega_rad_s=gimbal.true_omega_rad_s,
-        gimbal_tau_nm=gimbal._tau_nm,
+        gimbal_el_meas_deg=snap.last_el_meas_deg,
+        gimbal_el_true_deg=snap.true_el_deg,
+        gimbal_omega_rad_s=snap.true_omega_rad_s,
+        gimbal_tau_nm=snap.tau_nm,
         gimbal_mode=pose_mode,
-        stow_switch=stow_engaged,
+        stow_switch=snap.stow_switch,
         launch_lock_state=system.apps.mechanical.state.last_state.value,
         link_state=system.station.link_state().value,
         station_sent_total=len(system.station.sent),
@@ -157,7 +152,8 @@ def record_run(
     Notes:
         Subscriptions are created before the first step, so step 1 is captured. The loop mirrors
         SilHarness.run_steps exactly (advance clock, advance now, step_once) but owns the threaded
-        state so the payload/FDIR internals are observable.
+        state so the payload/FDIR internals are observable. ``sample_devices`` uses
+        ``SimGimbal.snapshot`` and does not call ``read_position`` or ``read_stow_switch``.
     """
     if steps <= 0:
         raise ValueError(f"steps must be positive, got {steps}")

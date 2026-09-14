@@ -14,6 +14,7 @@ structurally for SIL and tests.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SimGimbal` | class | Rigid-body elevation plant |
+| `GimbalSnapshot` | class | Cached delivered encoder and plant truth |
 
 ## Inputs and outputs
 
@@ -28,11 +29,12 @@ and the inner period used for frozen-clock catch-up.
 | `stow()` | None | `Ok(None)` |
 | `read_position()` | None | `Result[GimbalPosition, FaultCode]` |
 | `advance_plant()` | None | None (sim-only plant integrate) |
+| `snapshot()` | None | `GimbalSnapshot` (sim-only, non-mutating) |
 | `read_stow_switch()` | None | `Result[bool, FaultCode]` |
 | `freeze_encoder()` | None | Hold encoder reads at the current pose |
 
-Observability properties: `true_el_deg`, `true_omega_rad_s`. `advance_plant` is
-sim-only and is not on `GimbalActuator`.
+Observability properties: `true_el_deg`, `true_omega_rad_s`. `advance_plant` and
+`snapshot` are sim-only and are not on `GimbalActuator`.
 
 ## Behavior
 
@@ -42,12 +44,15 @@ sim-only and is not on `GimbalActuator`.
 3. `stow` / `home` / `goto_angle` latch a pose target. Motion comes from torque.
    The driver does not close a position or rate loop.
 4. `read_position` quantizes true elevation to encoder counts and adds Gaussian
-   noise.
+   noise. It caches the delivered elevation and last-feedback time.
 5. `advance_plant` integrates the plant to the clock. It does not sample the
    encoder or update last-feedback time.
-6. `read_stow_switch` is true after `stow()` and when elevation is within 0.5 deg of
+6. `snapshot` returns the cached delivered encoder, true pose and rate, held
+   torque, and stow state. It does not draw noise, integrate the plant, expire a
+   lease, or write last-feedback time. Stow switch uses the current true pose.
+7. `read_stow_switch` is true after `stow()` and when elevation is within 0.5 deg of
    the stow pose.
-7. Travel and slew clips apply inside the ODE step.
+8. Travel and slew clips apply inside the ODE step.
 
 ## Errors and faults
 
@@ -67,6 +72,7 @@ Reads `GimbalConfig` plant scalars, travel, slew, encoder counts, noise, and see
 - The payload catch-up methods step the plant at frozen clock time. The harness
   advances `ManualClock` after the step.
 - The driver enforces the hardware envelope from config.
+- `snapshot` is an observer. It is not an encoder acquisition.
 
 ## Related documents
 

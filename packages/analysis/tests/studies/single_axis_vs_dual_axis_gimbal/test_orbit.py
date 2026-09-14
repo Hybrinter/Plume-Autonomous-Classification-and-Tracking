@@ -1,5 +1,7 @@
 """Orbit wrappers over sim CircularKepler and geocentric_radius_m."""
 
+import math
+
 import numpy as np
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import TLE
 from analysis.studies.single_axis_vs_dual_axis_gimbal.constants import MU_KM3_S2
@@ -19,6 +21,13 @@ def test_geocentric_radius_km_equator_is_wgs84_a() -> None:
     cfg = EphemerisConfig()
     expected_km = cfg.wgs84_a_m / 1000.0
     assert abs(wgs84_geocentric_radius_km(0.0) - expected_km) < 1e-12
+
+
+def test_geocentric_radius_km_45_deg() -> None:
+    """45 deg geocentric latitude matches the radial-intersection value in km."""
+    lat_rad = math.radians(45.0)
+    expected_km = 6367417.7249666825 / 1000.0
+    assert abs(wgs84_geocentric_radius_km(lat_rad) - expected_km) < 1e-9
 
 
 def test_iss_eci_wraps_circular_kepler() -> None:

@@ -118,6 +118,62 @@ def test_advance_plant_does_not_consume_encoder_noise() -> None:
     assert pos_twice.value.el_deg != pos_once.value.el_deg
 
 
+def test_snapshot_does_not_mutate_feedback_rng_or_plant() -> None:
+    """snapshot leaves last_feedback, RNG, torque, and the next encoder sample unchanged."""
+    clock = ManualClock()
+    cfg = GimbalConfig(
+        simulation=GimbalSimulationConfig(encoder_noise_deg=0.5, seed=7),
+    )
+    observed = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    twin = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    empty = observed.snapshot()
+    assert math.isnan(empty.last_el_meas_deg)
+    assert empty.last_feedback_s is None
+    assert observed._last_feedback_s is None
+    observed.snapshot()
+    pos_first = observed.read_position()
+    pos_twin_first = twin.read_position()
+    assert isinstance(pos_first, Ok)
+    assert isinstance(pos_twin_first, Ok)
+    assert pos_first.value.el_deg == pos_twin_first.value.el_deg
+    last_feedback = observed._last_feedback_s
+    snap = observed.snapshot()
+    assert snap.last_el_meas_deg == pos_first.value.el_deg
+    assert snap.last_feedback_s == last_feedback
+    assert observed._last_feedback_s == last_feedback
+    pos_second = observed.read_position()
+    pos_twin_second = twin.read_position()
+    assert isinstance(pos_second, Ok)
+    assert isinstance(pos_twin_second, Ok)
+    assert pos_second.value.el_deg == pos_twin_second.value.el_deg
+
+
+def test_snapshot_does_not_integrate_or_expire_lease() -> None:
+    """snapshot does not advance the plant on a clock jump or expire held torque."""
+    clock = ManualClock()
+    cfg = GimbalConfig(
+        simulation=GimbalSimulationConfig(encoder_noise_deg=0.5, seed=7, tau_max_nm=1.0),
+    )
+    observed = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    twin = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    assert isinstance(observed.set_torque(0.2, valid_until_s=0.01), Ok)
+    assert isinstance(twin.set_torque(0.2, valid_until_s=0.01), Ok)
+    theta_before = observed.true_el_deg
+    tau_before = observed._tau_nm
+    clock.advance(0.02)
+    snap = observed.snapshot()
+    assert observed.true_el_deg == theta_before
+    assert observed._tau_nm == tau_before
+    assert snap.true_el_deg == theta_before
+    assert snap.tau_nm == tau_before
+    assert twin.true_el_deg == theta_before
+    pos_observed = observed.read_position()
+    pos_twin = twin.read_position()
+    assert isinstance(pos_observed, Ok)
+    assert isinstance(pos_twin, Ok)
+    assert pos_observed.value.el_deg == pos_twin.value.el_deg
+
+
 def test_frozen_catch_up_does_not_double_count() -> None:
     """set_torque at a frozen clock plus a later advance of the same dt moves once."""
     clock = ManualClock()

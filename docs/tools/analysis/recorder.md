@@ -13,7 +13,7 @@ step into tidy long and per-group wide pandas frames.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `CaptureResult` | class | Long frame, wide frames, step and column counts |
-| `sample_devices` | function | One-shot read of sim HAL drivers for a step |
+| `sample_devices` | function | Non-mutating snapshot of cached delivered feedback and plant truth |
 | `record_run` | function | Run capture loop and return `CaptureResult` |
 
 ## Inputs and outputs
@@ -27,8 +27,11 @@ step into tidy long and per-group wide pandas frames.
 
 **`sample_devices(system) -> DeviceSample`**
 
-- Output: gimbal measured and truth pose, rates, mode, stow switch, launch-lock state, link
-  state, station send count, and replay cursors.
+- Output: last flight-delivered encoder elevation, plant truth pose and rate, held
+  torque, stow command and switch, launch-lock state, link state, station send count,
+  and replay cursors.
+- The call does not sample the encoder, draw noise, integrate the plant, expire a
+  command lease, or write last-feedback time.
 
 ## Behavior
 
@@ -36,7 +39,8 @@ step into tidy long and per-group wide pandas frames.
 2. Seed payload `ControlState` and FDIR watchdog entries.
 3. Each step: add `dt` to `now`, run optional `pre_step`, call `step_once`, then
    advance the shared clock. `step_once` catch-up runs before acquire.
-4. Drain passive subscriptions, sample devices once, build `SampleContext`.
+4. Drain passive subscriptions, take a non-mutating device snapshot, build a
+   `SampleContext`.
 5. Evaluate every signal in `REGISTRY`. Extractor exceptions become NaN or "".
 6. Build master wide frame, add `.cumulative` columns for event-rate signals, split by group,
    and reshape to long format.
@@ -58,7 +62,9 @@ None.
 
 - Mirrors `SilHarness.run_steps` timing (`step_once`, then clock advance).
 - Owns threaded payload and fault state for observability.
-- Reads private sim driver fields read-only for truth pose and replay cursors.
+- `sample_devices` reads `SimGimbal.snapshot`. It does not call `read_position` or
+  `read_stow_switch`.
+- Replay cursors and station send counts remain private sim-driver field reads.
 - Never mutates flight state beyond what `step_once` and the optional hook do.
 
 ## Related documents

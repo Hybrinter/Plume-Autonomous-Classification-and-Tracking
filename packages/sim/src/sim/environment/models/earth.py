@@ -77,6 +77,4 @@ def geocentric_radius_m(a_m: float, f: float, lat_rad: float) -> float:
     """Return WGS-84 geocentric radius at geocentric latitude lat_rad."""
     b_m = a_m * (1.0 - f)
     c_lat, s_lat = math.cos(lat_rad), math.sin(lat_rad)
-    num = (a_m**2 * c_lat) ** 2 + (b_m**2 * s_lat) ** 2
-    den = (a_m * c_lat) ** 2 + (b_m * s_lat) ** 2
-    return math.sqrt(num / den)
+    return 1.0 / math.sqrt((c_lat / a_m) ** 2 + (s_lat / b_m) ** 2)

@@ -33,6 +33,10 @@ sphere implementations.
 
 1. `Wgs84Ellipsoid` calls `wgs84_intersect_at_height` with stored `a_m` and `f`.
 2. `SphereEarth` calls `wgs84_intersect` with radius `a_m + height_m` and `f = 0`.
+3. `geocentric_radius_m` takes geocentric latitude `psi` in radians. It returns the
+   radial distance from the Earth center to the WGS-84 ellipsoid along the meridian at
+   `psi`. The value is `1 / sqrt(cos(psi)^2 / a^2 + sin(psi)^2 / b^2)` with
+   `b = a * (1 - f)`.
 
 ## Errors and faults
 

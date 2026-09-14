@@ -64,6 +64,7 @@ def test_bandplane_skips_ecef_look() -> None:
         np.random.default_rng(0),
     )
     assert sample.truth.plume.frame == "bandplane"
+    assert sample.truth.plume.present is True
     assert sample.truth.centroid_band_px == (612.0, 124.0)
     assert sample.truth.look.el_rad == 0.0
     assert sample.truth.look.visible is False
@@ -84,6 +85,7 @@ def test_nadir_ecef_column_projects_to_principal_point() -> None:
         np.random.default_rng(0),
     )
     assert sample.truth.plume.frame == "ecef"
+    assert sample.truth.plume.present is True
     assert sample.truth.plume.cog_ecef_m is not None
     assert sample.truth.centroid_band_px is not None
     u_px, v_px = sample.truth.centroid_band_px

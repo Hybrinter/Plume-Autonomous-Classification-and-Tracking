@@ -8,6 +8,7 @@ Contains:
   - EnvTime, ShutterPose, PlumeState, LookAngles, SceneGeometry
   - EnvTruth, DriverFeed, EnvSample
   - camera_from_sensor
+  - PlumeState.present is explicit availability (not inferred from CoG)
 """
 
 from __future__ import annotations
@@ -68,6 +69,7 @@ class PlumeState:
     along_sigma_m: float
     cross_sigma_m: float
     height_proxy_m: float
+    present: bool
 
 
 @dataclass(frozen=True, slots=True)

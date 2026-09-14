@@ -5,8 +5,8 @@
 
 ## Purpose
 
-The plume module supplies the `PlumeModel` Protocol and named band-plane and
-ECEF-column implementations.
+The plume module supplies the `PlumeModel` Protocol and named band-plane,
+ECEF-column, and latitude Poisson implementations.
 
 ## Public interface
 
@@ -15,21 +15,34 @@ ECEF-column implementations.
 | `PlumeModel` | Protocol | `evaluate(...) -> PlumeState` |
 | `BandplaneGaussian` | class | Fixed CI band-plane centroid |
 | `EcefColumn` | class | Frozen ECEF CoG at the height proxy |
+| `PoissonLatitude` | class | Along-track Poisson CoG at signed-latitude density |
+| `along_track_intensity_per_km` | function | 1-D intensity dens * corridor width |
 
 ## Inputs and outputs
 
-**`PlumeModel.evaluate(time, prior, wind, earth, iss, orbit, omega, epoch) -> PlumeState`**
+**`PlumeModel.evaluate(time, prior, wind, earth, iss, orbit, omega, epoch, rng) -> PlumeState`**
 
 - Inputs: sample time, optional prior state, wind, Earth, ISS, orbit, Earth
-  rate, epoch UTC.
+  rate, epoch UTC, numpy Generator.
 - Output: `PlumeState` in `ecef` or `bandplane`.
 
 ## Behavior
 
-1. `BandplaneGaussian` returns centroid `(612, 124)` px and no ECEF CoG.
-2. `EcefColumn` with a stored CoG returns that CoG.
+1. `BandplaneGaussian` returns centroid `(612, 124)` px, no ECEF CoG, and
+   `present` true.
+2. `EcefColumn` with a stored CoG returns that CoG and `present` true.
 3. `EcefColumn` with `cog_ecef_m is None` places the CoG at the nadir
    height-proxy hit.
+4. `PoissonLatitude` keeps the prior CoG while it stays ahead of the ISS.
+5. Zero nadir intensity `dens(lat) * 2 * cross_track_half_km` returns
+   `present` false and does not search the orbit.
+6. A new draw samples unit-exponential hazard `H ~ Exp(1)` and integrates
+   intensity times ground-track arc in 1 s orbit steps (trapezoid rule).
+7. The walk stops when cumulative hazard reaches `H`, or after one
+   ground-track revolution (~2 pi R_earth). Zero-intensity segments add no
+   hazard and receive no CoG.
+8. Placement uses the ISS state at the hazard crossing, offsets starboard in
+   LVLH, and re-intersects the Earth model at `height_proxy_m`.
 
 ## Errors and faults
 
@@ -42,10 +55,13 @@ None.
 ## Configuration
 
 `EnvironmentConfig.ecef_column` supplies CoG, sigmas, and height proxy.
+`EnvironmentConfig.poisson_latitude` supplies signed-latitude density tables
+and corridor width.
 
 ## Constraints
 
-`BandplaneGaussian` ignores Earth, orbit, wind, and shutter elevation.
+`BandplaneGaussian` ignores Earth, orbit, wind, rng, and shutter elevation.
+`PoissonLatitude` does not model rewind hunt or azimuth raster.
 
 ## Related documents
 

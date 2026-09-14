@@ -13,7 +13,7 @@ The records module defines frozen dataclasses for one environment evaluation.
 | --- | --- | --- |
 | `EnvTime` | class | Monotonic step time and UTC seconds |
 | `ShutterPose` | class | True gimbal elevation, rate, exposure, gain |
-| `PlumeState` | class | ECEF or band-plane plume sample |
+| `PlumeState` | class | ECEF or band-plane plume sample with `present` |
 | `LookAngles` | class | Mount look angles, SI radians and meters |
 | `SceneGeometry` | class | ISS, plume, look, projected centroid |
 | `EnvTruth` | class | Oracle record |
@@ -37,6 +37,7 @@ The records module defines frozen dataclasses for one environment evaluation.
 
 1. `from_step` maps SIL `now` onto UTC while `ManualClock` still lags by `dt`.
 2. `LookAngles.el_rad` is 0 at geocentric nadir and positive along-track.
+3. `PlumeState.present` is true when the world has an active source.
 
 ## Errors and faults
 

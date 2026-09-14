@@ -33,5 +33,8 @@ own a clock, bus, or gimbal.
 
 A SIL bind is opt-in on `SilHarness` and `ValidationHarness`. Default CI and GSE
 keep pre-rendered `sim.scene.plume` frames. A harness that constructs an
-`Environment` feeds mosaics or masks into sim drivers only when those fields are
-not `None`.
+`Environment` feeds mosaics or masks into sim drivers only when those fields
+are not `None`.
+
+Named plume `poisson_latitude` is a source-field model. Trial loops live
+outside `evaluate`.

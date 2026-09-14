@@ -30,7 +30,8 @@ catch-up and before acquire.
    on step 1. Poll mode changes and lock.
 2. Catch up inner and outer loops to `now`. For each `T_out` slice: `advance_inner`
    up to tick `t`, then one `outer_step` at `t`. Then trailing inner to `now`. A first
-   step with `last_outer_s is None` runs outer then inner once so origins stamp.
+   step with `last_outer_s is None` stamps origins, runs inner through `now`,
+   then outer, then trailing inner.
 3. When a bind is present, call `bind.pre_step(now)`. Catch-up has already integrated
    the plant through shutter. `advance_plant` then sees a frozen clock and leaves
    catch-up debt in place.

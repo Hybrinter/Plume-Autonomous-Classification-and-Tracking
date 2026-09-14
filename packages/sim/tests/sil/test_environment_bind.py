@@ -453,7 +453,9 @@ def test_missing_encoder_bracket_leaves_theta_g_none() -> None:
     )
     harness = SilHarness(system)
     harness.step(1.0)
-    assert system.apps.payload._encoder_angle_at(1.0) is not None
+    samples = system.apps.payload.encoder_stream.samples
+    assert samples
+    assert max(sample.t_s for sample in samples) < 10.0
     assert system.apps.payload._encoder_angle_at(10.0) is None
     raw = dataclasses.replace(build_frames(1)[0], timestamp_s=10.0)
     state, _ = system.apps.payload.process_frame(raw, harness._payload_state, 10.0)

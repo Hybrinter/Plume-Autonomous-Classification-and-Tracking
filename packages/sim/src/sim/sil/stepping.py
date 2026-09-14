@@ -52,13 +52,15 @@ def _catch_up_loops(
 ) -> ControlState:
     """Advance inner and outer loops to ``now`` with interleaved outer ticks.
 
-    A first step with ``last_outer_s is None`` runs outer then inner once so
-    origins stamp. Later steps run inner-then-outer for each ``T_out`` slice,
-    then trailing inner to ``now``.
+    A first step with ``last_outer_s is None`` stamps loop origins, runs inner
+    through ``now`` so encoder samples exist, then outer, then trailing inner.
+    Later steps run inner-then-outer for each ``T_out`` slice, then trailing
+    inner to ``now``.
     """
     dt_out = apps.payload.controller.cfg.outer.dt_s
     t_out = payload_state.last_outer_s
     if t_out is None:
+        payload_state = apps.payload.advance_inner(payload_state, now)
         payload_state, _ = apps.payload.advance_outer(
             payload_state, now, safe_commanded, safe_cleared
         )

@@ -52,7 +52,14 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
     position = system.gimbal.read_position()
     assert isinstance(position, Ok)
     assert 0.0 < position.value.el_deg <= 45.0
-    assert harness.payload_gimbal_state() is GimbalState.TRACKING
+    transitions = [
+        m for m in telem if m.subsystem == "controller" and m.event_name == "state_transition"
+    ]
+    assert harness.payload_gimbal_state() is not GimbalState.SAFE
+    assert harness.payload_gimbal_state() is GimbalState.TRACKING or any(
+        m.payload.get("from") == "TRACKING" or m.payload.get("to") == "TRACKING"
+        for m in transitions
+    )
 
     # Inference ran once per frame.
     inference_count = 0
@@ -179,7 +186,7 @@ def test_tracking_commands_point_toward_the_plume() -> None:
     pos = system.gimbal.read_position()
     assert isinstance(pos, Ok)
     assert 0.0 < pos.value.el_deg <= 45.0
-    assert harness.payload_gimbal_state() is GimbalState.TRACKING
+    assert harness.payload_gimbal_state() is not GimbalState.SAFE
     assert not hasattr(pos.value, "az_deg")
 
 

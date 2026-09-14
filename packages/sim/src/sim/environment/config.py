@@ -6,6 +6,7 @@ This config is sim-only. It is not a member of PactConfig.
 from __future__ import annotations
 
 # stdlib
+import math
 from dataclasses import field
 from typing import Literal
 
@@ -131,6 +132,13 @@ def build_models(config: EnvironmentConfig, eph: EphemerisConfig) -> Result[Envi
         lats = src.signed_lat_deg
         if any(lats[i] >= lats[i + 1] for i in range(len(lats) - 1)):
             return Err("poisson_latitude signed_lat_deg must be strictly increasing")
+        if any(not math.isfinite(lat) for lat in lats):
+            return Err("poisson_latitude signed_lat_deg must be finite")
+        densities = src.dens_per_km2
+        if any(not math.isfinite(d) for d in densities):
+            return Err("poisson_latitude dens_per_km2 must be finite")
+        if any(d < 0.0 for d in densities):
+            return Err("poisson_latitude dens_per_km2 must be non-negative")
         plume = PoissonLatitude(
             signed_lat_deg=src.signed_lat_deg,
             dens_per_km2=src.dens_per_km2,

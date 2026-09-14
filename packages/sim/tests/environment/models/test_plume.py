@@ -250,3 +250,45 @@ def test_poisson_latitude_rejects_unsorted_lats() -> None:
     )
     built = build_environment(cfg, camera)
     assert isinstance(built, Err)
+
+
+def test_poisson_latitude_rejects_nan_table_values() -> None:
+    """build_environment returns Err when a poisson_latitude table value is NaN."""
+    camera = camera_from_sensor(SensorConfig())
+    cfg = EnvironmentConfig(
+        plume="poisson_latitude",
+        poisson_latitude=PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, 90.0),
+            dens_per_km2=(0.0, float("nan")),
+        ),
+    )
+    built = build_environment(cfg, camera)
+    assert isinstance(built, Err)
+
+
+def test_poisson_latitude_rejects_inf_table_values() -> None:
+    """build_environment returns Err when a poisson_latitude table value is infinite."""
+    camera = camera_from_sensor(SensorConfig())
+    cfg = EnvironmentConfig(
+        plume="poisson_latitude",
+        poisson_latitude=PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, float("inf")),
+            dens_per_km2=(1.0e-3, 1.0e-3),
+        ),
+    )
+    built = build_environment(cfg, camera)
+    assert isinstance(built, Err)
+
+
+def test_poisson_latitude_rejects_negative_density() -> None:
+    """build_environment returns Err when dens_per_km2 is negative."""
+    camera = camera_from_sensor(SensorConfig())
+    cfg = EnvironmentConfig(
+        plume="poisson_latitude",
+        poisson_latitude=PoissonLatitudeParams(
+            signed_lat_deg=(-90.0, 90.0),
+            dens_per_km2=(-1.0e-3, 0.0),
+        ),
+    )
+    built = build_environment(cfg, camera)
+    assert isinstance(built, Err)

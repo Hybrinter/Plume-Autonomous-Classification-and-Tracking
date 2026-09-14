@@ -5,5 +5,5 @@ import importlib
 
 def test_sim_subpackages_import() -> None:
     """The sim package and its subpackages import without error."""
-    for name in ("sim", "sim.sil", "sim.scene", "sim.environment", "sim.twin"):
+    for name in ("sim", "sim.sil", "sim.scene", "sim.environment", "sim.trial", "sim.twin"):
         assert importlib.import_module(name) is not None

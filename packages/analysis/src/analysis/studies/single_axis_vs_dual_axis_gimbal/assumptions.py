@@ -21,9 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-from analysis.lib.look import GimbalBox, WindowMode
-from analysis.lib.optics import OpticsSpec
-from analysis.lib.orbit import IssTle
+from analysis.studies.single_axis_vs_dual_axis_gimbal.look import GimbalBox, WindowMode
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import OpticsSpec
+from analysis.studies.single_axis_vs_dual_axis_gimbal.orbit import IssTle
 
 # Celestrak GP TLE, NORAD 25544, epoch 2026-09-01 (day 244.4985).
 # 1 25544U 98067A   26244.49851261  .00003910  00000-0  79223-4 0  9993

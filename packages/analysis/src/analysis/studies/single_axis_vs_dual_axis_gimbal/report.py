@@ -16,9 +16,6 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from analysis.lib.hunt import HuntModel
-from analysis.lib.optics import Optics
-from analysis.lib.tracking import TimeLostFn
 from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     BAND_ALONG_PX,
     BAND_LATERAL_PX,
@@ -41,13 +38,16 @@ from analysis.studies.single_axis_vs_dual_axis_gimbal.assumptions import (
     T_MIN_USABLE_S,
     TLE,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.hunt import HuntModel
 from analysis.studies.single_axis_vs_dual_axis_gimbal.inventory import Cluster
+from analysis.studies.single_axis_vs_dual_axis_gimbal.optics import Optics
 from analysis.studies.single_axis_vs_dual_axis_gimbal.profile import (
     LatBandRow,
     RadiusProfile,
     cycle_s,
     hunt_at_lat,
 )
+from analysis.studies.single_axis_vs_dual_axis_gimbal.tracking import TimeLostFn
 
 if TYPE_CHECKING:
     from analysis.studies.single_axis_vs_dual_axis_gimbal.geometry import (
@@ -913,8 +913,10 @@ def write_study_readme(
     a("# Single-axis vs dual-axis gimbal")
     a("")
     a("TEMPORARY ANALYSIS. Not flight software. Design study for dropping")
-    a("the azimuth gimbal axis. Shared geometry lives in `analysis.lib`;")
-    a("this folder holds generated reports, PNGs, and local inventory downloads.")
+    a("the azimuth gimbal axis. Dual-axis hunt and covering-disk math live in")
+    a("the study package. 1-axis encounter rates use the sim Poisson")
+    a("intensity helpers.")
+    a("This folder holds generated reports, PNGs, and local inventory downloads.")
     a("")
     a("```text")
     a(f"{_RUN_CMD} geometry")

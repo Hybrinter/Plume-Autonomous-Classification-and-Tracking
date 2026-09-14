@@ -17,6 +17,7 @@ ECEF-column, and latitude Poisson implementations.
 | `EcefColumn` | class | Frozen ECEF CoG at the height proxy |
 | `PoissonLatitude` | class | Along-track Poisson CoG at signed-latitude density |
 | `along_track_intensity_per_km` | function | 1-D intensity dens * corridor width |
+| `mean_encounter_time_s` | function | Mean time 1 / (intensity * ground speed) |
 
 ## Inputs and outputs
 

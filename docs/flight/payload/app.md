@@ -55,7 +55,9 @@ command.
    geometry. The lock gate starts engaged.
 2. Each valid `GimbalPosition` becomes an `EncoderSample` with device timestamp,
    unwrapped angle, variance, and stable sample ID. The sample is stored in the
-   shared encoder stream.
+   shared encoder stream. The stream retains at most 4096 samples. Consumption
+   markers drop when a sample leaves that deque. A device restart can reuse a
+   sequence-based ID once the prior row is gone.
 3. `advance_outer` consumes the newest unconsumed sample whose device time
    belongs to the historical tick. A current feedback value is not relabeled
    with an older tick time. A missing sample leaves the tick uncommitted and

@@ -93,9 +93,9 @@ uv run pytest -m "slow" -n 2
 ```
 
 CI shards tests across parallel jobs (`test-flight`, `test-sim`, `test-gse`, `test-tools`).
-The required merge check is the fan-in job `gates`. Lean shards sync with
-`uv sync --extra dev-ci-flight` and omit `pact-tools`. See
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+PRs run the `pull_request` workflow once; `push` CI is `main` only. The required merge
+check is the fan-in job `gates`. Lean shards sync with `uv sync --extra dev-ci-flight`
+and omit `pact-tools`. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 Mark `@pytest.mark.slow` on the expensive test, not on the whole module.
 

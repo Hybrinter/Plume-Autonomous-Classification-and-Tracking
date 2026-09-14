@@ -23,6 +23,7 @@ thread. It exposes builders, harnesses, and the shared `step_once` cycle body.
 
 | Name | Kind |
 | --- | --- |
+| `SilCycleBind` | Protocol |
 | `SilEnvironmentBind` | class |
 | `SilHarness` | class |
 | `SilSystem` | class |
@@ -52,6 +53,7 @@ GSE drives `build_validation_system` and `ValidationHarness`. Tools analysis cal
 ## Constraints
 
 - `step_once` is the single source of truth for one deterministic cycle.
+  Catch-up runs before optional bind evaluate and before acquire.
 - The harness publishes one `HeartbeatMsg` per entry in `MONITORED_SUBSYSTEMS` each step.
 - `SilHarness.run_steps` advances the shared `ManualClock` so `SimGimbal` dynamics integrate.
 - Storage redirects to a temp directory in `build_validation_system`.

@@ -34,7 +34,8 @@ step into tidy long and per-group wide pandas frames.
 
 1. Subscribe to all nineteen message types before step 1.
 2. Seed payload `ControlState` and FDIR watchdog entries.
-3. Each step: advance clock and `now`, run optional `pre_step`, call `step_once`.
+3. Each step: add `dt` to `now`, run optional `pre_step`, call `step_once`, then
+   advance the shared clock. `step_once` catch-up runs before acquire.
 4. Drain passive subscriptions, sample devices once, build `SampleContext`.
 5. Evaluate every signal in `REGISTRY`. Extractor exceptions become NaN or "".
 6. Build master wide frame, add `.cumulative` columns for event-rate signals, split by group,
@@ -55,7 +56,7 @@ None.
 
 ## Constraints
 
-- Mirrors `SilHarness.run_steps` timing (clock advance, then `step_once`).
+- Mirrors `SilHarness.run_steps` timing (`step_once`, then clock advance).
 - Owns threaded payload and fault state for observability.
 - Reads private sim driver fields read-only for truth pose and replay cursors.
 - Never mutates flight state beyond what `step_once` and the optional hook do.

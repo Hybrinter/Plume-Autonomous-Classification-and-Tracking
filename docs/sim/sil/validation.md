@@ -27,7 +27,7 @@ deterministically. GSE imports this surface and does not touch flight compositio
 
 **`ValidationHarness.step(now) -> None`**
 
-- Same contract as `SilHarness.step`. Optional bind, then `step_once`.
+- Same contract as `SilHarness.step`. Delegates to `step_once` with the optional bind.
 
 **`load_profile_config(config_path, override_path) -> PactConfig`**
 
@@ -41,8 +41,8 @@ deterministically. GSE imports this surface and does not touch flight compositio
 2. It creates a new `MessageBus` and calls `select_drivers` with the supplied config.
 3. It builds identity mosaic calibration from sensor dimensions.
 4. It wires every app via `build_apps` with `MONITORED_SUBSYSTEMS`.
-5. `ValidationHarness` seeds payload and fault state, then steps like `SilHarness`,
-   including an optional `SilEnvironmentBind`.
+5. `ValidationHarness` seeds payload and fault state, then steps like `SilHarness`.
+   `step_once` runs catch-up, then the optional `SilEnvironmentBind`, then acquire.
 6. `load_profile_config` calls `flight.core.config_loader.load_config` and raises on failure.
 
 ## Errors and faults
@@ -66,6 +66,7 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 - Driver fields stay protocol-typed. No cast is required after `select_drivers`.
 - A `"real"` link axis yields `RealStationLink`. Other axes may stay sim.
 - GSE is the primary consumer of this module.
+- The harness does not call `bind.pre_step` itself.
 
 ## Related documents
 

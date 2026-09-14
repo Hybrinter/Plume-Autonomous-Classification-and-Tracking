@@ -4,10 +4,10 @@ build_sil_system forces an all-"sim" environment and delegates to the general
 sim.sil.validation.build_validation_system, then casts the returned ValidationSystem's
 Protocol-typed drivers back to their concrete sim types for inspection -- so the SIL
 exercises the exact same env-driven selection + wiring path the flight entry and the GSE
-backend use. SilHarness drives the apps single-threaded: each step acquires + processes
-one frame, samples housekeeping, pumps the ISS bridge, publishes per-subsystem liveness
-heartbeats, then runs the FDIR tick -- all over the shared in-process bus, with `now`
-advanced explicitly for full determinism.
+backend use. SilHarness drives the apps single-threaded through step_once: catch-up, optional
+bind, acquire + process one frame, housekeeping, ISS bridge, heartbeats, then FDIR
+-- all over the shared in-process bus, with `now` advanced explicitly for full
+determinism.
 
 Contains:
   - SilSystem: the wired apps + bus + clock + the concrete sim drivers (for inspection).
@@ -127,7 +127,8 @@ class SilHarness:
 
         Args:
             system: The wired SilSystem to drive.
-            bind: Optional world evaluate + driver feed run before each step_once.
+            bind: Optional world evaluate + driver feed run inside each step_once
+                after loop catch-up and before acquire.
         """
         self._system = system
         self._bind = bind
@@ -147,8 +148,6 @@ class SilHarness:
         """
         self._now = now
         system = self._system
-        if self._bind is not None:
-            self._bind.pre_step(now)
         self._payload_state, self._fault_entries = step_once(
             system.apps,
             system.sensor,
@@ -158,6 +157,7 @@ class SilHarness:
             now,
             self._payload_state,
             self._fault_entries,
+            bind=self._bind,
         )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:

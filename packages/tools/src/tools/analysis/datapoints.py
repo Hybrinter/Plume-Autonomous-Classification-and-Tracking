@@ -116,19 +116,19 @@ class SignalKind(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class DeviceSample:
-    """One-shot read of the sim HAL drivers for a single step (taken once, after step_once).
+    """One-shot non-mutating view of the sim HAL drivers for a single step (after step_once).
 
-    Reading each driver once per step keeps the per-step values self-consistent and the run
-    deterministic: ``read_position`` redraws seeded encoder noise on every call, so the recorder
-    samples it exactly once and every gimbal extractor reads the same cached numbers.
+    Gimbal measured elevation is the last encoder sample ``read_position`` delivered to
+    flight, read from ``SimGimbal.snapshot``. Observation does not draw encoder noise or
+    integrate the plant. Every gimbal extractor reads the same cached numbers.
 
     Fields:
-        gimbal_el_meas_deg: ``read_position`` elevation (with encoder noise).
+        gimbal_el_meas_deg: last flight-delivered encoder elevation, or NaN if none yet.
         gimbal_el_true_deg: the clean integrated pose (driver truth).
         gimbal_omega_rad_s: true plant rate (rad/s).
         gimbal_tau_nm: held torque command (N·m).
         gimbal_mode: the active GimbalCommandMode name, or "NONE" before the first command.
-        stow_switch: True once stow is commanded and the pose is within stow tolerance.
+        stow_switch: True once stow is commanded and the true pose is within stow tolerance.
         launch_lock_state: the LaunchLockState name read from the launch-lock driver.
         link_state: the station LinkState name (AOS / LOS).
         station_sent_total: cumulative count of packets the station link has transmitted.

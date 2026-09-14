@@ -61,7 +61,8 @@ None.
 - No getattr-style dynamic dispatch. Each signal carries a typed `ExtractorFn`.
 - Cumulative columns apply only to per-step event counts (titles ending in "/step" or
   "this step").
-- `read_position` is sampled once per step in `DeviceSample` for consistency.
+- `DeviceSample.gimbal_el_meas_deg` is the last flight-delivered encoder from
+  `SimGimbal.snapshot`. The recorder does not call `read_position`.
 
 ## Related documents
 

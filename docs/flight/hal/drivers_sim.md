@@ -42,8 +42,9 @@ type (stall, hold-last, or empty queue).
   debt. The harness advances the clock after the payload catch-up methods.
 - `SimStationLink.sent` is a test inspection hook with no real-driver counterpart.
 - `SimSensor.load_next`, `SimSensor.unread_scripted_count`,
-  `SimGimbal.advance_plant`, and `SimGimbal.true_el_deg` are sim-only mutators
-  and observability hooks. They are not on the HAL Protocols.
+  `SimGimbal.advance_plant`, `SimGimbal.true_el_deg`, and `SimGimbal.snapshot`
+  are sim-only mutators and observability hooks. They are not on the HAL
+  Protocols.
 
 ## Related documents
 

@@ -336,8 +336,8 @@ class GimbalSimulationConfig:
     so a SIL run cannot accidentally be mistaken for hardware characterization.
     encoder_counts_per_rev and encoder_noise_deg match the real XD-C controller
     resolution (GimbalConfig.xeryon.controller_counts_per_rev /
-    effective_encoder_resolution_urad); J, B, tau_max, and tau_coulomb remain
-    unmeasured plant placeholders pending a bench identification study.
+    effective_encoder_resolution_urad); J, B, and tau_max remain unmeasured
+    plant placeholders pending a bench identification study.
     """
 
     J_kg_m2: float = Field(default=0.008, gt=0.0)  # noqa: N815

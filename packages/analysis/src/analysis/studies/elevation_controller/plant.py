@@ -1,7 +1,9 @@
-"""Elevation-controller analysis helpers: rigid-body plant matching flight SimGimbal.
+"""Elevation-controller analysis helpers: frictionless rigid-body plant model.
 
 The study imports flight pure cores. This module only integrates
-J * omega_dot + B * omega = tau in SI.
+J * omega_dot + B * omega = tau in SI; it has no Coulomb/static friction term
+and is not a claim of equivalence to the flight SimGimbal detailed plant
+(which does model Coulomb friction).
 """
 
 from __future__ import annotations

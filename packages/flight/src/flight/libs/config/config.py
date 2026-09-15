@@ -460,7 +460,7 @@ class GimbalConfig:
 
     @property
     def tau_coulomb_nm(self) -> float:
-        """Detailed-plant Coulomb/static friction magnitude; unmeasured placeholder."""
+        """Detailed-plant Coulomb friction; unavailable to the production Xeryon adapter."""
         return self.simulation.tau_coulomb_nm
 
     @property

@@ -1,10 +1,11 @@
 """Simulated elevation gimbal: rigid-body ODE plant with Coulomb friction, encoder
 quantization, noise.
 
-Integrates J * omega_dot + B * omega = tau in SI. Lazy clock integration advances
-the plant by elapsed monotonic time. Repeated `set_torque` at a frozen clock (SIL
-catch-up) steps one inner period per call and records a catch-up debt so a later
-clock jump does not double-count.
+Integrates J * omega_dot + B * omega + friction = tau in SI, where friction is a
+Coulomb/static-friction term (see _coulomb_friction_nm). Lazy clock integration
+advances the plant by elapsed monotonic time. Repeated `set_torque` at a frozen
+clock (SIL catch-up) steps one inner period per call and records a catch-up debt
+so a later clock jump does not double-count.
 
 ``read_position`` is the encoder acquisition event: it quantizes, draws noise, and
 stamps last-feedback time. ``snapshot`` is a sim-only non-mutating view of the last
@@ -166,13 +167,28 @@ class SimGimbal:
         j = cfg.J_kg_m2
         b = cfg.B_nms_per_rad
         tau = self._tau_nm
-        friction = _coulomb_friction_nm(tau, self._omega_rad_s, cfg.tau_coulomb_nm)
+        prev_omega = self._omega_rad_s
+        friction = _coulomb_friction_nm(tau, prev_omega, cfg.tau_coulomb_nm)
         omega_max = math.radians(cfg.max_hw_slew_rate_deg_per_s)
         theta_min = math.radians(cfg.el_hw_min_deg)
         theta_max = math.radians(cfg.el_hw_max_deg)
         # Semi-implicit Euler on J * omega_dot + B * omega + friction = tau
-        omega_dot = (tau - b * self._omega_rad_s - friction) / j
-        omega = self._omega_rad_s + omega_dot * dt_s
+        omega_dot = (tau - b * prev_omega - friction) / j
+        omega = prev_omega + omega_dot * dt_s
+        # Discrete-time Coulomb friction can remove more speed in one step than the
+        # step's true zero-crossing would (a numerical artifact, not real dynamics):
+        # at a fine dt this makes the plant overshoot into the opposite sign every
+        # step (a limit cycle that never settles); at a coarse dt it can flip the
+        # plant to a full-speed reversal in a single step. Drive torque below the
+        # static-friction magnitude cannot sustain motion, so if the step's velocity
+        # changed sign while under sub-breakaway drive, arrest it at exactly zero
+        # instead of letting it cross.
+        if (
+            prev_omega != 0.0
+            and abs(tau) <= cfg.tau_coulomb_nm
+            and math.copysign(1.0, omega) != math.copysign(1.0, prev_omega)
+        ):
+            omega = 0.0
         omega = min(max(omega, -omega_max), omega_max)
         theta = self._theta_rad + omega * dt_s
         if theta > theta_max:

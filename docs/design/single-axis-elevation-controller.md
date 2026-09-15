@@ -331,8 +331,8 @@ There is no inner Kalman state.
 \]
 
 Rate is not a sensor. Vision is not an inner measurement. Encoder quantization
-uses `encoder_counts_per_rev` (placeholder 18-bit), not the dead PTU
-`counts_per_deg`.
+uses `encoder_counts_per_rev` (86400 counts/rev, the real XD-C controller
+resolution), not the dead PTU `counts_per_deg`.
 
 ### 8.2 Causal polynomial rate estimator (not two-point finite difference)
 
@@ -781,7 +781,7 @@ Defaults must match `config/default.toml`. Do not hide numbers in source.
 | `J_kg_m2` / `B_nms_per_rad` | 0.008 / 0.04 | Conservative plant; \(B\) is a friction stand-in |
 | `tau_max_nm` | 1.0 | |
 | `max_hw_slew_rate_deg_per_s` | 10.0 | keep |
-| `encoder_counts_per_rev` | 262144 | 18-bit; drop PTU 77.6 counts/deg |
+| `encoder_counts_per_rev` | 86400 | Real XD-C controller resolution; drop PTU 77.6 counts/deg |
 | `controller.inner.dt_s` | 0.001 | |
 | `controller.inner.rate_fit_n` / `rate_fit_degree` | 7 / 2 | |
 | `controller.inner.kp` / `ki` | 200 / 10000 | 1/s and 1/s² on rad/s |

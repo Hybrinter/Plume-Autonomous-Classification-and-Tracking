@@ -229,6 +229,27 @@ def test_above_breakaway_torque_moves_the_plant() -> None:
     assert pos.value.el_deg > 0.1
 
 
+def test_released_torque_settles_to_rest_and_stays() -> None:
+    """Friction brings a moving plant to rest and holds it there, no numerical chatter."""
+    clock = ManualClock()
+    cfg = GimbalConfig(
+        simulation=GimbalSimulationConfig(
+            tau_coulomb_nm=0.05, encoder_noise_deg=0.0, tau_max_nm=1.0
+        ),
+    )
+    gimbal = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    gimbal.set_torque(1.0, valid_until_s=2.0)
+    clock.advance(1.0)
+    gimbal.set_torque(0.0, valid_until_s=2.0)  # release torque, still moving
+    for _ in range(3000):  # 3s of coast at the 1ms inner period (frozen clock catch-up)
+        gimbal.set_torque(0.0, valid_until_s=1e9)
+    assert abs(gimbal.true_omega_rad_s) < 1e-9
+    settled_el_deg = gimbal.true_el_deg
+    for _ in range(100):
+        gimbal.set_torque(0.0, valid_until_s=1e9)
+    assert gimbal.true_el_deg == settled_el_deg
+
+
 def test_frozen_catch_up_does_not_double_count() -> None:
     """set_torque at a frozen clock plus a later advance of the same dt moves once."""
     clock = ManualClock()

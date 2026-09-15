@@ -163,8 +163,8 @@ home_el_deg = 45.0
 J_kg_m2 = 0.008
 B_nms_per_rad = 0.04
 tau_max_nm = 1.0
-encoder_counts_per_rev = 262144
-encoder_noise_deg = 0.005
+encoder_counts_per_rev = 86400
+encoder_noise_deg = 0.00625
 seed = 0
 
 [gimbal.xeryon]

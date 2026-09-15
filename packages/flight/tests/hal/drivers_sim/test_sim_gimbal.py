@@ -3,6 +3,7 @@
 import math
 
 from flight.hal.drivers_sim import SimGimbal
+from flight.hal.drivers_sim.gimbal import _coulomb_friction_nm
 from flight.libs.config import GimbalConfig, GimbalSimulationConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import Ok
@@ -172,6 +173,60 @@ def test_snapshot_does_not_integrate_or_expire_lease() -> None:
     assert isinstance(pos_observed, Ok)
     assert isinstance(pos_twin, Ok)
     assert pos_observed.value.el_deg == pos_twin.value.el_deg
+
+
+def test_coulomb_friction_opposes_motion() -> None:
+    """Kinetic friction has constant magnitude and opposes the current rate."""
+    assert _coulomb_friction_nm(tau_nm=0.5, omega_rad_s=1.0, tau_coulomb_nm=0.05) == 0.05
+    assert _coulomb_friction_nm(tau_nm=0.5, omega_rad_s=-1.0, tau_coulomb_nm=0.05) == -0.05
+
+
+def test_coulomb_friction_cancels_subthreshold_drive_at_rest() -> None:
+    """Below the breakaway torque, static friction exactly cancels drive torque."""
+    assert _coulomb_friction_nm(tau_nm=0.02, omega_rad_s=0.0, tau_coulomb_nm=0.05) == 0.02
+    assert _coulomb_friction_nm(tau_nm=-0.02, omega_rad_s=0.0, tau_coulomb_nm=0.05) == -0.02
+
+
+def test_coulomb_friction_breaks_away_above_threshold() -> None:
+    """Above the breakaway torque at rest, friction caps at tau_coulomb_nm."""
+    assert _coulomb_friction_nm(tau_nm=0.5, omega_rad_s=0.0, tau_coulomb_nm=0.05) == 0.05
+
+
+def test_coulomb_friction_zero_when_unconfigured() -> None:
+    """tau_coulomb_nm == 0.0 (disabled) never injects friction."""
+    assert _coulomb_friction_nm(tau_nm=0.5, omega_rad_s=1.0, tau_coulomb_nm=0.0) == 0.0
+
+
+def test_sub_breakaway_torque_does_not_move_the_plant() -> None:
+    """A torque below tau_coulomb_nm produces zero net motion (static friction holds)."""
+    clock = ManualClock()
+    cfg = GimbalConfig(
+        simulation=GimbalSimulationConfig(
+            tau_coulomb_nm=0.05, encoder_noise_deg=0.0, B_nms_per_rad=0.0
+        ),
+    )
+    gimbal = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    assert isinstance(gimbal.set_torque(0.02, valid_until_s=2.0), Ok)
+    clock.advance(1.0)
+    pos = gimbal.read_position()
+    assert isinstance(pos, Ok)
+    assert abs(pos.value.el_deg) < 1e-6
+
+
+def test_above_breakaway_torque_moves_the_plant() -> None:
+    """A torque above tau_coulomb_nm still drives the plant, net of the friction loss."""
+    clock = ManualClock()
+    cfg = GimbalConfig(
+        simulation=GimbalSimulationConfig(
+            tau_coulomb_nm=0.05, encoder_noise_deg=0.0, B_nms_per_rad=0.0
+        ),
+    )
+    gimbal = SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    assert isinstance(gimbal.set_torque(0.5, valid_until_s=2.0), Ok)
+    clock.advance(1.0)
+    pos = gimbal.read_position()
+    assert isinstance(pos, Ok)
+    assert pos.value.el_deg > 0.1
 
 
 def test_frozen_catch_up_does_not_double_count() -> None:

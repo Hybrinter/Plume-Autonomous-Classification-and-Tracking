@@ -336,13 +336,14 @@ class GimbalSimulationConfig:
     so a SIL run cannot accidentally be mistaken for hardware characterization.
     encoder_counts_per_rev and encoder_noise_deg match the real XD-C controller
     resolution (GimbalConfig.xeryon.controller_counts_per_rev /
-    effective_encoder_resolution_urad); J, B, and tau_max remain unmeasured
-    plant placeholders pending a bench identification study.
+    effective_encoder_resolution_urad); J, B, tau_max, and tau_coulomb remain
+    unmeasured plant placeholders pending a bench identification study.
     """
 
     J_kg_m2: float = Field(default=0.008, gt=0.0)  # noqa: N815
     B_nms_per_rad: float = Field(default=0.04, ge=0.0)  # noqa: N815
     tau_max_nm: float = Field(default=1.0, gt=0.0)
+    tau_coulomb_nm: float = Field(default=0.05, ge=0.0)
     encoder_counts_per_rev: int = Field(default=86_400, ge=2)
     encoder_noise_deg: float = Field(default=0.00625, ge=0.0)
     seed: int = 0
@@ -456,6 +457,11 @@ class GimbalConfig:
     def tau_max_nm(self) -> float:
         """Detailed-plant torque limit used only by simulation control."""
         return self.simulation.tau_max_nm
+
+    @property
+    def tau_coulomb_nm(self) -> float:
+        """Detailed-plant Coulomb/static friction magnitude; unmeasured placeholder."""
+        return self.simulation.tau_coulomb_nm
 
     @property
     def encoder_counts_per_rev(self) -> int:

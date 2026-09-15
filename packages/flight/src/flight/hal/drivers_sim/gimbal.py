@@ -1,4 +1,5 @@
-"""Simulated elevation gimbal: rigid-body ODE plant, encoder quantization, noise.
+"""Simulated elevation gimbal: rigid-body ODE plant with Coulomb friction, encoder
+quantization, noise.
 
 Integrates J * omega_dot + B * omega = tau in SI. Lazy clock integration advances
 the plant by elapsed monotonic time. Repeated `set_torque` at a frozen clock (SIL
@@ -29,6 +30,35 @@ from flight.libs.time import Clock
 from flight.libs.types import Err, FaultCode, Ok, Result
 
 _STOW_TOLERANCE_DEG = 0.5
+_OMEGA_STICTION_EPS_RAD_S = 1e-4  # below this rate the plant is treated as at rest
+
+
+def _coulomb_friction_nm(tau_nm: float, omega_rad_s: float, tau_coulomb_nm: float) -> float:
+    """Return the Coulomb/static friction torque opposing motion or sub-threshold drive.
+
+    Args:
+        tau_nm (float): Commanded drive torque, N*m.
+        omega_rad_s (float): Current plant rate, rad/s.
+        tau_coulomb_nm (float): Coulomb friction magnitude, N*m (>= 0; 0 disables friction).
+
+    Returns:
+        float: Friction torque, N*m, to subtract from tau_nm in the rigid-body ODE.
+
+    Notes:
+        Standard Karnopp static/Coulomb model. While moving, friction opposes motion at
+        constant magnitude tau_coulomb_nm. At rest, friction cancels drive torque up to
+        tau_coulomb_nm (no motion below that breakaway torque); above it, only
+        tau_coulomb_nm of drive torque is lost to friction. This is why a real actuator
+        cannot move by an arbitrarily small amount, and is the physical root of the
+        datasheet min_incremental_motion_urad figure this plant otherwise ignores.
+    """
+    if tau_coulomb_nm <= 0.0:
+        return 0.0
+    if abs(omega_rad_s) > _OMEGA_STICTION_EPS_RAD_S:
+        return math.copysign(tau_coulomb_nm, omega_rad_s)
+    if tau_nm == 0.0:
+        return 0.0
+    return math.copysign(min(abs(tau_nm), tau_coulomb_nm), tau_nm)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +154,11 @@ class SimGimbal:
 
         Args:
             dt_s: Integration step, seconds. Non-positive is a no-op.
+
+        Notes:
+            Includes Coulomb/static friction (see _coulomb_friction_nm) alongside the
+            existing linear viscous term; this is why a sub-breakaway torque commands
+            zero net motion instead of a slow creep.
         """
         if dt_s <= 0.0:
             return
@@ -131,11 +166,12 @@ class SimGimbal:
         j = cfg.J_kg_m2
         b = cfg.B_nms_per_rad
         tau = self._tau_nm
+        friction = _coulomb_friction_nm(tau, self._omega_rad_s, cfg.tau_coulomb_nm)
         omega_max = math.radians(cfg.max_hw_slew_rate_deg_per_s)
         theta_min = math.radians(cfg.el_hw_min_deg)
         theta_max = math.radians(cfg.el_hw_max_deg)
-        # Semi-implicit Euler on J * omega_dot + B * omega = tau
-        omega_dot = (tau - b * self._omega_rad_s) / j
+        # Semi-implicit Euler on J * omega_dot + B * omega + friction = tau
+        omega_dot = (tau - b * self._omega_rad_s - friction) / j
         omega = self._omega_rad_s + omega_dot * dt_s
         omega = min(max(omega, -omega_max), omega_max)
         theta = self._theta_rad + omega * dt_s

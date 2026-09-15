@@ -73,7 +73,8 @@ command.
    command requests inhibition and latches the actuator fault.
 7. The detailed SIL path keeps the inner encoder-rate fit, PI, and torque
    command. Its torque thread is not started when the injected actuator exposes
-   the production rate interface.
+   the production rate interface. Rate-mode `advance_inner` records one encoder
+   sample and does not write torque.
 8. SAFE and launch-lock states inhibit motion. SAFE operation commands the stow
    position loop. A pending SAFE STOW is retried after lock release.
 9. Shutdown stops acquisition and joins the detailed-plant thread when one is

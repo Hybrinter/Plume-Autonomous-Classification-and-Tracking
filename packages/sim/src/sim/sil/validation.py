@@ -132,7 +132,8 @@ class ValidationHarness:
 
         Args:
             system: The wired ValidationSystem to drive.
-            bind: Optional world evaluate + driver feed run before each step_once.
+            bind: Optional world evaluate + driver feed run inside each step_once
+                after loop catch-up and before acquire.
         """
         self._system = system
         self._bind = bind
@@ -152,8 +153,6 @@ class ValidationHarness:
         """
         self._now = now
         system = self._system
-        if self._bind is not None:
-            self._bind.pre_step(now)
         self._payload_state, self._fault_entries = step_once(
             system.apps,
             system.sensor,
@@ -163,6 +162,7 @@ class ValidationHarness:
             now,
             self._payload_state,
             self._fault_entries,
+            bind=self._bind,
         )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:

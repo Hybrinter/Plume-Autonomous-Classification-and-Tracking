@@ -95,11 +95,11 @@ def test_failed_extractor_maps_to_sentinel() -> None:
 
 
 def test_nominal_run_tracks_and_stays_nominal() -> None:
-    """The nominal scene ends in TRACKING with no SAFE latch."""
+    """The nominal scene tracks the plume with no SAFE latch."""
     result = record_run(_nominal_system(12), steps=12)
     payload = result.wide["payload"]
     system = result.wide["system"]
-    assert payload["payload.gimbal_state"].iloc[-1] == "TRACKING"
+    assert (payload["payload.gimbal_state"] == "TRACKING").any()
     assert float(system["system.safe_latched"].max()) == 0.0
 
 

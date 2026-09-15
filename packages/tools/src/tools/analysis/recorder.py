@@ -151,8 +151,8 @@ def record_run(
 
     Notes:
         Subscriptions are created before the first step, so step 1 is captured. The loop mirrors
-        SilHarness.run_steps exactly (advance clock, advance now, step_once) but owns the threaded
-        state so the payload/FDIR internals are observable. ``sample_devices`` uses
+        SilHarness.run_steps (``now``, optional hook, ``step_once``, then clock advance) and owns
+        the threaded state so the payload/FDIR internals are observable. ``sample_devices`` uses
         ``SimGimbal.snapshot`` and does not call ``read_position`` or ``read_stow_switch``.
     """
     if steps <= 0:

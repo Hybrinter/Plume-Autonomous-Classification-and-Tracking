@@ -1,10 +1,12 @@
-"""Opt-in SIL bind: evaluate the world, then feed sim drivers, then step_once.
+"""Opt-in SIL bind: evaluate the world at shutter after loop catch-up.
 
-SilEnvironmentBind does not own a clock, bus, or gimbal plant. pre_step
-advances the plant without an encoder sample, evaluates the environment, and
-pushes only non-None mosaics and masks. HAL ephemeris is logged beside truth
+SilEnvironmentBind does not own a clock, bus, or gimbal plant. step_once calls
+pre_step after inner/outer catch-up and before acquire. pre_step advances the
+plant without an encoder sample, evaluates the environment, and pushes only
+non-None mosaics and eligible masks. HAL ephemeris is logged beside truth
 for scoring and never placed in DriverFeed. Live mosaics are refused while
-constructor frames remain so frame_id values cannot collide.
+constructor frames remain so frame_id values cannot collide. Live masks are
+not loaded while constructor frames remain.
 
 Contains:
   - SilEnvironmentBind: per-step evaluate + driver feed
@@ -33,7 +35,7 @@ from sim.environment.records import EnvSample, EnvTime, PlumeState, ShutterPose
 
 
 class SilEnvironmentBind:
-    """Evaluate the simulated world immediately before each SIL cycle."""
+    """Evaluate the simulated world at shutter after loop catch-up."""
 
     def __init__(
         self,
@@ -64,7 +66,7 @@ class SilEnvironmentBind:
         """Integrate the gimbal plant, evaluate, and push non-None feed slots.
 
         Args:
-            now: Step monotonic seconds (same value later passed to step_once).
+            now: Step monotonic seconds (same value passed to step_once).
 
         Returns:
             The EnvSample from evaluate. last_sample and last_hal_iss are updated.
@@ -102,7 +104,11 @@ class SilEnvironmentBind:
                 )
             )
         mask = sample.feed.mask
-        if mask is not None and self._detector is not None:
+        if (
+            mask is not None
+            and self._detector is not None
+            and self._sensor.unread_scripted_count() == 0
+        ):
             self._detector.load_mask(np.asarray(mask, dtype=np.float32))
         return sample
 
@@ -137,6 +143,7 @@ def bind_sil_environment(
         sensor_cfg: Exposure, gain, and mosaic metadata.
         frames: Constructor frames already given to SimSensor (may be empty).
         detector: Scripted detector for load_mask. None skips mask push.
+            Unread constructor frames also skip load_mask.
         ephemeris: HAL ISS source logged beside truth.
         rng: Appearance RNG. Defaults to a seeded Generator.
 

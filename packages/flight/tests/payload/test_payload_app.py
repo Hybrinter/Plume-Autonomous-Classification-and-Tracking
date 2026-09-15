@@ -7,7 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from flight.hal.drivers_sim import SimGimbal, SimIssEphemeris, SimSensor
-from flight.hal.interfaces import GimbalPosition
+from flight.hal.interfaces import GimbalHealth, GimbalPosition, GimbalRateCommand
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
@@ -106,6 +106,100 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     )
     app.lock_gate.engaged = False
     return app, bus, gimbal, clock
+
+
+class _RateGimbal:
+    """Minimal GimbalRateActuator that stamps encoder samples on each read."""
+
+    def __init__(self, dt_s: float) -> None:
+        self.dt_s = dt_s
+        self.reads = 0
+        self._last_feedback_s: float | None = None
+
+    def set_torque(
+        self, tau_nm: float, valid_until_s: float | None = None
+    ) -> Result[None, FaultCode]:
+        del tau_nm, valid_until_s
+        return Err(FaultCode.GIMBAL_FAULT)
+
+    def inhibit(self, reason: str) -> Result[GimbalHealth, FaultCode]:
+        del reason
+        return Ok(self._health())
+
+    def read_health(self) -> Result[GimbalHealth, FaultCode]:
+        return Ok(self._health())
+
+    def goto_angle(self, el_deg: float) -> Result[None, FaultCode]:
+        del el_deg
+        return Ok(None)
+
+    def home(self) -> Result[None, FaultCode]:
+        return Ok(None)
+
+    def stow(self) -> Result[None, FaultCode]:
+        return Ok(None)
+
+    def read_position(self) -> Result[GimbalPosition, FaultCode]:
+        self.reads += 1
+        timestamp_s = self.reads * self.dt_s
+        self._last_feedback_s = timestamp_s
+        return Ok(GimbalPosition(el_deg=0.0, timestamp_s=timestamp_s, sequence=self.reads))
+
+    def read_stow_switch(self) -> Result[bool, FaultCode]:
+        return Ok(False)
+
+    def set_rate(self, command: GimbalRateCommand) -> Result[None, FaultCode]:
+        del command
+        return Ok(None)
+
+    def stow_reference_step(self, now_s: float | None = None) -> Result[bool, FaultCode]:
+        del now_s
+        return Ok(False)
+
+    def shutdown(self) -> Result[None, FaultCode]:
+        return Ok(None)
+
+    def _health(self) -> GimbalHealth:
+        return GimbalHealth(
+            feedback_valid=True,
+            last_feedback_s=self._last_feedback_s,
+            command_valid_until_s=None,
+            inhibited=False,
+            inhibit_confirmed=False,
+        )
+
+
+def test_rate_mode_inner_catchup_samples_encoder_before_outer() -> None:
+    """Rate-mode catch-up records encoder samples so outer ticks keep T_out cadence."""
+    cfg = PactConfig()
+    dt_out = cfg.controller.outer.dt_s
+    bus = MessageBus()
+    clock = ManualClock()
+    gimbal = _RateGimbal(dt_out)
+    sensor = SimSensor([])
+    eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    app.lock_gate.engaged = False
+    state = app.controller.initial_state()
+    now = 0.1
+    state = app.advance_inner(state, now)
+    state, _ = app.advance_outer(state, now)
+    state = app.advance_inner(state, now)
+    now = 0.2
+    t_out = state.last_outer_s
+    assert t_out is not None
+    while t_out + dt_out <= now + 1e-12:
+        t_out = t_out + dt_out
+        state = app.advance_inner(state, t_out)
+        state, _ = app.advance_outer(state, t_out)
+    state = app.advance_inner(state, now)
+    assert gimbal.reads >= 5
+    assert state.last_outer_s is not None
+    assert state.last_outer_s == pytest.approx(0.2, abs=dt_out + 1e-12)
+    assert len(app.encoder_stream.samples) == gimbal.reads
 
 
 def test_process_frame_passes_full_band_plane() -> None:

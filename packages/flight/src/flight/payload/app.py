@@ -676,8 +676,10 @@ class PayloadApp:
     def advance_inner(self, state: ControlState, now: float) -> ControlState:
         """Catch up the inner loop to `now` in T_in steps and write torque."""
         if self._rate_mode():
-            # Production Xeryon control is rate-commanded at outer cadence;
-            # never read/fit the detailed-plant inner loop on that path.
+            # Production control is rate-commanded at outer cadence and does not
+            # run the detailed-plant PI. Catch-up still records one encoder
+            # sample so interleaved outer ticks have feedback at shutter.
+            self._read_position()
             return state
         dt = self.controller.cfg.inner.dt_s
         current = state

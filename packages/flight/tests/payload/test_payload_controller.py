@@ -240,16 +240,13 @@ def test_aggregate_coast_expires_into_return() -> None:
     assert expired.state.commanded_rate_rad_s > 0.0
 
 
-def test_safe_entry_produces_stow_request() -> None:
-    """A commanded SAFE produces a STOW request and latched SAFE state."""
+def test_safe_entry_halts_without_stow_request() -> None:
+    """A commanded SAFE latches SAFE without issuing a STOW request."""
     controller = _controller()
     state = controller.initial_state()
     tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, True, False)
-    assert tick.request is not None
-    assert tick.request.mode is GimbalCommandMode.STOW
+    assert tick.request is None
     assert tick.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert tick.state.pose.pose_mode is GimbalCommandMode.STOW
-    assert tick.state.commanded_rate_rad_s < 0.0
 
 
 def test_inner_step_writes_torque() -> None:
@@ -707,8 +704,8 @@ def test_science_window_zeros_negative_r_at_min() -> None:
     assert tick.state.commanded_rate_rad_s == 0.0
 
 
-def test_exit_safe_resets_residual() -> None:
-    """EXIT_SAFE cold-starts the residual filter."""
+def test_operate_clear_resets_residual() -> None:
+    """ENTER_OPERATE (operate_cleared) cold-starts the residual filter."""
     from dataclasses import replace
 
     controller = _controller()

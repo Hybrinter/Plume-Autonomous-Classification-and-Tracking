@@ -228,10 +228,10 @@ def test_rewind_at_limb_returns_to_tracking(default_config: PactConfig) -> None:
     assert request is None
 
 
-def test_safe_latches_and_stows(
+def test_safe_latches_and_halts(
     arbiter_tracking_state: ArbiterState, default_config: PactConfig
 ) -> None:
-    """SAFE entry issues STOW and stays latched until cleared."""
+    """SAFE entry latches without a STOW request and stays until cleared."""
     arbiter = _arbiter(default_config)
     new_state, request, events = arbiter.step(
         arbiter_tracking_state,
@@ -242,9 +242,7 @@ def test_safe_latches_and_stows(
         el_deg=10.0,
     )
     assert new_state.gimbal_state is GimbalState.SAFE
-    assert request is not None
-    assert request.mode is GimbalCommandMode.STOW
-    assert request.el_deg == default_config.gimbal.stow_el_deg
+    assert request is None
     assert events[-1].payload["to"] == GimbalState.SAFE.value
 
     held, held_request, _events = arbiter.step(
@@ -274,8 +272,7 @@ def test_mode_flags_latch_safe(
         mode_flags=_FAULT_FLAG,
     )
     assert new_state.gimbal_state is GimbalState.SAFE
-    assert request is not None
-    assert request.mode is GimbalCommandMode.STOW
+    assert request is None
 
 
 def test_safe_clear_returns_to_tracking(default_config: PactConfig) -> None:

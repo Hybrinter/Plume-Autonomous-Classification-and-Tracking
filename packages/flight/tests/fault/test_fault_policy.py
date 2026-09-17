@@ -2,9 +2,10 @@
 
 from flight.fault.policy import (
     SAFE_TRIGGERING_FAULTS,
+    can_enter_init,
     decide_mode_change,
+    enter_init_mode,
     enter_safe_mode,
-    exit_safe_mode,
 )
 from flight.libs.messages import FaultEventMsg
 from flight.libs.types import FaultCode, MessageType, SystemMode
@@ -34,14 +35,21 @@ def test_non_safe_fault_maps_to_none() -> None:
     assert decide_mode_change(_fault(FaultCode.STORAGE_FULL), now_iso="t") is None
 
 
-def test_enter_and_exit_safe_mode() -> None:
-    """enter_safe_mode requests SAFE (tagged with the reason); exit requests IDLE."""
+def test_enter_safe_and_init_mode() -> None:
+    """enter_safe_mode requests SAFE; enter_init_mode requests INIT from SAFE."""
     enter = enter_safe_mode(FaultCode.GIMBAL_RUNAWAY, now_iso="t")
     assert enter.new_mode is SystemMode.SAFE
     assert "GIMBAL_RUNAWAY" in enter.requested_by
-    leave = exit_safe_mode("ground_cmd", now_iso="t")
-    assert leave.new_mode is SystemMode.IDLE
+    leave = enter_init_mode("ground_cmd", now_iso="t")
+    assert leave.new_mode is SystemMode.INIT
     assert "ground_cmd" in leave.requested_by
+
+
+def test_can_enter_init_gates_on_latch_and_fault() -> None:
+    """can_enter_init requires SAFE latched and no live triggering fault."""
+    assert can_enter_init(True, False) is True
+    assert can_enter_init(True, True) is False
+    assert can_enter_init(False, False) is False
 
 
 def test_safe_triggering_set_membership() -> None:

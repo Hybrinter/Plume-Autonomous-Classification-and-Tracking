@@ -74,21 +74,21 @@ def test_unroutable_target_nacks_and_faults() -> None:
 
 
 def test_hazardous_arm_then_execute_routes_across_ticks() -> None:
-    """EXIT_SAFE ARM is acked (no routed msg); a later EXECUTE routes to the fault app."""
+    """ENTER_INIT ARM is acked (no routed msg); a later EXECUTE routes to the fault app."""
     bus = MessageBus()
     router = _router(bus)
     routed = bus.subscribe(RoutedCommandMsg)
     acks = bus.subscribe(CommandAckMsg)
 
-    bus.publish(_command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=1))
+    bus.publish(_command("ENTER_INIT", "fault", {"phase": "ARM"}, seq=1))
     router.tick()
     assert routed.empty()
     assert acks.get_nowait().status is AckStatus.ACCEPTED
 
-    bus.publish(_command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=2))
+    bus.publish(_command("ENTER_INIT", "fault", {"phase": "EXECUTE"}, seq=2))
     router.tick()
     msg = routed.get_nowait()
-    assert msg.command_id == "EXIT_SAFE"
+    assert msg.command_id == "ENTER_INIT"
     assert msg.target == "fault"
 
 

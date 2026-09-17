@@ -36,7 +36,7 @@ packages/
   gse/      # pact-gse    — ground support: CCSDS station emulator + declarative scenarios + orchestrator
   analysis/ # pact-analysis — design/performance studies (depends on flight + sim; not STE-mirrored)
 config/     # default.toml (+ flight.toml override) — all tunable parameters, no magic numbers in source
-profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) environment profiles
+profiles/   # sil / sil-link-real (run) + pil / hil (defined, not run) driver profiles
 scenarios/  # declarative validation scenarios (scene + command timeline + assertions)
 scripts/    # check_vcrm.py, check_docs.py, check_adr.py, check_flight_image.py — CI gates
 docs/       # package-mirrored descriptive docs, ADRs, requirements (VCRM), validation
@@ -71,6 +71,33 @@ uv run python scripts/check_adr.py --strict
 uv run python scripts/check_flight_image.py
 uv run pytest -m "not e2e"
 ```
+
+**Fast local iteration** (matches PR CI — skips `slow` integration/training tests):
+
+```bash
+uv run pytest -m "not slow and not e2e" -n 2
+```
+
+**Package-scoped** while editing one member:
+
+```bash
+uv run pytest packages/flight -m "not slow and not e2e"
+uv run pytest packages/tools -m "not slow and not e2e"
+```
+
+**Full suite** (matches `main` push + nightly slow job):
+
+```bash
+uv run pytest -m "not e2e" -n auto
+uv run pytest -m "slow" -n 2
+```
+
+CI shards tests across parallel jobs (`test-flight`, `test-sim`, `test-gse`, `test-tools`).
+PRs run the `pull_request` workflow once; `push` CI is `main` only. The required merge
+check is the fan-in job `gates`. Lean shards sync with `uv sync --extra dev-ci-flight`
+and omit `pact-tools`. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+Mark `@pytest.mark.slow` on the expensive test, not on the whole module.
 
 ### Flight-only (payload computer / experiment image)
 

@@ -72,6 +72,7 @@ def test_misses_below_limb_enter_rewind(
             el_deg=10.0,
         )
     assert state.gimbal_state is GimbalState.REWIND
+    assert state.rewind_entered_s == float(persist)
     assert request is None
     assert events[-1].payload["to"] == GimbalState.REWIND.value
 
@@ -198,6 +199,7 @@ def test_rewind_plume_returns_to_tracking(default_config: PactConfig) -> None:
         el_deg=10.0,
     )
     assert new_state.gimbal_state is GimbalState.TRACKING
+    assert new_state.rewind_entered_s is None
     assert new_state.aggregate_live is True
     assert new_state.current_target_id is None
     assert request is None

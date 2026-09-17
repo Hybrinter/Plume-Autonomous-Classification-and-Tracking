@@ -1,6 +1,6 @@
 """Env-driven HAL driver selection for the composition roots.
 
-select_drivers maps a PactConfig.environment axis vector to a concrete Drivers
+select_drivers maps a PactConfig.drivers axis vector to a concrete Drivers
 bundle. It lives in flight.core (a composition root), so it is the one place
 besides flight.core.main and sim.sil permitted to import BOTH driver sets --
 allowed by the drivers-from-composition-roots-only import contract (flight.core is
@@ -12,14 +12,14 @@ top to statically type each branch local; that is what removes any need for a ca
 type: ignore at the Drivers(...) construction.
 
 The clock axis is NOT acted on here: the composition root selects RealClock vs
-ManualClock from config.environment.clock BEFORE calling this function and passes
+ManualClock from config.drivers.clock BEFORE calling this function and passes
 the chosen Clock in. The 'lock' (LaunchLock) axis does not exist (permanent VCRM gap).
 
 Contains:
   - SimDriverInputs: the sim-only construction inputs (frames, detector, packets, readings).
   - select_drivers: resolve each axis to a sim stand-in or a real driver.
 
-Satisfies: REQ-OPER-HIGH-002 (the validated environment config selects deployment axes).
+Satisfies: REQ-OPER-HIGH-002 (the validated driver config selects deployment axes).
 """
 
 from __future__ import annotations
@@ -74,9 +74,9 @@ def select_drivers(
     clock: Clock,
     sim_inputs: SimDriverInputs | None = None,
 ) -> Drivers:
-    """Resolve the environment axis vector to a concrete Drivers bundle.
+    """Resolve the driver axis vector to a concrete Drivers bundle.
 
-    Per-axis rules (from config.environment):
+    Per-axis rules (from config.drivers):
       - sensor: 'sim' -> SimSensor(frames); 'real' -> RealSensor(clock) then command
         the configured startup exposure/gain (SystemExit on Err -- an unusable camera
         at startup is unrecoverable).
@@ -89,8 +89,8 @@ def select_drivers(
       - link: 'sim' -> SimStationLink(inbound_packets); 'real' -> RealStationLink(cfg, clock).
 
     Args:
-        config: The validated PactConfig (provides the environment axes + per-driver config).
-        clock: The Clock already chosen by the root from config.environment.clock.
+        config: The validated PactConfig (provides the driver axes + per-driver config).
+        clock: The Clock already chosen by the root from config.drivers.clock.
         sim_inputs: The sim construction inputs; required when any selected axis is 'sim'.
 
     Returns:
@@ -108,7 +108,7 @@ def select_drivers(
         local is typed with its HAL Protocol, so the Drivers(...) construction type-checks
         with no cast or type: ignore.
     """
-    env = config.environment
+    env = config.drivers
 
     def _require_inputs() -> SimDriverInputs:
         """Return sim_inputs or raise: a 'sim' axis demands construction inputs."""

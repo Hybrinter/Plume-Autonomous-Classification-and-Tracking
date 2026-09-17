@@ -16,11 +16,12 @@ object is constructed.
 | `ArbiterConfig` | class | TRACKING / REWIND / SAFE persistence and limb arrival |
 | `VisionConfig` | class | Blob gates and in-process vision queue depth |
 | `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
-| `OuterLoopConfig` | class | Outer period and proportional error gain |
+| `OuterLoopConfig` | class | Outer period, Kp, and REWIND sharp-window duration |
+| `PredictorConfig` | class | CoG/boresight intersect tracking proxy height |
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
 | `IntegrityConfig` | class | Catch-up cap and light GIMBAL_RUNAWAY detector |
-| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, position, and integrity configs |
+| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, position, integrity, and predictor configs |
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
@@ -33,7 +34,7 @@ object is constructed.
 | `CommandIngressConfig` | class | HMAC key path, auth flag, accepted sources |
 | `CommandRouterConfig` | class | Hazardous ARM window duration |
 | `EphemerisConfig` | class | Circular-orbit ISS elements and WGS-84 constants |
-| `EnvironmentConfig` | class | Per-axis sim/real wiring selector |
+| `DriverConfig` | class | Per-axis sim/real wiring selector |
 | `PactConfig` | class | Top-level config composing all sub-configs |
 | `AxisMode` | type alias | `"sim"` or `"real"` |
 
@@ -53,7 +54,7 @@ into `PactConfig`.
 4. Unknown keys and out-of-range values fail at construction.
 5. `PactConfig` requires inference `H,W` to equal the demosaiced band plane
    (`height_px/2`, `width_px/2`).
-6. `EnvironmentConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
+6. `DriverConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
 7. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
 8. `CommandIngressConfig` names the HMAC key path and accepted command sources.
 9. Routable targets and hazardous commands come from the command dictionary, not from router
@@ -80,7 +81,8 @@ Nested tables under `[controller]`:
   `queue_depth`
 - `arbiter`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
 - `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
-- `outer`: `dt_s`, `Kp`
+- `outer`: `dt_s`, `Kp`, `rewind_sharp_max_s`
+- `predictor`: `cog_height_m`
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`
 - `integrity`: `catchup_max_s`, `freeze_strikes`, `r_min_rad_s`,
@@ -147,7 +149,7 @@ ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
 - Default field values must match `config/default.toml` exactly.
 - No subsystem reads TOML directly.
 - `calibration_dir=""` selects identity calibration (SIL only).
-- Launch-lock axis is not in `EnvironmentConfig`.
+- Launch-lock axis is not in `DriverConfig`.
 - Science elevation must lie inside hardware travel. Stow and home must lie inside
   hardware travel.
 - `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have

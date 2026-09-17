@@ -5,7 +5,7 @@
 
 ## Purpose
 
-The driver selector maps each `environment` axis in `PactConfig` to a sim stand-in or a real
+The driver selector maps each `drivers` axis in `PactConfig` to a sim stand-in or a real
 HAL driver. It returns a `Drivers` bundle for `build_apps`.
 
 ## Public interface
@@ -13,7 +13,7 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SimDriverInputs` | class | Sim-only construction inputs for replay drivers |
-| `select_drivers` | function | Resolve environment axes to a `Drivers` bundle |
+| `select_drivers` | function | Resolve driver axes to a `Drivers` bundle |
 
 ## Inputs and outputs
 
@@ -37,7 +37,7 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
 
 ## Behavior
 
-1. Read `config.environment` axis values.
+1. Read `config.drivers` axis values.
 2. **Sensor axis:** `sim` selects `SimSensor` and `SimScalarSensor` pairs for thermal and
    power. `real` selects `RealSensor`, applies initial exposure and gain, and selects
    `RealScalarSensor` for both scalars.
@@ -69,7 +69,7 @@ None.
 
 ## Configuration
 
-Reads `PactConfig.environment` axes (`sensor`, `gimbal`, `ephemeris`, `compute`, `link`)
+Reads `PactConfig.drivers` axes (`sensor`, `gimbal`, `ephemeris`, `compute`, `link`)
 and per-driver sub-configs (`sensor`, `gimbal`, `ephemeris`, `inference`, `fault`,
 `link`). The clock axis is handled by the caller before this function runs. Real compute
 uses `resolve_quantized_path` when `inference.use_int8` is true.

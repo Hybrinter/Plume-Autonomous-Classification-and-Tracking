@@ -29,12 +29,13 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 **`SilHarness.step(now) -> None`**
 
 - Input: monotonic seconds for arbiter and watchdog.
-- Side effect: advances one cycle via `step_once`; updates threaded payload and fault state.
+- Side effect: one cycle via `step_once` with the optional bind; updates threaded
+  payload and fault state.
 
 **`SilHarness.run_steps(count, dt=1.0) -> None`**
 
 - Inputs: step count, seconds per step.
-- Side effect: advances clock and `now`, then calls `step` each iteration.
+- Side effect: calls `step` then advances the shared clock by `dt` each iteration.
 
 **`SilHarness.payload_gimbal_state() -> GimbalState`**
 
@@ -43,12 +44,13 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 ## Behavior
 
 1. `build_sil_system` packs sim inputs into `SimDriverInputs`.
-2. It replaces `config.environment` with all `"sim"` axes and host `"x86_64"`.
+2. It replaces `config.drivers` with all `"sim"` axes and host `"x86_64"`.
 3. It calls `build_validation_system` and casts driver fields to concrete sim types.
 4. `SilHarness.__init__` seeds payload `ControlState` and FDIR watchdog entries.
-5. `SilHarness.step` delegates to `step_once` with apps, protocols, bus, clock, and state.
+5. `SilHarness.step` delegates to `step_once` and passes the optional bind. Catch-up
+   runs first. Bind evaluate and acquire follow.
 6. `run_steps` continues from the last `now`, adds `dt` each step, and advances the
-   shared clock. A later `run_steps` call does not reset time.
+   shared clock after `step`. A later `run_steps` call does not reset time.
 
 ## Errors and faults
 
@@ -61,7 +63,7 @@ their own message types.
 
 ## Configuration
 
-Reads the supplied `PactConfig`. Overrides `environment` to all-sim inside
+Reads the supplied `PactConfig`. Overrides `drivers` to all-sim inside
 `build_sil_system`.
 
 Default uplink key is `b"sil-test-key-0000000000000000000"`.
@@ -71,9 +73,11 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 - Uses the same env-driven selection and wiring path as flight and GSE.
 - No scheduler threads run. Each step calls app methods directly.
 - Default uplink key must match keys used in `build_tc_packet` for command-path tests.
+- The harness does not call `bind.pre_step` itself.
 
 ## Related documents
 
 - [`sim.sil`](sil.md)
+- [`sim.sil.environment_bind`](environment_bind.md)
 - [`sim.sil.stepping`](stepping.md)
 - [`sim.sil.validation`](validation.md)

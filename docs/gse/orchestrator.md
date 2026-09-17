@@ -57,7 +57,7 @@ None directly. Scoring reads drained message summaries inside `TelemetryCapture`
 
 ## Configuration
 
-Profile path selects environment via `load_profile_config` inside the backend.
+Profile path selects driver config via `load_profile_config` inside the backend.
 
 ## Constraints
 

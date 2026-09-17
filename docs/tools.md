@@ -48,7 +48,8 @@ publishes to the bus or changes flight behavior.
 - Extra `export` installs onnx and onnxruntime.
 - Extra `data` installs rasterio for GeoTIFF reads during dataset preprocess.
 - Workspace extra `train` installs `pact-tools[export,data]` for training boxes.
-  CI syncs `dev` only.
+  Workspace extra `dev` includes `pact-tools` and torch. Lean CI shards sync
+  extra `dev-ci-flight` and omit `pact-tools`.
 - A Windows install resolves torch and torchvision from the CUDA 13.0 PyTorch
   index. A Linux or macOS install resolves both from PyPI.
 - The Windows and Linux wheels bundle the CUDA 13.0 runtime. A GPU install needs

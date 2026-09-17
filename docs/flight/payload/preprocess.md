@@ -24,7 +24,7 @@ with no I/O and no global state.
 
 Re-exports: `CELL_OFFSETS`, `DEFAULT_BAND_NAMES`, `DEFAULT_USABILITY_POLICY`,
 `SATURATION_PIXEL_LEVEL`, `CloudTest`, `MosaicCalibration`, `QualityMetrics`,
-`RoiTransform`, `UsabilityPolicy`, `band_index`,
+`RoiTransform`, `SmearRateSource`, `UsabilityPolicy`, `band_index`,
 `calibrate_mosaic`, `cloud_fraction`, `compute_quality_flags`,
 `compute_quality_metrics`, `correct_bad_pixels`, `crop_and_upsample`, `crop_plane`,
 `dark_matches_frame`, `decide_usability`, `decimate_area`,

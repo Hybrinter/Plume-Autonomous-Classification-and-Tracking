@@ -59,7 +59,7 @@ App shells stamp messages with `clock.wall_clock_iso()` or `utc_now_iso()` from 
 
 ## Configuration
 
-The composition root selects `RealClock` or `ManualClock` from `EnvironmentConfig.clock`.
+The composition root selects `RealClock` or `ManualClock` from `DriverConfig.clock`.
 
 ## Constraints
 

@@ -48,6 +48,7 @@ def test_load_sweep_space_rejects_scalar_run_id(tmp_path: Path) -> None:
         load_sweep_space(space)
 
 
+@pytest.mark.slow
 def test_sweep_writes_jsonl_and_run_dirs(tmp_path: Path) -> None:
     """sweep trains two trials and writes one JSONL record each."""
     space = tmp_path / "space.toml"
@@ -112,6 +113,7 @@ def test_sweep_refuses_a_locked_output(tmp_path: Path) -> None:
         sweep(space, out=str(out))
 
 
+@pytest.mark.slow
 def test_sweep_releases_its_lock(tmp_path: Path) -> None:
     """The lock is gone once a sweep returns, so the next one can start."""
     space = _tiny_space(tmp_path)

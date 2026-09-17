@@ -16,14 +16,12 @@ Flag conditions:
                            supplied (saturation is an ADC property: flat-field division
                            and clipping can hide a saturated pixel or fake one), else on
                            the normalized planes against SATURATION_PIXEL_LEVEL.
-    MOTION_SMEAR        -- predicted smear in band-plane pixels
-                           smear_px = |gimbal slew + platform rate| * t_exp / IFOV
-                           exceeds cfg.max_motion_smear_px. The platform rate is the
-                           ISS ground-track angular rate (~1 deg/s at nadir from 420 km),
-                           which smears the scene even with the gimbal still; it is 0.0
-                           unless the caller supplies it. Both rates are signed in the
-                           same axis/frame, so a tracking slew cancels the platform
-                           term instead of adding to it.
+    MOTION_SMEAR        -- elevation-relative smear in band-plane pixels
+                           smear_px = |slew - omega_scene_el| * t_exp / IFOV
+                           exceeds cfg.max_motion_smear_px. Both rates are signed
+                           elevation rates, so a tracking slew that matches the scene
+                           rate reports ~0. Azimuth motion is not modeled. omega_scene_el
+                           is 0.0 unless the caller supplies it.
     CLOUD_CONTAMINATED  -- default (legacy): mean NIR / mean RED exceeds
                            cfg.nir_red_ratio_threshold. Physics caveat: with the flight
                            passbands (665 / 842 nm) a high NIR/RED ratio is the
@@ -46,8 +44,9 @@ Contains:
   - QualityMetrics: the numbers behind the flags, for telemetry and tests.
   - UsabilityPolicy / DEFAULT_USABILITY_POLICY: which flags make a frame INVALID and
     which make it TRACKING-only.
+  - SmearRateSource: provenance of the elevation rate used for MOTION_SMEAR.
   - saturated_fraction_normalized / saturated_fraction_raw: per-band saturated fraction.
-  - predicted_smear_px: gimbal plus platform smear length in band-plane pixels.
+  - predicted_smear_px: elevation-relative smear length in band-plane pixels.
   - cloud_fraction: fraction of bright, spectrally flat pixels.
   - compute_quality_metrics: evaluate every metric; Err(FRAME_MALFORMED) on bad shapes.
   - flags_from_metrics: raise flags from metrics and thresholds.
@@ -60,6 +59,7 @@ from __future__ import annotations
 # stdlib
 import math
 from dataclasses import dataclass
+from enum import Enum
 from typing import Final
 
 # third-party
@@ -213,36 +213,32 @@ def predicted_smear_px(
     slew_rate_deg_per_s: float,
     exposure_us: float,
     ifov_band_deg_per_px: float,
-    platform_rate_deg_per_s: float = 0.0,
+    omega_scene_el_deg_per_s: float = 0.0,
 ) -> float:
     """Predicted motion smear length in band-plane pixels over one exposure.
 
-        smear_px = |slew + platform_rate| * t_exp / IFOV
+        smear_px = |slew - omega_scene_el| * t_exp / IFOV
 
-    The scene moves across the focal plane at the signed sum of the gimbal slew rate
-    and the platform's angular rate relative to the ground (ISS ground track, ~1 deg/s
-    at nadir from 420 km); a stationary gimbal does not mean a stationary scene. Both
-    rates are signed in the same axis/frame, so during a good track the slew term
-    cancels the platform term and the residual approaches zero; a worst-case bound can
-    still be had by calling with the slew magnitude and a zero or adverse-sign platform
-    term.
+    Both rates are signed elevation rates in the same frame. A tracking slew that
+    matches the scene rate (co-rotation / tracking feedforward) reports ~0; a
+    stationary gimbal against a nonzero scene rate reports the full scene smear.
+    Azimuth motion is not modeled.
 
     Inputs:
-        slew_rate_deg_per_s (float): Signed gimbal slew rate over the exposure, deg/s.
-            0.0 when unknown.
+        slew_rate_deg_per_s (float): Signed gimbal elevation rate over the exposure,
+            deg/s. 0.0 is a stationary gimbal.
         exposure_us (float): Exposure time, microseconds.
         ifov_band_deg_per_px (float): Band-plane IFOV, deg/px.
-        platform_rate_deg_per_s (float): Signed platform ground-track angular rate,
-            deg/s, same axis/frame as slew_rate_deg_per_s. Default 0.0 (gimbal-only
-            smear).
+        omega_scene_el_deg_per_s (float): Signed scene elevation rate, deg/s. Default
+            0.0 (gimbal-only smear).
 
     Outputs:
         float: Smear length in band-plane pixels; 0.0 when ifov is non-positive.
     """
     if ifov_band_deg_per_px <= 0.0:
         return 0.0
-    total_rate = abs(slew_rate_deg_per_s + platform_rate_deg_per_s)
-    return total_rate * (exposure_us * 1e-6) / ifov_band_deg_per_px
+    rel_rate = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
+    return rel_rate * (exposure_us * 1e-6) / ifov_band_deg_per_px
 
 
 def cloud_fraction(bands: np.ndarray, test: CloudTest) -> float:
@@ -280,7 +276,7 @@ def compute_quality_metrics(
     raw_mosaic: np.ndarray | None = None,
     adc_max_dn: int | None = None,
     cfa_phase: tuple[int, int] = (0, 0),
-    platform_rate_deg_per_s: float = 0.0,
+    omega_scene_el_deg_per_s: float = 0.0,
     cloud_test: CloudTest | None = None,
     saturation_level: float = SATURATION_PIXEL_LEVEL,
 ) -> Result[QualityMetrics, FaultCode]:
@@ -301,7 +297,7 @@ def compute_quality_metrics(
             saturation is measured here per CFA cell class instead of on bands.
         adc_max_dn (int | None): ADC code maximum for raw saturation.
         cfa_phase (tuple[int, int]): First complete tile position for raw saturation.
-        platform_rate_deg_per_s (float): Platform ground-track angular rate, deg/s.
+        omega_scene_el_deg_per_s (float): Scene elevation rate, deg/s.
         cloud_test (CloudTest | None): Use the bright-and-flat cloud fraction test;
             None leaves cloud_fraction NaN (the legacy NIR/RED ratio is always computed).
         saturation_level (float): Saturation level as a fraction of full scale.
@@ -336,7 +332,7 @@ def compute_quality_metrics(
         on_raw = False
 
     smear = predicted_smear_px(
-        slew_rate_deg_per_s, exposure_us, ifov_band_deg_per_px, platform_rate_deg_per_s
+        slew_rate_deg_per_s, exposure_us, ifov_band_deg_per_px, omega_scene_el_deg_per_s
     )
 
     red_idx = band_index(band_names, _BAND_RED)
@@ -402,6 +398,19 @@ def flags_from_metrics(
     return frozenset(flags)
 
 
+class SmearRateSource(Enum):
+    """Provenance of the elevation rate used for MOTION_SMEAR.
+
+    String values mirror member names. ``0.0`` is a valid measured, encoder, or
+    commanded rate. Unknown measured plus a failed encoder bracket falls back
+    to the commanded rate and labels it COMMANDED.
+    """
+
+    MEASURED = "MEASURED"
+    ENCODER = "ENCODER"
+    COMMANDED = "COMMANDED"
+
+
 def compute_quality_flags(
     bands: np.ndarray,
     exposure_us: float,
@@ -414,7 +423,7 @@ def compute_quality_flags(
     raw_mosaic: np.ndarray | None = None,
     adc_max_dn: int | None = None,
     cfa_phase: tuple[int, int] = (0, 0),
-    platform_rate_deg_per_s: float = 0.0,
+    omega_scene_el_deg_per_s: float = 0.0,
     cloud_test: CloudTest | None = None,
     saturation_level: float = SATURATION_PIXEL_LEVEL,
 ) -> frozenset[FrameUsabilityTag]:
@@ -427,8 +436,8 @@ def compute_quality_flags(
         bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalized band array in
             band_names order.
         exposure_us (float): Camera exposure time in microseconds.
-        slew_rate_deg_per_s (float): Gimbal slew rate over the exposure, deg/s (0.0
-            when unknown -- the gimbal term of the smear gate degrades to zero).
+        slew_rate_deg_per_s (float): Gimbal elevation rate over the exposure, deg/s
+            (0.0 is a stationary gimbal).
         ifov_band_deg_per_px (float): Band-plane IFOV, deg/px (SensorConfig.ifov_band_deg_per_px).
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
@@ -439,7 +448,8 @@ def compute_quality_flags(
             adc_max_dn).
         adc_max_dn (int | None): ADC code maximum for raw-DN saturation.
         cfa_phase (tuple[int, int]): First complete tile position for raw saturation.
-        platform_rate_deg_per_s (float): Platform ground-track angular rate, deg/s.
+        omega_scene_el_deg_per_s (float): Scene elevation rate, deg/s (co-rotation /
+            tracking feedforward). Default 0.0.
         cloud_test (CloudTest | None): Bright-and-flat cloud test; None uses the
             legacy NIR/RED ratio against cfg.nir_red_ratio_threshold.
         saturation_level (float): Saturation level as a fraction of full scale.
@@ -449,6 +459,11 @@ def compute_quality_flags(
             frozenset({FrameUsabilityTag.INVALID}) when the input is malformed (wrong
             rank or channel count, or an unseparable raw mosaic): such a frame cannot
             be assessed and decide_usability maps it to INVALID.
+
+    Notes:
+        MOTION_SMEAR uses elevation-relative blur: |slew - omega_scene_el| * t_exp /
+        IFOV. Matching rates, including both zero, do not flag. Azimuth motion is not
+        modeled.
     """
     metrics = compute_quality_metrics(
         bands,
@@ -461,7 +476,7 @@ def compute_quality_flags(
         raw_mosaic,
         adc_max_dn,
         cfa_phase,
-        platform_rate_deg_per_s,
+        omega_scene_el_deg_per_s,
         cloud_test,
         saturation_level,
     )

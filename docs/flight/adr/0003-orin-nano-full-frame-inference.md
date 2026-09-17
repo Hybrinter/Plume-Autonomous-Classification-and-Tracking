@@ -64,7 +64,7 @@ presence decision. The Orin Super study's quality knee is classifier FP16
   as if they were derived.
 - Ship FP32 ONNX and let TensorRT pick FP16 at session load — leaves the
   segmentor INT8 knee off the factory path.
-- Bind providers to `EnvironmentConfig.host` — host is provenance only.
+- Bind providers to `DriverConfig.host` — host is provenance only.
 - Retrain at 1024 x 1224 before re-export — quality work, not the I/O contract fix.
 - Enable `use_int8` sibling resolution for both nets — classifier INT8 drops
   256-tile accuracy, so a single flag cannot express the mixed knee.

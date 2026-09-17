@@ -140,7 +140,7 @@ def run_scenario(
 
     Args:
         scenario: The scenario (scene spec, command timeline, assertions, steps, dt).
-        profile_path: Path to the profile TOML override (selects the per-axis environment).
+        profile_path: Path to the profile TOML override (selects the per-axis driver config).
         backend: The HarnessBackend to run on; defaults to a fresh InProcessBackend.
 
     Returns:

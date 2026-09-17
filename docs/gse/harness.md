@@ -69,7 +69,7 @@ Backends subscribe passively to `InferenceResultMsg`, `GimbalCommandMsg`, `ModeC
 
 ## Configuration
 
-Profile TOML selects `EnvironmentConfig` axes. Default SIL uplink key is
+Profile TOML selects `DriverConfig` axes. Default SIL uplink key is
 `b"sil-test-key-0000000000000000000"`.
 
 ## Constraints

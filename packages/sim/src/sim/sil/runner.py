@@ -4,10 +4,10 @@ build_sil_system forces an all-"sim" environment and delegates to the general
 sim.sil.validation.build_validation_system, then casts the returned ValidationSystem's
 Protocol-typed drivers back to their concrete sim types for inspection -- so the SIL
 exercises the exact same env-driven selection + wiring path the flight entry and the GSE
-backend use. SilHarness drives the apps single-threaded: each step acquires + processes
-one frame, samples housekeeping, pumps the ISS bridge, publishes per-subsystem liveness
-heartbeats, then runs the FDIR tick -- all over the shared in-process bus, with `now`
-advanced explicitly for full determinism.
+backend use. SilHarness drives the apps single-threaded through step_once: catch-up, optional
+bind, acquire + process one frame, housekeeping, ISS bridge, heartbeats, then FDIR
+-- all over the shared in-process bus, with `now` advanced explicitly for full
+determinism.
 
 Contains:
   - SilSystem: the wired apps + bus + clock + the concrete sim drivers (for inspection).
@@ -28,12 +28,13 @@ from flight.core.select_drivers import SimDriverInputs
 from flight.fault.watchdog import WatchdogEntry
 from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimStationLink
 from flight.libs.bus import MessageBus
-from flight.libs.config import EnvironmentConfig, PactConfig
+from flight.libs.config import DriverConfig, PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalState, MosaicFrame
 from flight.payload.control import ControlState
 from flight.payload.inference import ScriptedDetector
 
+from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
 from sim.sil.validation import build_validation_system
 
@@ -81,11 +82,11 @@ def build_sil_system(
         A SilSystem holding the wired apps, the shared bus/clock, and the sim drivers.
 
     Notes:
-        Forces an all-"sim" EnvironmentConfig (host "x86_64") and delegates to the general
-        build_validation_system, so the SIL exercises the exact same env-driven selection +
-        wiring path the flight entry and the GSE backend use. The all-sim env guarantees the
-        returned ValidationSystem carries the concrete sim drivers, which are cast back to
-        their concrete sim types here for the SilSystem's inspection fields.
+        Forces an all-"sim" DriverConfig (host "x86_64") and delegates to the general
+        build_validation_system, so the SIL exercises the exact same driver-driven selection +
+        wiring path the flight entry and the GSE backend use. The all-sim driver config
+        guarantees the returned ValidationSystem carries the concrete sim drivers, which are
+        cast back to their concrete sim types here for the SilSystem's inspection fields.
     """
     sim_inputs = SimDriverInputs(
         frames=frames,
@@ -95,7 +96,7 @@ def build_sil_system(
         power_readings=power_readings or [],
         launch_lock_engaged=launch_lock_engaged,
     )
-    sil_env = EnvironmentConfig(
+    sil_env = DriverConfig(
         sensor="sim",
         gimbal="sim",
         compute="sim",
@@ -104,7 +105,7 @@ def build_sil_system(
         ephemeris="sim",
         host="x86_64",
     )
-    sil_config = dataclasses.replace(config, environment=sil_env)
+    sil_config = dataclasses.replace(config, drivers=sil_env)
     system = build_validation_system(sil_config, clock, sim_inputs, uplink_key)
     return SilSystem(
         apps=system.apps,
@@ -121,13 +122,16 @@ def build_sil_system(
 class SilHarness:
     """Deterministic single-threaded driver for a SilSystem (no scheduler threads)."""
 
-    def __init__(self, system: SilSystem) -> None:
+    def __init__(self, system: SilSystem, bind: SilEnvironmentBind | None = None) -> None:
         """Seed the payload control state and the FDIR watchdog entries.
 
         Args:
             system: The wired SilSystem to drive.
+            bind: Optional world evaluate + driver feed run inside each step_once
+                after loop catch-up and before acquire.
         """
         self._system = system
+        self._bind = bind
         self._now = 0.0
         self._payload_state: ControlState = system.apps.payload.controller.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
@@ -153,6 +157,7 @@ class SilHarness:
             now,
             self._payload_state,
             self._fault_entries,
+            bind=self._bind,
         )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:

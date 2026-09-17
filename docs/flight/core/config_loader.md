@@ -72,7 +72,7 @@ Reads all TOML sections backed by the `PactConfig` schema:
 | `command_ingress` | `CommandIngressConfig` |
 | `command_router` | `CommandRouterConfig` |
 | `ephemeris` | `EphemerisConfig` |
-| `environment` | `EnvironmentConfig` |
+| `drivers` | `DriverConfig` |
 
 ## Constraints
 

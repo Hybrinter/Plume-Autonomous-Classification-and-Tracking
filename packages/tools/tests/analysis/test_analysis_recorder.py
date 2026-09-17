@@ -4,10 +4,13 @@ import math
 
 import pandas as pd
 import pytest
+from flight.hal.drivers_sim.gimbal import SimGimbal
+from flight.hal.interfaces.gimbal import GimbalPosition
 from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
+from flight.libs.types import FaultCode, Ok, Result
 from sim.scene import build_frames, plume_detector
-from sim.sil import SilSystem, build_sil_system
+from sim.sil import SilSystem, build_sil_system, step_once
 from tools.analysis.datapoints import (
     REGISTRY,
     SampleContext,
@@ -92,11 +95,11 @@ def test_failed_extractor_maps_to_sentinel() -> None:
 
 
 def test_nominal_run_tracks_and_stays_nominal() -> None:
-    """The nominal scene ends in TRACKING with no SAFE latch."""
+    """The nominal scene tracks the plume with no SAFE latch."""
     result = record_run(_nominal_system(12), steps=12)
     payload = result.wide["payload"]
     system = result.wide["system"]
-    assert payload["payload.gimbal_state"].iloc[-1] == "TRACKING"
+    assert (payload["payload.gimbal_state"] == "TRACKING").any()
     assert float(system["system.safe_latched"].max()) == 0.0
 
 
@@ -109,3 +112,101 @@ def test_queue_depth_and_devices_are_sampled() -> None:
     assert "payload.gimbal_el_true_deg" in payload.columns
     # Elevation slews while tracking the off-boresight plume.
     assert float(payload["payload.gimbal_el_true_deg"].abs().max()) > 0.0
+
+
+def _trace_encoder_reads(gimbal: SimGimbal) -> list[float]:
+    """Record each elevation ``read_position`` delivers without changing sampling."""
+    delivered: list[float] = []
+    original = gimbal.read_position
+
+    def traced() -> Result[GimbalPosition, FaultCode]:
+        result = original()
+        if isinstance(result, Ok):
+            delivered.append(result.value.el_deg)
+        return result
+
+    setattr(gimbal, "read_position", traced)
+    return delivered
+
+
+def test_sample_devices_does_not_consume_encoder_samples() -> None:
+    """Two seeded twins stay aligned when only the first is observed after one encoder read."""
+    recorded = _nominal_system(4)
+    twin = _nominal_system(4)
+    first_recorded = recorded.gimbal.read_position()
+    first_twin = twin.gimbal.read_position()
+    assert isinstance(first_recorded, Ok)
+    assert isinstance(first_twin, Ok)
+    assert first_recorded.value.el_deg == first_twin.value.el_deg
+    devices = sample_devices(recorded)
+    assert devices.gimbal_el_meas_deg == first_recorded.value.el_deg
+    sample_devices(recorded)
+    recorded.gimbal.snapshot()
+    second_recorded = recorded.gimbal.read_position()
+    second_twin = twin.gimbal.read_position()
+    assert isinstance(second_recorded, Ok)
+    assert isinstance(second_twin, Ok)
+    assert second_recorded.value.el_deg == second_twin.value.el_deg
+
+
+def test_record_run_matches_unrecorded_twin_encoder_and_plant() -> None:
+    """record_run matches a twin that steps the SIL and never calls sample_devices."""
+    steps = 8
+    recorded = _nominal_system(steps)
+    twin = _nominal_system(steps)
+    recorded_reads = _trace_encoder_reads(recorded.gimbal)
+    twin_reads = _trace_encoder_reads(twin.gimbal)
+    result = record_run(recorded, steps=steps)
+
+    payload_state = twin.apps.payload.controller.initial_state()
+    fault_entries = twin.apps.fault.initial_entries()
+    now = 0.0
+    dt = 1.0
+    twin_true: list[float] = []
+    twin_tau: list[float] = []
+    twin_meas: list[float] = []
+    for _step in range(1, steps + 1):
+        now += dt
+        payload_state, fault_entries = step_once(
+            twin.apps,
+            twin.sensor,
+            twin.gimbal,
+            twin.bus,
+            twin.clock,
+            now,
+            payload_state,
+            fault_entries,
+        )
+        twin.clock.advance(dt)
+        snap = twin.gimbal.snapshot()
+        twin_true.append(snap.true_el_deg)
+        twin_tau.append(snap.tau_nm)
+        twin_meas.append(snap.last_el_meas_deg)
+
+    assert recorded_reads == twin_reads
+    payload = result.wide["payload"]
+    assert list(payload["payload.gimbal_el_true_deg"]) == twin_true
+    assert list(payload["payload.gimbal_tau_nm"]) == twin_tau
+    assert list(payload["payload.gimbal_el_meas_deg"]) == twin_meas
+
+
+def test_sample_devices_does_not_change_last_feedback_or_next_read() -> None:
+    """Observing leaves last-feedback time and the next encoder sample unchanged."""
+    observed = _nominal_system(4)
+    twin = _nominal_system(4)
+    assert observed.gimbal._last_feedback_s is None
+    sample_devices(observed)
+    assert observed.gimbal._last_feedback_s is None
+    first_observed = observed.gimbal.read_position()
+    first_twin = twin.gimbal.read_position()
+    assert isinstance(first_observed, Ok)
+    assert isinstance(first_twin, Ok)
+    assert first_observed.value.el_deg == first_twin.value.el_deg
+    last_feedback = observed.gimbal._last_feedback_s
+    sample_devices(observed)
+    assert observed.gimbal._last_feedback_s == last_feedback
+    second_observed = observed.gimbal.read_position()
+    second_twin = twin.gimbal.read_position()
+    assert isinstance(second_observed, Ok)
+    assert isinstance(second_twin, Ok)
+    assert second_observed.value.el_deg == second_twin.value.el_deg

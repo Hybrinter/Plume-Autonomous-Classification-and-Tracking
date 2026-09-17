@@ -15,7 +15,7 @@ from flight.libs.config import (
     CommandRouterConfig,
     CommsConfig,
     ControllerConfig,
-    EnvironmentConfig,
+    DriverConfig,
     EphemerisConfig,
     FaultConfig,
     GimbalConfig,
@@ -55,7 +55,7 @@ _SECTION_TO_DATACLASS = {
     "command_ingress": CommandIngressConfig,
     "command_router": CommandRouterConfig,
     "ephemeris": EphemerisConfig,
-    "environment": EnvironmentConfig,
+    "drivers": DriverConfig,
 }
 
 

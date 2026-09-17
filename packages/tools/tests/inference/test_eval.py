@@ -3,8 +3,11 @@
 import json
 from pathlib import Path
 
+import pytest
 from tools.inference.eval import evaluate
 from tools.inference.train import TrainConfig, train
+
+pytestmark = pytest.mark.slow
 
 
 def test_evaluate_writes_eval_json(tmp_path: Path) -> None:

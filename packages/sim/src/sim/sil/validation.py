@@ -3,11 +3,11 @@
 This is the composition-root surface the GSE in-process backend drives. GSE imports only
 flight.libs and sim, so sim.sil exposes a general validation harness here rather than letting
 GSE touch flight.core/flight.payload/flight.fault directly. build_validation_system honors the
-full PactConfig.environment axis vector via flight.core.select_drivers -- so for a sil-link-real
+full PactConfig.drivers axis vector via flight.core.select_drivers -- so for a sil-link-real
 profile (link="real") it yields a RealStationLink while every other axis stays a sim stand-in.
 
-Unlike build_sil_system (which forces an all-"sim" environment for the deterministic SIL), this
-builder is env-driven: it passes config.environment through untouched. The returned
+Unlike build_sil_system (which forces an all-"sim" driver config for the deterministic SIL), this
+builder is driver-driven: it passes config.drivers through untouched. The returned
 ValidationSystem is Protocol-typed (HAL Protocols only), so it carries whatever concrete drivers
 the axes selected without the holder ever naming a concrete driver.
 
@@ -43,6 +43,7 @@ from flight.libs.types import GimbalState, Ok
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.control import ControlState
 
+from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
 
 
@@ -51,7 +52,7 @@ class ValidationSystem:
     """The wired flight system: apps + shared bus/clock + the env-selected HAL drivers.
 
     Protocol-typed throughout (flight.hal.interfaces), so it carries whatever concrete
-    drivers the PactConfig.environment axes selected -- a SimSensor or a RealSensor, a
+    drivers the PactConfig.drivers axes selected -- a SimSensor or a RealSensor, a
     SimStationLink or a RealStationLink -- without the holder naming a concrete type. This
     is what lets the GSE in-process backend drive any profile through sim only. frozen=True
     without slots is intentional: a holder of Protocol-typed fields does not need slots.
@@ -75,15 +76,15 @@ def build_validation_system(
 ) -> ValidationSystem:
     """Wire the flight apps over the env-selected drivers on a fresh bus, for any profile.
 
-    Constructs a fresh MessageBus, resolves config.environment to a concrete Drivers bundle
-    via flight.core.select_drivers (the one env-driven selection path the flight entry uses),
+    Constructs a fresh MessageBus, resolves config.drivers to a concrete Drivers bundle
+    via flight.core.select_drivers (the one driver-driven selection path the flight entry uses),
     builds an identity MosaicCalibration sized to the sensor config, and wires every app via
-    the driver-agnostic build_apps. Unlike build_sil_system, the environment axis vector is
+    the driver-agnostic build_apps. Unlike build_sil_system, the driver axis vector is
     passed through untouched, so a 'real' axis yields the real driver (e.g. link="real" ->
     RealStationLink).
 
     Args:
-        config: The validated PactConfig; its environment axes drive driver selection.
+        config: The validated PactConfig; its driver axes drive driver selection.
         clock: The ManualClock shared by all apps (timestamps; the harness advances `now`).
         sim_inputs: The sim construction inputs (frames, detector, packets, readings);
             required by select_drivers when any selected axis is 'sim'.
@@ -92,7 +93,7 @@ def build_validation_system(
 
     Returns:
         A ValidationSystem holding the wired apps, the shared bus/clock, and the
-        Protocol-typed drivers select_drivers resolved from the environment axes.
+        Protocol-typed drivers select_drivers resolved from the driver axes.
 
     Notes:
         The returned drivers fields are the exact Drivers.* objects select_drivers built, so
@@ -126,13 +127,16 @@ def build_validation_system(
 class ValidationHarness:
     """Deterministic single-threaded driver for a ValidationSystem (no scheduler threads)."""
 
-    def __init__(self, system: ValidationSystem) -> None:
+    def __init__(self, system: ValidationSystem, bind: SilEnvironmentBind | None = None) -> None:
         """Seed the payload control state and the FDIR watchdog entries.
 
         Args:
             system: The wired ValidationSystem to drive.
+            bind: Optional world evaluate + driver feed run inside each step_once
+                after loop catch-up and before acquire.
         """
         self._system = system
+        self._bind = bind
         self._now = 0.0
         self._payload_state: ControlState = system.apps.payload.controller.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
@@ -158,6 +162,7 @@ class ValidationHarness:
             now,
             self._payload_state,
             self._fault_entries,
+            bind=self._bind,
         )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:

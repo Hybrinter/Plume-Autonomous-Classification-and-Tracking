@@ -38,7 +38,7 @@ def test_sim_docs_mention_matrix_and_seam() -> None:
     """sim package docs document the config matrix and the step_once seam."""
     text = _read("docs/sim.md")
     assert "step_once" in text
-    assert "EnvironmentConfig" in text
+    assert "DriverConfig" in text
 
 
 def test_sim_docs_cite_canonical_build_tc_packet_home() -> None:

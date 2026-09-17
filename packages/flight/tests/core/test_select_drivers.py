@@ -20,10 +20,10 @@ from sim.scene import build_frames, plume_detector
 
 
 def _all_sim_config() -> PactConfig:
-    """A PactConfig with every environment axis forced to 'sim'."""
+    """A PactConfig with every driver axis forced to 'sim'."""
     base = PactConfig()
-    env = dataclasses.replace(
-        base.environment,
+    drivers = dataclasses.replace(
+        base.drivers,
         sensor="sim",
         gimbal="sim",
         compute="sim",
@@ -31,7 +31,7 @@ def _all_sim_config() -> PactConfig:
         clock="sim",
         ephemeris="sim",
     )
-    return dataclasses.replace(base, environment=env)
+    return dataclasses.replace(base, drivers=drivers)
 
 
 def _sim_inputs() -> SimDriverInputs:
@@ -72,9 +72,9 @@ def test_link_real_builds_realstationlink() -> None:
         free_port = probe.getsockname()[1]
 
     base = _all_sim_config()
-    env = dataclasses.replace(base.environment, link="real")
+    drivers_cfg = dataclasses.replace(base.drivers, link="real")
     link_cfg = dataclasses.replace(base.link, command_tcp_port=free_port)
-    config = dataclasses.replace(base, environment=env, link=link_cfg)
+    config = dataclasses.replace(base, drivers=drivers_cfg, link=link_cfg)
 
     drivers = select_drivers(config, ManualClock(), _sim_inputs())
     try:

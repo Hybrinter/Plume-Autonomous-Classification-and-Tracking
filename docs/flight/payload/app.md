@@ -41,9 +41,13 @@ torque loop.
 and storage. It returns a `PayloadApp` and raises `ValueError` for invalid
 sensor or inference geometry.
 
-`process_frame` takes a `MosaicFrame` and `ControlState`. It records valid
-encoder feedback, creates a frame-ID-bearing vision sample, and does not write
-a gimbal command.
+`process_frame` takes a `MosaicFrame`, `ControlState`, and an optional measured
+elevation rate. A measured `0.0` is stationary motion. A missing rate uses
+encoder displacement over the exposure, then the commanded rate.
+`_smear_gimbal_rate_deg_per_s` returns that rate and a `SmearRateSource` of
+`MEASURED`, `ENCODER`, or `COMMANDED`. The method records valid encoder
+feedback, creates a frame-ID-bearing vision sample, and does not write a gimbal
+command.
 
 ## Behavior
 
@@ -51,7 +55,9 @@ a gimbal command.
    geometry. The lock gate starts engaged.
 2. Each valid `GimbalPosition` becomes an `EncoderSample` with device timestamp,
    unwrapped angle, variance, and stable sample ID. The sample is stored in the
-   shared encoder stream.
+   shared encoder stream. The stream retains at most 4096 samples. Consumption
+   markers drop when a sample leaves that deque. A device restart can reuse a
+   sequence-based ID once the prior row is gone.
 3. `advance_outer` consumes the newest unconsumed sample whose device time
    belongs to the historical tick. A current feedback value is not relabeled
    with an older tick time. A missing sample leaves the tick uncommitted and
@@ -67,7 +73,8 @@ a gimbal command.
    command requests inhibition and latches the actuator fault.
 7. The detailed SIL path keeps the inner encoder-rate fit, PI, and torque
    command. Its torque thread is not started when the injected actuator exposes
-   the production rate interface.
+   the production rate interface. Rate-mode `advance_inner` records one encoder
+   sample and does not write torque.
 8. SAFE and launch-lock states inhibit motion. SAFE operation commands the stow
    position loop. A pending SAFE STOW is retried after lock release.
 9. Shutdown stops acquisition and joins the detailed-plant thread when one is

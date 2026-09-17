@@ -25,7 +25,7 @@ read TOML directly.
 | `CommandIngressConfig`, `CommandRouterConfig`, `CommsConfig` | class |
 | `ArbiterConfig`, `VisionConfig`, `InnerLoopConfig`, `OuterLoopConfig` | class |
 | `ResidualConfig`, `PositionLoopConfig`, `ControllerConfig` | class |
-| `EnvironmentConfig`, `EphemerisConfig`, `FaultConfig` | class |
+| `DriverConfig`, `EphemerisConfig`, `FaultConfig` | class |
 | `GimbalConfig`, `InferenceConfig`, `LinkConfig` | class |
 | `PactConfig`, `PreprocessingConfig`, `SensorConfig`, `StorageConfig` | class |
 | `ThermalConfig` | class |

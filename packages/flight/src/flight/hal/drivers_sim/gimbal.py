@@ -5,6 +5,11 @@ the plant by elapsed monotonic time. Repeated `set_torque` at a frozen clock (SI
 catch-up) steps one inner period per call and records a catch-up debt so a later
 clock jump does not double-count.
 
+``read_position`` is the encoder acquisition event: it quantizes, draws noise, and
+stamps last-feedback time. ``snapshot`` is a sim-only non-mutating view of the last
+delivered encoder and plant truth. It does not integrate, draw RNG, expire a lease,
+or write last-feedback time.
+
 Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-002.
 """
 
@@ -12,6 +17,7 @@ from __future__ import annotations
 
 # stdlib
 import math
+from dataclasses import dataclass
 
 # third-party
 import numpy as np
@@ -23,6 +29,32 @@ from flight.libs.time import Clock
 from flight.libs.types import Err, FaultCode, Ok, Result
 
 _STOW_TOLERANCE_DEG = 0.5
+
+
+@dataclass(frozen=True, slots=True)
+class GimbalSnapshot:
+    """Sim-only non-mutating view of last delivered encoder and plant truth.
+
+    Not on GimbalActuator. ``last_el_meas_deg`` is NaN until ``read_position``
+    delivers a sample. Stow switch is computed from the current true pose.
+
+    Fields:
+        last_el_meas_deg: Last encoder elevation delivered to flight, or NaN.
+        last_feedback_s: Timestamp of that sample, or None if none yet.
+        true_el_deg: True plant elevation, degrees.
+        true_omega_rad_s: True plant rate, rad/s.
+        tau_nm: Held torque command, N·m.
+        stow_commanded: True after ``stow()`` has been called.
+        stow_switch: Stow commanded and true pose is within switch tolerance.
+    """
+
+    last_el_meas_deg: float
+    last_feedback_s: float | None
+    true_el_deg: float
+    true_omega_rad_s: float
+    tau_nm: float
+    stow_commanded: bool
+    stow_switch: bool
 
 
 class SimGimbal:
@@ -39,6 +71,8 @@ class SimGimbal:
         _catchup_debt_s: Plant time already applied at a frozen clock.
         _inner_dt_s: Catch-up inner period when the clock does not advance.
         _rng: Seeded numpy Generator for encoder noise.
+        _last_feedback_s: Timestamp of the last encoder sample, or None.
+        _last_el_meas_deg: Last encoder elevation delivered by read_position, or NaN.
     """
 
     def __init__(
@@ -72,6 +106,7 @@ class SimGimbal:
         self._command_valid_until_s: float | None = None
         self._inhibited = True
         self._last_feedback_s: float | None = None
+        self._last_el_meas_deg: float = float("nan")
 
     def _expire_command_if_needed(self, now: float) -> None:
         """Fail closed when the host has not refreshed command authority."""
@@ -251,8 +286,22 @@ class SimGimbal:
         self._encoder_frozen = True
         self._frozen_el_deg = self._quantize_deg(self._theta_rad)
 
+    def advance_plant(self) -> None:
+        """Integrate the plant to the clock without taking an encoder sample.
+
+        Not on GimbalActuator. SIL bind uses this for true shutter pose. It does
+        not consume encoder-noise RNG or update last_feedback_s.
+
+        Returns:
+            None.
+        """
+        self._integrate_clock()
+
     def read_position(self) -> Result[GimbalPosition, FaultCode]:
         """Return the quantized, noisy, timestamped encoder elevation.
+
+        This is the acquisition event: it integrates the plant, draws encoder noise
+        unless frozen, and caches the delivered sample for ``snapshot``.
 
         Returns:
             Ok(GimbalPosition) with the clock timestamp. Frozen when freeze_encoder ran.
@@ -267,11 +316,33 @@ class SimGimbal:
         # rate fit sees the same chronology as the simulated encoder.
         sample_t_s = self._last_t + self._catchup_debt_s
         self._last_feedback_s = sample_t_s
+        self._last_el_meas_deg = el_deg
         return Ok(
             GimbalPosition(
                 el_deg=el_deg,
                 timestamp_s=sample_t_s,
             )
+        )
+
+    def snapshot(self) -> GimbalSnapshot:
+        """Return last delivered encoder and plant truth without sampling or integrating.
+
+        Not on GimbalActuator. Does not call ``_integrate_clock``, draw encoder noise,
+        write ``_last_feedback_s``, expire a command lease, or step the ODE.
+
+        Returns:
+            GimbalSnapshot of the cached encoder delivery and current plant internals.
+        """
+        true_el_deg = math.degrees(self._theta_rad)
+        at_stow = abs(true_el_deg - self._cfg.stow_el_deg) < _STOW_TOLERANCE_DEG
+        return GimbalSnapshot(
+            last_el_meas_deg=self._last_el_meas_deg,
+            last_feedback_s=self._last_feedback_s,
+            true_el_deg=true_el_deg,
+            true_omega_rad_s=self._omega_rad_s,
+            tau_nm=self._tau_nm,
+            stow_commanded=self._stow_commanded,
+            stow_switch=self._stow_commanded and at_stow,
         )
 
     def read_stow_switch(self) -> Result[bool, FaultCode]:

@@ -5,7 +5,7 @@
 
 ## Purpose
 
-The validation module builds a flight system for any environment profile and steps it
+The validation module builds a flight system for any driver profile and steps it
 deterministically. GSE imports this surface and does not touch flight composition directly.
 
 ## Public interface
@@ -21,13 +21,13 @@ deterministically. GSE imports this surface and does not touch flight compositio
 
 **`build_validation_system(config, clock, sim_inputs=None, uplink_key=...) -> ValidationSystem`**
 
-- Inputs: `PactConfig` (environment axes intact), `ManualClock`, optional `SimDriverInputs`,
+- Inputs: `PactConfig` (driver axes intact), `ManualClock`, optional `SimDriverInputs`,
   uplink HMAC key.
 - Output: `ValidationSystem` with HAL protocol-typed driver fields.
 
 **`ValidationHarness.step(now) -> None`**
 
-- Same contract as `SilHarness.step`. Delegates to `step_once`.
+- Same contract as `SilHarness.step`. Delegates to `step_once` with the optional bind.
 
 **`load_profile_config(config_path, override_path) -> PactConfig`**
 
@@ -42,6 +42,7 @@ deterministically. GSE imports this surface and does not touch flight compositio
 3. It builds identity mosaic calibration from sensor dimensions.
 4. It wires every app via `build_apps` with `MONITORED_SUBSYSTEMS`.
 5. `ValidationHarness` seeds payload and fault state, then steps like `SilHarness`.
+   `step_once` runs catch-up, then the optional `SilEnvironmentBind`, then acquire.
 6. `load_profile_config` calls `flight.core.config_loader.load_config` and raises on failure.
 
 ## Errors and faults
@@ -55,7 +56,7 @@ Same as [`sim.sil.stepping`](stepping.md). Heartbeats are published inside `step
 
 ## Configuration
 
-Reads the full `PactConfig`. Environment axes (`sensor`, `gimbal`, `compute`, `link`,
+Reads the full `PactConfig`. Driver axes (`sensor`, `gimbal`, `compute`, `link`,
 `clock`, `host`) drive driver selection.
 
 Default uplink key is `b"sil-test-key-0000000000000000000"`.
@@ -65,10 +66,12 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 - Driver fields stay protocol-typed. No cast is required after `select_drivers`.
 - A `"real"` link axis yields `RealStationLink`. Other axes may stay sim.
 - GSE is the primary consumer of this module.
+- The harness does not call `bind.pre_step` itself.
 
 ## Related documents
 
 - [`sim.sil`](sil.md)
 - [`sim.sil.runner`](runner.md)
+- [`sim.sil.environment_bind`](environment_bind.md)
 - [`sim.sil.stepping`](stepping.md)
 - [`gse.harness`](gse/harness.md)

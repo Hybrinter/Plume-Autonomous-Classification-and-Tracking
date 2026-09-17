@@ -97,14 +97,12 @@ def test_predictor_matches_theta_finite_difference() -> None:
     r_norm = math.hypot(*r_iss)
     scale = eph.wgs84_a_m / r_norm
     r_cog = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
-    _theta, omega = predict_los(
-        t0, r_iss, s0.value.v_m_s, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s
-    )
+    pred0 = predict_los(t0, r_iss, s0.value.v_m_s, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
     dt = 0.05
     sp = sim.read_state(t0 + dt)
     sm = sim.read_state(t0 - dt)
     assert isinstance(sp, Ok) and isinstance(sm, Ok)
-    tp, _ = predict_los(
+    pred_p = predict_los(
         t0 + dt,
         sp.value.r_m,
         sp.value.v_m_s,
@@ -112,7 +110,7 @@ def test_predictor_matches_theta_finite_difference() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     )
-    tm, _ = predict_los(
+    pred_m = predict_los(
         t0 - dt,
         sm.value.r_m,
         sm.value.v_m_s,
@@ -120,8 +118,8 @@ def test_predictor_matches_theta_finite_difference() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     )
-    fd = (tp - tm) / (2.0 * dt)
-    assert abs(omega - fd) / max(abs(fd), 1e-9) < 0.05
+    fd = (pred_p.elevation_rad - pred_m.elevation_rad) / (2.0 * dt)
+    assert abs(pred0.elevation_rate_rad_s - fd) / max(abs(fd), 1e-9) < 0.05
 
 
 def test_walking_cog_at_same_iss_time() -> None:
@@ -137,13 +135,13 @@ def test_walking_cog_at_same_iss_time() -> None:
     scale = eph.wgs84_a_m / r_norm
     p1 = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
     p2 = (p1[0], p1[1] + 20_000.0, p1[2])
-    _th1, w1 = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    _th2, w2 = predict_los(t0, r_iss, v_iss, p2, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    assert abs(w1 - w2) > 1e-8
+    pred1 = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    pred2 = predict_los(t0, r_iss, v_iss, p2, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    assert abs(pred1.elevation_rate_rad_s - pred2.elevation_rate_rad_s) > 1e-8
     s1 = sim.read_state(t0 + 1.0)
     assert isinstance(s1, Ok)
-    th1, _ = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    th2, w2_later = predict_los(
+    later1 = predict_los(t0, r_iss, v_iss, p1, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    later2 = predict_los(
         t0 + 1.0,
         s1.value.r_m,
         s1.value.v_m_s,
@@ -151,8 +149,11 @@ def test_walking_cog_at_same_iss_time() -> None:
         eph.omega_earth_rad_s,
         eph.epoch_utc_s,
     )
-    walk_slope = (th2 - th1) / 1.0
-    assert abs(w2_later - walk_slope) > abs(w2_later) * 0.05 + 1e-6
+    walk_slope = (later2.elevation_rad - later1.elevation_rad) / 1.0
+    assert (
+        abs(later2.elevation_rate_rad_s - walk_slope)
+        > abs(later2.elevation_rate_rad_s) * 0.05 + 1e-6
+    )
 
 
 def test_earth_rate_changes_nominal_rate() -> None:
@@ -167,9 +168,9 @@ def test_earth_rate_changes_nominal_rate() -> None:
     r_norm = math.hypot(*r_iss)
     scale = eph.wgs84_a_m / r_norm
     r_cog = (r_iss[0] * scale, r_iss[1] * scale, r_iss[2] * scale)
-    _th, w_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
-    _th0, w_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
-    assert abs(w_on - w_off) > 1e-8
+    pred_on = predict_los(t0, r_iss, v_iss, r_cog, eph.omega_earth_rad_s, eph.epoch_utc_s)
+    pred_off = predict_los(t0, r_iss, v_iss, r_cog, 0.0, eph.epoch_utc_s)
+    assert abs(pred_on.elevation_rate_rad_s - pred_off.elevation_rate_rad_s) > 1e-8
 
 
 def test_residual_recovers_extra_rate_through_rewind() -> None:
@@ -263,7 +264,7 @@ def test_rewind_posterior_matches_discrete_oracle() -> None:
 
 
 def test_smear_oracle_is_separate_from_control_rate() -> None:
-    """Optical smear scales with exposure without reducing control authority."""
+    """Long exposure limits |Kp e| and sharp REWIND hunt, not |omega_scene|."""
     ifov = 0.002636
     ifov_rad = math.radians(ifov)
     hw = math.radians(10.0)
@@ -283,11 +284,12 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
         1.0,
         ifov,
     )
-    assert abs(abs(r_13) - hw) < 1e-12
+    assert abs(abs(r_13.commanded_rate_rad_s) - hw) < 1e-12
     t_exp = 2000e-6
     oracle = 1.0 * ifov_rad / t_exp
+    nom = math.radians(1.0)
     r_long = outer_rate(
-        0.0,
+        nom,
         0.0,
         math.radians(4.0),
         8.0,
@@ -301,7 +303,24 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
         ifov,
     )
     assert oracle < hw
-    assert abs(abs(r_long) - hw) < 1e-12
+    assert abs(r_long.commanded_rate_rad_s - (nom + oracle)) < 1e-12
+    r_rewind = outer_rate(
+        nom,
+        math.radians(9.0),
+        0.0,
+        8.0,
+        GimbalState.REWIND,
+        False,
+        math.radians(10.0),
+        math.radians(45.0),
+        hw,
+        2000.0,
+        1.0,
+        ifov,
+        rewind_elapsed_s=0.1,
+        rewind_sharp_max_s=2.0,
+    )
+    assert abs(r_rewind.commanded_rate_rad_s - (nom + oracle)) < 1e-12
 
 
 def test_safe_position_loop_and_cold_start() -> None:
@@ -312,14 +331,14 @@ def test_safe_position_loop_and_cold_start() -> None:
     cold = controller.initial_state()
     encoder = EncoderSample(sample_id="encoder:0", t_s=0.02, angle_rad=0.0)
     coast = controller.outer_step(cold, 0.02, encoder, None, None, False, False)
-    assert coast.state.r_rad_s == 0.0
+    assert coast.state.commanded_rate_rad_s == 0.0
     assert coast.state.arbiter.gimbal_state is GimbalState.TRACKING
 
     safe = controller.outer_step(cold, 0.02, encoder, None, None, True, False)
     assert safe.state.arbiter.gimbal_state is GimbalState.SAFE
     assert safe.request is not None
     assert safe.request.mode is GimbalCommandMode.STOW
-    assert safe.state.r_rad_s < 0.0
+    assert safe.state.commanded_rate_rad_s < 0.0
 
     blob = BlobMeta(
         blob_id=1,
@@ -349,7 +368,7 @@ def test_safe_position_loop_and_cold_start() -> None:
         False,
     )
     assert ignored.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert ignored.state.pose_mode is GimbalCommandMode.STOW
+    assert ignored.state.pose.pose_mode is GimbalCommandMode.STOW
 
 
 def test_no_azimuth_on_request_or_command() -> None:

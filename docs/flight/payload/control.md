@@ -17,7 +17,12 @@ predictor events, vision replay, and the rate law.
 | --- | --- | --- |
 | `VisionSample` | dataclass | Frame ID, shutter time, error, centroid, exposure, blobs, and ISS |
 | `IssSample` | dataclass | ISS ECI state for the predictor |
-| `ControlState` | dataclass | Arbiter, residual history, inner state, and command state |
+| `EncoderState` | dataclass | Timestamped encoder samples, last angle, and measured rate |
+| `InnerControlState` | dataclass | Inner PI integrator, last inner time, and last torque |
+| `IntegrityState` | dataclass | Freeze and lock-fight strikes with lock-hold latch |
+| `TargetState` | dataclass | Stored CoG and last scene-rate terms |
+| `PoseState` | dataclass | Position-loop mode and target elevation |
+| `ControlState` | dataclass | Nested records grouped by the loop that updates them |
 | `InnerTick` | dataclass | Updated state and detailed-plant torque |
 | `OuterTick` | dataclass | Updated state, optional pose request, telemetry, and fault |
 | `PayloadController` | dataclass | Immutable cascaded control core |
@@ -36,31 +41,51 @@ slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
 `PredictorReferenceChange`.
 
 `OuterTick.state.residual_history` contains the bounded event history.
-`OuterTick.state.residual` contains the latest replayed estimate.
+`OuterTick.state.residual` is the snapshot of `estimate_at` at the last
+TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
+`commanded_rate_rad_s`. `outer_step` writes arbiter, residual, `TargetState`,
+`PoseState`, `last_outer_s`, `commanded_rate_rad_s`, and `last_rate_decision`.
 
 ## Behavior
 
 1. `ingest_inference` applies confidence and area gates, matches blobs, and
    forms the area-weighted centroid of every accepted component. It stores the
    frame ID and shutter time in the queued sample.
-2. `inner_step` keeps the timestamped encoder ring, fits `y_m`, and runs the
-   detailed-plant PI. `y_m` remains available for inner integrity checks and
-   simulation. It is not an outer residual-estimator input.
-3. `outer_step` submits the encoder sample and a nominal-rate sample. It submits
-   an explicit reference change when one is present. It submits a vision event
-   at its shutter time and requests replay at the current encoder sample time.
+2. `inner_step` appends one `EncoderSample` to `EncoderState.samples`, trims
+   the ring to `rate_fit_n`, fits `measured_rate_rad_s`, and runs the
+   detailed-plant PI. The measured rate remains available for inner integrity
+   checks and simulation. It is not an outer residual-estimator input.
+3. `outer_step` updates CoG from vision while TRACKING. It cold-starts the
+   residual on TRACKING acquire. An identity reset drops the stored CoG unless
+   this frame wrote a new intersect. It then calls `select_scene`. Residual
+   encoder, nominal, and vision events run only in TRACKING. REWIND freezes the
+   residual and sets `TargetState.r_cog_ecef_m` to `None`.
 4. Residual replay uses encoder angle displacement, encoder uncertainty, and
    reversal uncertainty. A vision event is accepted only when its shutter time
-   has an exact encoder sample or a valid bracket.
-5. The predictor supplies nominal target rate. A smooth sampled change uses the
-   zero-order-hold rate history. An explicit reference replacement rebases the
-   residual rate and keeps total target rate continuous.
-6. The outer rate is `omega_t_nom + omega_t_res + Kp * e` before the existing
-   science, smear, and slew limits. Visual tracking can run without navigation.
+   has an exact encoder sample or a valid bracket. TRACKING acquire seeds the
+   checkpoint at shutter when the sample carries a shutter encoder angle. A
+   missing shutter angle leaves the checkpoint angle unset.
+5. `select_scene` supplies nominal elevation rate of a frozen ECEF CoG in
+   TRACKING, or of the boresight height-proxy hit in REWIND. Missing ISS is
+   unknown navigation. It is not a zero-rate scene. An IoU-matched CoG
+   replacement rebases residual rate with the old CoG at the current ISS time.
+   ISS motion between ticks is not a reference jump.
+6. The tracking/rewind path calls `outer_rate` and stores
+   `RateDecision.commanded_rate_rad_s` on `ControlState.commanded_rate_rad_s`.
+   It also stores the `RateDecision` on `last_rate_decision`. The pose path
+   leaves `last_rate_decision` empty. TRACKING matches
+   `omega_t_nom + omega_t_res` and smear-caps only `Kp * e`. REWIND matches
+   boresight-ground `omega_el` and hunts at `+omega_sharp` for
+   `rewind_sharp_max_s`. After that window it escapes at `+omega_hw`. Residual
+   is ignored and is not fed boresight rates. Visual tracking can run without
+   navigation. The pose path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE entry and SAFE exit reset the residual checkpoint as required by the
-   state machine.
-8. The state starts with `last_inner_s` and `last_outer_s` set to `None`.
+   SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND does
+   not drop the inner encoder samples. A single TRACKING miss keeps the residual
+   and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets the
+   residual. That reset also drops the prior CoG unless this frame produced a new
+   intersect.
+8. The state starts with `inner.last_inner_s` and `last_outer_s` set to `None`.
 
 ## Errors and faults
 
@@ -76,10 +101,12 @@ app shell publishes them.
 ## Configuration
 
 The controller reads nested vision, arbiter, inner, outer, residual, position,
-and integrity config. The residual config supplies continuous acceleration
-density, encoder and reversal uncertainty, interpolation and timing limits, and
-history horizon. Gimbal geometry, plant values, WGS-84 values, and smear budget
-remain injected typed config.
+integrity, and predictor config. `predictor.cog_height_m` is the tracking-proxy
+intersect height. `outer.rewind_sharp_max_s` is the sharp REWIND window. The
+residual config supplies continuous acceleration density, encoder and reversal
+uncertainty, interpolation and timing limits, and history horizon. Gimbal
+geometry, plant values, WGS-84 values, and smear budget remain injected typed
+config.
 
 ## Constraints
 
@@ -90,5 +117,6 @@ hardware uses the rate-command HAL path selected by the app shell.
 ## Related documents
 
 - [`flight.payload.gimbal`](gimbal.md)
+- [`flight.payload.gimbal.scene`](gimbal/scene.md)
 - [`flight.payload.tracking`](tracking.md)
 - [`flight.payload.app`](app.md)

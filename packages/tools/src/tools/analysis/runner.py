@@ -206,12 +206,16 @@ def _command(
 
 
 def _commission_injections(
-    arm_step: int = 0,
-    execute_step: int = 1,
-    operate_step: int = 14,
+    arm_step: int = 1,
+    execute_step: int = 2,
+    operate_step: int = 16,
     seq: int = 100,
 ) -> tuple[Injection, ...]:
-    """Timed bus injections that commission SAFE -> INIT -> OPERATE."""
+    """Timed bus injections that commission SAFE -> INIT -> OPERATE.
+
+    ``at_step`` values are 1-based recorder steps. Homing uses ~12 s at 10 deg/s
+    over a 45 deg span, so OPERATE defaults to step 16.
+    """
     return (
         Injection(arm_step, _command("ENTER_INIT", "fault", {"phase": "ARM"}, seq=seq)),
         Injection(execute_step, _command("ENTER_INIT", "fault", {"phase": "EXECUTE"}, seq=seq + 1)),

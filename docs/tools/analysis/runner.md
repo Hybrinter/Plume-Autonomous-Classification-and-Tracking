@@ -45,6 +45,8 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
 1. Built-in scenarios set steps, frame counts, thermal or power scripts, injections, actions,
    inbound `build_tc_packet` bytes, or shrunk storage or downlink quotas.
 2. `_make_pre_step` groups actions and injections by 1-based step index.
+   `_commission_injections` defaults to ENTER_INIT ARM/EXECUTE on steps 1/2 and
+   ENTER_OPERATE on step 16 after assumed-datum homing.
 3. Pre-step runs actions first, then publishes injection messages on the bus.
 4. `record_run` owns the stepping loop after the hook fires.
 

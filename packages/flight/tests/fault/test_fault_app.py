@@ -3,7 +3,7 @@
 from flight.fault.app import FaultApp
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import FaultEventMsg, HeartbeatMsg, ModeChangeMsg
+from flight.libs.messages import FaultEventMsg, HeartbeatMsg, ModeChangeMsg, SafetyStateMsg
 from flight.libs.time import ManualClock
 from flight.libs.types import FaultCode, MessageType, SystemMode
 
@@ -53,25 +53,34 @@ def test_heartbeats_keep_subsystem_alive() -> None:
 def test_silent_subsystem_triggers_safe() -> None:
     """A subsystem that stops sending heartbeats trips the watchdog into SAFE."""
     app, bus = _app()
-    mode_sub = bus.subscribe(ModeChangeMsg)
+    safety_sub = bus.subscribe(SafetyStateMsg)
     entries = app.initial_entries()
     now = 0.0
     for _ in range(3):  # watchdog_max_miss_count = 3
         now += 10.0  # > watchdog_interval_s (5.0) each tick, no heartbeats published
         entries = app.tick(entries, now)
-    assert not mode_sub.empty()
-    assert mode_sub.get_nowait().new_mode is SystemMode.SAFE
+    latest = safety_sub.get_nowait()
+    while not safety_sub.empty():
+        latest = safety_sub.get_nowait()
+    assert latest.mode is SystemMode.SAFE
+    assert latest.safe_latched is True
+    assert FaultCode.WATCHDOG_EXPIRE in latest.active_faults
 
 
-def test_fault_event_routed_to_safe() -> None:
-    """A SAFE-triggering FaultEventMsg on the bus is routed to a ModeChangeMsg(SAFE)."""
+def test_fault_event_latches_safe_reason() -> None:
+    """A SAFE-triggering fault while latched SAFE records the reason on SafetyStateMsg."""
     app, bus = _app()
+    safety_sub = bus.subscribe(SafetyStateMsg)
     mode_sub = bus.subscribe(ModeChangeMsg)
     entries = app.initial_entries()
     bus.publish(_fault(FaultCode.PROCESS_DIED))
     app.tick(entries, now=1.0)
-    assert not mode_sub.empty()
-    assert mode_sub.get_nowait().new_mode is SystemMode.SAFE
+    assert mode_sub.empty()
+    latest = safety_sub.get_nowait()
+    assert latest.mode is SystemMode.SAFE
+    assert latest.safe_latched is True
+    assert latest.safe_reason is FaultCode.PROCESS_DIED
+    assert FaultCode.PROCESS_DIED in latest.active_faults
 
 
 def test_benign_fault_not_routed() -> None:

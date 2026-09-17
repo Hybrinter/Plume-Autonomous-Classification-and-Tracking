@@ -1,0 +1,45 @@
+name = "stow_then_safe"
+profile = "sil"
+steps = 32
+dt = 1.0
+
+# After INIT homing reaches IDLE, hazardous ENTER_STOW slews to rest and the mode
+# manager returns to latched SAFE.
+
+[scene]
+num_frames = 32
+seed = 0
+
+[[commands]]
+at_frame = 1
+command_id = "ENTER_INIT"
+params = { phase = "ARM" }
+source = "ground"
+seq = 1
+
+[[commands]]
+at_frame = 2
+command_id = "ENTER_INIT"
+params = { phase = "EXECUTE" }
+source = "ground"
+seq = 2
+
+[[commands]]
+at_frame = 18
+command_id = "ENTER_STOW"
+params = { phase = "ARM" }
+source = "ground"
+seq = 3
+
+[[commands]]
+at_frame = 19
+command_id = "ENTER_STOW"
+params = { phase = "EXECUTE" }
+source = "ground"
+seq = 4
+
+[[assertions]]
+id = "stow_then_safe.mode"
+kind = "mode_is"
+value = "SAFE"
+tag = "frame-portable"

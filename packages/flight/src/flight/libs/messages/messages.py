@@ -37,6 +37,7 @@ from flight.libs.types import (
     LinkState,
     MessageType,
     ModelDeployState,
+    ModeRequestReason,
     SystemMode,
 )
 
@@ -192,6 +193,22 @@ class ModeChangeMsg:
 
 
 @dataclass(frozen=True)
+class ModeRequestMsg:
+    """Subsystem request that the mode manager change SystemMode.
+
+    Payload reports homing and stow completion. Model deploy reports suspend and resume.
+    Only the fault-app mode manager publishes ModeChangeMsg.
+    """
+
+    msg_type: MessageType  # must be MessageType.MODE_REQUEST
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    requested_mode: SystemMode  # target the manager should consider
+    reason: ModeRequestReason  # why the subsystem asked
+    subsystem: str  # requesting subsystem name
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True)
 class CommandMsg:
     """Ground/station command routed via iss_iface to a target subsystem.
 
@@ -240,14 +257,14 @@ class SafetyStateMsg:
     The command router subscribes to it to pre-check hazardous-command inhibits at routing
     time; the actuating apps still enforce their device interlocks at actuation (layered
     authority). active_faults is the set of SAFE-triggering fault codes observed in the most
-    recent tick (empty once the triggering condition clears), which gates EXIT_SAFE.
+    recent tick (empty once the triggering condition clears), which gates ENTER_INIT.
     """
 
     msg_type: MessageType  # must be MessageType.SAFETY_STATE
     timestamp_utc: str  # ISO 8601, millisecond precision
-    mode: SystemMode  # SAFE while latched, else IDLE
+    mode: SystemMode  # current SystemMode published by the mode manager
     active_faults: tuple[FaultCode, ...]  # SAFE-triggering faults seen this tick (sorted)
-    safe_latched: bool  # True once a SAFE-triggering fault latched SAFE, until EXIT_SAFE
+    safe_latched: bool  # True in SAFE until a successful ENTER_INIT
     safe_reason: FaultCode  # the fault that latched SAFE (NONE when not latched)
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 

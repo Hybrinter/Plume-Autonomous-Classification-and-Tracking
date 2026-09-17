@@ -9,14 +9,14 @@ from flight.libs.types import Ok
 
 
 def _gimbal(clock: ManualClock, **cfg_overrides: float) -> SimGimbal:
-    """Construct a noiseless SimGimbal with optional GimbalConfig overrides."""
+    """Construct a noiseless SimGimbal at the origin with optional GimbalConfig overrides."""
     tau_max = cfg_overrides.pop("tau_max_nm", 1.0)
     cfg = GimbalConfig(
         max_hw_slew_rate_deg_per_s=cfg_overrides.pop("max_hw_slew_rate_deg_per_s", 10.0),
         simulation=GimbalSimulationConfig(tau_max_nm=tau_max, encoder_noise_deg=0.0),
     )
     assert not cfg_overrides
-    return SimGimbal(clock=clock, cfg=cfg, inner_dt_s=0.001)
+    return SimGimbal(clock=clock, cfg=cfg, el_deg=0.0, inner_dt_s=0.001)
 
 
 def test_constant_torque_moves_elevation() -> None:

@@ -14,7 +14,7 @@ message bus and talk to hardware through HAL drivers.
 | --- | --- | --- |
 | [`core`](flight/core.md) | package | Composition root, scheduler, config load, command routing, downlink, storage |
 | [`payload`](flight/payload.md) | package | Imaging pipeline, inference, gimbal control, science products |
-| [`fault`](flight/fault.md) | package | Fault detection, watchdog, SAFE mode policy |
+| [`fault`](flight/fault.md) | package | Fault detection, watchdog, and system mode manager |
 | [`iss_iface`](flight/iss_iface.md) | package | Station link ingress and egress, command ACK, uplink |
 | [`thermal`](flight/thermal.md) | package | Thermal housekeeping telemetry |
 | [`electrical`](flight/electrical.md) | package | Power monitoring and limit enforcement |

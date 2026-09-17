@@ -3,6 +3,8 @@ profile = "sil"
 steps = 3
 dt = 1.0
 
+# Boot is latched SAFE. A hot thermal sample is telemetry only and does not change mode.
+
 [scene]
 num_frames = 3
 seed = 0
@@ -10,7 +12,7 @@ thermal_readings = [95.0]
 power_readings = [10.0]
 
 [[assertions]]
-id = "safe_on_thermal.stays_idle"
+id = "safe_on_thermal.stays_safe"
 kind = "mode_is"
-value = "IDLE"
+value = "SAFE"
 tag = "frame-portable"

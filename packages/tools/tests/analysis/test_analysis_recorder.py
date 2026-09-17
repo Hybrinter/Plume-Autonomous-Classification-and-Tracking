@@ -18,7 +18,8 @@ from tools.analysis.datapoints import (
     SignalKind,
     accumulable_names,
 )
-from tools.analysis.recorder import _evaluate, record_run, sample_devices
+from tools.analysis.recorder import PreStepHook, _evaluate, record_run, sample_devices
+from tools.analysis.runner import _commission_injections
 
 
 def _nominal_system(frames: int = 10) -> SilSystem:
@@ -94,13 +95,25 @@ def test_failed_extractor_maps_to_sentinel() -> None:
     assert _evaluate(categorical, ctx) == ""
 
 
+def _commission_pre_step() -> PreStepHook:
+    """Publish ENTER_INIT then ENTER_OPERATE on the recorder's 1-based step index."""
+    by_step = {item.at_step: item.message for item in _commission_injections()}
+
+    def pre_step(system: SilSystem, step: int) -> None:
+        message = by_step.get(step)
+        if message is not None:
+            system.bus.publish(message)
+
+    return pre_step
+
+
 def test_nominal_run_tracks_and_stays_nominal() -> None:
-    """The nominal scene tracks the plume with no SAFE latch."""
-    result = record_run(_nominal_system(12), steps=12)
+    """After commission, the nominal scene tracks the plume with SAFE unlatched."""
+    result = record_run(_nominal_system(24), steps=24, pre_step=_commission_pre_step())
     payload = result.wide["payload"]
     system = result.wide["system"]
     assert (payload["payload.gimbal_state"] == "TRACKING").any()
-    assert float(system["system.safe_latched"].max()) == 0.0
+    assert float(system["system.safe_latched"].iloc[-1]) == 0.0
 
 
 def test_queue_depth_and_devices_are_sampled() -> None:

@@ -46,6 +46,7 @@ from flight.libs.messages import (
     InferenceResultMsg,
     LaunchLockStateMsg,
     ModeChangeMsg,
+    ModeRequestMsg,
     ProcessedFrameMsg,
     ProductRefMsg,
     RoutedCommandMsg,
@@ -62,12 +63,19 @@ from flight.libs.types import (
     GimbalState,
     LaunchLockState,
     MessageType,
+    ModeRequestReason,
     MosaicFrame,
     Ok,
     Result,
     SystemMode,
 )
 from flight.payload.control import ControlState, IssSample, PayloadController, VisionSample
+from flight.payload.gimbal.homing import (
+    HomingState,
+    initial_homing,
+    step_homing,
+    stow_rate_deg_per_s,
+)
 from flight.payload.gimbal.integrity import check_integrity, lock_hold_rate
 from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.inference import DetectorBackend
@@ -113,9 +121,22 @@ class LockGate:
 
 @dataclass(slots=True)
 class SafeLatch:
-    """SAFE visible to the inner thread without waiting on detect."""
+    """SAFE visible to the inner thread without waiting on detect.
 
-    commanded: bool = False
+    Defaults True: software boots latched SAFE until ENTER_INIT.
+    """
+
+    commanded: bool = True
+
+
+@dataclass(slots=True)
+class ModeView:
+    """Mutable system-mode view plus INIT/STOW inner-graph bookkeeping."""
+
+    system: SystemMode = SystemMode.SAFE
+    homing: HomingState | None = None
+    homing_notified: bool = False
+    stow_notified: bool = False
 
 
 @dataclass(slots=True)
@@ -171,6 +192,7 @@ class PayloadApp:
         mode_sub, lock_sub, cmd_sub: Bus subscriptions.
         lock_gate: Launch-lock inhibit (fail-closed).
         safe_latch: SAFE flag the inner thread reads every T_in.
+        mode_view: Current SystemMode and INIT/STOW bookkeeping.
         stow_gate: Re-issue STOW after lock release if still SAFE.
         pose_intent: Ground STOW/HOME/GOTO waiting for the next outer tick.
         vision_queue: In-process vision samples (not the MessageBus).
@@ -195,6 +217,7 @@ class PayloadApp:
     cmd_sub: Subscription[RoutedCommandMsg]
     lock_gate: LockGate = field(default_factory=LockGate)
     safe_latch: SafeLatch = field(default_factory=SafeLatch)
+    mode_view: ModeView = field(default_factory=ModeView)
     stow_gate: StowGate = field(default_factory=StowGate)
     pose_intent: PoseIntent = field(default_factory=PoseIntent)
     vision_queue: deque[VisionSample] = field(default_factory=lambda: deque(maxlen=4))
@@ -250,6 +273,7 @@ class PayloadApp:
             cmd_sub=bus.subscribe(RoutedCommandMsg),
             lock_gate=LockGate(),
             safe_latch=SafeLatch(),
+            mode_view=ModeView(),
             stow_gate=StowGate(),
             pose_intent=PoseIntent(),
             vision_queue=deque(maxlen=cfg.controller.vision.queue_depth),
@@ -259,18 +283,31 @@ class PayloadApp:
         )
 
     def poll_mode_changes(self) -> tuple[bool, bool]:
-        """Drain pending ModeChangeMsg; return (safe_commanded, safe_cleared)."""
+        """Drain pending ModeChangeMsg; return (safe_commanded, operate_cleared)."""
         safe_commanded = False
-        safe_cleared = False
+        operate_cleared = False
         while not self.mode_sub.empty():
             msg = self.mode_sub.get_nowait()
+            self.mode_view.system = msg.new_mode
             if msg.new_mode is SystemMode.SAFE:
                 safe_commanded = True
                 self.safe_latch.commanded = True
+                self.mode_view.homing = None
+                self.mode_view.homing_notified = False
+                self.mode_view.stow_notified = False
+            elif msg.new_mode is SystemMode.INIT:
+                self.safe_latch.commanded = False
+                self.mode_view.homing = initial_homing(self.clock.monotonic_s())
+                self.mode_view.homing_notified = False
+            elif msg.new_mode is SystemMode.OPERATE:
+                operate_cleared = self._clear_actuator_fault_for_ground()
+                self.safe_latch.commanded = False
+            elif msg.new_mode is SystemMode.STOW:
+                self.safe_latch.commanded = False
+                self.mode_view.stow_notified = False
             else:
-                safe_cleared = self._clear_actuator_fault_for_ground()
-                self.safe_latch.commanded = not safe_cleared
-        return safe_commanded, safe_cleared
+                self.safe_latch.commanded = False
+        return safe_commanded, operate_cleared
 
     def poll_lock_state(self) -> None:
         """Drain pending LaunchLockStateMsg. UNKNOWN and ENGAGED both inhibit."""
@@ -279,31 +316,73 @@ class PayloadApp:
             self.lock_gate.engaged = state is not LaunchLockState.RELEASED
 
     def handle_commands(self) -> None:
-        """Apply routed STOW / HOME / GOTO into the pose intent and ack."""
+        """Reject retired payload pose commands; motion lives in INIT/OPERATE/STOW."""
         while not self.cmd_sub.empty():
             command = self.cmd_sub.get_nowait()
             if command.target != "payload":
                 continue
-            if command.command_id == "GIMBAL_STOW":
-                self.pose_intent.mode = GimbalCommandMode.STOW
-                self.pose_intent.el_deg = self.controller.gimbal.stow_el_deg
-                self._ack_command(command, AckStatus.ACCEPTED, FaultCode.NONE, "stow latched")
-            elif command.command_id == "GIMBAL_HOME":
-                self.pose_intent.mode = GimbalCommandMode.HOME
-                self.pose_intent.el_deg = self.controller.gimbal.home_el_deg
-                self._ack_command(command, AckStatus.ACCEPTED, FaultCode.NONE, "home latched")
-            elif command.command_id == "GIMBAL_GOTO":
-                self.pose_intent.mode = GimbalCommandMode.ABSOLUTE
-                self.pose_intent.el_deg = float(command.params["el_deg"])
-                self._ack_command(command, AckStatus.ACCEPTED, FaultCode.NONE, "goto latched")
-            else:
-                self._ack_command(
-                    command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "unsupported command"
-                )
+            self._ack_command(
+                command,
+                AckStatus.REJECTED,
+                FaultCode.COMMAND_INVALID,
+                "payload pose commands retired; use ENTER_INIT/OPERATE/STOW",
+            )
 
     def _rate_mode(self) -> bool:
         """Return whether the injected actuator exposes the production rate path."""
         return isinstance(self.gimbal, GimbalRateActuator)
+
+    def _hold_inner(self) -> bool:
+        """Return whether the inner loop must command rate 0 (SAFE latch or IDLE)."""
+        return self.safe_latch.commanded or self.mode_view.system is SystemMode.IDLE
+
+    def _publish_mode_request(self, requested: SystemMode, reason: ModeRequestReason) -> None:
+        """Ask the mode manager to change SystemMode."""
+        self.bus.publish(
+            ModeRequestMsg(
+                msg_type=MessageType.MODE_REQUEST,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                requested_mode=requested,
+                reason=reason,
+                subsystem="payload",
+            )
+        )
+
+    def _drive_non_operate(self, state: ControlState, now: float, el_deg: float) -> ControlState:
+        """Command INIT/IDLE/STOW/SAFE rates without the TRACKING arbiter."""
+        mode = self.mode_view.system
+        rate = 0.0
+        arbiter_state = replace(state.arbiter, gimbal_state=GimbalState.SAFE)
+        if mode is SystemMode.SAFE:
+            self._inhibit_motion("system SAFE halt")
+        elif mode is SystemMode.INIT:
+            if self.mode_view.homing is None:
+                self.mode_view.homing = initial_homing(now)
+            tick = step_homing(self.mode_view.homing, now, el_deg, self.controller.gimbal)
+            self.mode_view.homing = tick.state
+            rate = tick.rate_deg_per_s
+            if tick.failed and not self.mode_view.homing_notified:
+                self._publish_fault(FaultCode.GIMBAL_RUNAWAY, "INIT homing envelope trip")
+                self._publish_mode_request(SystemMode.SAFE, ModeRequestReason.HOMING_FAILED)
+                self.mode_view.homing_notified = True
+            elif tick.complete and not self.mode_view.homing_notified:
+                self._publish_mode_request(SystemMode.IDLE, ModeRequestReason.HOMING_COMPLETE)
+                self.mode_view.homing_notified = True
+        elif mode is SystemMode.STOW:
+            rate, arrived = stow_rate_deg_per_s(el_deg, self.controller.gimbal)
+            if arrived and not self.mode_view.stow_notified:
+                self._publish_mode_request(SystemMode.SAFE, ModeRequestReason.STOW_COMPLETE)
+                self.mode_view.stow_notified = True
+        elif mode is SystemMode.IDLE:
+            rate = 0.0
+        if self._rate_mode() and mode is not SystemMode.SAFE:
+            self._write_rate(rate, now, self.lock_gate.engaged)
+        return replace(
+            state,
+            arbiter=arbiter_state,
+            commanded_rate_rad_s=math.radians(rate),
+            last_outer_s=now,
+        )
 
     def _prune_consumed_ids(self) -> None:
         """Drop consumption markers for samples no longer in the retained history."""
@@ -441,6 +520,13 @@ class PayloadApp:
         ``None`` uses encoder motion over the exposure, then the commanded rate.
         """
         del safe_commanded, safe_cleared
+        if self.mode_view.system is not SystemMode.OPERATE:
+            return state, TickOutcome(
+                frame_id=raw.frame_id,
+                fault=None,
+                command_issued=False,
+                gimbal_state=state.arbiter.gimbal_state,
+            )
         mosaic = np.asarray(raw.mosaic, dtype=np.float32)
 
         calibrated = calibrate_mosaic(mosaic, self.calib)
@@ -576,11 +662,6 @@ class PayloadApp:
                     current = replace(
                         current,
                         arbiter=replace(current.arbiter, gimbal_state=GimbalState.SAFE),
-                        pose=replace(
-                            current.pose,
-                            pose_mode=GimbalCommandMode.STOW,
-                            pose_el_deg=self.controller.gimbal.stow_el_deg,
-                        ),
                     )
                 safe_commanded = False
                 safe_cleared = False
@@ -598,6 +679,14 @@ class PayloadApp:
                 current,
                 encoder=replace(current.encoder, last_theta_enc_rad=theta),
             )
+            if self.mode_view.system is not SystemMode.OPERATE:
+                current = self._drive_non_operate(current, t, math.degrees(theta))
+                current = replace(current, last_outer_s=t)
+                if self._rate_mode() and self.mode_view.system is SystemMode.SAFE:
+                    self._inhibit_motion("system SAFE halt")
+                safe_commanded = False
+                safe_cleared = False
+                continue
             if self.actuator_safety.recovery_pending_reset:
                 current = self._fresh_recovery_state(current, encoder)
             tick = self.controller.outer_step(
@@ -628,43 +717,13 @@ class PayloadApp:
             if tick.request is not None:
                 issued = self._actuate_pose(tick.request, current, frame_id=0)
                 command_issued = command_issued or issued
-                if not issued and self.lock_gate.engaged:
-                    self.stow_gate.pending = True
             if self._rate_mode():
                 assert isinstance(self.gimbal, GimbalRateActuator)
-                if (
-                    not self.lock_gate.engaged
-                    and current.arbiter.gimbal_state is GimbalState.SAFE
-                    and current.pose.pose_mode is GimbalCommandMode.STOW
-                ):
-                    with self.actuator_io_lock:
-                        stow_result = self.gimbal.stow_reference_step(t)
-                    if isinstance(stow_result, Err):
-                        self._record_actuator_failure(stow_result.error, t)
-                        self._publish_fault(stow_result.error, "bounded gimbal stow failed")
-                        self._inhibit_motion("bounded stow failed")
-                else:
-                    self._write_rate(
-                        math.degrees(current.commanded_rate_rad_s), t, self.lock_gate.engaged
-                    )
+                self._write_rate(
+                    math.degrees(current.commanded_rate_rad_s), t, self.lock_gate.engaged
+                )
             safe_commanded = False
             safe_cleared = False
-        if (
-            self.stow_gate.pending
-            and not self.lock_gate.engaged
-            and current.arbiter.gimbal_state is GimbalState.SAFE
-        ):
-            issued = self._actuate_pose(
-                GimbalRequest(
-                    mode=GimbalCommandMode.STOW,
-                    el_deg=self.controller.gimbal.stow_el_deg,
-                    reason="safe_stow_after_lock_release",
-                ),
-                current,
-                frame_id=0,
-            )
-            command_issued = command_issued or issued
-            self.stow_gate.pending = not issued
         outcome = TickOutcome(
             frame_id=0,
             fault=None,
@@ -721,7 +780,8 @@ class PayloadApp:
                 dt,
                 encoder_timestamp_s=encoder_timestamp_s,
                 locked=locked,
-                safe_latched=self.safe_latch.commanded,
+                safe_latched=self._hold_inner(),
+                apply_science_guard=self.mode_view.system is SystemMode.OPERATE,
             )
             current, integrity_fault = self._apply_integrity(
                 current, tick.state, tick.tau_nm, theta, t, enc_rate, locked
@@ -1074,7 +1134,7 @@ class PayloadApp:
                 with self.inner_lock:
                     snap = holder["state"]
                     locked = self.lock_gate.engaged
-                    safe = self.safe_latch.commanded
+                    hold = self._hold_inner()
                     if snap.inner.last_inner_s is None:
                         holder["state"] = replace(
                             snap, inner=replace(snap.inner, last_inner_s=now_inner)
@@ -1108,7 +1168,8 @@ class PayloadApp:
                     dt,
                     encoder_timestamp_s=encoder_timestamp_s,
                     locked=locked,
-                    safe_latched=safe,
+                    safe_latched=hold,
+                    apply_science_guard=self.mode_view.system is SystemMode.OPERATE,
                 )
                 stamped, integrity_fault = self._apply_integrity(
                     snap, tick.state, tick.tau_nm, theta, now_inner, enc_rate, locked
@@ -1124,7 +1185,7 @@ class PayloadApp:
                     latest = holder["state"]
                     merged_r = (
                         stamped.commanded_rate_rad_s
-                        if (locked or safe or latest.pose.pose_mode is not None)
+                        if (locked or hold or latest.pose.pose_mode is not None)
                         else latest.commanded_rate_rad_s
                     )
                     holder["state"] = replace(
@@ -1174,15 +1235,7 @@ class PayloadApp:
                 else:
                     self._publish_fault(acq.error, "imaging sensor stall")
                     if safe_commanded and not self.lock_gate.engaged:
-                        self._actuate_pose(
-                            GimbalRequest(
-                                mode=GimbalCommandMode.STOW,
-                                el_deg=self.controller.gimbal.stow_el_deg,
-                                reason="safe_sensor_fault",
-                            ),
-                            current,
-                            frame_id=0,
-                        )
+                        self._inhibit_motion("safe_sensor_fault")
                 with self.inner_lock:
                     current = holder["state"]
                 current, _outer = self.advance_outer(current, now, safe_commanded, safe_cleared)

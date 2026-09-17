@@ -15,7 +15,7 @@ from dataclasses import dataclass, replace
 
 from flight.libs.config import ArbiterConfig, GimbalConfig
 from flight.libs.messages import BlobMeta, TelemetryEventMsg
-from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
+from flight.libs.types import GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
 
 
@@ -145,12 +145,7 @@ class GimbalArbiter:
                 rewind_entered_s=None,
             )
             events.append(self._transition_event(old_gs, GimbalState.SAFE, timestamp_utc))
-            stow_request = GimbalRequest(
-                mode=GimbalCommandMode.STOW,
-                el_deg=gimbal.stow_el_deg,
-                reason="safe_entry_stow",
-            )
-            return new_state, stow_request, events
+            return new_state, None, events
 
         if old_gs == GimbalState.SAFE:
             if safe_cleared:

@@ -63,8 +63,8 @@ Profile path selects driver config via `load_profile_config` inside the backend.
 
 - Realtime-only assertions (for example `ack_within_seconds`) are skipped under the
   in-process backend.
-- `mode_is` treats NOMINAL as "no SAFE published" and SAFE as "at least one SAFE seen".
-- Sim-link command timing does not affect scoring when commands pre-ingest on step 1.
+- `mode_is` compares the last published `SystemMode`. A run with no mode change scores `SAFE`.
+- Sim-link `at_frame` timing is honored. `inject_command` enqueues the packet for that step.
 
 ## Related documents
 

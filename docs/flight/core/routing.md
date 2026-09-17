@@ -43,7 +43,7 @@ command router shell owns the bus, clock, and armed state.
 5. When hazardous and `params.phase` is `"EXECUTE"`, require a prior ARM within
    `arm_window_s`. Reject when ARM is missing or expired.
 6. When hazardous EXECUTE and `safe_latched` is true, reject all commands except
-   `EXIT_SAFE`.
+   `ENTER_INIT`.
 7. On valid hazardous EXECUTE, dispatch `RoutedCommandMsg` and remove the arm entry.
 8. When hazardous with any other phase, reject with detail
    `"hazardous phase must be ARM/EXECUTE"`.
@@ -67,7 +67,7 @@ The caller passes `arm_window_s` from `command_router.arm_window_s`.
 
 - No bus access, no clock reads, no I/O, no logging.
 - Hazardous commands use a two-step ARM then EXECUTE sequence.
-- `EXIT_SAFE` is the only hazardous command allowed while SAFE-latched.
+- `ENTER_INIT` is the only hazardous command allowed while SAFE-latched.
 
 ## Related documents
 

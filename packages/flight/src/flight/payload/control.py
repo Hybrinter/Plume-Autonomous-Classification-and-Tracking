@@ -424,6 +424,7 @@ class PayloadController:
         encoder_timestamp_s: float | None = None,
         locked: bool = False,
         safe_latched: bool = False,
+        apply_science_guard: bool = True,
     ) -> InnerTick:
         """One inner tick: push encoder, fit y_m, PI + computed torque.
 
@@ -433,7 +434,10 @@ class PayloadController:
             theta_enc_rad: Encoder elevation, radians.
             dt_s: Inner period; defaults to cfg.inner.dt_s.
             locked: Launch lock engaged (freeze I; caller writes τ=0).
-            safe_latched: Use the stow position loop instead of tracking r.
+            safe_latched: Halt in place (commanded rate 0) while SAFE is latched
+                or the system mode is IDLE.
+            apply_science_guard: When True (OPERATE), clamp r to the science window.
+                INIT and STOW pass False so creep can use the hardware envelope.
 
         Outputs:
             InnerTick: Updated state and torque.
@@ -461,52 +465,46 @@ class PayloadController:
         stopped = (
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
         )
-        if safe_latched or state.pose.pose_mode is not None:
-            pose_el = (
-                state.pose.pose_el_deg
-                if state.pose.pose_mode is not None
-                else self.gimbal.stow_el_deg
-            )
+        if safe_latched:
+            r = 0.0
+        elif state.pose.pose_mode is not None:
+            pose_el = state.pose.pose_el_deg
             r = position_rate(
                 math.radians(pose_el),
                 theta_enc_rad,
                 self.cfg.position.K_pos,
                 math.radians(self.cfg.position.r_max_deg_per_s),
             )
-            if safe_latched:
-                r = position_rate(
-                    math.radians(self.gimbal.stow_el_deg),
-                    theta_enc_rad,
-                    self.cfg.position.K_pos,
-                    math.radians(self.cfg.position.r_max_deg_per_s),
-                )
         else:
             r = state.commanded_rate_rad_s
-            max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2
-            guard = math.radians(self.cfg.integrity.science_boundary_guard_deg)
-            if r > 0.0:
-                remaining = max(
-                    0.0,
-                    math.radians(self.gimbal.el_science_max_deg) - guard - theta_enc_rad,
-                )
-                r = min(
-                    r,
-                    math.sqrt(2.0 * max_decel * remaining),
-                    self.cfg.inner.kp * remaining,
-                )
-            elif r < 0.0:
-                remaining = max(
-                    0.0,
-                    theta_enc_rad - math.radians(self.gimbal.el_science_min_deg) - guard,
-                )
-                r = max(
-                    r,
-                    -math.sqrt(2.0 * max_decel * remaining),
-                    -self.cfg.inner.kp * remaining,
-                )
+            if apply_science_guard:
+                max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2
+                guard = math.radians(self.cfg.integrity.science_boundary_guard_deg)
+                if r > 0.0:
+                    remaining = max(
+                        0.0,
+                        math.radians(self.gimbal.el_science_max_deg) - guard - theta_enc_rad,
+                    )
+                    r = min(
+                        r,
+                        math.sqrt(2.0 * max_decel * remaining),
+                        self.cfg.inner.kp * remaining,
+                    )
+                elif r < 0.0:
+                    remaining = max(
+                        0.0,
+                        theta_enc_rad - math.radians(self.gimbal.el_science_min_deg) - guard,
+                    )
+                    r = max(
+                        r,
+                        -math.sqrt(2.0 * max_decel * remaining),
+                        -self.cfg.inner.kp * remaining,
+                    )
         if locked:
             r = 0.0
-        at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
+        at_bound = False
+        if apply_science_guard:
+            at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
         result = inner_step(
             r,
             y_m,
@@ -564,7 +562,7 @@ class PayloadController:
             reference_change: Explicit predictor-reference replacement, if any.
 
         Outputs:
-            OuterTick: Updated state, optional STOW request, telemetry.
+            OuterTick: Updated state, optional pose request (none on SAFE halt), telemetry.
 
         Notes:
             Previous tracked blobs are state.arbiter.tracked_blobs before
@@ -604,8 +602,7 @@ class PayloadController:
             else:
                 pose_el = request.el_deg
         if new_arbiter.gimbal_state is GimbalState.SAFE:
-            pose_mode = GimbalCommandMode.STOW
-            pose_el = self.gimbal.stow_el_deg
+            pose_mode = None
         elif pose_mode is not None and safe_cleared:
             pose_mode = None
 
@@ -793,7 +790,9 @@ class PayloadController:
         science_limited = False
         requested_relative_rate_rad_s = 0.0
         last_rate_decision: RateDecision | None = None
-        if pose_mode is not None:
+        if new_arbiter.gimbal_state is GimbalState.SAFE:
+            r = 0.0
+        elif pose_mode is not None:
             r = position_rate(
                 math.radians(pose_el),
                 theta_g_rad,

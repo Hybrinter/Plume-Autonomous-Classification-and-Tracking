@@ -12,7 +12,7 @@ Routing rules (layered authority: iss_iface validates, core routes, actuating ap
   - non-hazardous routable        -> dispatch RoutedCommandMsg; the target app emits the exec ack.
   - hazardous, phase == "ARM"     -> record armed-state; ACCEPTED("armed") ack, no dispatch.
   - hazardous, phase == "EXECUTE" -> require a prior ARM within arm_window_s AND (for any command
-                                     other than EXIT_SAFE) NOT safe_latched; then dispatch and
+                                     other than ENTER_INIT) NOT safe_latched; then dispatch and
                                      consume the arm; otherwise NACK.
   - hazardous, any other phase    -> NACK.
 
@@ -33,7 +33,7 @@ from flight.libs.messages import CommandAckMsg, CommandMsg, RoutedCommandMsg
 from flight.libs.types import AckStatus, FaultCode, MessageType
 
 _CORE_TARGET = "core"
-_EXIT_SAFE = "EXIT_SAFE"
+_ENTER_INIT = "ENTER_INIT"
 
 
 @dataclass(slots=True, frozen=True)
@@ -134,7 +134,7 @@ def route_command(
                 command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "execute without valid arm"
             )
             return RouteResult(None, ack, None, without_key)
-        if safe_latched and command.command_id != _EXIT_SAFE:
+        if safe_latched and command.command_id != _ENTER_INIT:
             ack = _ack(
                 command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "inhibited while SAFE"
             )

@@ -19,7 +19,8 @@ structurally for SIL and tests.
 ## Inputs and outputs
 
 Construction takes a `Clock`, optional `GimbalConfig`, optional initial elevation,
-and the inner period used for frozen-clock catch-up.
+and the inner period used for frozen-clock catch-up. A missing elevation uses
+`stow_el_deg` (`-45 deg`).
 
 | Method | Inputs | Outputs |
 | --- | --- | --- |

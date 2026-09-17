@@ -35,7 +35,8 @@ predictor events, vision replay, and the rate law.
 ## Inputs and outputs
 
 `from_config` takes controller, sensor, gimbal, ephemeris, and preprocessing
-slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
+slices. `inner_step` takes a raw encoder angle, optional encoder sample time,
+SAFE/IDLE hold, and `apply_science_guard` (False for INIT/STOW creep).
 `outer_step` takes an `EncoderSample`, optional `VisionSample`, optional
 `IssSample`, SAFE flags, and an optional explicit
 `PredictorReferenceChange`.
@@ -80,7 +81,8 @@ TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
    is ignored and is not fed boresight rates. Visual tracking can run without
    navigation. The pose path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND does
+   SAFE zeros the commanded rate and does not run the position loop. OPERATE entry
+   can reset the residual checkpoint. REWIND does
    not drop the inner encoder samples. A single TRACKING miss keeps the residual
    and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets the
    residual. That reset also drops the prior CoG unless this frame produced a new

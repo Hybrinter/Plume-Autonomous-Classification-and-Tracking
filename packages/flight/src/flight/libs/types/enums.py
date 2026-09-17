@@ -39,12 +39,21 @@ import enum
 class SystemMode(enum.Enum):
     """Top-level operational mode. REQ-OPER-HIGH-002."""
 
+    INIT = "INIT"
     IDLE = "IDLE"
-    ACTIVE = "ACTIVE"  # inference + gimbal running
-    SCAN = "SCAN"  # nadir scan, no active target
-    MODEL_UPLINK = "MODEL_UPLINK"
-    DATA_DOWNLINK = "DATA_DOWNLINK"
-    SAFE = "SAFE"  # fault-induced; minimal activity
+    OPERATE = "OPERATE"
+    SAFE = "SAFE"
+    STOW = "STOW"
+
+
+class ModeRequestReason(enum.Enum):
+    """Why a subsystem asked the mode manager to change SystemMode."""
+
+    HOMING_COMPLETE = "HOMING_COMPLETE"
+    STOW_COMPLETE = "STOW_COMPLETE"
+    MODEL_SUSPEND = "MODEL_SUSPEND"
+    MODEL_RESUME = "MODEL_RESUME"
+    HOMING_FAILED = "HOMING_FAILED"
 
 
 class GimbalState(enum.Enum):
@@ -146,6 +155,7 @@ class MessageType(enum.Enum):
     FAULT_EVENT = "FAULT_EVENT"
     HEARTBEAT = "HEARTBEAT"
     MODE_CHANGE = "MODE_CHANGE"
+    MODE_REQUEST = "MODE_REQUEST"
     COMMAND = "COMMAND"
     ROUTED_COMMAND = "ROUTED_COMMAND"
     SAFETY_STATE = "SAFETY_STATE"
@@ -224,13 +234,13 @@ class CommandId(enum.Enum):
     PING = "PING"  # liveness check; non-hazardous; core-handled; no params
     SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; target thermal; param limit_c: float
     NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
-    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target fault; param phase: str
+    ENTER_INIT = "ENTER_INIT"  # hazardous (ARM/EXECUTE); target fault; param phase: str
+    ENTER_OPERATE = "ENTER_OPERATE"  # non-hazardous; target fault; from IDLE
+    ENTER_IDLE = "ENTER_IDLE"  # non-hazardous; target fault; from OPERATE
+    ENTER_STOW = "ENTER_STOW"  # hazardous (ARM/EXECUTE); target fault; param phase: str
     RELEASE_LAUNCH_LOCK = "RELEASE_LAUNCH_LOCK"  # hazardous; target mechanical; param phase: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
-    GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop
-    GIMBAL_HOME = "GIMBAL_HOME"  # non-hazardous; target payload; home via position loop
-    GIMBAL_GOTO = "GIMBAL_GOTO"  # non-hazardous; target payload; param el_deg: float
 
 
 class ParamKind(enum.Enum):

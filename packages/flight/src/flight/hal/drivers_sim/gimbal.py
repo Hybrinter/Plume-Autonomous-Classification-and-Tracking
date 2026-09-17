@@ -79,7 +79,7 @@ class SimGimbal:
         self,
         clock: Clock,
         cfg: GimbalConfig | None = None,
-        el_deg: float = 0.0,
+        el_deg: float | None = None,
         inner_dt_s: float = 0.001,
     ) -> None:
         """Start at an elevation with the configured plant and a seeded noise RNG.
@@ -87,15 +87,16 @@ class SimGimbal:
         Args:
             clock: Injected time source for lazy integration.
             cfg: GimbalConfig; defaults to GimbalConfig() if None.
-            el_deg: Initial elevation in degrees.
+            el_deg: Initial elevation in degrees. None uses the configured stow pose.
             inner_dt_s: Inner period used for frozen-clock catch-up steps.
         """
         self._clock = clock
         self._cfg = cfg if cfg is not None else GimbalConfig()
-        self._theta_rad = math.radians(el_deg)
+        start_el = self._cfg.stow_el_deg if el_deg is None else el_deg
+        self._theta_rad = math.radians(start_el)
         self._omega_rad_s = 0.0
         self._tau_nm = 0.0
-        self._target_el_deg = el_deg
+        self._target_el_deg = start_el
         self._stow_commanded = False
         self._last_t = clock.monotonic_s()
         self._catchup_debt_s = 0.0

@@ -1,11 +1,34 @@
 name = "closed_loop_pointing"
 profile = "sil"
-steps = 8
+steps = 24
 dt = 1.0
 
+# Commission latched SAFE: ENTER_INIT ARM/EXECUTE, assumed-datum homing, then ENTER_OPERATE
+# before tracking. Homing uses ~12 s at 10 deg/s over a 45 deg span.
+
 [scene]
-num_frames = 8
+num_frames = 24
 seed = 0
+
+[[commands]]
+at_frame = 1
+command_id = "ENTER_INIT"
+params = { phase = "ARM" }
+source = "ground"
+seq = 1
+
+[[commands]]
+at_frame = 2
+command_id = "ENTER_INIT"
+params = { phase = "EXECUTE" }
+source = "ground"
+seq = 2
+
+[[commands]]
+at_frame = 16
+command_id = "ENTER_OPERATE"
+source = "ground"
+seq = 3
 
 [[assertions]]
 id = "closed_loop_pointing.moved"

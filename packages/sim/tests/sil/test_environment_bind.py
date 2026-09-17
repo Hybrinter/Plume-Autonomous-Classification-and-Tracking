@@ -11,7 +11,7 @@ from flight.core.select_drivers import SimDriverInputs
 from flight.hal.drivers_sim import SimGimbal, SimSensor
 from flight.libs.config import DriverConfig, EphemerisConfig, PactConfig, SensorConfig
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, Ok
+from flight.libs.types import GimbalState, Ok, SystemMode
 from sim.environment import (
     Environment,
     EnvironmentConfig,
@@ -24,6 +24,7 @@ from sim.scene import build_frames, plume_detector
 from sim.sil import (
     SilEnvironmentBind,
     SilHarness,
+    SilSystem,
     ValidationHarness,
     bind_sil_environment,
     build_sil_system,
@@ -249,11 +250,17 @@ def test_pre_step_does_not_shift_encoder_noise() -> None:
     assert pos_bound.value.el_deg == pos_plain.value.el_deg
 
 
+def _force_operate(system: SilSystem) -> None:
+    """Put payload in OPERATE without CONOPS homing (encoder/vision unit tests)."""
+    system.apps.payload.mode_view.system = SystemMode.OPERATE
+    system.apps.payload.safe_latch.commanded = False
+
+
 def test_true_elevation_moves_ecef_projected_centroid() -> None:
     """Gimbal motion under plume tracking shifts the ECEF pinhole centroid."""
     config = PactConfig()
     clock = ManualClock()
-    frames = build_frames(8)
+    frames = build_frames(30)
     detector = plume_detector()
     camera = camera_from_sensor(config.sensor)
     built = build_environment(EnvironmentConfig(plume="ecef_column"), camera)
@@ -278,9 +285,10 @@ def test_true_elevation_moves_ecef_projected_centroid() -> None:
         ephemeris=system.apps.payload.ephemeris,
     )
     harness = SilHarness(system, bind=bind)
+    harness.commission()
     centroids: list[tuple[float, float]] = []
     elevations: list[float] = []
-    now = 0.0
+    now = harness._now
     for _ in range(8):
         now += 1.0
         harness.step(now)
@@ -415,6 +423,8 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
         ephemeris=system.apps.payload.ephemeris,
     )
     harness = SilHarness(system, bind=bind)
+    _force_operate(system)
+    system.gimbal._theta_rad = 0.0
     now = clock0
     for _ in range(4):
         now += step_dt
@@ -453,6 +463,7 @@ def test_missing_encoder_bracket_leaves_theta_g_none() -> None:
         power_readings=[30.0],
     )
     harness = SilHarness(system)
+    _force_operate(system)
     harness.step(1.0)
     samples = system.apps.payload.encoder_stream.samples
     assert samples

@@ -73,8 +73,26 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("limit_c", ParamKind.FLOAT),),
         hazardous=False,
     ),
-    CommandId.EXIT_SAFE: CommandSpec(
-        CommandId.EXIT_SAFE,
+    CommandId.ENTER_INIT: CommandSpec(
+        CommandId.ENTER_INIT,
+        "fault",
+        (ParamSpec("phase", ParamKind.STR),),
+        hazardous=True,
+    ),
+    CommandId.ENTER_OPERATE: CommandSpec(
+        CommandId.ENTER_OPERATE,
+        "fault",
+        (),
+        hazardous=False,
+    ),
+    CommandId.ENTER_IDLE: CommandSpec(
+        CommandId.ENTER_IDLE,
+        "fault",
+        (),
+        hazardous=False,
+    ),
+    CommandId.ENTER_STOW: CommandSpec(
+        CommandId.ENTER_STOW,
         "fault",
         (ParamSpec("phase", ParamKind.STR),),
         hazardous=True,
@@ -102,14 +120,6 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("version", ParamKind.STR),),
         hazardous=False,
     ),
-    CommandId.GIMBAL_STOW: CommandSpec(CommandId.GIMBAL_STOW, "payload", (), hazardous=False),
-    CommandId.GIMBAL_HOME: CommandSpec(CommandId.GIMBAL_HOME, "payload", (), hazardous=False),
-    CommandId.GIMBAL_GOTO: CommandSpec(
-        CommandId.GIMBAL_GOTO,
-        "payload",
-        (ParamSpec("el_deg", ParamKind.FLOAT),),
-        hazardous=False,
-    ),
 }
 
 
@@ -129,7 +139,7 @@ def hazardous_command_ids() -> frozenset[str]:
     """Return the opcode strings of every hazardous command (ARM/EXECUTE two-step).
 
     Returns:
-        A frozenset of command_id values (e.g. "EXIT_SAFE") the router must gate behind a
+        A frozenset of command_id values (e.g. "ENTER_INIT") the router must gate behind a
         two-step ARM then EXECUTE with an inhibit re-check. Derived from the dictionary's
         hazardous flag so the router stays in sync as hazardous commands are added.
     """

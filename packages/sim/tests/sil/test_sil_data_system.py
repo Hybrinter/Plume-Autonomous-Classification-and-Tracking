@@ -14,13 +14,14 @@ def test_mask_products_are_stored_and_downlinked() -> None:
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
-        build_frames(6),
+        build_frames(30),
         plume_detector(),
         inbound_packets=[],
         thermal_readings=[25.0],
         power_readings=[30.0],
     )
-    SilHarness(system).run_steps(6, dt=1.0)
+    harness = SilHarness(system)
+    harness.commission()
 
     storage = system.apps.storage
     # Products were stored, one per processed frame, and read back with a verified checksum.

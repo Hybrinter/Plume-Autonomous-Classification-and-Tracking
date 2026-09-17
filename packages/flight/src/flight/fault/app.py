@@ -1,33 +1,26 @@
-"""Fault subsystem app: heartbeat watchdog + fault-to-mode router over the bus.
+"""Fault subsystem app: heartbeat watchdog + system mode manager over the bus.
 
-Subscribes to HeartbeatMsg and FaultEventMsg from every subsystem, runs the pure
-watchdog each tick, applies the SAFE-mode policy, and publishes ModeChangeMsg. The
-imperative shell owns the bus subscriptions, the clock, and the watchdog-entry dict;
-all decision logic is pure (watchdog.check_heartbeats, policy.decide_mode_change).
+Subscribes to HeartbeatMsg, FaultEventMsg, ModeRequestMsg, and RoutedCommandMsg.
+Each tick runs the watchdog, steps the pure mode manager, and publishes
+ModeChangeMsg plus SafetyStateMsg. Boots latched SAFE.
 
-Contains:
-  - FaultApp: frozen holder of config/bus/clock/subscriptions. from_config() subscribes
-    to the bus; initial_entries() seeds the watchdog dict; tick() runs one
-    drain-heartbeats -> route-faults -> watchdog cycle (threading the entries dict and
-    publishing any ModeChangeMsg); run() is the periodic loop.
-
-Non-obvious notes:
-  - The arbiter/watchdog interval time is Clock.monotonic_s(); message timestamps use
-    Clock.wall_clock_iso(). tick() takes `now` explicitly so it is deterministic in tests.
-  - Thermal/power/inference-latency self-checks live in their producing subsystems, not
-    here; this app only watches heartbeats and routes already-raised FaultEventMsgs.
-
-Satisfies: REQ-SAFE-HIGH-002, REQ-OPER-HIGH-002.
+Satisfies: REQ-SAFE-HIGH-002, REQ-OPER-HIGH-002, REQ-SAFE-EXIT-001.
 """
 
 from __future__ import annotations
 
-# stdlib
 import threading
 from dataclasses import dataclass, field, replace
 
-# internal
-from flight.fault.policy import can_exit_safe, decide_mode_change, exit_safe_mode
+from flight.fault.mode import (
+    ModeEvent,
+    ModeEventKind,
+    SystemModeState,
+    begin_tick,
+    initial_mode_state,
+    step,
+)
+from flight.fault.policy import SAFE_TRIGGERING_FAULTS
 from flight.fault.watchdog import WatchdogEntry, build_entries, check_heartbeats
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import FaultConfig, PactConfig
@@ -35,36 +28,50 @@ from flight.libs.messages import (
     CommandAckMsg,
     FaultEventMsg,
     HeartbeatMsg,
+    ModeRequestMsg,
     RoutedCommandMsg,
     SafetyStateMsg,
 )
 from flight.libs.time import Clock
-from flight.libs.types import AckStatus, FaultCode, MessageType, SystemMode
+from flight.libs.types import AckStatus, FaultCode, MessageType, ModeRequestReason
 
-_EXIT_SAFE = "EXIT_SAFE"
+_COMMAND_EVENTS: dict[str, ModeEventKind] = {
+    "ENTER_INIT": ModeEventKind.ENTER_INIT,
+    "ENTER_OPERATE": ModeEventKind.ENTER_OPERATE,
+    "ENTER_IDLE": ModeEventKind.ENTER_IDLE,
+    "ENTER_STOW": ModeEventKind.ENTER_STOW,
+}
+
+_REQUEST_EVENTS: dict[ModeRequestReason, ModeEventKind] = {
+    ModeRequestReason.HOMING_COMPLETE: ModeEventKind.HOMING_COMPLETE,
+    ModeRequestReason.STOW_COMPLETE: ModeEventKind.STOW_COMPLETE,
+    ModeRequestReason.HOMING_FAILED: ModeEventKind.HOMING_FAILED,
+    ModeRequestReason.MODEL_SUSPEND: ModeEventKind.MODEL_SUSPEND,
+    ModeRequestReason.MODEL_RESUME: ModeEventKind.MODEL_RESUME,
+}
 
 
 @dataclass(slots=True)
-class SafetyLatch:
-    """Mutable SAFE-latch state owned by the fault app shell (the inhibit authority).
+class ModeShell:
+    """Mutable holder for the frozen SystemModeState."""
 
-    Fields:
-        safe_latched: True once a SAFE-triggering fault latched SAFE, until a successful
-            EXIT_SAFE clears it.
-        safe_reason: The fault code that latched SAFE (NONE when not latched).
-    """
+    state: SystemModeState = field(default_factory=initial_mode_state)
+    active_faults: set[FaultCode] = field(default_factory=set)
 
-    safe_latched: bool = False
-    safe_reason: FaultCode = FaultCode.NONE
+    @property
+    def safe_latched(self) -> bool:
+        """Expose the SAFE latch for tests and inhibit consumers."""
+        return self.state.safe_latched
+
+    @property
+    def safe_reason(self) -> FaultCode:
+        """Expose the latch reason."""
+        return self.state.safe_reason
 
 
 @dataclass(frozen=True)
 class FaultApp:
-    """FDIR subsystem app: heartbeat watchdog and fault-to-mode router over the bus.
-
-    Frozen to prevent field reassignment; the held bus/clock/subscriptions are mutable
-    services injected by the composition root.
-    """
+    """FDIR subsystem app: heartbeat watchdog and system mode manager over the bus."""
 
     cfg: FaultConfig
     bus: MessageBus
@@ -73,7 +80,8 @@ class FaultApp:
     heartbeats: Subscription[HeartbeatMsg]
     faults: Subscription[FaultEventMsg]
     routed: Subscription[RoutedCommandMsg]
-    safety: SafetyLatch = field(default_factory=SafetyLatch)
+    requests: Subscription[ModeRequestMsg]
+    safety: ModeShell = field(default_factory=ModeShell)
 
     @staticmethod
     def from_config(
@@ -82,18 +90,7 @@ class FaultApp:
         clock: Clock,
         monitored: tuple[str, ...],
     ) -> FaultApp:
-        """Assemble a FaultApp and subscribe it to heartbeats, faults, and routed commands.
-
-        Args:
-            cfg: Top-level PactConfig (cfg.fault is retained).
-            bus: The MessageBus to subscribe to and publish onto.
-            clock: Injected Clock.
-            monitored: Names of the subsystems whose heartbeats are watched.
-
-        Returns:
-            A FaultApp holding fresh HeartbeatMsg, FaultEventMsg, and RoutedCommandMsg
-            subscriptions and a cleared SafetyLatch.
-        """
+        """Assemble a FaultApp and subscribe to heartbeats, faults, commands, and requests."""
         return FaultApp(
             cfg=cfg.fault,
             bus=bus,
@@ -102,34 +99,27 @@ class FaultApp:
             heartbeats=bus.subscribe(HeartbeatMsg),
             faults=bus.subscribe(FaultEventMsg),
             routed=bus.subscribe(RoutedCommandMsg),
-            safety=SafetyLatch(),
+            requests=bus.subscribe(ModeRequestMsg),
+            safety=ModeShell(),
         )
 
     def initial_entries(self) -> dict[str, WatchdogEntry]:
         """Seed the watchdog entries dict for all monitored subsystems at the current time."""
-        entries: dict[str, WatchdogEntry] = build_entries(
-            self.monitored, self.cfg.watchdog_interval_s, self.clock.monotonic_s()
-        )
-        return entries
+        return build_entries(self.monitored, self.cfg.watchdog_interval_s, self.clock.monotonic_s())
+
+    def _apply(self, event: ModeEvent, iso: str) -> None:
+        """Step the mode manager and publish ModeChangeMsg when an edge fires."""
+        new_state, change = step(self.safety.state, event, iso)
+        self.safety.state = new_state
+        if change is not None:
+            self.bus.publish(change)
 
     def tick(self, entries: dict[str, WatchdogEntry], now: float) -> dict[str, WatchdogEntry]:
-        """Run one watchdog + fault-routing + safety-state cycle, publishing the outcomes.
-
-        Drains heartbeats (resetting miss counts), routes fault events + WATCHDOG_EXPIRE
-        through the SAFE policy (publishing ModeChangeMsg and latching SAFE), handles any
-        routed EXIT_SAFE command (gated on no SAFE-triggering fault this tick), then publishes
-        the fault-owned SafetyStateMsg (the inhibit authority the command router consumes).
-
-        Args:
-            entries: Current watchdog entries (threaded state; not mutated in place).
-            now: Current monotonic seconds.
-
-        Returns:
-            The updated watchdog entries dict.
-        """
+        """Run one watchdog + mode-manager cycle, publishing the outcomes."""
         working = dict(entries)
         iso = self.clock.wall_clock_iso()
-        safe_faults_this_tick: set[FaultCode] = set()
+        self.safety.state = begin_tick(self.safety.state)
+        self.safety.active_faults.clear()
 
         while not self.heartbeats.empty():
             heartbeat = self.heartbeats.get_nowait()
@@ -140,68 +130,93 @@ class FaultApp:
 
         while not self.faults.empty():
             event = self.faults.get_nowait()
-            change = decide_mode_change(event, iso)
-            if change is not None:
-                self.bus.publish(change)
-                self.safety.safe_latched = True
-                self.safety.safe_reason = event.fault_code
-                safe_faults_this_tick.add(event.fault_code)
+            if event.fault_code in SAFE_TRIGGERING_FAULTS:
+                self.safety.active_faults.add(event.fault_code)
+            self._apply(
+                ModeEvent(
+                    ModeEventKind.FAULT,
+                    requested_by=f"safe_mode_entry:{event.fault_code.value}",
+                    fault_code=event.fault_code,
+                ),
+                iso,
+            )
 
-        updated: dict[str, WatchdogEntry]
         updated, watchdog_faults = check_heartbeats(
             working, now, self.cfg.watchdog_max_miss_count, iso
         )
         for fault in watchdog_faults:
-            change = decide_mode_change(fault, iso)
-            if change is not None:
-                self.bus.publish(change)
-                self.safety.safe_latched = True
-                self.safety.safe_reason = fault.fault_code
-                safe_faults_this_tick.add(fault.fault_code)
+            if fault.fault_code in SAFE_TRIGGERING_FAULTS:
+                self.safety.active_faults.add(fault.fault_code)
+            self._apply(
+                ModeEvent(
+                    ModeEventKind.FAULT,
+                    requested_by=f"safe_mode_entry:{fault.fault_code.value}",
+                    fault_code=fault.fault_code,
+                ),
+                iso,
+            )
 
-        self._handle_exit_safe(bool(safe_faults_this_tick), iso)
+        self._handle_mode_requests(iso)
+        self._handle_mode_commands(iso)
 
         self.bus.publish(
             SafetyStateMsg(
                 msg_type=MessageType.SAFETY_STATE,
                 timestamp_utc=iso,
-                mode=SystemMode.SAFE if self.safety.safe_latched else SystemMode.IDLE,
-                active_faults=tuple(sorted(safe_faults_this_tick, key=lambda c: c.value)),
-                safe_latched=self.safety.safe_latched,
-                safe_reason=self.safety.safe_reason,
+                mode=self.safety.state.mode,
+                active_faults=tuple(sorted(self.safety.active_faults, key=lambda c: c.value)),
+                safe_latched=self.safety.state.safe_latched,
+                safe_reason=self.safety.state.safe_reason,
             )
         )
         return updated
 
-    def _handle_exit_safe(self, safe_fault_this_tick: bool, iso: str) -> None:
-        """Drain routed EXIT_SAFE commands; un-latch SAFE when the triggering fault is cleared.
+    def _handle_mode_requests(self, iso: str) -> None:
+        """Drain ModeRequestMsg from payload and model deploy."""
+        while not self.requests.empty():
+            request = self.requests.get_nowait()
+            kind = _REQUEST_EVENTS.get(request.reason)
+            if kind is None:
+                continue
+            fault = (
+                FaultCode.GIMBAL_RUNAWAY if kind is ModeEventKind.HOMING_FAILED else FaultCode.NONE
+            )
+            self._apply(
+                ModeEvent(
+                    kind,
+                    requested_by=f"{request.subsystem}:{request.reason.value}",
+                    fault_code=fault,
+                ),
+                iso,
+            )
 
-        Args:
-            safe_fault_this_tick: True if any SAFE-triggering fault fired in this tick (the
-                "fault not yet cleared" gate). An EXIT_SAFE is refused while this holds.
-            iso: Wall-clock ISO timestamp for the produced messages.
-
-        Notes:
-            Commands other than EXIT_SAFE that route to the fault app are ignored (the command
-            dictionary only targets the fault app with EXIT_SAFE). A successful exit publishes a
-            ModeChangeMsg(IDLE) (consumed by the arbiter to un-latch) plus an ACCEPTED exec ack;
-            a refused exit publishes a REJECTED exec ack and leaves SAFE latched.
-        """
+    def _handle_mode_commands(self, iso: str) -> None:
+        """Drain routed mode commands and ack accept or reject."""
         while not self.routed.empty():
             command = self.routed.get_nowait()
-            if command.command_id != _EXIT_SAFE:
+            kind = _COMMAND_EVENTS.get(command.command_id)
+            if kind is None:
                 continue
-            if can_exit_safe(self.safety.safe_latched, safe_fault_this_tick):
-                self.bus.publish(exit_safe_mode(command.source, iso))
-                self.safety.safe_latched = False
-                self.safety.safe_reason = FaultCode.NONE
-                self._publish_exec_ack(command, AckStatus.ACCEPTED, FaultCode.NONE, "safe exited")
-            else:
+            prior = self.safety.state
+            self._apply(
+                ModeEvent(
+                    kind, requested_by=f"command:{command.source}", fault_code=FaultCode.NONE
+                ),
+                iso,
+            )
+            if self.safety.state is prior:
                 self._publish_exec_ack(
                     command,
                     AckStatus.REJECTED,
                     FaultCode.COMMAND_INVALID,
-                    "cannot exit safe: not latched or a triggering fault is still active",
+                    "mode command refused: illegal edge or latch still active",
+                )
+            else:
+                self._publish_exec_ack(
+                    command,
+                    AckStatus.ACCEPTED,
+                    FaultCode.NONE,
+                    f"mode now {self.safety.state.mode.value}",
                 )
 
     def _publish_exec_ack(
@@ -222,14 +237,7 @@ class FaultApp:
         )
 
     def run(self, stop_event: threading.Event) -> None:
-        """Run the FDIR loop until stop_event is set.
-
-        Seeds the watchdog entries, then ticks every cfg.watchdog_interval_s seconds.
-        Uses stop_event.wait(timeout=...) so shutdown is immediate.
-
-        Args:
-            stop_event: threading.Event; the loop exits cleanly once it is set.
-        """
+        """Run the FDIR loop until stop_event is set."""
         entries = self.initial_entries()
         while not stop_event.is_set():
             now = self.clock.monotonic_s()

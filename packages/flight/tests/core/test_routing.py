@@ -5,7 +5,7 @@ from flight.libs.messages import CommandMsg
 from flight.libs.types import AckStatus, FaultCode, MessageType
 
 _ROUTABLE = frozenset({"core", "thermal", "fault", "payload"})
-_HAZARDOUS = frozenset({"EXIT_SAFE", "MANUAL_GIMBAL_SLEW"})
+_HAZARDOUS = frozenset({"ENTER_INIT", "MANUAL_GIMBAL_SLEW"})
 _WINDOW = 30.0
 
 
@@ -63,14 +63,20 @@ def test_nonhazardous_routed_without_router_ack() -> None:
 def test_hazardous_arm_then_execute_dispatches() -> None:
     """A hazardous command requires ARM (acked, not dispatched) then EXECUTE (dispatched)."""
     arm = route_command(
-        _cmd("EXIT_SAFE", "fault", {"phase": "ARM"}), _ROUTABLE, _HAZARDOUS, False, {}, 0.0, _WINDOW
+        _cmd("ENTER_INIT", "fault", {"phase": "ARM"}),
+        _ROUTABLE,
+        _HAZARDOUS,
+        False,
+        {},
+        0.0,
+        _WINDOW,
     )
     assert arm.routed_command is None
     assert arm.ack is not None and arm.ack.status is AckStatus.ACCEPTED
-    assert ("ground", "EXIT_SAFE") in arm.new_armed
+    assert ("ground", "ENTER_INIT") in arm.new_armed
 
     execute = route_command(
-        _cmd("EXIT_SAFE", "fault", {"phase": "EXECUTE"}),
+        _cmd("ENTER_INIT", "fault", {"phase": "EXECUTE"}),
         _ROUTABLE,
         _HAZARDOUS,
         False,
@@ -79,14 +85,14 @@ def test_hazardous_arm_then_execute_dispatches() -> None:
         _WINDOW,
     )
     assert execute.routed_command is not None
-    assert execute.routed_command.command_id == "EXIT_SAFE"
-    assert ("ground", "EXIT_SAFE") not in execute.new_armed
+    assert execute.routed_command.command_id == "ENTER_INIT"
+    assert ("ground", "ENTER_INIT") not in execute.new_armed
 
 
 def test_hazardous_execute_without_arm_rejected() -> None:
     """EXECUTE with no prior ARM is rejected (no dispatch)."""
     result = route_command(
-        _cmd("EXIT_SAFE", "fault", {"phase": "EXECUTE"}),
+        _cmd("ENTER_INIT", "fault", {"phase": "EXECUTE"}),
         _ROUTABLE,
         _HAZARDOUS,
         False,
@@ -100,9 +106,9 @@ def test_hazardous_execute_without_arm_rejected() -> None:
 
 def test_hazardous_execute_after_arm_window_rejected() -> None:
     """An ARM older than arm_window_s no longer authorizes EXECUTE."""
-    armed = {("ground", "EXIT_SAFE"): 0.0}
+    armed = {("ground", "ENTER_INIT"): 0.0}
     result = route_command(
-        _cmd("EXIT_SAFE", "fault", {"phase": "EXECUTE"}),
+        _cmd("ENTER_INIT", "fault", {"phase": "EXECUTE"}),
         _ROUTABLE,
         _HAZARDOUS,
         False,
@@ -115,7 +121,7 @@ def test_hazardous_execute_after_arm_window_rejected() -> None:
 
 
 def test_hazardous_execute_inhibited_while_safe() -> None:
-    """A non-EXIT_SAFE hazardous EXECUTE is inhibited while SAFE is latched."""
+    """A non-ENTER_INIT hazardous EXECUTE is inhibited while SAFE is latched."""
     armed = {("ground", "MANUAL_GIMBAL_SLEW"): 0.0}
     result = route_command(
         _cmd("MANUAL_GIMBAL_SLEW", "payload", {"phase": "EXECUTE"}),
@@ -131,11 +137,11 @@ def test_hazardous_execute_inhibited_while_safe() -> None:
     assert "inhibit" in result.ack.detail.lower()
 
 
-def test_exit_safe_execute_allowed_while_safe() -> None:
-    """EXIT_SAFE is exempt from the SAFE inhibit (it is the recovery command)."""
-    armed = {("ground", "EXIT_SAFE"): 0.0}
+def test_enter_init_execute_allowed_while_safe() -> None:
+    """ENTER_INIT is exempt from the SAFE inhibit (it is the recovery command)."""
+    armed = {("ground", "ENTER_INIT"): 0.0}
     result = route_command(
-        _cmd("EXIT_SAFE", "fault", {"phase": "EXECUTE"}),
+        _cmd("ENTER_INIT", "fault", {"phase": "EXECUTE"}),
         _ROUTABLE,
         _HAZARDOUS,
         True,  # safe_latched
@@ -149,7 +155,7 @@ def test_exit_safe_execute_allowed_while_safe() -> None:
 def test_hazardous_unknown_phase_rejected() -> None:
     """A hazardous command with an unknown phase value is rejected."""
     result = route_command(
-        _cmd("EXIT_SAFE", "fault", {"phase": "GO"}), _ROUTABLE, _HAZARDOUS, False, {}, 0.0, _WINDOW
+        _cmd("ENTER_INIT", "fault", {"phase": "GO"}), _ROUTABLE, _HAZARDOUS, False, {}, 0.0, _WINDOW
     )
     assert result.routed_command is None
     assert result.ack is not None and result.ack.status is AckStatus.REJECTED

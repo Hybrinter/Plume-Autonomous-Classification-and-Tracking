@@ -1,10 +1,12 @@
-"""Gimbal arbiter: TRACKING / REWIND / SAFE mode selection (pure).
+"""Gimbal arbiter: TRACKING / REWIND / FAST_REWIND / SAFE mode selection (pure).
 
 The arbiter selects the rate-reference policy. It does not emit axis rates or
 torque. SAFE latches until ground clears it. A plume moves the machine to
 TRACKING immediately. A loss below the science limb enters REWIND after the
-first of a bounded empty-result release or observation-age timeout. Arrival at
-the limb with no plume is TRACKING with r = 0.
+first of a bounded empty-result release or observation-age timeout. After
+rewind_sharp_max_s in REWIND without a plume or limb arrival, the arbiter
+promotes to FAST_REWIND. Arrival at the limb with no plume is TRACKING with
+r = 0.
 
 Satisfies: REQ-AIML-GIMB-001 through 008, REQ-GIMB-HIGH-001 through 004
 """
@@ -15,7 +17,7 @@ from dataclasses import dataclass, replace
 
 from flight.libs.config import ArbiterConfig, GimbalConfig
 from flight.libs.messages import BlobMeta, TelemetryEventMsg
-from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
+from flight.libs.types import GimbalCommandMode, GimbalState, MessageType, is_rewind_hunt
 from flight.payload.gimbal.request import GimbalRequest
 
 
@@ -26,7 +28,7 @@ class ArbiterState:
     Fields
     ------
     gimbal_state:
-        TRACKING, REWIND, or SAFE.
+        TRACKING, REWIND, FAST_REWIND, or SAFE.
     tracked_blobs:
         Blobs that survived safety gates on the last vision sample.
     aggregate_live:
@@ -42,7 +44,8 @@ class ArbiterState:
     miss_count:
         Consecutive vision samples with no blob while in TRACKING.
     rewind_entered_s:
-        Monotonic seconds when REWIND was entered, or None when not in REWIND.
+        Monotonic seconds when REWIND was entered, kept through FAST_REWIND,
+        or None when not in a hunt mode.
     """
 
     gimbal_state: GimbalState
@@ -56,7 +59,7 @@ class ArbiterState:
 
 
 class GimbalArbiter:
-    """TRACKING / REWIND / SAFE gimbal arbiter. REQ-AIML-GIMB-008.
+    """TRACKING / REWIND / FAST_REWIND / SAFE gimbal arbiter. REQ-AIML-GIMB-008.
 
     step() is a pure function aside from timestamp strings on returned telemetry.
     GimbalArbiter holds no mutable instance state; ArbiterState threads externally.
@@ -85,6 +88,7 @@ class GimbalArbiter:
         observation_t_s: float | None = None,
         coast_permitted: bool = True,
         timestamp_utc: str = "",
+        rewind_sharp_max_s: float = 2.0,
     ) -> tuple[ArbiterState, GimbalRequest | None, list[TelemetryEventMsg]]:
         """Advance the mode machine by one outer tick.
 
@@ -115,6 +119,9 @@ class GimbalArbiter:
             prediction-only coasting without changing the mode machine.
         timestamp_utc:
             Injected ISO stamp for transition telemetry. Empty uses a blank stamp.
+        rewind_sharp_max_s:
+            Seconds in REWIND before promotion to FAST_REWIND. Injected from
+            OuterLoopConfig so the arbiter owns the timer.
 
         Returns
         -------
@@ -184,7 +191,7 @@ class GimbalArbiter:
             last_observation_s = now if observation_t_s is None else observation_t_s
             miss_count = 0
             loss_handled = False
-            if old_gs is GimbalState.REWIND:
+            if is_rewind_hunt(old_gs):
                 new_gs = GimbalState.TRACKING
         elif vision_updated:
             miss_count = state.miss_count + 1
@@ -202,9 +209,13 @@ class GimbalArbiter:
             else:
                 new_gs = GimbalState.REWIND
                 miss_count = 0
-        elif old_gs is GimbalState.REWIND and not has_plume and at_limb:
+        elif is_rewind_hunt(old_gs) and not has_plume and at_limb:
             new_gs = GimbalState.TRACKING
             miss_count = 0
+        elif old_gs is GimbalState.REWIND and not has_plume:
+            entered_s = state.rewind_entered_s if state.rewind_entered_s is not None else now
+            if now - entered_s >= rewind_sharp_max_s:
+                new_gs = GimbalState.FAST_REWIND
 
         aggregate_live = has_plume or (
             last_observation_s is not None
@@ -217,8 +228,8 @@ class GimbalArbiter:
         if new_gs != old_gs:
             events.append(self._transition_event(old_gs, new_gs, timestamp_utc))
 
-        if new_gs is GimbalState.REWIND:
-            rewind_entered_s = now if old_gs is not GimbalState.REWIND else state.rewind_entered_s
+        if is_rewind_hunt(new_gs):
+            rewind_entered_s = now if not is_rewind_hunt(old_gs) else state.rewind_entered_s
             if rewind_entered_s is None:
                 rewind_entered_s = now
         else:

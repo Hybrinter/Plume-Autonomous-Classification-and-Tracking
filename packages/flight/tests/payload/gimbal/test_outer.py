@@ -116,8 +116,6 @@ def test_rewind_sharp_adds_smear_budget_to_scene_rate() -> None:
         exposure_us=1000.0,
         max_motion_smear_px=1.0,
         ifov_band_deg_per_px=_IFOV,
-        rewind_elapsed_s=0.1,
-        rewind_sharp_max_s=2.0,
     )
     assert abs(decision.commanded_rate_rad_s - (nom + sharp)) < 1e-12
     assert abs(decision.scene_rate_rad_s - nom) < 1e-12
@@ -140,8 +138,6 @@ def _rewind(*, omega_t_res: float) -> RateDecision:
         exposure_us=1000.0,
         max_motion_smear_px=1.0,
         ifov_band_deg_per_px=_IFOV,
-        rewind_elapsed_s=0.1,
-        rewind_sharp_max_s=2.0,
     )
 
 
@@ -153,15 +149,15 @@ def test_rewind_ignores_residual_rate() -> None:
     assert a.scene_rate_rad_s == b.scene_rate_rad_s
 
 
-def test_rewind_escape_uses_hardware_rate_toward_limb() -> None:
-    """After rewind_sharp_max_s, REWIND drives at the hardware cap."""
+def test_fast_rewind_uses_hardware_rate_toward_limb() -> None:
+    """FAST_REWIND drives at the hardware cap."""
     cap = math.radians(10.0)
     decision = outer_rate(
         omega_t_nom=math.radians(-1.0),
         omega_t_res=0.0,
         e_hat=0.0,
         k_p=8.0,
-        mode=GimbalState.REWIND,
+        mode=GimbalState.FAST_REWIND,
         live=False,
         theta_g_rad=0.0,
         theta_sci_max_rad=math.radians(45.0),
@@ -169,8 +165,6 @@ def test_rewind_escape_uses_hardware_rate_toward_limb() -> None:
         exposure_us=1000.0,
         max_motion_smear_px=1.0,
         ifov_band_deg_per_px=_IFOV,
-        rewind_elapsed_s=2.0,
-        rewind_sharp_max_s=2.0,
     )
     assert abs(decision.commanded_rate_rad_s - cap) < 1e-12
     assert abs(decision.requested_relative_rate_rad_s - cap) < 1e-12

@@ -46,4 +46,4 @@ descriptive pages.
 ## Mode names
 
 Use the enum member text as written: `IDLE`, `TRACKING`, `REWIND`,
-`SCAN`, `SAFE`, `ABSOLUTE`, `STOW`, `HOME`.
+`FAST_REWIND`, `SCAN`, `SAFE`, `ABSOLUTE`, `STOW`, `HOME`.

@@ -2,7 +2,8 @@
 
 Inner: encoder ring -> polynomial y_m -> PI + computed torque.
 Outer: CoG update (TRACKING) -> scene select -> residual KF (TRACKING only) ->
-r, plus the TRACKING/REWIND/SAFE arbiter. REWIND hunts with no target CoG.
+r, plus the TRACKING/REWIND/FAST_REWIND/SAFE arbiter. REWIND and FAST_REWIND
+hunt with no target CoG.
 STOW/HOME/GOTO write r through the position loop into the same inner PI.
 
 Pure: no I/O, no bus, no clock reads. Time, encoder angle, ISS state, and vision
@@ -26,7 +27,13 @@ from flight.libs.config import (
     SensorConfig,
 )
 from flight.libs.messages import BlobMeta, InferenceResultMsg, TelemetryEventMsg
-from flight.libs.types import FaultCode, GimbalCommandMode, GimbalState, MessageType
+from flight.libs.types import (
+    FaultCode,
+    GimbalCommandMode,
+    GimbalState,
+    MessageType,
+    is_rewind_hunt,
+)
 from flight.payload.gimbal import (
     ArbiterState,
     CameraGeometry,
@@ -568,12 +575,12 @@ class PayloadController:
 
         Notes:
             Previous tracked blobs are state.arbiter.tracked_blobs before
-            arbiter.step. REWIND stores no CoG and does not submit residual
-            events. TRACKING acquire cold-starts the residual filter at the vision
-            shutter when the sample carries a shutter encoder angle. A missing
-            shutter angle leaves the checkpoint angle unset. A shutter after now
-            uses the encoder sample. An identity reset drops the prior CoG unless
-            this frame wrote a new intersect.
+            arbiter.step. REWIND and FAST_REWIND store no CoG and do not submit
+            residual events. TRACKING acquire cold-starts the residual filter at
+            the vision shutter when the sample carries a shutter encoder angle. A
+            missing shutter angle leaves the checkpoint angle unset. A shutter
+            after now uses the encoder sample. An identity reset drops the prior
+            CoG unless this frame wrote a new intersect.
         """
         del dt_s  # Detailed-plant cadence is retained by inner_step only.
         theta_g_rad = encoder.angle_rad
@@ -591,6 +598,7 @@ class PayloadController:
             vision_updated=vision is not None,
             observation_t_s=vision.t_s if vision is not None else None,
             timestamp_utc=timestamp_utc,
+            rewind_sharp_max_s=self.cfg.outer.rewind_sharp_max_s,
         )
 
         pose_mode = state.pose.pose_mode
@@ -613,7 +621,7 @@ class PayloadController:
         history = state.residual_history
         vision_disposition = "none"
         omega_az = state.target.last_omega_az_nom
-        in_rewind = new_arbiter.gimbal_state is GimbalState.REWIND
+        in_rewind = is_rewind_hunt(new_arbiter.gimbal_state)
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us
@@ -819,8 +827,6 @@ class PayloadController:
                 math.radians(self.gimbal.el_science_min_deg),
                 max_decel,
                 rate_loop_bandwidth,
-                rewind_elapsed_s=rewind_elapsed_s,
-                rewind_sharp_max_s=self.cfg.outer.rewind_sharp_max_s,
             )
             r = decision.commanded_rate_rad_s
             last_rate_decision = decision
@@ -871,8 +877,7 @@ class PayloadController:
                         "hardware_limited": hardware_limited,
                         "science_limited": science_limited,
                         "rewind_elapsed_s": rewind_elapsed_s,
-                        "rewind_escape": in_rewind
-                        and rewind_elapsed_s >= self.cfg.outer.rewind_sharp_max_s,
+                        "gimbal_state": new_arbiter.gimbal_state.value,
                         "y_m": state.encoder.measured_rate_rad_s,
                         "P00": float(residual.P[0, 0]),
                         "P01": float(residual.P[0, 1]),

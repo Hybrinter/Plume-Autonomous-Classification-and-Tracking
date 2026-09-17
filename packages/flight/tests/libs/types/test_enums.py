@@ -11,13 +11,19 @@ from flight.libs.types import (
     MessageType,
     ParamKind,
     SystemMode,
+    is_rewind_hunt,
 )
 
 
 def test_enum_value_mirrors_name() -> None:
     """Enum string values mirror their member names (log readability convention)."""
     assert SystemMode.IDLE.value == "IDLE"
-    assert {m.name for m in GimbalState} == {"TRACKING", "REWIND", "SAFE"}
+    assert {m.name for m in GimbalState} == {"TRACKING", "REWIND", "FAST_REWIND", "SAFE"}
+    assert GimbalState.FAST_REWIND.value == "FAST_REWIND"
+    assert is_rewind_hunt(GimbalState.REWIND)
+    assert is_rewind_hunt(GimbalState.FAST_REWIND)
+    assert not is_rewind_hunt(GimbalState.TRACKING)
+    assert not is_rewind_hunt(GimbalState.SAFE)
 
 
 def test_faultcode_has_expected_members() -> None:

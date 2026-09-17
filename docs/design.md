@@ -15,7 +15,8 @@ controller modules as the specification.
 | --- | --- |
 | [`design/single-axis-elevation-controller.md`](design/single-axis-elevation-controller.md) | Single-axis elevation gimbal controller |
 | [`design/simulated-environment.md`](design/simulated-environment.md) | Simulated world models vs HAL driver selection |
-| [`design/system-modes.drawio`](design/system-modes.drawio) | SystemMode and payload inner graphs (diagrams.net) |
+| [`design/system-modes.md`](design/system-modes.md) | Onboard SystemMode machine and payload inner graphs |
+| [`design/system-modes.drawio`](design/system-modes.drawio) | diagrams.net companion to the system-modes brief |
 
 ## Constraints
 

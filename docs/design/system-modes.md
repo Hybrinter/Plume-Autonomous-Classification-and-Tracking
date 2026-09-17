@@ -8,8 +8,6 @@ payload inner graphs (INIT homing, IDLE hold, OPERATE arbiter, SAFE inhibit,
 STOW-to-rest), ground commands, and SIL/GSE coverage. Xeryon vendor index search,
 motorized launch-lock removal, and thermal compare-to-SAFE are follow-on work.
 
-The diagrams.net companion is [`system-modes.drawio`](system-modes.drawio).
-
 ---
 
 ## 1. How to use this document

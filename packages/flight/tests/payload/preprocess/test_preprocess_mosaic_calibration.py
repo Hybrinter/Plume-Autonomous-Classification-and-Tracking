@@ -6,8 +6,8 @@ from flight.payload.preprocess import (
     MosaicCalibration,
     calibrate_mosaic,
     correct_bad_pixels,
-    dark_matches_frame,
 )
+from flight.payload.preprocess.radiometric import dark_matches_frame
 
 
 def _identity_cal(h: int, w: int) -> MosaicCalibration:

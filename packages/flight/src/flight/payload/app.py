@@ -481,7 +481,6 @@ class PayloadApp:
             self.sensor_cfg.ifov_band_deg_per_px,
             raw.timestamp_utc,
             self.preprocessing_cfg,
-            band_names=self.inference_cfg.input_bands,
             omega_scene_el_deg_per_s=omega_scene_el_deg_per_s,
         )
 

@@ -12,7 +12,7 @@ import numpy as np
 from flight.libs.types import Err, FaultCode, Ok
 
 # module under test
-from flight.payload.preprocess import (
+from flight.payload.preprocess.crop import (
     RoiTransform,
     crop_and_upsample,
     crop_plane,

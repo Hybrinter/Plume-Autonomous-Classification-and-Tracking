@@ -1,64 +1,38 @@
-"""flight.payload.preprocess.quality -- Per-frame quality flags and the keep/drop decision.
+"""flight.payload.preprocess.quality -- Per-frame quality flag computation for inference gating.
 
-Satisfies: REQ-AIML-IMAG-002, REQ-AIML-DATA-003, REQ-AIML-DATA-005
+Satisfies: REQ-AIML-IMAG-002, REQ-AIML-DATA-003
 
-Computes the FrameUsabilityTag flags for one calibrated, normalized frame, the numeric
-metrics behind them, and the keep/drop verdict (TRAINING / TRACKING / INVALID) that
-decides whether the frame goes to the model interface and whether it is fit for the
-training dataset. Every function is pure.
+Computes a frozenset of FrameUsabilityTag flags for each calibrated, normalized frame.
+These flags are attached to ProcessedFrameMsg and used downstream to decide whether to
+run inference and how to classify the frame for dataset curation (training vs. tracking
+vs. invalid).
 
 Flag conditions:
-    INCOMPLETE_METADATA -- nonpositive exposure, missing timestamp, or (when given) a
-                           negative gain.
-    SATURATED           -- more than cfg.saturation_fraction_threshold of the pixels of
-                           any band sit above the saturation level. Measured on the RAW
-                           mosaic per CFA cell class when raw_mosaic and adc_max_dn are
-                           supplied (saturation is an ADC property: flat-field division
-                           and clipping can hide a saturated pixel or fake one), else on
-                           the normalized planes against SATURATION_PIXEL_LEVEL.
-    MOTION_SMEAR        -- elevation-relative smear in band-plane pixels
-                           smear_px = |slew - omega_scene_el| * t_exp / IFOV
-                           exceeds cfg.max_motion_smear_px. Both rates are signed
-                           elevation rates, so a tracking slew that matches the scene
-                           rate reports ~0. Azimuth motion is not modeled. omega_scene_el
-                           is 0.0 unless the caller supplies it.
-    CLOUD_CONTAMINATED  -- default (legacy): mean NIR / mean RED exceeds
-                           cfg.nir_red_ratio_threshold. Physics caveat: with the flight
-                           passbands (665 / 842 nm) a high NIR/RED ratio is the
-                           vegetation signature, while cloud is bright and spectrally
-                           flat (ratio ~1). Pass a CloudTest to use the bright-and-flat
-                           fraction test instead.
-    SUNGLINT            -- mean NIR exceeds cfg.sunglint_nir_mean_threshold. Over land
-                           this is an over-brightness (exposure) gate rather than glint.
+    SATURATED           -- any band has > saturation_fraction_threshold of pixels above
+                           SATURATION_PIXEL_LEVEL (post-normalisation).
+    MOTION_SMEAR        -- physical: elevation-relative smear length in band-plane pixels,
+                           smear_px = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
+                           * (exposure_us * 1e-6) / IFOV, exceeds cfg.max_motion_smear_px.
+                           Azimuth motion does not contribute.
+    CLOUD_CONTAMINATED  -- NIR/Red mean ratio exceeds cfg.nir_red_ratio_threshold.
+    SUNGLINT            -- mean NIR band intensity exceeds cfg.sunglint_nir_mean_threshold.
+    INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
 
-Band identity is resolved BY NAME through band_names (default BLUE, GREEN, RED, NIR),
-never by fixed index, so a reordered InferenceConfig.input_bands cannot silently swap
-the RED and NIR planes the spectral checks read. When RED or NIR is absent from
-band_names the spectral checks cannot run: their metrics are NaN and their flags are
-not raised.
+Band index assumptions (for a (C, H, W) array after select_bands), order
+[BLUE, GREEN, RED, NIR]:
+    index 0 -> BLUE
+    index 1 -> GREEN
+    index 2 -> RED
+    index 3 -> NIR
 
 Contains:
-  - SATURATION_PIXEL_LEVEL: default saturation level as a fraction of full scale.
-  - DEFAULT_BAND_NAMES: the 4-band order assumed when band_names is not given.
-  - CloudTest: thresholds for the bright-and-flat cloud fraction test.
-  - QualityMetrics: the numbers behind the flags, for telemetry and tests.
-  - UsabilityPolicy / DEFAULT_USABILITY_POLICY: which flags make a frame INVALID and
-    which make it TRACKING-only.
   - SmearRateSource: provenance of the elevation rate used for MOTION_SMEAR.
-  - saturated_fraction_normalized / saturated_fraction_raw: per-band saturated fraction.
-  - predicted_smear_px: elevation-relative smear length in band-plane pixels.
-  - cloud_fraction: fraction of bright, spectrally flat pixels.
-  - compute_quality_metrics: evaluate every metric; Err(FRAME_MALFORMED) on bad shapes.
-  - flags_from_metrics: raise flags from metrics and thresholds.
-  - compute_quality_flags: metrics -> flags in one call (legacy entry point).
-  - decide_usability: flags -> TRAINING | TRACKING | INVALID under a policy.
+  - compute_quality_flags: evaluate the heuristics and return the raised-flag frozenset.
 """
 
 from __future__ import annotations
 
 # stdlib
-import math
-from dataclasses import dataclass
 from enum import Enum
 from typing import Final
 
@@ -67,335 +41,10 @@ import numpy as np
 
 # internal
 from flight.libs.config import PreprocessingConfig
-from flight.libs.types import Err, FaultCode, FrameUsabilityTag, Ok, Result
-from flight.payload.preprocess.band_select import band_index
-from flight.payload.preprocess.demosaic import separate_bands
+from flight.libs.types import FrameUsabilityTag
 
-# Saturation level as a fraction of full scale; the same level is used on normalized
-# planes and (times adc_max_dn) on the raw mosaic.
-SATURATION_PIXEL_LEVEL: Final[float] = 0.95
-
-DEFAULT_BAND_NAMES: Final[tuple[str, ...]] = ("BLUE", "GREEN", "RED", "NIR")
-
-_BAND_RED: Final[str] = "RED"
-_BAND_NIR: Final[str] = "NIR"
-_RATIO_EPSILON: Final[float] = 1e-6
-
-
-@dataclass(frozen=True, slots=True)
-class CloudTest:
-    """Thresholds for the bright-and-spectrally-flat cloud fraction test.
-
-    A pixel is cloud-like when every band exceeds bright_threshold AND its spectral
-    spread (max - min) / mean is below whiteness_tolerance. The frame is flagged when
-    the fraction of cloud-like pixels exceeds fraction_threshold.
-
-    Attributes:
-        bright_threshold: float minimum normalized value in every band.
-        whiteness_tolerance: float maximum (max - min) / mean across bands.
-        fraction_threshold: float fraction of cloud-like pixels that raises the flag.
-    """
-
-    bright_threshold: float
-    whiteness_tolerance: float
-    fraction_threshold: float
-
-
-@dataclass(frozen=True, slots=True)
-class QualityMetrics:
-    """Numeric quality metrics for one frame.
-
-    Attributes:
-        saturated_fraction: tuple[float, ...] saturated pixel fraction per band. In
-            band_names order when measured on normalized planes; in CELL_OFFSETS order
-            (one entry per CFA cell class) when measured on the raw mosaic.
-        saturation_on_raw: bool True when saturated_fraction came from the raw mosaic.
-        smear_px: float predicted smear length in band-plane pixels.
-        nir_red_ratio: float mean NIR / mean RED; NaN when either band is absent.
-        cloud_fraction: float fraction of bright-and-flat pixels; NaN when no CloudTest
-            was supplied.
-        nir_mean: float mean normalized NIR; NaN when NIR is absent.
-        metadata_complete: bool False when exposure, timestamp, or gain is invalid.
-    """
-
-    saturated_fraction: tuple[float, ...]
-    saturation_on_raw: bool
-    smear_px: float
-    nir_red_ratio: float
-    cloud_fraction: float
-    nir_mean: float
-    metadata_complete: bool
-
-
-@dataclass(frozen=True, slots=True)
-class UsabilityPolicy:
-    """Which quality flags drop a frame and which restrict it to tracking use.
-
-    Attributes:
-        invalid_flags: frozenset[FrameUsabilityTag] any of these -> INVALID; the frame
-            is skipped by the model interface.
-        tracking_only_flags: frozenset[FrameUsabilityTag] any of these (and none of
-            invalid_flags) -> TRACKING; the model runs for control but the frame is
-            excluded from the training dataset.
-    """
-
-    invalid_flags: frozenset[FrameUsabilityTag]
-    tracking_only_flags: frozenset[FrameUsabilityTag]
-
-
-# Recommended default: metadata, saturation, cloud and over-brightness corrupt both the
-# detection and the training label; a few pixels of smear still give a valid centroid
-# for control but blur segmentation boundaries, so smeared frames track but do not train.
-DEFAULT_USABILITY_POLICY: Final[UsabilityPolicy] = UsabilityPolicy(
-    invalid_flags=frozenset(
-        {
-            FrameUsabilityTag.INCOMPLETE_METADATA,
-            FrameUsabilityTag.SATURATED,
-            FrameUsabilityTag.CLOUD_CONTAMINATED,
-            FrameUsabilityTag.SUNGLINT,
-        }
-    ),
-    tracking_only_flags=frozenset({FrameUsabilityTag.MOTION_SMEAR}),
-)
-
-
-def saturated_fraction_normalized(
-    bands: np.ndarray,
-    level: float = SATURATION_PIXEL_LEVEL,
-) -> tuple[float, ...]:
-    """Fraction of pixels above level in each normalized band plane.
-
-    Inputs:
-        bands (np.ndarray[float32, (C, H, W)]): Normalized planes in [0, 1].
-        level (float): Saturation level in normalized units (strict >).
-
-    Outputs:
-        tuple[float, ...]: One fraction per channel, in channel order. A zero-area
-            input yields 0.0 per channel (no pixel is saturated).
-    """
-    n_pixels = bands.shape[1] * bands.shape[2]
-    if n_pixels == 0:
-        return tuple(0.0 for _ in range(int(bands.shape[0])))
-    return tuple(float((bands[c] > level).sum()) / n_pixels for c in range(bands.shape[0]))
-
-
-def saturated_fraction_raw(
-    mosaic: np.ndarray,
-    adc_max_dn: int,
-    level_frac: float = SATURATION_PIXEL_LEVEL,
-    cfa_phase: tuple[int, int] = (0, 0),
-) -> Result[tuple[float, ...], FaultCode]:
-    """Fraction of raw pixels above level_frac * adc_max_dn in each CFA cell class.
-
-    Saturation is a property of the ADC code, so it is measured on the raw mosaic
-    before dark/flat correction and before clipping, which can both hide a saturated
-    pixel (flat > 1) or manufacture one (flat < 1). Each 2x2 cell class is one band, so
-    the fractions are per band in CELL_OFFSETS order.
-
-    Inputs:
-        mosaic (np.ndarray[*, (H, W)]): Raw mosaic plane in DN.
-        adc_max_dn (int): ADC code maximum (e.g. 4095 for 12-bit).
-        level_frac (float): Saturation level as a fraction of adc_max_dn (strict >).
-        cfa_phase (tuple[int, int]): First complete tile position, see demosaic.
-
-    Outputs:
-        Result[tuple[float, ...], FaultCode]:
-            Ok(tuple of 4 floats) in CELL_OFFSETS order;
-            Err(FaultCode.FRAME_MALFORMED) if the mosaic cannot be separated.
-    """
-    planes = separate_bands(mosaic, cfa_phase)
-    if isinstance(planes, Err):
-        return Err(planes.error)
-    return Ok(saturated_fraction_normalized(planes.value, level_frac * adc_max_dn))
-
-
-def predicted_smear_px(
-    slew_rate_deg_per_s: float,
-    exposure_us: float,
-    ifov_band_deg_per_px: float,
-    omega_scene_el_deg_per_s: float = 0.0,
-) -> float:
-    """Predicted motion smear length in band-plane pixels over one exposure.
-
-        smear_px = |slew - omega_scene_el| * t_exp / IFOV
-
-    Both rates are signed elevation rates in the same frame. A tracking slew that
-    matches the scene rate (co-rotation / tracking feedforward) reports ~0; a
-    stationary gimbal against a nonzero scene rate reports the full scene smear.
-    Azimuth motion is not modeled.
-
-    Inputs:
-        slew_rate_deg_per_s (float): Signed gimbal elevation rate over the exposure,
-            deg/s. 0.0 is a stationary gimbal.
-        exposure_us (float): Exposure time, microseconds.
-        ifov_band_deg_per_px (float): Band-plane IFOV, deg/px.
-        omega_scene_el_deg_per_s (float): Signed scene elevation rate, deg/s. Default
-            0.0 (gimbal-only smear).
-
-    Outputs:
-        float: Smear length in band-plane pixels; 0.0 when ifov is non-positive.
-    """
-    if ifov_band_deg_per_px <= 0.0:
-        return 0.0
-    rel_rate = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
-    return rel_rate * (exposure_us * 1e-6) / ifov_band_deg_per_px
-
-
-def cloud_fraction(bands: np.ndarray, test: CloudTest) -> float:
-    """Fraction of pixels that are bright in every band and spectrally flat.
-
-    Cloud in the VNIR (490-842 nm) is bright and nearly white; vegetation is dark in
-    RED and bright in NIR (high spread), bare ground and water are dark. A pixel is
-    cloud-like when min over bands > bright_threshold and (max - min) / mean <
-    whiteness_tolerance.
-
-    Inputs:
-        bands (np.ndarray[float32, (C, H, W)]): Normalized planes in [0, 1], C >= 1.
-        test (CloudTest): Thresholds.
-
-    Outputs:
-        float: Fraction of cloud-like pixels in [0, 1].
-    """
-    band_min = bands.min(axis=0)  # np.ndarray[float32, (H, W)]
-    band_max = bands.max(axis=0)  # np.ndarray[float32, (H, W)]
-    band_mean = bands.mean(axis=0)  # np.ndarray[float32, (H, W)]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        spread = np.where(band_mean > 0.0, (band_max - band_min) / band_mean, np.inf)
-    cloud_like = (band_min > test.bright_threshold) & (spread < test.whiteness_tolerance)
-    return float(cloud_like.mean())
-
-
-def compute_quality_metrics(
-    bands: np.ndarray,
-    exposure_us: float,
-    slew_rate_deg_per_s: float,
-    ifov_band_deg_per_px: float,
-    utc_timestamp: str,
-    band_names: tuple[str, ...] = DEFAULT_BAND_NAMES,
-    gain_db: float | None = None,
-    raw_mosaic: np.ndarray | None = None,
-    adc_max_dn: int | None = None,
-    cfa_phase: tuple[int, int] = (0, 0),
-    omega_scene_el_deg_per_s: float = 0.0,
-    cloud_test: CloudTest | None = None,
-    saturation_level: float = SATURATION_PIXEL_LEVEL,
-) -> Result[QualityMetrics, FaultCode]:
-    """Evaluate every per-frame quality metric.
-
-    Inputs:
-        bands (np.ndarray[float32, (C, H, W)]): Calibrated, normalized planes in
-            band_names order.
-        exposure_us (float): Exposure time, microseconds.
-        slew_rate_deg_per_s (float): Gimbal slew rate over the exposure, deg/s.
-        ifov_band_deg_per_px (float): Band-plane IFOV, deg/px.
-        utc_timestamp (str): ISO 8601 frame timestamp; empty means missing.
-        band_names (tuple[str, ...]): Channel names of bands. Default
-            (BLUE, GREEN, RED, NIR).
-        gain_db (float | None): Analog gain, dB; a negative value marks the metadata
-            incomplete. None skips the check.
-        raw_mosaic (np.ndarray | None): Raw (H_m, W_m) mosaic in DN. With adc_max_dn,
-            saturation is measured here per CFA cell class instead of on bands.
-        adc_max_dn (int | None): ADC code maximum for raw saturation.
-        cfa_phase (tuple[int, int]): First complete tile position for raw saturation.
-        omega_scene_el_deg_per_s (float): Scene elevation rate, deg/s.
-        cloud_test (CloudTest | None): Use the bright-and-flat cloud fraction test;
-            None leaves cloud_fraction NaN (the legacy NIR/RED ratio is always computed).
-        saturation_level (float): Saturation level as a fraction of full scale.
-
-    Outputs:
-        Result[QualityMetrics, FaultCode]:
-            Ok(QualityMetrics);
-            Err(FaultCode.FRAME_MALFORMED) if bands is not rank 3, has a zero-size
-                spatial axis, its channel count differs from len(band_names), or
-                raw_mosaic cannot be separated.
-    """
-    if (
-        bands.ndim != 3
-        or bands.shape[0] != len(band_names)
-        or bands.shape[1] < 1
-        or bands.shape[2] < 1
-    ):
-        return Err(FaultCode.FRAME_MALFORMED)
-
-    metadata_complete = exposure_us > 0.0 and bool(utc_timestamp)
-    if gain_db is not None and gain_db < 0.0:
-        metadata_complete = False
-
-    if raw_mosaic is not None and adc_max_dn is not None:
-        raw_fraction = saturated_fraction_raw(raw_mosaic, adc_max_dn, saturation_level, cfa_phase)
-        if isinstance(raw_fraction, Err):
-            return Err(raw_fraction.error)
-        saturated = raw_fraction.value
-        on_raw = True
-    else:
-        saturated = saturated_fraction_normalized(bands, saturation_level)
-        on_raw = False
-
-    smear = predicted_smear_px(
-        slew_rate_deg_per_s, exposure_us, ifov_band_deg_per_px, omega_scene_el_deg_per_s
-    )
-
-    red_idx = band_index(band_names, _BAND_RED)
-    nir_idx = band_index(band_names, _BAND_NIR)
-    nir_mean = math.nan
-    ratio = math.nan
-    if isinstance(nir_idx, Ok):
-        nir_mean = float(bands[nir_idx.value].mean())
-        if isinstance(red_idx, Ok):
-            red_mean = float(bands[red_idx.value].mean())
-            ratio = nir_mean / (red_mean + _RATIO_EPSILON)
-
-    cloud = cloud_fraction(bands, cloud_test) if cloud_test is not None else math.nan
-
-    return Ok(
-        QualityMetrics(
-            saturated_fraction=saturated,
-            saturation_on_raw=on_raw,
-            smear_px=smear,
-            nir_red_ratio=ratio,
-            cloud_fraction=cloud,
-            nir_mean=nir_mean,
-            metadata_complete=metadata_complete,
-        )
-    )
-
-
-def flags_from_metrics(
-    metrics: QualityMetrics,
-    cfg: PreprocessingConfig,
-    cloud_test: CloudTest | None = None,
-) -> frozenset[FrameUsabilityTag]:
-    """Raise quality flags from metrics and thresholds.
-
-    Inputs:
-        metrics (QualityMetrics): Output of compute_quality_metrics.
-        cfg (PreprocessingConfig): Thresholds for saturation fraction, smear, NIR/RED
-            ratio and NIR mean.
-        cloud_test (CloudTest | None): When given, CLOUD_CONTAMINATED is decided by
-            metrics.cloud_fraction > cloud_test.fraction_threshold; otherwise by
-            metrics.nir_red_ratio > cfg.nir_red_ratio_threshold.
-
-    Outputs:
-        frozenset[FrameUsabilityTag]: The flags raised; empty means clean.
-
-    Notes:
-        A NaN metric (band absent, or no CloudTest) never raises its flag.
-    """
-    flags: set[FrameUsabilityTag] = set()
-    if not metrics.metadata_complete:
-        flags.add(FrameUsabilityTag.INCOMPLETE_METADATA)
-    if any(f > cfg.saturation_fraction_threshold for f in metrics.saturated_fraction):
-        flags.add(FrameUsabilityTag.SATURATED)
-    if metrics.smear_px > cfg.max_motion_smear_px:
-        flags.add(FrameUsabilityTag.MOTION_SMEAR)
-    if cloud_test is not None:
-        if metrics.cloud_fraction > cloud_test.fraction_threshold:
-            flags.add(FrameUsabilityTag.CLOUD_CONTAMINATED)
-    elif metrics.nir_red_ratio > cfg.nir_red_ratio_threshold:
-        flags.add(FrameUsabilityTag.CLOUD_CONTAMINATED)
-    if metrics.nir_mean > cfg.sunglint_nir_mean_threshold:
-        flags.add(FrameUsabilityTag.SUNGLINT)
-    return frozenset(flags)
+# Saturation pixel level is a fixed normalisation constant, not a tunable threshold.
+SATURATION_PIXEL_LEVEL: Final[float] = 0.95  # normalised DN units
 
 
 class SmearRateSource(Enum):
@@ -412,99 +61,75 @@ class SmearRateSource(Enum):
 
 
 def compute_quality_flags(
-    bands: np.ndarray,
+    bands: object,  # np.ndarray[float32, (C, H, W)], order [BLUE, GREEN, RED, NIR]
     exposure_us: float,
     slew_rate_deg_per_s: float,
     ifov_band_deg_per_px: float,
     utc_timestamp: str,
     cfg: PreprocessingConfig,
-    band_names: tuple[str, ...] = DEFAULT_BAND_NAMES,
-    gain_db: float | None = None,
-    raw_mosaic: np.ndarray | None = None,
-    adc_max_dn: int | None = None,
-    cfa_phase: tuple[int, int] = (0, 0),
     omega_scene_el_deg_per_s: float = 0.0,
-    cloud_test: CloudTest | None = None,
-    saturation_level: float = SATURATION_PIXEL_LEVEL,
 ) -> frozenset[FrameUsabilityTag]:
     """Compute per-frame quality flags for a calibrated, normalized multispectral frame.
 
-    Convenience wrapper: compute_quality_metrics followed by flags_from_metrics. An
+    Evaluates independent heuristic conditions and returns the set of flags raised. An
     empty frozenset means the frame is clean and inference-ready.
 
     Inputs:
-        bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalized band array in
-            band_names order.
+        bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised band array.
+            C >= 4, band ordering [BLUE, GREEN, RED, NIR].
         exposure_us (float): Camera exposure time in microseconds.
-        slew_rate_deg_per_s (float): Gimbal elevation rate over the exposure, deg/s
-            (0.0 is a stationary gimbal).
-        ifov_band_deg_per_px (float): Band-plane IFOV, deg/px (SensorConfig.ifov_band_deg_per_px).
+        slew_rate_deg_per_s (float): Gimbal elevation rate in degrees per second
+            over the exposure. ``0.0`` is a stationary gimbal.
+        ifov_band_deg_per_px (float): Instantaneous field of view per band-plane pixel,
+            degrees per pixel (SensorConfig.ifov_band_deg_per_px).
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
-        band_names (tuple[str, ...]): Channel names of bands; default
-            (BLUE, GREEN, RED, NIR).
-        gain_db (float | None): Analog gain, dB; negative marks metadata incomplete.
-        raw_mosaic (np.ndarray | None): Raw mosaic for raw-DN saturation (with
-            adc_max_dn).
-        adc_max_dn (int | None): ADC code maximum for raw-DN saturation.
-        cfa_phase (tuple[int, int]): First complete tile position for raw saturation.
-        omega_scene_el_deg_per_s (float): Scene elevation rate, deg/s (co-rotation /
-            tracking feedforward). Default 0.0.
-        cloud_test (CloudTest | None): Bright-and-flat cloud test; None uses the
-            legacy NIR/RED ratio against cfg.nir_red_ratio_threshold.
-        saturation_level (float): Saturation level as a fraction of full scale.
+        omega_scene_el_deg_per_s (float): Nominal scene elevation rate in degrees per
+            second (co-rotation / tracking feedforward). Defaults to 0.0 when unknown.
 
     Outputs:
         frozenset[FrameUsabilityTag]: The flags raised for this frame; empty if clean.
-            frozenset({FrameUsabilityTag.INVALID}) when the input is malformed (wrong
-            rank or channel count, or an unseparable raw mosaic): such a frame cannot
-            be assessed and decide_usability maps it to INVALID.
 
     Notes:
-        MOTION_SMEAR uses elevation-relative blur: |slew - omega_scene_el| * t_exp /
-        IFOV. Matching rates, including both zero, do not flag. Azimuth motion is not
-        modeled.
+        MOTION_SMEAR uses elevation-relative blur: the mismatch between gimbal and scene
+        elevation rates during the exposure, converted to band-plane pixels via the IFOV.
+        Matching rates, including both zero, do not flag. Azimuth motion is not modeled
+        and cannot raise MOTION_SMEAR.
     """
-    metrics = compute_quality_metrics(
-        bands,
-        exposure_us,
-        slew_rate_deg_per_s,
-        ifov_band_deg_per_px,
-        utc_timestamp,
-        band_names,
-        gain_db,
-        raw_mosaic,
-        adc_max_dn,
-        cfa_phase,
-        omega_scene_el_deg_per_s,
-        cloud_test,
-        saturation_level,
-    )
-    if isinstance(metrics, Err):
-        return frozenset({FrameUsabilityTag.INVALID})
-    return flags_from_metrics(metrics.value, cfg, cloud_test)
+    flags: set[FrameUsabilityTag] = set()
 
+    # --- INCOMPLETE_METADATA ---
+    if exposure_us <= 0 or not utc_timestamp:
+        flags.add(FrameUsabilityTag.INCOMPLETE_METADATA)
 
-def decide_usability(
-    flags: frozenset[FrameUsabilityTag],
-    policy: UsabilityPolicy = DEFAULT_USABILITY_POLICY,
-) -> FrameUsabilityTag:
-    """Keep-or-drop decision: map raised flags to TRAINING, TRACKING, or INVALID.
+    # --- SATURATED ---
+    # Check each band independently; flag if any band exceeds the threshold.
+    bands_arr: np.ndarray = bands  # type: ignore[assignment]
+    n_pixels: int = bands_arr.shape[1] * bands_arr.shape[2]
+    for c in range(bands_arr.shape[0]):
+        saturated_count: int = int((bands_arr[c] > SATURATION_PIXEL_LEVEL).sum())
+        if saturated_count / n_pixels > cfg.saturation_fraction_threshold:
+            flags.add(FrameUsabilityTag.SATURATED)
+            break
 
-    Precedence: INVALID (frame is skipped by the model interface) if the flags contain
-    FrameUsabilityTag.INVALID or any of policy.invalid_flags; else TRACKING (model runs
-    for control, frame excluded from training) if any of policy.tracking_only_flags;
-    else TRAINING (clean frame, usable for both).
+    # --- MOTION_SMEAR: elevation-relative smear length in band-plane pixels ---
+    rel_rate_deg_per_s = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
+    smear_px = rel_rate_deg_per_s * (exposure_us * 1e-6) / ifov_band_deg_per_px
+    if smear_px > cfg.max_motion_smear_px:
+        flags.add(FrameUsabilityTag.MOTION_SMEAR)
 
-    Inputs:
-        flags (frozenset[FrameUsabilityTag]): Output of compute_quality_flags.
-        policy (UsabilityPolicy): Flag classification; default DEFAULT_USABILITY_POLICY.
+    # --- CLOUD_CONTAMINATED ---
+    # Band index 2 = RED, index 3 = NIR.
+    red_band: np.ndarray = bands_arr[2]  # np.ndarray[float32, (H, W)]
+    nir_band: np.ndarray = bands_arr[3]  # np.ndarray[float32, (H, W)]
+    epsilon: float = 1e-6
+    nir_red_ratio: float = float(nir_band.mean()) / (float(red_band.mean()) + epsilon)
+    if nir_red_ratio > cfg.nir_red_ratio_threshold:
+        flags.add(FrameUsabilityTag.CLOUD_CONTAMINATED)
 
-    Outputs:
-        FrameUsabilityTag: One of TRAINING, TRACKING, INVALID.
-    """
-    if FrameUsabilityTag.INVALID in flags or flags & policy.invalid_flags:
-        return FrameUsabilityTag.INVALID
-    if flags & policy.tracking_only_flags:
-        return FrameUsabilityTag.TRACKING
-    return FrameUsabilityTag.TRAINING
+    # --- SUNGLINT ---
+    nir_mean: float = float(nir_band.mean())
+    if nir_mean > cfg.sunglint_nir_mean_threshold:
+        flags.add(FrameUsabilityTag.SUNGLINT)
+
+    return frozenset(flags)

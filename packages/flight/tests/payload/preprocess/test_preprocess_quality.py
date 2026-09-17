@@ -14,12 +14,7 @@ from flight.libs.config import PreprocessingConfig
 from flight.libs.types import FrameUsabilityTag
 
 # module under test
-from flight.payload.preprocess import (
-    compute_quality_flags,
-    decide_usability,
-    predicted_smear_px,
-    saturated_fraction_normalized,
-)
+from flight.payload.preprocess import compute_quality_flags
 
 # Shared test constants. slew_rate 0.0 is a stationary gimbal, so saturation tests
 # isolate only the SATURATED flag when the scene rate is also 0.0.
@@ -174,73 +169,3 @@ def test_flags_contain_only_usability_tags() -> None:
         assert isinstance(flag, FrameUsabilityTag), (
             f"Non-FrameUsabilityTag found in quality flags: {flag!r}"
         )
-
-
-# ---------------------------------------------------------------------------
-# Review regression tests: guards, smear semantics, band-name resolution, gate
-# ---------------------------------------------------------------------------
-
-
-def test_zero_area_bands_is_invalid_not_crash() -> None:
-    """A (C, 0, W) plane returns {INVALID} instead of a ZeroDivisionError."""
-    bands = np.zeros((4, 0, 8), dtype=np.float32)
-    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
-    assert flags == frozenset({FrameUsabilityTag.INVALID})
-
-
-def test_saturated_fraction_normalized_zero_area() -> None:
-    """Zero-area input yields 0.0 per channel rather than dividing by zero."""
-    assert saturated_fraction_normalized(np.zeros((4, 0, 4), dtype=np.float32)) == (
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-    )
-
-
-def test_predicted_smear_signed_rates_cancel_during_track() -> None:
-    """A slew that matches the scene elevation rate reports zero smear."""
-    smear = predicted_smear_px(-1.045, 2_000.0, 0.002636, omega_scene_el_deg_per_s=-1.045)
-    assert smear == 0.0
-    smear = predicted_smear_px(0.0, 2_000.0, 0.002636, omega_scene_el_deg_per_s=1.045)
-    assert smear > 0.0
-    assert predicted_smear_px(2.0, 1_000.0, 0.04, omega_scene_el_deg_per_s=1.0) == (
-        predicted_smear_px(-2.0, 1_000.0, 0.04, omega_scene_el_deg_per_s=-1.0)
-    )
-
-
-def test_band_names_resolve_channels_by_name() -> None:
-    """A reordered input_bands must not flag CLOUD_CONTAMINATED on the wrong channels.
-
-    bands are ordered (RED, GREEN, BLUE, NIR): channel 0 is RED at 0.5, channel 3 is
-    NIR at 0.5, so NIR/RED = 1.0 -- below the 3.0 default threshold. Resolved under the
-    default (BLUE, GREEN, RED, NIR) order the ratio would read channel 2 as RED and
-    compute 5.0, falsely flagging.
-    """
-    bands = np.zeros((4, 8, 8), dtype=np.float32)
-    bands[0, :, :] = 0.5  # RED
-    bands[1, :, :] = 0.1  # GREEN
-    bands[2, :, :] = 0.1  # BLUE
-    bands[3, :, :] = 0.5  # NIR
-    flags = compute_quality_flags(
-        bands,
-        10_000.0,
-        0.0,
-        _IFOV,
-        _TS,
-        _CFG,
-        band_names=("RED", "GREEN", "BLUE", "NIR"),
-    )
-    assert FrameUsabilityTag.CLOUD_CONTAMINATED not in flags
-
-
-def test_decide_usability_precedence() -> None:
-    """INVALID dominates TRACKING dominates TRAINING under the default policy."""
-    assert decide_usability(frozenset()) == FrameUsabilityTag.TRAINING
-    assert (
-        decide_usability(frozenset({FrameUsabilityTag.MOTION_SMEAR})) == FrameUsabilityTag.TRACKING
-    )
-    assert (
-        decide_usability(frozenset({FrameUsabilityTag.MOTION_SMEAR, FrameUsabilityTag.SATURATED}))
-        == FrameUsabilityTag.INVALID
-    )

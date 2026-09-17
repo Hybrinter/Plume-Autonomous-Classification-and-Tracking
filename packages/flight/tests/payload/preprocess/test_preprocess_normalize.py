@@ -1,7 +1,7 @@
 """Tests for DN -> [0, 1] normalization."""
 
 import numpy as np
-from flight.payload.preprocess import normalize_dn, scale_to_reference_exposure
+from flight.payload.preprocess.normalize import normalize_dn, scale_to_reference_exposure
 
 
 def test_normalize_scales_by_full_scale() -> None:

@@ -13,10 +13,10 @@ object is constructed.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ArbiterConfig` | class | TRACKING / REWIND / SAFE persistence and limb arrival |
+| `ArbiterConfig` | class | TRACKING / REWIND / FAST_REWIND / SAFE persistence and limb arrival |
 | `VisionConfig` | class | Blob gates and in-process vision queue depth |
 | `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
-| `OuterLoopConfig` | class | Outer period, Kp, and REWIND sharp-window duration |
+| `OuterLoopConfig` | class | Outer period, Kp, and REWIND window before FAST_REWIND |
 | `PredictorConfig` | class | CoG/boresight intersect tracking proxy height |
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
@@ -26,7 +26,7 @@ object is constructed.
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
 | `SensorConfig` | class | Purchased mosaic geometry, optics, IFOV, and exposure/gain ranges |
-| `PreprocessingConfig` | class | Quality-flag thresholds |
+| `PreprocessingConfig` | class | Quality-flag thresholds and outer-rate smear cap |
 | `FaultConfig` | class | Watchdog, inference timeout, and power limit |
 | `ThermalConfig` | class | Record-only per-component temperature limits |
 | `GimbalConfig` | class | Elevation envelopes, stow/home, plant scalars, encoder |

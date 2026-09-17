@@ -2,11 +2,10 @@
 
 r = sat(omega_scene + clip(relative; omega_sharp); omega_hw). TRACKING matches
 omega_t_nom + omega_t_res and smear-caps only K_p * e_hat. REWIND matches the
-boresight-ground nom and smear-caps the hunt, then escapes to the hardware cap
-after rewind_sharp_max_s. Azimuth rate stays on LosPrediction and pointing
-telemetry; it is not an outer_rate input and does not shrink the elevation
-smear cap. outer_rate returns a RateDecision; commanded_rate_rad_s is the
-absolute gimbal rate for set_rate.
+boresight-ground nom and smear-caps the hunt. FAST_REWIND commands the hardware
+slew. Azimuth rate stays on LosPrediction and pointing telemetry; it is not an
+outer_rate input and does not shrink the elevation smear cap. outer_rate returns
+a RateDecision; commanded_rate_rad_s is the absolute gimbal rate for set_rate.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001, REQ-GIMB-HIGH-003.
 """
@@ -17,7 +16,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from flight.libs.types import GimbalState
+from flight.libs.types import GimbalState, is_rewind_hunt
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,14 +274,12 @@ def outer_rate(
     theta_sci_min_rad: float = 0.0,
     max_decel_rad_s2: float = math.inf,
     rate_loop_bandwidth_s: float = math.inf,
-    rewind_elapsed_s: float = 0.0,
-    rewind_sharp_max_s: float = 2.0,
 ) -> RateDecision:
     """Compute the absolute elevation rate reference as a RateDecision.
 
     Inputs:
         omega_t_nom: Co-rotating predictor elevation rate, rad/s.
-        omega_t_res: Residual-rate estimate, rad/s. Ignored in REWIND.
+        omega_t_res: Residual-rate estimate, rad/s. Ignored in REWIND and FAST_REWIND.
         e_hat: Residual-filter elevation error, rad.
         k_p: Outer proportional gain, 1/s.
         mode: Arbiter mode.
@@ -296,8 +293,6 @@ def outer_rate(
         theta_sci_min_rad: Science-window lower bound, rad.
         max_decel_rad_s2: Stopping-distance deceleration, rad/s².
         rate_loop_bandwidth_s: Rate-loop bandwidth used in the stopping governor.
-        rewind_elapsed_s: Time in REWIND, seconds.
-        rewind_sharp_max_s: Sharp REWIND window before hardware-slew escape.
 
     Outputs:
         RateDecision: Scene, requested, and commanded rates with limit flags.
@@ -305,7 +300,7 @@ def outer_rate(
     """
     omega_sharp = smear_cap_rad_s(exposure_us, max_motion_smear_px, ifov_band_deg_per_px)
 
-    if mode is GimbalState.REWIND:
+    if is_rewind_hunt(mode):
         if theta_g_rad >= theta_sci_max_rad - 1e-9:
             return RateDecision(
                 scene_rate_rad_s=omega_t_nom,
@@ -316,7 +311,7 @@ def outer_rate(
                 hardware_limited=False,
                 science_limited=True,
             )
-        if rewind_elapsed_s >= rewind_sharp_max_s:
+        if mode is GimbalState.FAST_REWIND:
             requested_relative = omega_hw_rad_s
             requested = omega_hw_rad_s
         else:

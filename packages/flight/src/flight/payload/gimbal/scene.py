@@ -1,8 +1,9 @@
 """Scene-point selection and residual-reference identity (pure).
 
-TRACKING predicts from the stored CoG Earth point. REWIND predicts from the
-boresight intersect with the 2 km height-proxy ellipsoid. That boresight hit is
-a smear-limited scene rate only. It is not a target CoG. SAFE has no scene.
+TRACKING predicts from the stored CoG Earth point. REWIND and FAST_REWIND
+predict from the boresight intersect with the 2 km height-proxy ellipsoid.
+That boresight hit is a smear-limited scene rate only. It is not a target CoG.
+SAFE has no scene.
 
 Prediction time is ISS UTC when navigation is present. It is not outer monotonic
 now. Missing ISS is nav_valid False with los None. A physically stationary scene
@@ -16,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from flight.libs.types import GimbalState
+from flight.libs.types import GimbalState, is_rewind_hunt
 from flight.payload.gimbal.intersect import intersect_boresight
 from flight.payload.gimbal.predictor import LosPrediction, predict_los
 
@@ -78,7 +79,8 @@ def acquire_resets_residual(
     Notes:
         A reset is an acquire, not a loss. Cases:
         1. First blob from cold (no prior live aggregate).
-        2. Blob that enters TRACKING from REWIND (the hunt moved the gimbal).
+        2. Blob that enters TRACKING from REWIND or FAST_REWIND (the hunt moved
+           the gimbal).
         3. TRACKING blob set with no overlapping blob_id versus the previous
            tracked set (new object). An empty previous set is not this case;
            a single miss that cleared tracked_blobs still coasts.
@@ -88,7 +90,7 @@ def acquire_resets_residual(
         return False
     if not new_blob_ids:
         return False
-    if previous_mode is GimbalState.REWIND:
+    if is_rewind_hunt(previous_mode):
         return True
     if not previous_aggregate_live:
         return True
@@ -113,10 +115,10 @@ def select_scene(
     Inputs:
         mode: Arbiter mode after this outer tick.
         r_cog_ecef_m: Stored target CoG, ECEF meters, or None. Ignored in
-            REWIND and SAFE.
+            REWIND, FAST_REWIND, and SAFE.
         r_iss_eci_m, v_iss_eci_m_s, utc_s: ISS ECI state and UTC, or None.
             All three must be present for navigation to be valid.
-        theta_g_rad: Encoder elevation, rad. Used for the REWIND boresight ray.
+        theta_g_rad: Encoder elevation, rad. Used for the hunt boresight ray.
         height_m: Height-proxy ellipsoid offset, meters.
         omega_earth_rad_s, epoch_utc_s: Earth rotation and ECI/ECEF epoch.
         wgs84_a_m, wgs84_f: Surface ellipsoid scalars.
@@ -126,9 +128,9 @@ def select_scene(
             navigation validity. Prediction time is ISS UTC when nav_valid.
 
     Notes:
-        REWIND uses boresight intersect as scene rate only. The hit is not a
-        CoG. TRACKING uses the stored CoG. Unknown navigation leaves los None.
-        Do not read a missing scene as omega = 0.0.
+        REWIND and FAST_REWIND use boresight intersect as scene rate only. The
+        hit is not a CoG. TRACKING uses the stored CoG. Unknown navigation leaves
+        los None. Do not read a missing scene as omega = 0.0.
     """
     nav_valid = r_iss_eci_m is not None and v_iss_eci_m_s is not None and utc_s is not None
     t_utc_s = utc_s if nav_valid else None
@@ -144,7 +146,7 @@ def select_scene(
 
     source = SceneSource.NONE
     point_ecef_m: tuple[float, float, float] | None = None
-    if mode is GimbalState.REWIND:
+    if is_rewind_hunt(mode):
         source = SceneSource.BORESIGHT
         if r_iss_eci_m is not None and v_iss_eci_m_s is not None and utc_s is not None:
             bore = intersect_boresight(

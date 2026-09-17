@@ -14,7 +14,7 @@ dataset classification.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SATURATION_PIXEL_LEVEL` | constant | Normalized DN level (0.95) for saturation counting |
-| `SmearRateSource` | enum | `MEASURED`, `ENCODER`, or `COMMANDED` provenance of the smear rate |
+| `SmearRateSource` | enum | `MEASURED`, `ENCODER`, or `COMMANDED` provenance of the selected elevation rate |
 | `compute_quality_flags` | function | Returns a frozenset of raised usability tags |
 
 ## Inputs and outputs
@@ -23,19 +23,19 @@ dataset classification.
 utc_timestamp, cfg, omega_scene_el_deg_per_s=0.0)` returns
 `frozenset[FrameUsabilityTag]`. An empty set means a clean frame.
 
-`SmearRateSource` names the elevation-rate source the payload app selected for
-MOTION_SMEAR. A rate of `0.0` is valid for every source. Unknown measured rate
-plus a failed encoder bracket uses the commanded rate and labels it `COMMANDED`.
+`SmearRateSource` names the elevation-rate source the payload app selected. A rate
+of `0.0` is valid for every source. Unknown measured rate plus a failed encoder
+bracket uses the commanded rate and labels it `COMMANDED`. Quality flags do not
+raise `MOTION_SMEAR` from that rate.
 
 ## Behavior
 
 1. Raise `INCOMPLETE_METADATA` when exposure is nonpositive or the timestamp is empty.
 2. Raise `SATURATED` when any band exceeds `saturation_fraction_threshold` of pixels
    above `SATURATION_PIXEL_LEVEL`.
-3. Compute elevation-relative smear length as
-   `abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s) * exposure_s / ifov`.
-   Raise `MOTION_SMEAR` when it exceeds `max_motion_smear_px`. Azimuth motion does not
-   contribute. Matching rates, including both zero, do not flag.
+3. Do not raise `MOTION_SMEAR`. Along-track smear is a control cap in the outer rate
+   law (`max_motion_smear_px`). FAST_REWIND frames smear on purpose. Exclude them by
+   gimbal mode, not a pixel smear estimate.
 4. Raise `CLOUD_CONTAMINATED` when the NIR-to-Red mean ratio exceeds
    `nir_red_ratio_threshold` (bands at indices 2 and 3 after select).
 5. Raise `SUNGLINT` when mean NIR exceeds `sunglint_nir_mean_threshold`.
@@ -50,15 +50,16 @@ None. Flags are carried on the in-process processed frame; they are not bus mess
 
 ## Configuration
 
-Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_px`,
+Reads `PreprocessingConfig`: `saturation_fraction_threshold`,
 `nir_red_ratio_threshold`, `sunglint_nir_mean_threshold`. Also uses
-`SensorConfig.ifov_band_deg_per_px` and frame metadata from the raw mosaic.
+frame metadata from the raw mosaic. `max_motion_smear_px` is the outer-rate control
+cap, not a quality threshold.
 
 ## Constraints
 
 Quality evaluation runs on the full band plane. A zero gimbal rate is a stationary
-measurement. The payload app supplies a measured, encoder, or commanded elevation
-rate and a `SmearRateSource` label.
+measurement. The payload app still supplies a measured, encoder, or commanded
+elevation rate and a `SmearRateSource` label.
 
 ## Related documents
 

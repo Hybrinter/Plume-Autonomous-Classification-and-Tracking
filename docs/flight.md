@@ -32,6 +32,11 @@ The composition root in `flight.core` constructs the `MessageBus`, `Clock`, HAL 
 subsystem apps. Apps publish and subscribe on the bus. Apps do not import each other. HAL
 protocols live in `flight.hal.interfaces`. Concrete drivers are selected at startup.
 
+![Flight software architecture. Subsystem apps and core services publish and subscribe on one bus.](flight/architecture.svg)
+
+Subsystem apps and core services publish and subscribe on one bus. Apps do not call each other.
+The composition root injects HAL drivers and the storage writer.
+
 Monitored subsystems emit `HeartbeatMsg`. The fault app watches them. Core services publish
 command routing, downlink, storage, and model-deploy messages as applicable.
 

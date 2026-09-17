@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 1120" width="1700" height="1120" role="img">
+<title>Flight software architecture: subsystem apps and core services on one bus</title>
+<desc>Composition root build_apps constructs ten runnables and one MessageBus. Apps publish and subscribe on the bus. Apps do not call each other. The composition root injects HAL drivers and the storage writer.</desc>
+<defs>
+<marker id="pubHead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0 0, 10 4, 0 8" fill="#155ca0"/></marker>
+<marker id="subHead" markerWidth="11" markerHeight="9" refX="10" refY="4.5" orient="auto"><polygon points="0.8 0.8, 10 4.5, 0.8 8.2" fill="none" stroke="#c2410c" stroke-width="1.6"/></marker>
+<marker id="injHead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><polygon points="0.8 0.8, 10 4, 0.8 7.2" fill="none" stroke="#4a4a4a" stroke-width="1.4"/></marker>
+</defs>
+<rect width="1700" height="1120" fill="#ffffff"/>
+<rect x="16.0" y="16.0" width="1668.0" height="1088.0" rx="14" fill="#f7f5f0" stroke="#8a8478" stroke-width="1.8"/>
+<text x="32.0" y="42.0" font-size="13" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">composition root</text>
+<text x="168.0" y="42.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="start">flight.core.composition.build_apps  ·  constructs the bus, clock, drivers, and apps</text>
+<text x="1684.0" y="42.0" font-size="13" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1f4e79" text-anchor="end">Apps do not call each other.</text>
+<rect x="32.0" y="58.0" width="1636.0" height="762.0" rx="12" fill="#f3f6fa" stroke="#7a8aa0" stroke-width="1.5"/>
+<text x="48.0" y="80.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">Scheduler</text>
+<text x="128.0" y="80.0" font-size="11.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="start">one daemon thread per runnable</text>
+<rect x="64.0" y="118.0" width="250.0" height="248.0" rx="7" fill="#e3f0fa" stroke="#1f4e79" stroke-width="1.6"/>
+<text x="189.0" y="134.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;subsystem&gt;&gt;</text>
+<text x="189.0" y="152.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">PayloadApp</text>
+<text x="189.0" y="168.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">payload</text>
+<line x1="76.0" y1="176.0" x2="302.0" y2="176.0" stroke="#1f4e79" stroke-width="0.8" opacity="0.45"/>
+<text x="76.0" y="192.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="76.0" y="206.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">GimbalCommandMsg</text>
+<text x="76.0" y="219.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">TelemetryEventMsg</text>
+<text x="76.0" y="232.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">ProductRefMsg</text>
+<text x="76.0" y="245.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="76.0" y="258.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="76.0" y="271.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="76.0" y="290.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="76.0" y="304.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">ModeChangeMsg</text>
+<text x="76.0" y="317.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">LaunchLockStateMsg</text>
+<text x="76.0" y="330.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<line x1="179.0" y1="366.0" x2="179.0" y2="391.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="199.0" y1="392.0" x2="199.0" y2="367.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="330.0" y="118.0" width="250.0" height="248.0" rx="7" fill="#e3f0fa" stroke="#1f4e79" stroke-width="1.6"/>
+<text x="455.0" y="134.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;subsystem&gt;&gt;</text>
+<text x="455.0" y="152.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">FaultApp</text>
+<text x="455.0" y="168.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">fault  ·  not monitored</text>
+<line x1="342.0" y1="176.0" x2="568.0" y2="176.0" stroke="#1f4e79" stroke-width="0.8" opacity="0.45"/>
+<text x="342.0" y="192.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="342.0" y="206.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">ModeChangeMsg</text>
+<text x="342.0" y="219.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">SafetyStateMsg</text>
+<text x="342.0" y="232.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="342.0" y="251.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="342.0" y="265.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="342.0" y="278.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="342.0" y="291.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<line x1="445.0" y1="366.0" x2="445.0" y2="391.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="465.0" y1="392.0" x2="465.0" y2="367.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="596.0" y="118.0" width="250.0" height="248.0" rx="7" fill="#e3f0fa" stroke="#1f4e79" stroke-width="1.6"/>
+<text x="721.0" y="134.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;subsystem&gt;&gt;</text>
+<text x="721.0" y="152.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">IssIfaceApp</text>
+<text x="721.0" y="168.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">iss_iface</text>
+<line x1="608.0" y1="176.0" x2="834.0" y2="176.0" stroke="#1f4e79" stroke-width="0.8" opacity="0.45"/>
+<text x="608.0" y="192.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="608.0" y="206.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandMsg</text>
+<text x="608.0" y="219.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="608.0" y="232.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="608.0" y="245.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">LinkStateMsg</text>
+<text x="608.0" y="258.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">ModelStagedMsg</text>
+<text x="608.0" y="271.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="608.0" y="290.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="608.0" y="304.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">DownlinkItemMsg</text>
+<text x="608.0" y="317.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<line x1="711.0" y1="366.0" x2="711.0" y2="391.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="731.0" y1="392.0" x2="731.0" y2="367.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="862.0" y="118.0" width="250.0" height="248.0" rx="7" fill="#e3f0fa" stroke="#1f4e79" stroke-width="1.6"/>
+<text x="987.0" y="134.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;subsystem&gt;&gt;</text>
+<text x="987.0" y="152.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">ThermalApp</text>
+<text x="987.0" y="168.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">thermal</text>
+<line x1="874.0" y1="176.0" x2="1100.0" y2="176.0" stroke="#1f4e79" stroke-width="0.8" opacity="0.45"/>
+<text x="874.0" y="192.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="874.0" y="206.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">TelemetryEventMsg</text>
+<text x="874.0" y="219.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="874.0" y="232.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="874.0" y="251.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="874.0" y="265.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<line x1="977.0" y1="366.0" x2="977.0" y2="391.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="997.0" y1="392.0" x2="997.0" y2="367.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="1128.0" y="118.0" width="250.0" height="248.0" rx="7" fill="#e3f0fa" stroke="#1f4e79" stroke-width="1.6"/>
+<text x="1253.0" y="134.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;subsystem&gt;&gt;</text>
+<text x="1253.0" y="152.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">ElectricalApp</text>
+<text x="1253.0" y="168.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">electrical</text>
+<line x1="1140.0" y1="176.0" x2="1366.0" y2="176.0" stroke="#1f4e79" stroke-width="0.8" opacity="0.45"/>
+<text x="1140.0" y="192.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="1140.0" y="206.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">TelemetryEventMsg</text>
+<text x="1140.0" y="219.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="1140.0" y="232.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="1140.0" y="245.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="1140.0" y="264.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="1140.0" y="278.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<line x1="1243.0" y1="366.0" x2="1243.0" y2="391.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="1263.0" y1="392.0" x2="1263.0" y2="367.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="1394.0" y="118.0" width="250.0" height="248.0" rx="7" fill="#e3f0fa" stroke="#1f4e79" stroke-width="1.6"/>
+<text x="1519.0" y="134.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;subsystem&gt;&gt;</text>
+<text x="1519.0" y="152.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">MechanicalApp</text>
+<text x="1519.0" y="168.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">mechanical</text>
+<line x1="1406.0" y1="176.0" x2="1632.0" y2="176.0" stroke="#1f4e79" stroke-width="0.8" opacity="0.45"/>
+<text x="1406.0" y="192.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="1406.0" y="206.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">LaunchLockStateMsg</text>
+<text x="1406.0" y="219.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">TelemetryEventMsg</text>
+<text x="1406.0" y="232.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="1406.0" y="245.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="1406.0" y="258.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="1406.0" y="277.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="1406.0" y="291.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<text x="1406.0" y="304.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">GimbalCommandMsg</text>
+<text x="1406.0" y="317.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">TelemetryEventMsg</text>
+<line x1="1509.0" y1="366.0" x2="1509.0" y2="391.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="1529.0" y1="392.0" x2="1529.0" y2="367.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="64.0" y="392.0" width="1572.0" height="96.0" rx="10" fill="#fff4cc" stroke="#8a5a00" stroke-width="2.2"/>
+<text x="850.0" y="420.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;bus&gt;&gt;</text>
+<text x="850.0" y="442.0" font-size="20" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">MessageBus</text>
+<text x="850.0" y="466.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">in-process pub/sub  ·  routing by exact message class  ·  composition root injects Subscription handles</text>
+<rect x="64.0" y="520.0" width="372.0" height="232.0" rx="7" fill="#eaf3dc" stroke="#3d6b1e" stroke-width="1.6"/>
+<text x="250.0" y="536.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;core service&gt;&gt;</text>
+<text x="250.0" y="554.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">CommandRouter</text>
+<text x="250.0" y="570.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">command_router</text>
+<line x1="76.0" y1="578.0" x2="424.0" y2="578.0" stroke="#3d6b1e" stroke-width="0.8" opacity="0.45"/>
+<text x="76.0" y="594.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="76.0" y="608.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<text x="76.0" y="621.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="76.0" y="634.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="76.0" y="647.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="76.0" y="666.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="76.0" y="680.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandMsg</text>
+<text x="76.0" y="693.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">SafetyStateMsg</text>
+<line x1="240.0" y1="520.0" x2="240.0" y2="489.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="260.0" y1="488.0" x2="260.0" y2="519.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="464.0" y="520.0" width="372.0" height="232.0" rx="7" fill="#eaf3dc" stroke="#3d6b1e" stroke-width="1.6"/>
+<text x="650.0" y="536.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;core service&gt;&gt;</text>
+<text x="650.0" y="554.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">StorageService</text>
+<text x="650.0" y="570.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">storage</text>
+<line x1="476.0" y1="578.0" x2="824.0" y2="578.0" stroke="#3d6b1e" stroke-width="0.8" opacity="0.45"/>
+<text x="476.0" y="594.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="476.0" y="608.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="476.0" y="621.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="476.0" y="640.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="476.0" y="654.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">TelemetryEventMsg</text>
+<text x="476.0" y="667.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<line x1="640.0" y1="520.0" x2="640.0" y2="489.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="660.0" y1="488.0" x2="660.0" y2="519.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="864.0" y="520.0" width="372.0" height="232.0" rx="7" fill="#eaf3dc" stroke="#3d6b1e" stroke-width="1.6"/>
+<text x="1050.0" y="536.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;core service&gt;&gt;</text>
+<text x="1050.0" y="554.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">DownlinkManager</text>
+<text x="1050.0" y="570.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">downlink</text>
+<line x1="876.0" y1="578.0" x2="1224.0" y2="578.0" stroke="#3d6b1e" stroke-width="0.8" opacity="0.45"/>
+<text x="876.0" y="594.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="876.0" y="608.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">DownlinkItemMsg</text>
+<text x="876.0" y="621.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="876.0" y="640.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="876.0" y="654.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="876.0" y="667.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="876.0" y="680.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">TelemetryEventMsg</text>
+<text x="876.0" y="693.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">ProductRefMsg</text>
+<text x="876.0" y="706.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">LinkStateMsg</text>
+<line x1="1040.0" y1="520.0" x2="1040.0" y2="489.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="1060.0" y1="488.0" x2="1060.0" y2="519.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<rect x="1264.0" y="520.0" width="372.0" height="232.0" rx="7" fill="#eaf3dc" stroke="#3d6b1e" stroke-width="1.6"/>
+<text x="1450.0" y="536.0" font-size="10" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">&lt;&lt;core service&gt;&gt;</text>
+<text x="1450.0" y="554.0" font-size="14" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">ModelDeployService</text>
+<text x="1450.0" y="570.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">model_deploy</text>
+<line x1="1276.0" y1="578.0" x2="1624.0" y2="578.0" stroke="#3d6b1e" stroke-width="0.8" opacity="0.45"/>
+<text x="1276.0" y="594.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#155ca0" text-anchor="start">publish</text>
+<text x="1276.0" y="608.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">FaultEventMsg</text>
+<text x="1276.0" y="621.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">CommandAckMsg</text>
+<text x="1276.0" y="634.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HeartbeatMsg</text>
+<text x="1276.0" y="653.0" font-size="10.5" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#c2410c" text-anchor="start">subscribe</text>
+<text x="1276.0" y="667.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">ModelStagedMsg</text>
+<text x="1276.0" y="680.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">RoutedCommandMsg</text>
+<line x1="1440.0" y1="520.0" x2="1440.0" y2="489.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<line x1="1460.0" y1="488.0" x2="1460.0" y2="519.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<path d="M 64.0 198.0 H 40 V 500.0 H 638.0 V 520.0" fill="none" stroke="#4a4a4a" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#injHead)"/>
+<path d="M 721.0 118.0 V 100.0 H 50 V 510.0 H 662.0 V 520.0" fill="none" stroke="#4a4a4a" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#injHead)"/>
+<path d="M 1288.0 752.0 V 770.0 H 650.0 V 752.0" fill="none" stroke="#4a4a4a" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#injHead)"/>
+<text x="48.0" y="848.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#5c5c5c" text-anchor="start">&lt;&lt;protocol&gt;&gt;  HAL  ·  injected by the composition root  ·  not the bus</text>
+<rect x="64.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="157.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">ImagingSensor</text>
+<text x="157.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to PayloadApp</text>
+<rect x="258.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="351.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">GimbalActuator</text>
+<text x="351.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to PayloadApp</text>
+<rect x="452.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="545.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">IssEphemeris</text>
+<text x="545.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to PayloadApp</text>
+<rect x="646.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="739.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">DetectorBackend</text>
+<text x="739.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to PayloadApp</text>
+<rect x="860.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="953.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">StationLink</text>
+<text x="953.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to IssIfaceApp</text>
+<rect x="1068.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="1161.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">ScalarSensor</text>
+<text x="1161.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to ThermalApp</text>
+<rect x="1276.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="1369.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">ScalarSensor</text>
+<text x="1369.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to ElectricalApp</text>
+<rect x="1484.0" y="864.0" width="186.0" height="52.0" rx="6" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.3" stroke-dasharray="5 3"/>
+<text x="1577.0" y="884.0" font-size="12" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="middle">LaunchLock</text>
+<text x="1577.0" y="902.0" font-size="10.5" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="middle">to MechanicalApp</text>
+<rect x="64.0" y="948.0" width="1572.0" height="136.0" rx="8" fill="#ffffff" stroke="#c0c0c0" stroke-width="1.2"/>
+<text x="80.0" y="972.0" font-size="13" font-weight="700" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">Legend</text>
+<line x1="80.0" y1="1000.0" x2="150.0" y2="1000.0" stroke="#155ca0" stroke-width="1.8" marker-end="url(#pubHead)"/>
+<text x="164.0" y="1004.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">publish  -  app places a message on the bus</text>
+<line x1="80.0" y1="1028.0" x2="150.0" y2="1028.0" stroke="#c2410c" stroke-width="1.8" marker-end="url(#subHead)"/>
+<text x="164.0" y="1032.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">subscribe  -  app receives messages of one type from the bus</text>
+<line x1="80.0" y1="1056.0" x2="150.0" y2="1056.0" stroke="#4a4a4a" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#injHead)"/>
+<text x="164.0" y="1060.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">injected IO / HAL  -  constructor argument, not a bus channel (storage writer, HAL Protocols)</text>
+<rect x="884.0" y="984.0" width="22.0" height="16.0" rx="3" fill="#e3f0fa" stroke="#1f4e79" stroke-width="1.2"/>
+<text x="916.0" y="998.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">subsystem app</text>
+<rect x="1064.0" y="984.0" width="22.0" height="16.0" rx="3" fill="#eaf3dc" stroke="#3d6b1e" stroke-width="1.2"/>
+<text x="1096.0" y="998.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">core service</text>
+<rect x="1244.0" y="984.0" width="22.0" height="16.0" rx="3" fill="#fff4cc" stroke="#8a5a00" stroke-width="1.2"/>
+<text x="1276.0" y="998.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">bus</text>
+<rect x="1354.0" y="984.0" width="22.0" height="16.0" rx="3" fill="#f4f4f4" stroke="#5c5c5c" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="1386.0" y="998.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#1a1a1a" text-anchor="start">HAL protocol</text>
+<text x="884.0" y="1032.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="start">Every inter-app line ends on MessageBus. HeartbeatMsg comes from the nine monitored runnables.</text>
+<text x="884.0" y="1054.0" font-size="12" font-weight="400" font-family="ui-sans-serif, system-ui, sans-serif" fill="#4a4a4a" text-anchor="start">FaultApp is not monitored. ProcessedFrameMsg stays inside PayloadApp and is not on the bus.</text>
+</svg>

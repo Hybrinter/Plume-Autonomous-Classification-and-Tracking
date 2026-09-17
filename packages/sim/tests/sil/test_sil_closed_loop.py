@@ -16,35 +16,9 @@ from flight.libs.messages import (
 from flight.libs.time import ManualClock
 from flight.libs.types import AckStatus, FaultCode, GimbalState, MessageType, Ok, SystemMode
 from sim.scene import build_frames, plume_detector
-from sim.sil import SilHarness, SilSystem, build_sil_system
+from sim.sil import SilHarness, build_sil_system
 
 _KEY = b"sil-test-key-0000000000000000000"
-
-
-def _commission(harness: SilHarness, system: SilSystem, *, homing_steps: int = 12) -> None:
-    """Leave boot SAFE via ENTER_INIT homing, then ENTER_OPERATE for tracking."""
-    now = harness._now
-
-    def advance() -> None:
-        nonlocal now
-        now += 1.0
-        harness.step(now)
-        system.clock.advance(1.0)
-
-    system.station.enqueue(
-        build_tc_packet("ENTER_INIT", {"phase": "ARM"}, "ground", 1, _KEY, apid=1)
-    )
-    advance()
-    system.station.enqueue(
-        build_tc_packet("ENTER_INIT", {"phase": "EXECUTE"}, "ground", 2, _KEY, apid=1)
-    )
-    advance()
-    advance()  # poll ModeChangeMsg(INIT)
-    for _ in range(homing_steps):
-        advance()
-    system.station.enqueue(build_tc_packet("ENTER_OPERATE", {}, "ground", 3, _KEY, apid=1))
-    advance()
-    advance()  # poll ModeChangeMsg(OPERATE)
 
 
 def _drain[T](subscription: Subscription[T]) -> list[T]:
@@ -71,7 +45,7 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
     mode_sub = system.bus.subscribe(ModeChangeMsg)
 
     harness = SilHarness(system)
-    _commission(harness, system)
+    harness.commission()
     _drain(inf_sub)
     harness.run_steps(8, dt=1.0)
 
@@ -189,7 +163,7 @@ def test_safe_recovery_returns_to_operations() -> None:
     harness.run_steps(2, dt=1.0)
     assert harness.payload_gimbal_state() is GimbalState.SAFE
 
-    _commission(harness, system)
+    harness.commission()
     harness.run_steps(4, dt=1.0)
 
     assert harness.payload_gimbal_state() is not GimbalState.SAFE
@@ -211,7 +185,7 @@ def test_tracking_commands_point_toward_the_plume() -> None:
         power_readings=[30.0],
     )
     harness = SilHarness(system)
-    _commission(harness, system)
+    harness.commission()
     harness.run_steps(8, dt=1.0)
 
     pos = system.gimbal.read_position()
@@ -297,7 +271,7 @@ def test_encoder_freeze_trips_runaway_and_safe() -> None:
     )
     fault_sub = system.bus.subscribe(FaultEventMsg)
     harness = SilHarness(system)
-    _commission(harness, system)
+    harness.commission()
     harness.run_steps(6, dt=1.0)
     system.gimbal.freeze_encoder()
     harness.run_steps(4, dt=1.0)
@@ -344,34 +318,21 @@ def test_enter_stow_returns_to_safe() -> None:
     )
     harness = SilHarness(system)
     mode_sub = system.bus.subscribe(ModeChangeMsg)
-    now = harness._now
-
-    def advance() -> None:
-        nonlocal now
-        now += 1.0
-        harness.step(now)
-        system.clock.advance(1.0)
-
-    system.station.enqueue(
-        build_tc_packet("ENTER_INIT", {"phase": "ARM"}, "ground", 1, _KEY, apid=1)
-    )
-    advance()
-    system.station.enqueue(
-        build_tc_packet("ENTER_INIT", {"phase": "EXECUTE"}, "ground", 2, _KEY, apid=1)
-    )
-    advance()
-    advance()
-    for _ in range(12):
-        advance()
+    harness.commission(enter_operate=False)
     system.station.enqueue(
         build_tc_packet("ENTER_STOW", {"phase": "ARM"}, "ground", 3, _KEY, apid=1)
     )
-    advance()
+    now = harness._now
+    now += 1.0
+    harness.step(now)
+    system.clock.advance(1.0)
     system.station.enqueue(
         build_tc_packet("ENTER_STOW", {"phase": "EXECUTE"}, "ground", 4, _KEY, apid=1)
     )
-    for _ in range(4):
-        advance()
+    for _ in range(12):
+        now += 1.0
+        harness.step(now)
+        system.clock.advance(1.0)
     modes = _drain(mode_sub)
     assert any(m.new_mode is SystemMode.STOW for m in modes)
     assert modes[-1].new_mode is SystemMode.SAFE

@@ -15,6 +15,7 @@ deterministically. GSE imports this surface and does not touch flight compositio
 | `ValidationSystem` | class | Wired apps, bus, clock, and protocol-typed drivers |
 | `build_validation_system` | function | Env-driven driver selection and app wiring |
 | `ValidationHarness` | class | Single-threaded stepper over a `ValidationSystem` |
+| `run_commission` | function | `ENTER_INIT` homing then optional `ENTER_OPERATE` |
 | `load_profile_config` | function | Load base TOML merged with a profile override |
 
 ## Inputs and outputs
@@ -28,6 +29,15 @@ deterministically. GSE imports this surface and does not touch flight compositio
 **`ValidationHarness.step(now) -> None`**
 
 - Same contract as `SilHarness.step`. Delegates to `step_once` with the optional bind.
+
+**`ValidationHarness.commission(homing_steps=12, enter_operate=True) -> None`**
+
+- Enqueues `ENTER_INIT` ARM/EXECUTE, waits `homing_steps`, optionally `ENTER_OPERATE`.
+- Requires `station.enqueue` (sim link). Updates harness `now`.
+
+**`run_commission(step, clock, enqueue, now, ...) -> float`**
+
+- Shared commissioning sequence used by both harnesses. Returns updated `now`.
 
 **`load_profile_config(config_path, override_path) -> PactConfig`**
 
@@ -43,6 +53,7 @@ deterministically. GSE imports this surface and does not touch flight compositio
 4. It wires every app via `build_apps` with `MONITORED_SUBSYSTEMS`.
 5. `ValidationHarness` seeds payload and fault state, then steps like `SilHarness`.
    `step_once` runs catch-up, then the optional `SilEnvironmentBind`, then acquire.
+   `commission` leaves boot SAFE through INIT homing and optional OPERATE.
 6. `load_profile_config` calls `flight.core.config_loader.load_config` and raises on failure.
 
 ## Errors and faults

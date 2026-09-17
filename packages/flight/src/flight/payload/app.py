@@ -332,6 +332,10 @@ class PayloadApp:
         """Return whether the injected actuator exposes the production rate path."""
         return isinstance(self.gimbal, GimbalRateActuator)
 
+    def _hold_inner(self) -> bool:
+        """Return whether the inner loop must command rate 0 (SAFE latch or IDLE)."""
+        return self.safe_latch.commanded or self.mode_view.system is SystemMode.IDLE
+
     def _publish_mode_request(self, requested: SystemMode, reason: ModeRequestReason) -> None:
         """Ask the mode manager to change SystemMode."""
         self.bus.publish(
@@ -713,43 +717,13 @@ class PayloadApp:
             if tick.request is not None:
                 issued = self._actuate_pose(tick.request, current, frame_id=0)
                 command_issued = command_issued or issued
-                if not issued and self.lock_gate.engaged:
-                    self.stow_gate.pending = True
             if self._rate_mode():
                 assert isinstance(self.gimbal, GimbalRateActuator)
-                if (
-                    not self.lock_gate.engaged
-                    and current.arbiter.gimbal_state is GimbalState.SAFE
-                    and current.pose.pose_mode is GimbalCommandMode.STOW
-                ):
-                    with self.actuator_io_lock:
-                        stow_result = self.gimbal.stow_reference_step(t)
-                    if isinstance(stow_result, Err):
-                        self._record_actuator_failure(stow_result.error, t)
-                        self._publish_fault(stow_result.error, "bounded gimbal stow failed")
-                        self._inhibit_motion("bounded stow failed")
-                else:
-                    self._write_rate(
-                        math.degrees(current.commanded_rate_rad_s), t, self.lock_gate.engaged
-                    )
+                self._write_rate(
+                    math.degrees(current.commanded_rate_rad_s), t, self.lock_gate.engaged
+                )
             safe_commanded = False
             safe_cleared = False
-        if (
-            self.stow_gate.pending
-            and not self.lock_gate.engaged
-            and current.arbiter.gimbal_state is GimbalState.SAFE
-        ):
-            issued = self._actuate_pose(
-                GimbalRequest(
-                    mode=GimbalCommandMode.STOW,
-                    el_deg=self.controller.gimbal.stow_el_deg,
-                    reason="safe_stow_after_lock_release",
-                ),
-                current,
-                frame_id=0,
-            )
-            command_issued = command_issued or issued
-            self.stow_gate.pending = not issued
         outcome = TickOutcome(
             frame_id=0,
             fault=None,
@@ -806,7 +780,7 @@ class PayloadApp:
                 dt,
                 encoder_timestamp_s=encoder_timestamp_s,
                 locked=locked,
-                safe_latched=self.safe_latch.commanded,
+                safe_latched=self._hold_inner(),
             )
             current, integrity_fault = self._apply_integrity(
                 current, tick.state, tick.tau_nm, theta, t, enc_rate, locked
@@ -1159,7 +1133,7 @@ class PayloadApp:
                 with self.inner_lock:
                     snap = holder["state"]
                     locked = self.lock_gate.engaged
-                    safe = self.safe_latch.commanded
+                    hold = self._hold_inner()
                     if snap.inner.last_inner_s is None:
                         holder["state"] = replace(
                             snap, inner=replace(snap.inner, last_inner_s=now_inner)
@@ -1193,7 +1167,7 @@ class PayloadApp:
                     dt,
                     encoder_timestamp_s=encoder_timestamp_s,
                     locked=locked,
-                    safe_latched=safe,
+                    safe_latched=hold,
                 )
                 stamped, integrity_fault = self._apply_integrity(
                     snap, tick.state, tick.tau_nm, theta, now_inner, enc_rate, locked
@@ -1209,7 +1183,7 @@ class PayloadApp:
                     latest = holder["state"]
                     merged_r = (
                         stamped.commanded_rate_rad_s
-                        if (locked or safe or latest.pose.pose_mode is not None)
+                        if (locked or hold or latest.pose.pose_mode is not None)
                         else latest.commanded_rate_rad_s
                     )
                     holder["state"] = replace(

@@ -247,6 +247,8 @@ def test_safe_entry_halts_without_stow_request() -> None:
     tick = controller.outer_step(state, 0.02, _encoder(0.02), None, None, True, False)
     assert tick.request is None
     assert tick.state.arbiter.gimbal_state is GimbalState.SAFE
+    assert tick.state.commanded_rate_rad_s == 0.0
+    assert tick.state.pose.pose_mode is None
 
 
 def test_inner_step_writes_torque() -> None:

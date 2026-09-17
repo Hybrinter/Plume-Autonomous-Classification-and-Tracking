@@ -12,7 +12,7 @@ determinism.
 Contains:
   - SilSystem: the wired apps + bus + clock + the concrete sim drivers (for inspection).
   - build_sil_system: force an all-"sim" env and delegate to build_validation_system.
-  - SilHarness: deterministic single-threaded stepper (step / run_steps).
+  - SilHarness: deterministic single-threaded stepper (step / run_steps / commission).
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from flight.payload.inference import ScriptedDetector
 
 from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
-from sim.sil.validation import build_validation_system
+from sim.sil.validation import build_validation_system, run_commission
 
 
 @dataclass(frozen=True)
@@ -175,3 +175,17 @@ class SilHarness:
             now += dt
             self.step(now)
             self._system.clock.advance(dt)
+
+    def commission(self, *, homing_steps: int = 12, enter_operate: bool = True) -> None:
+        """Leave boot SAFE via ENTER_INIT homing, optionally ENTER_OPERATE."""
+        enqueue = getattr(self._system.station, "enqueue", None)
+        if not callable(enqueue):
+            raise TypeError("commission requires a station with enqueue")
+        self._now = run_commission(
+            self.step,
+            self._system.clock,
+            enqueue,
+            self._now,
+            homing_steps=homing_steps,
+            enter_operate=enter_operate,
+        )

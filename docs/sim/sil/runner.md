@@ -41,6 +41,11 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 
 - Output: current arbiter gimbal state (test accessor).
 
+**`SilHarness.commission(homing_steps=12, enter_operate=True) -> None`**
+
+- Leaves boot SAFE via `ENTER_INIT` assumed-datum homing, then optional `ENTER_OPERATE`.
+- Requires `SimStationLink.enqueue`. Updates harness `now`.
+
 ## Behavior
 
 1. `build_sil_system` packs sim inputs into `SimDriverInputs`.
@@ -51,6 +56,9 @@ It casts concrete sim drivers back from the validation builder for test inspecti
    runs first. Bind evaluate and acquire follow.
 6. `run_steps` continues from the last `now`, adds `dt` each step, and advances the
    shared clock after `step`. A later `run_steps` call does not reset time.
+7. `commission` enqueues signed `ENTER_INIT` ARM/EXECUTE, waits for placeholder
+   homing, and optionally `ENTER_OPERATE`, so inference and TRACKING tests start
+   after the CONOPS boot sequence.
 
 ## Errors and faults
 

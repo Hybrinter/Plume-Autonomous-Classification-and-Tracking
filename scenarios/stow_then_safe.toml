@@ -1,13 +1,13 @@
 name = "stow_then_safe"
 profile = "sil"
-steps = 22
+steps = 32
 dt = 1.0
 
 # After INIT homing reaches IDLE, hazardous ENTER_STOW slews to rest and the mode
 # manager returns to latched SAFE.
 
 [scene]
-num_frames = 22
+num_frames = 32
 seed = 0
 
 [[commands]]
@@ -25,14 +25,14 @@ source = "ground"
 seq = 2
 
 [[commands]]
-at_frame = 16
+at_frame = 18
 command_id = "ENTER_STOW"
 params = { phase = "ARM" }
 source = "ground"
 seq = 3
 
 [[commands]]
-at_frame = 17
+at_frame = 19
 command_id = "ENTER_STOW"
 params = { phase = "EXECUTE" }
 source = "ground"

@@ -210,11 +210,10 @@ class InProcessBackend:
             )
             self._emulator.connect()
         else:
-            inbound = []
             sim_inputs = SimDriverInputs(
                 frames=frames,
                 detector=detector,
-                inbound_packets=inbound,
+                inbound_packets=[],
                 thermal_readings=list(scenario.scene.thermal_readings),
                 power_readings=list(scenario.scene.power_readings),
             )

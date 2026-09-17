@@ -11,7 +11,7 @@ from flight.hal.drivers_sim import SimIssEphemeris
 from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, SensorConfig
 from flight.libs.messages import BlobMeta, GimbalCommandMsg, InferenceResultMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalCommandMode, GimbalState, MessageType, Ok
+from flight.libs.types import GimbalState, MessageType, Ok
 from flight.payload.control import PayloadController, VisionSample
 from flight.payload.gimbal.inner import inner_step
 from flight.payload.gimbal.outer import outer_rate
@@ -324,7 +324,7 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
 
 
 def test_safe_position_loop_and_cold_start() -> None:
-    """SAFE stows via the position loop; cold TRACKING holds r=0."""
+    """SAFE halts in place; cold TRACKING holds r=0."""
     controller = PayloadController.from_config(
         ControllerConfig(), SensorConfig(), GimbalConfig(), EphemerisConfig()
     )
@@ -336,9 +336,9 @@ def test_safe_position_loop_and_cold_start() -> None:
 
     safe = controller.outer_step(cold, 0.02, encoder, None, None, True, False)
     assert safe.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert safe.request is not None
-    assert safe.request.mode is GimbalCommandMode.STOW
-    assert safe.state.commanded_rate_rad_s < 0.0
+    assert safe.request is None
+    assert safe.state.commanded_rate_rad_s == 0.0
+    assert safe.state.pose.pose_mode is None
 
     blob = BlobMeta(
         blob_id=1,
@@ -368,7 +368,8 @@ def test_safe_position_loop_and_cold_start() -> None:
         False,
     )
     assert ignored.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert ignored.state.pose.pose_mode is GimbalCommandMode.STOW
+    assert ignored.state.pose.pose_mode is None
+    assert ignored.state.commanded_rate_rad_s == 0.0
 
 
 def test_no_azimuth_on_request_or_command() -> None:

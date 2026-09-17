@@ -16,7 +16,7 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
-        build_frames(24),
+        build_frames(40),
         plume_detector(),  # a real plume the arbiter wants to track
         inbound_packets=[],
         thermal_readings=[25.0],
@@ -39,7 +39,8 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     advance(6)  # plume present, but the lock inhibits all gimbal motion
     locked_pos = system.gimbal.read_position()
     assert isinstance(locked_pos, Ok)
-    assert abs(locked_pos.value.el_deg) < 0.1
+    stow_el = PactConfig().gimbal.stow_el_deg
+    assert abs(locked_pos.value.el_deg - stow_el) < 0.1
     assert not hasattr(locked_pos.value, "az_deg")
 
     # Hazardous release: ARM then EXECUTE over the link.
@@ -63,10 +64,11 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     latest_lock = [m.state for m in _drain(lock_states)]
     assert latest_lock and latest_lock[-1] is LaunchLockState.RELEASED
 
-    advance(10)  # with the lock released the payload now tracks the plume
+    harness.commission()
+    harness.run_steps(8, dt=1.0)
     freed_pos = system.gimbal.read_position()
     assert isinstance(freed_pos, Ok)
-    assert abs(freed_pos.value.el_deg) > 0.5
+    assert abs(freed_pos.value.el_deg - stow_el) > 0.5
 
 
 def test_lock_mid_run_and_clock_jump_hold_zero_torque() -> None:
@@ -74,7 +76,7 @@ def test_lock_mid_run_and_clock_jump_hold_zero_torque() -> None:
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
-        build_frames(16),
+        build_frames(40),
         plume_detector(),
         inbound_packets=[],
         thermal_readings=[25.0],
@@ -82,16 +84,14 @@ def test_lock_mid_run_and_clock_jump_hold_zero_torque() -> None:
         launch_lock_engaged=False,
     )
     harness = SilHarness(system)
-    now = 0.0
-    for _ in range(4):
-        now += 1.0
-        harness.step(now)
-        system.clock.advance(1.0)
+    harness.commission()
+    harness.run_steps(4, dt=1.0)
     mid = system.gimbal.read_position()
     assert isinstance(mid, Ok)
-    assert abs(mid.value.el_deg) > 0.05
+    stow_el = PactConfig().gimbal.stow_el_deg
+    assert abs(mid.value.el_deg - stow_el) > 0.05
     system.apps.mechanical.lock.engage()
-    now += 1.0
+    now = harness._now + 1.0
     harness.step(now)
     system.clock.advance(1.0)
     assert system.gimbal._tau_nm == 0.0

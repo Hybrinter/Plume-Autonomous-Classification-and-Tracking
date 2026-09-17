@@ -55,11 +55,22 @@ def test_build_validation_system_yields_sim_drivers() -> None:
 
 
 def test_validation_harness_drives_inference_per_frame() -> None:
-    """Four steps over four frames drive exactly four InferenceResultMsg publications."""
-    system = build_validation_system(_all_sim_config(), ManualClock(), _sim_inputs())
+    """After commission, four OPERATE steps publish four InferenceResultMsg values."""
+    inputs = SimDriverInputs(
+        frames=build_frames(30, seed=0),
+        detector=plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    system = build_validation_system(_all_sim_config(), ManualClock(), inputs)
     inf_sub = system.bus.subscribe(InferenceResultMsg)
 
-    ValidationHarness(system).run_steps(4)
+    harness = ValidationHarness(system)
+    harness.commission()
+    while not inf_sub.empty():
+        inf_sub.get_nowait()
+    harness.run_steps(4)
 
     inference_count = 0
     while not inf_sub.empty():

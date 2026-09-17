@@ -433,7 +433,8 @@ class PayloadController:
             theta_enc_rad: Encoder elevation, radians.
             dt_s: Inner period; defaults to cfg.inner.dt_s.
             locked: Launch lock engaged (freeze I; caller writes τ=0).
-            safe_latched: Halt in place (commanded rate 0) while SAFE is latched.
+            safe_latched: Halt in place (commanded rate 0) while SAFE is latched
+                or the system mode is IDLE.
 
         Outputs:
             InnerTick: Updated state and torque.
@@ -555,7 +556,7 @@ class PayloadController:
             reference_change: Explicit predictor-reference replacement, if any.
 
         Outputs:
-            OuterTick: Updated state, optional STOW request, telemetry.
+            OuterTick: Updated state, optional pose request (none on SAFE halt), telemetry.
 
         Notes:
             Previous tracked blobs are state.arbiter.tracked_blobs before
@@ -595,8 +596,7 @@ class PayloadController:
             else:
                 pose_el = request.el_deg
         if new_arbiter.gimbal_state is GimbalState.SAFE:
-            pose_mode = GimbalCommandMode.STOW
-            pose_el = self.gimbal.stow_el_deg
+            pose_mode = None
         elif pose_mode is not None and safe_cleared:
             pose_mode = None
 
@@ -784,7 +784,9 @@ class PayloadController:
         science_limited = False
         requested_relative_rate_rad_s = 0.0
         last_rate_decision: RateDecision | None = None
-        if pose_mode is not None:
+        if new_arbiter.gimbal_state is GimbalState.SAFE:
+            r = 0.0
+        elif pose_mode is not None:
             r = position_rate(
                 math.radians(pose_el),
                 theta_g_rad,

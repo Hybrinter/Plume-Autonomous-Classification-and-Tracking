@@ -18,7 +18,8 @@ in and out, exactly as SilHarness does, but over the Protocol-typed ValidationSy
 Contains:
   - ValidationSystem: Protocol-typed holder of the wired apps + bus/clock + selected drivers.
   - build_validation_system: env-driven builder (select_drivers -> build_apps) for any profile.
-  - ValidationHarness: deterministic single-threaded stepper (step / run_steps).
+  - ValidationHarness: deterministic single-threaded stepper (step / run_steps / commission).
+  - run_commission: ENTER_INIT homing then optional ENTER_OPERATE over station enqueue.
   - load_profile_config: load default.toml + a profile override into a PactConfig (raises on Err).
 
 Satisfies: REQ-OPER-HIGH-002.
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 # stdlib
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 # internal
@@ -37,6 +39,7 @@ from flight.core.select_drivers import SimDriverInputs, select_drivers
 from flight.fault.watchdog import WatchdogEntry
 from flight.hal.interfaces import GimbalActuator, ImagingSensor, ScalarSensor, StationLink
 from flight.libs.bus import MessageBus
+from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalState, Ok
@@ -45,6 +48,55 @@ from flight.payload.control import ControlState
 
 from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
+
+_SIL_KEY = b"sil-test-key-0000000000000000000"
+
+
+def run_commission(
+    step: Callable[[float], None],
+    clock: ManualClock,
+    enqueue: Callable[[bytes], None],
+    now: float,
+    *,
+    homing_steps: int = 12,
+    enter_operate: bool = True,
+    key: bytes = _SIL_KEY,
+    seq0: int = 1,
+) -> float:
+    """Leave boot SAFE via ENTER_INIT homing, optionally ENTER_OPERATE.
+
+    Args:
+        step: Harness step callback (advances apps to ``now``).
+        clock: Shared ManualClock advanced after each step.
+        enqueue: SimStationLink.enqueue (signed TC bytes).
+        now: Current harness time before commissioning.
+        homing_steps: Outer-cycle waits after INIT for assumed-datum creep.
+        enter_operate: When True, command ENTER_OPERATE after homing.
+        key: Uplink HMAC key matching the wired station.
+        seq0: First TC sequence number.
+
+    Returns:
+        Updated ``now`` after the last commissioning step.
+    """
+
+    def advance() -> None:
+        nonlocal now
+        now += 1.0
+        step(now)
+        clock.advance(1.0)
+
+    enqueue(build_tc_packet("ENTER_INIT", {"phase": "ARM"}, "ground", seq0, key, apid=1))
+    advance()
+    enqueue(build_tc_packet("ENTER_INIT", {"phase": "EXECUTE"}, "ground", seq0 + 1, key, apid=1))
+    advance()
+    advance()
+    for _ in range(homing_steps):
+        advance()
+    if enter_operate:
+        enqueue(build_tc_packet("ENTER_OPERATE", {}, "ground", seq0 + 2, key, apid=1))
+        advance()
+        advance()
+    return now
 
 
 @dataclass(frozen=True)
@@ -181,6 +233,20 @@ class ValidationHarness:
             now += dt
             self.step(now)
             self._system.clock.advance(dt)
+
+    def commission(self, *, homing_steps: int = 12, enter_operate: bool = True) -> None:
+        """Leave boot SAFE via ENTER_INIT homing, optionally ENTER_OPERATE."""
+        enqueue = getattr(self._system.station, "enqueue", None)
+        if not callable(enqueue):
+            raise TypeError("commission requires a station with enqueue")
+        self._now = run_commission(
+            self.step,
+            self._system.clock,
+            enqueue,
+            self._now,
+            homing_steps=homing_steps,
+            enter_operate=enter_operate,
+        )
 
 
 def load_profile_config(config_path: str, override_path: str) -> PactConfig:

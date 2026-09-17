@@ -5,15 +5,16 @@
 
 ## Purpose
 
-The gimbal package holds pure elevation control logic: the pointing FSM, scene
-selection, inner and outer laws, CoG geometry, pose requests, pre-arbiter safety
-gates, and the light integrity detector.
+The gimbal package holds pure elevation control logic: the pointing FSM, INIT
+homing, scene selection, inner and outer laws, CoG geometry, pose requests,
+pre-arbiter safety gates, and the light integrity detector.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
 | [`arbiter`](gimbal/arbiter.md) | pure module | TRACKING / REWIND / SAFE FSM |
+| [`homing`](gimbal/homing.md) | pure module | Placeholder INIT creep and STOW rest slew |
 | [`inner`](gimbal/inner.md) | pure module | PI plus computed torque |
 | [`outer`](gimbal/outer.md) | pure module | Scene match plus elevation-relative smear cap |
 | [`scene`](gimbal/scene.md) | pure module | CoG / boresight / none selection and residual-reference identity |

@@ -11,9 +11,8 @@
 frame association and the outer residual estimator.
 
 The app supports two actuator paths. The Xeryon production path sends signed
-rate commands, including the switch-referenced bounded stow step while SAFE.
-The detailed SIL plant path runs the existing inner PI and
-torque loop.
+rate commands. SAFE halts in place and does not run a stow slew. The detailed
+SIL plant path runs the inner PI and torque loop.
 
 ## Public interface
 
@@ -21,15 +20,16 @@ torque loop.
 | --- | --- | --- |
 | `TickOutcome` | dataclass | Per-cycle frame, fault, command, and gimbal summary |
 | `LockGate` | dataclass | Fail-closed launch-lock gate |
-| `SafeLatch` | dataclass | SAFE flag shared with the inner path |
-| `StowGate` | dataclass | Pending SAFE STOW request |
-| `PoseIntent` | dataclass | Ground STOW / HOME / GOTO request |
+| `SafeLatch` | dataclass | SAFE flag shared with the inner path. Defaults true |
+| `ModeView` | dataclass | Current `SystemMode` plus INIT and STOW bookkeeping |
+| `StowGate` | dataclass | Pending pose retry after lock release |
+| `PoseIntent` | dataclass | Retired pose request holder |
 | `EncoderStream` | dataclass | Timestamped samples shared across app paths |
 | `PayloadApp` | dataclass | Frozen holder of injected services and config |
 | `PayloadApp.from_config` | static method | Builds the app from typed config and drivers |
 | `PayloadApp.poll_mode_changes` | method | Drains mode messages |
 | `PayloadApp.poll_lock_state` | method | Drains launch-lock messages |
-| `PayloadApp.handle_commands` | method | Applies routed pose commands |
+| `PayloadApp.handle_commands` | method | Rejects retired payload pose commands |
 | `PayloadApp.process_frame` | method | Preprocesses, detects, and queues vision |
 | `PayloadApp.advance_outer` | method | Consumes timestamped outer samples |
 | `PayloadApp.advance_inner` | method | Advances the detailed-plant inner path |
@@ -75,8 +75,10 @@ command.
    command. Its torque thread is not started when the injected actuator exposes
    the production rate interface. Rate-mode `advance_inner` records one encoder
    sample and does not write torque.
-8. SAFE and launch-lock states inhibit motion. SAFE operation commands the stow
-   position loop. A pending SAFE STOW is retried after lock release.
+8. SAFE and launch-lock states inhibit motion. SAFE commands rate 0 and does
+   not seek rest. INIT runs assumed-datum creep. IDLE holds rate 0. STOW creeps
+   to rest and then publishes `ModeRequestMsg(STOW_COMPLETE)`. Inference and
+   the TRACKING arbiter run only in `OPERATE`.
 9. Shutdown stops acquisition and joins the detailed-plant thread when one is
    running. The Xeryon adapter shutdown path remains fail-closed.
 
@@ -101,7 +103,7 @@ inhibition without independent watchdog evidence.
 | Direction | Message types |
 | --- | --- |
 | Subscribe | `ModeChangeMsg`, `LaunchLockStateMsg`, `RoutedCommandMsg` |
-| Publish | `HeartbeatMsg`, `InferenceResultMsg`, `GimbalCommandMsg`, `FaultEventMsg`, `TelemetryEventMsg`, `ProductRefMsg`, `CommandAckMsg` |
+| Publish | `HeartbeatMsg`, `InferenceResultMsg`, `GimbalCommandMsg`, `FaultEventMsg`, `TelemetryEventMsg`, `ProductRefMsg`, `CommandAckMsg`, `ModeRequestMsg` |
 
 Vision samples stay in the app queue. Residual event records stay in pure
 controller state and do not travel on the bus.

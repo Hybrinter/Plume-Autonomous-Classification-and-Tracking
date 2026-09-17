@@ -3,14 +3,20 @@
 from flight.fault.mode import (
     ModeEvent,
     ModeEventKind,
+    SystemModeState,
     begin_tick,
     initial_mode_state,
     step,
 )
+from flight.libs.messages import ModeChangeMsg
 from flight.libs.types import FaultCode, SystemMode
 
 
-def _apply(kind: ModeEventKind, state=None, fault: FaultCode = FaultCode.NONE):
+def _apply(
+    kind: ModeEventKind,
+    state: SystemModeState | None = None,
+    fault: FaultCode = FaultCode.NONE,
+) -> tuple[SystemModeState, ModeChangeMsg | None]:
     """Step from boot or a given state."""
     snap = initial_mode_state() if state is None else state
     return step(snap, ModeEvent(kind, "test", fault), "t")

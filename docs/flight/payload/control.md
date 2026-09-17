@@ -80,7 +80,8 @@ TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
    is ignored and is not fed boresight rates. Visual tracking can run without
    navigation. The pose path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND does
+   SAFE zeros the commanded rate. OPERATE entry can reset the residual checkpoint.
+   REWIND does
    not drop the inner encoder samples. A single TRACKING miss keeps the residual
    and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets the
    residual. That reset also drops the prior CoG unless this frame produced a new

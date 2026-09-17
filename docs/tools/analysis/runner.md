@@ -49,7 +49,7 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
 4. `record_run` owns the stepping loop after the hook fires.
 
 Built-in scenarios include: nominal tracking, thermal hot-sample telemetry, power SAFE,
-gimbal runaway, watchdog inject, EXIT_SAFE recovery, hazardous ARM/EXECUTE, launch-lock
+gimbal runaway, watchdog inject, ENTER_INIT recovery, hazardous ARM/EXECUTE, launch-lock
 interlock, model lifecycle, storage eviction, downlink AOS budget, and signed command
 ingress.
 

@@ -435,6 +435,10 @@ class GimbalConfig:
     max_hw_slew_rate_deg_per_s: float = Field(default=10.0, gt=0.0)
     stow_el_deg: float = -45.0
     home_el_deg: float = 45.0
+    init_creep_rate_deg_per_s: float = Field(default=10.0, gt=0.0)
+    init_creep_span_deg: float = Field(default=45.0, gt=0.0)
+    init_press_timeout_s: float = Field(default=2.0, gt=0.0)
+    stow_arrive_tol_deg: float = Field(default=0.5, gt=0.0)
     simulation: GimbalSimulationConfig = field(default_factory=GimbalSimulationConfig)
     xeryon: XeryonConfig = field(default_factory=XeryonConfig)
 

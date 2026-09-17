@@ -22,9 +22,3 @@ id = "command_route_exec.acked"
 kind = "command_acked"
 value = "ACCEPTED"
 tag = "frame-portable"
-
-[[assertions]]
-id = "command_route_exec.ran"
-kind = "min_inference_count"
-value = 1
-tag = "frame-portable"

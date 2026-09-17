@@ -37,8 +37,7 @@ counterpart to `RealStationLink`.
 - `StationEmulator` is a test stand-in. The real ground segment is not exercised by any
   running venue.
 - `SocketBackend` is a stub. Every method raises `NotImplementedError`.
-- Sim-link scenarios pre-bake commands at build time. `at_frame` timing applies on real link
-  only.
+- Sim-link scenarios enqueue commands at `at_frame`. The next `iss_iface` tick drains them.
 
 ## Related documents
 

@@ -63,7 +63,13 @@ def test_nonhazardous_routed_without_router_ack() -> None:
 def test_hazardous_arm_then_execute_dispatches() -> None:
     """A hazardous command requires ARM (acked, not dispatched) then EXECUTE (dispatched)."""
     arm = route_command(
-        _cmd("ENTER_INIT", "fault", {"phase": "ARM"}), _ROUTABLE, _HAZARDOUS, False, {}, 0.0, _WINDOW
+        _cmd("ENTER_INIT", "fault", {"phase": "ARM"}),
+        _ROUTABLE,
+        _HAZARDOUS,
+        False,
+        {},
+        0.0,
+        _WINDOW,
     )
     assert arm.routed_command is None
     assert arm.ack is not None and arm.ack.status is AckStatus.ACCEPTED

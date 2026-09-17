@@ -48,7 +48,7 @@ class RouterState:
     """
 
     armed: dict[tuple[str, str], float] = field(default_factory=dict)
-    safe_latched: bool = False
+    safe_latched: bool = True
 
 
 @dataclass(frozen=True)

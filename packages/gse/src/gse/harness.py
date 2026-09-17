@@ -11,12 +11,8 @@ the profile's link axis is "real" it stands up a RealStationLink (chosen by the 
 a free TCP/UDP port pair) and a GSE StationEmulator as the live counterpart, so the
 authenticated command + CCSDS downlink path runs over real sockets in one process.
 
-For an all-sim link, SimStationLink's inbound queue is fixed at construction, so all
-scenario commands are pre-baked into SimDriverInputs.inbound_packets at build() time from
-the command timeline; inject_command() is then a documented no-op on that path. Because
-IssIfaceApp.pump_uplink drains every queued packet on the first tick, sim-link scenarios
-do NOT honor CommandStep.at_frame timing (all commands land on step 1); author sim-link
-scenarios to be insensitive to command-arrival ordering. Timed delivery is real-link only.
+For an all-sim link, `inject_command` enqueues a signed TC packet onto `SimStationLink`
+at the matching `at_frame`. `IssIfaceApp.pump_uplink` drains the queue on that tick.
 
 SocketBackend is declared (PIL/HIL transport) but raises NotImplementedError -- those
 venues are DEFINED, NOT RUN.
@@ -150,27 +146,6 @@ def _free_port_pair() -> tuple[int, int]:
     return ports[0], ports[1]
 
 
-def _scenario_packets(scenario: Scenario, key: bytes, tc_apid: int) -> list[bytes]:
-    """Build signed TC packets for every command step in a scenario (sim-link pre-bake).
-
-    Args:
-        scenario: The scenario whose command timeline to serialize.
-        key: The shared HMAC-SHA256 uplink secret.
-        tc_apid: The telecommand APID from the resolved LinkConfig.
-
-    Returns:
-        list[bytes]: One framed CCSDS TC packet per CommandStep, in timeline order. These
-        seed SimStationLink.inbound at build time because its queue is fixed at
-        construction (the sim path cannot accept a live mid-run injection). Note that
-        pump_uplink drains all of them on the first tick, so at_frame timing is NOT honored
-        on the sim link.
-    """
-    return [
-        build_tc_packet(step.command_id, step.params, step.source, step.seq, key, tc_apid)
-        for step in scenario.commands
-    ]
-
-
 class InProcessBackend:
     """Deterministic single-process backend: ManualClock + ValidationHarness over the drivers."""
 
@@ -185,6 +160,7 @@ class InProcessBackend:
         self._mode_sub: Subscription[ModeChangeMsg] | None = None
         self._ack_sub: Subscription[CommandAckMsg] | None = None
         self._link_real = False
+        self._tc_apid = 1
 
     def build(self, scenario: Scenario, profile_path: str) -> None:
         """Build the wired apps + drivers for scenario under the profile override.
@@ -199,15 +175,13 @@ class InProcessBackend:
             RealStationLink and StationEmulator agree on the endpoints, builds the system
             (the harness selects RealStationLink over those ports), and connects a
             StationEmulator as the live counterpart so AOS holds and downlink datagrams are
-            captured. For a sim link, the command timeline is pre-baked into the
-            SimStationLink inbound queue (its queue is fixed at construction). Because
-            pump_uplink drains every queued packet on the first tick, sim-link
-            CommandStep.at_frame timing is NOT honored (all commands ingest on step 1);
-            sim-link scenarios must be order-insensitive. Subscriptions are created BEFORE
-            any step so no published message is missed (the bus only delivers to live subs).
+            captured. For a sim link, the inbound queue starts empty; `inject_command`
+            enqueues each packet at `at_frame`. Subscriptions are created BEFORE any step
+            so no published message is missed (the bus only delivers to live subs).
         """
         config = load_profile_config("config/default.toml", profile_path)
         self._link_real = config.drivers.link == "real"
+        self._tc_apid = config.link.tc_apid
 
         frames = build_frames(scenario.scene.num_frames, scenario.scene.seed)
         detector = plume_detector()
@@ -236,7 +210,7 @@ class InProcessBackend:
             )
             self._emulator.connect()
         else:
-            inbound = _scenario_packets(scenario, _SIL_KEY, config.link.tc_apid)
+            inbound = []
             sim_inputs = SimDriverInputs(
                 frames=frames,
                 detector=detector,
@@ -272,20 +246,35 @@ class InProcessBackend:
             self._clock.advance(delta)
 
     def inject_command(self, step: CommandStep) -> None:
-        """Send one command live for a real link; a no-op (pre-baked) for a sim link.
+        """Send one command live for a real link; enqueue it for a sim link.
 
         Args:
             step: The command timeline entry to deliver.
 
         Notes:
-            Sim-link commands are pre-baked into SimStationLink.inbound at build() time
-            (its queue is fixed at construction), so this is intentionally a no-op there.
             Real-link commands are uplinked over TCP through the StationEmulator.
+            Sim-link commands are signed and enqueued onto SimStationLink for the next
+            `iss_iface` tick, so `at_frame` timing is honored.
         """
         if self._link_real:
             if self._emulator is None:
                 raise RuntimeError("real link backend has no StationEmulator")
             self._emulator.send_command(step.command_id, step.params, step.source, step.seq)
+            return
+        if self._system is None:
+            raise RuntimeError("build() must be called before inject_command()")
+        enqueue = getattr(self._system.station, "enqueue", None)
+        if callable(enqueue):
+            enqueue(
+                build_tc_packet(
+                    step.command_id,
+                    step.params,
+                    step.source,
+                    step.seq,
+                    _SIL_KEY,
+                    self._tc_apid,
+                )
+            )
 
     def collect(self) -> TelemetryCapture:
         """Drain subscriptions + emulator UDP into a TelemetryCapture for scoring.

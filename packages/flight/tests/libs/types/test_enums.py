@@ -16,6 +16,7 @@ from flight.libs.types import (
 
 def test_enum_value_mirrors_name() -> None:
     """Enum string values mirror their member names (log readability convention)."""
+    assert {m.name for m in SystemMode} == {"INIT", "IDLE", "OPERATE", "SAFE", "STOW"}
     assert SystemMode.IDLE.value == "IDLE"
     assert {m.name for m in GimbalState} == {"TRACKING", "REWIND", "SAFE"}
 

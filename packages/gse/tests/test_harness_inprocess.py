@@ -18,7 +18,7 @@ def _sil_scenario() -> Scenario:
 
 
 def test_inprocess_backend_builds_steps_and_collects() -> None:
-    """Building over profiles/sil.toml then stepping yields a capture with inference results."""
+    """Building over profiles/sil.toml then stepping yields a boot-SAFE capture."""
     backend = InProcessBackend()
     backend.build(_sil_scenario(), "profiles/sil.toml")
     for i in range(4):
@@ -26,12 +26,10 @@ def test_inprocess_backend_builds_steps_and_collects() -> None:
     capture = backend.collect()
     backend.shutdown()
 
-    # One inference per stepped frame; no SAFE mode change in the nominal scene.
-    assert capture.inference_count == 4
+    # Boot is latched SAFE: no inference and no tracking motion.
+    assert capture.inference_count == 0
     assert capture.mode_changes == ()
-    # The closed loop tracked the off-center plume and moved the gimbal off the origin
-    # (off-origin past the 0.1 deg encoder-noise tolerance).
-    assert capture.gimbal_moved is True
+    assert capture.gimbal_moved is False
 
 
 def test_socket_backend_is_deferred() -> None:

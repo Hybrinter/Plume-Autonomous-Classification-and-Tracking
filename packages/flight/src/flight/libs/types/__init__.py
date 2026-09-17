@@ -5,8 +5,8 @@ submodules, so the internal split stays refactorable.
 
 Exports:
 - Enumerations: AckStatus, Band, CommandId, DownlinkPriority, FaultCode, FrameUsabilityTag,
-  GimbalCommandMode, GimbalState, LinkState, MessageType, ModelDeployState, ParamKind,
-  SystemMode.
+  GimbalCommandMode, GimbalState, LinkState, MessageType, ModeRequestReason, ModelDeployState,
+  ParamKind, SystemMode.
 - Result types: Err, Ok, Result.
 - Frame types: MosaicFrame.
 """
@@ -24,6 +24,7 @@ from flight.libs.types.enums import (
     LinkState,
     MessageType,
     ModelDeployState,
+    ModeRequestReason,
     ParamKind,
     SystemMode,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "LaunchLockState",
     "LinkState",
     "MessageType",
+    "ModeRequestReason",
     "ModelDeployState",
     "MosaicFrame",
     "Ok",

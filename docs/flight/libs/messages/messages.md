@@ -28,6 +28,7 @@ and embedded structs.
 | `FaultEventMsg` | `FAULT_EVENT` | Fault notification to fault app |
 | `HeartbeatMsg` | `HEARTBEAT` | Subsystem liveness signal |
 | `ModeChangeMsg` | `MODE_CHANGE` | System mode transition |
+| `ModeRequestMsg` | `MODE_REQUEST` | Subsystem request for a mode edge |
 | `CommandMsg` | `COMMAND` | Ground command envelope from ingress |
 | `RoutedCommandMsg` | `ROUTED_COMMAND` | Command accepted by router for target app |
 | `SafetyStateMsg` | `SAFETY_STATE` | Fault-owned SAFE latch and active fault set |
@@ -75,6 +76,8 @@ Frame-scoped messages also carry `frame_id: int` (uint32 monotonic counter).
    products fetched at transmission time.
 10. `SafetyStateMsg` publishes mode, active SAFE-triggering faults, latch flag, and latch reason
     each fault tick.
+11. `ModeRequestMsg` carries the requested mode, a `ModeRequestReason`, and the
+    requesting subsystem. Only the fault app turns it into `ModeChangeMsg`.
 
 ## Errors and faults
 

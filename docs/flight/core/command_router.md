@@ -21,7 +21,7 @@ routing core, and publishes routed commands, acks, and fault events.
 **`CommandRouter.from_config(cfg, bus, clock) -> CommandRouter`**
 
 - Inputs: `PactConfig`, shared `MessageBus`, `Clock`.
-- Output: router with fresh subscriptions and empty state.
+- Output: router with fresh subscriptions and SAFE-latched `RouterState`.
 
 **`CommandRouter.tick() -> None`**
 

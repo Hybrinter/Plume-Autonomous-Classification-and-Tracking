@@ -123,8 +123,9 @@ not compare these values.
 
 Hardware elevation `[el_hw_min_deg, el_hw_max_deg]`, science window
 `[el_science_min_deg, el_science_max_deg]`, stow and home elevation, max hardware slew,
-plant copies `J_kg_m2`, `B_nms_per_rad`, `tau_max_nm`, 18-bit encoder counts, and sim
-encoder noise. There is no azimuth travel field.
+INIT creep rate, span, and press timeout, stow arrival tolerance, plant copies
+`J_kg_m2`, `B_nms_per_rad`, `tau_max_nm`, 18-bit encoder counts, and sim encoder noise.
+There is no azimuth travel field.
 
 ### LinkConfig
 

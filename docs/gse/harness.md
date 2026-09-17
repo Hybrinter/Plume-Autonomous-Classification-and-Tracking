@@ -33,7 +33,7 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 **`InProcessBackend.inject_command(step) -> None`**
 
 - Input: `CommandStep`.
-- Real link: sends command through `StationEmulator`. Sim link: no-op (pre-baked packets).
+- Real link: sends command through `StationEmulator`. Sim link: enqueues a signed packet.
 
 **`InProcessBackend.collect() -> TelemetryCapture`**
 
@@ -49,13 +49,14 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 2. It renders frames with `build_frames` and `plume_detector`.
 3. For `link="real"`, it reserves a free TCP/UDP port pair, patches `LinkConfig`, builds the
    system, and connects `StationEmulator`.
-4. For sim link, it pre-builds signed TC packets with `build_tc_packet` and passes them as
-   `inbound_packets`.
+4. For sim link, it builds the system with an empty inbound queue.
 5. It creates bus subscriptions before the first step.
 6. Each `step` advances the shared `ManualClock` then runs the harness step.
-7. `collect` drains subscriptions, reads gimbal position with a noise tolerance, and polls
+7. `inject_command` on sim link enqueues a signed TC packet for the next
+   `iss_iface` tick. Real link uplinks through `StationEmulator`.
+8. `collect` drains subscriptions, reads gimbal position with a noise tolerance, and polls
    emulator downlink on real link.
-8. `shutdown` closes the emulator and station link.
+9. `shutdown` closes the emulator and station link.
 
 ## Errors and faults
 
@@ -75,7 +76,7 @@ Profile TOML selects `DriverConfig` axes. Default SIL uplink key is
 ## Constraints
 
 - This module is a stub backend holder for `SocketBackend`. PIL/HIL transport is not run.
-- Sim-link `inject_command` is intentionally a no-op. All pre-baked packets drain on step 1.
+- Sim-link `inject_command` enqueues the packet at `at_frame`.
 - Gimbal-moved is true only when elevation left the origin and is not at stow.
 - Imports are limited to `flight.libs` and `sim`.
 

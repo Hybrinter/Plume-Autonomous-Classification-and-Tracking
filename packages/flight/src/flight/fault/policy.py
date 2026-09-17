@@ -15,8 +15,9 @@ because a bad/spoofed/replayed command must NACK but must never SAFE the vehicle
 
 Contains:
   - SAFE_TRIGGERING_FAULTS: the FaultCodes that require a transition to SystemMode.SAFE.
-  - enter_safe_mode / exit_safe_mode: build SAFE-entry / SAFE-exit ModeChangeMsg.
+  - enter_safe_mode / enter_init_mode: build SAFE-entry / INIT-entry ModeChangeMsg.
   - decide_mode_change: map a FaultEventMsg to a ModeChangeMsg(SAFE) or None.
+  - can_enter_init: True when SAFE is latched and no triggering fault fired this tick.
 
 Satisfies: REQ-SAFE-HIGH-002, REQ-GIMB-HIGH-003, REQ-SAFE-EXIT-001.
 """
@@ -68,39 +69,36 @@ def enter_safe_mode(reason: FaultCode, now_iso: str) -> ModeChangeMsg:
     )
 
 
-def exit_safe_mode(cleared_by: str, now_iso: str) -> ModeChangeMsg:
-    """Build a ModeChangeMsg requesting transition out of SAFE to IDLE.
+def enter_init_mode(cleared_by: str, now_iso: str) -> ModeChangeMsg:
+    """Build a ModeChangeMsg requesting transition from SAFE to INIT.
 
-    SAFE exit requires an explicit ground command; this only constructs the message.
+    ENTER_INIT requires an explicit ground command; this only constructs the message.
 
     Args:
-        cleared_by: Identifier of the operator/command authorising the exit.
+        cleared_by: Identifier of the operator/command authorising INIT.
         now_iso: Wall-clock ISO timestamp for the message.
 
     Returns:
-        A ModeChangeMsg with new_mode=SystemMode.IDLE.
+        A ModeChangeMsg with new_mode=SystemMode.INIT.
     """
     return ModeChangeMsg(
         msg_type=MessageType.MODE_CHANGE,
         timestamp_utc=now_iso,
-        new_mode=SystemMode.IDLE,
-        requested_by=f"safe_mode_exit:{cleared_by}",
+        new_mode=SystemMode.INIT,
+        requested_by=f"enter_init:{cleared_by}",
     )
 
 
-def can_exit_safe(safe_latched: bool, safe_fault_seen_this_tick: bool) -> bool:
-    """Decide whether a ground EXIT_SAFE may un-latch SAFE (pure).
+def can_enter_init(safe_latched: bool, safe_fault_seen_this_tick: bool) -> bool:
+    """Decide whether a ground ENTER_INIT may leave SAFE (pure).
 
     Args:
-        safe_latched: True if SAFE is currently latched (else there is nothing to exit).
+        safe_latched: True if SAFE is currently latched (else there is nothing to leave).
         safe_fault_seen_this_tick: True if any SAFE-triggering fault was observed in the tick
-            the EXIT_SAFE is being evaluated in (the "triggering fault not yet cleared" gate).
+            the ENTER_INIT is being evaluated in.
 
     Returns:
-        True iff SAFE is latched AND no SAFE-triggering fault is currently active. The inhibit
-        is enforced here, at the actuator (the fault app), per the layered-authority model: a
-        ground EXIT_SAFE while a fault still fires must be refused so the vehicle cannot leave
-        SAFE into a still-faulted state.
+        True iff SAFE is latched AND no SAFE-triggering fault is currently active.
     """
     return safe_latched and not safe_fault_seen_this_tick
 

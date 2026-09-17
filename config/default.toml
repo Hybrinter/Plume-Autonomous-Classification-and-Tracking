@@ -159,6 +159,10 @@ el_science_max_deg = 45.0
 max_hw_slew_rate_deg_per_s = 10.0
 stow_el_deg = -45.0
 home_el_deg = 45.0
+init_creep_rate_deg_per_s = 10.0
+init_creep_span_deg = 45.0
+init_press_timeout_s = 2.0
+stow_arrive_tol_deg = 0.5
 [gimbal.simulation]
 J_kg_m2 = 0.008
 B_nms_per_rad = 0.04

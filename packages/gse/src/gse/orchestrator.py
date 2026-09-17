@@ -84,8 +84,7 @@ def _score_frame_portable(assertion: Assertion, capture: TelemetryCapture) -> As
         AssertionResult: pass/fail with an expected-vs-observed detail string.
 
     Notes:
-        - mode_is: the scenario's terminal mode expectation. NOMINAL is satisfied iff NO
-          SAFE was ever published; SAFE is satisfied iff at least one SAFE was published.
+        - mode_is: the last published SystemMode, or SAFE when none was published.
         - command_acked: an ACCEPTED/REJECTED ack of that status must appear in the run.
         - gimbal_moved: matches capture.gimbal_moved against the expected bool.
         - min_inference_count / min_downlink_count: observed >= the integer floor.
@@ -114,9 +113,9 @@ def _score_frame_portable(assertion: Assertion, capture: TelemetryCapture) -> As
         return _result(assertion, ok, detail)
     if kind == "mode_is":
         expected_mode = SystemMode[str(assertion.value)]
-        saw_safe = SystemMode.SAFE in capture.mode_changes
-        ok = saw_safe if expected_mode is SystemMode.SAFE else not saw_safe
-        detail = f"expected mode {expected_mode.value}, safe_seen={saw_safe}"
+        current = capture.mode_changes[-1] if capture.mode_changes else SystemMode.SAFE
+        ok = current is expected_mode
+        detail = f"expected mode {expected_mode.value}, got {current.value}"
         return _result(assertion, ok, detail)
     return _result(assertion, False, f"unknown frame-portable kind {kind!r}")
 
@@ -149,11 +148,10 @@ def run_scenario(
     Notes:
         Steps the backend over scenario.steps cycles at scenario.dt seconds, injecting each
         command at its at_frame (1-based: injected just before the step that processes that
-        frame). On a sim link inject_command is a no-op (commands are pre-baked and all
-        ingest on step 1), so at_frame timing only takes effect on a real link. Frame-portable
-        assertions are scored against the collected capture; realtime-only assertions are
-        recorded status="skip" with a fixed reason. The backend is always shut down, even on a
-        scoring error.
+        frame). `inject_command` enqueues the packet for the next `iss_iface` tick, so
+        at_frame timing holds on sim link and real link. Frame-portable assertions are scored
+        against the collected capture; realtime-only assertions are recorded status="skip"
+        with a fixed reason. The backend is always shut down, even on a scoring error.
     """
     runner = backend if backend is not None else InProcessBackend()
     runner.build(scenario, profile_path)

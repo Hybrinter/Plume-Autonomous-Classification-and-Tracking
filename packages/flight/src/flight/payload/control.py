@@ -433,7 +433,7 @@ class PayloadController:
             theta_enc_rad: Encoder elevation, radians.
             dt_s: Inner period; defaults to cfg.inner.dt_s.
             locked: Launch lock engaged (freeze I; caller writes τ=0).
-            safe_latched: Use the stow position loop instead of tracking r.
+            safe_latched: Halt in place (commanded rate 0) while SAFE is latched.
 
         Outputs:
             InnerTick: Updated state and torque.
@@ -461,25 +461,16 @@ class PayloadController:
         stopped = (
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
         )
-        if safe_latched or state.pose.pose_mode is not None:
-            pose_el = (
-                state.pose.pose_el_deg
-                if state.pose.pose_mode is not None
-                else self.gimbal.stow_el_deg
-            )
+        if safe_latched:
+            r = 0.0
+        elif state.pose.pose_mode is not None:
+            pose_el = state.pose.pose_el_deg
             r = position_rate(
                 math.radians(pose_el),
                 theta_enc_rad,
                 self.cfg.position.K_pos,
                 math.radians(self.cfg.position.r_max_deg_per_s),
             )
-            if safe_latched:
-                r = position_rate(
-                    math.radians(self.gimbal.stow_el_deg),
-                    theta_enc_rad,
-                    self.cfg.position.K_pos,
-                    math.radians(self.cfg.position.r_max_deg_per_s),
-                )
         else:
             r = state.commanded_rate_rad_s
             max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2

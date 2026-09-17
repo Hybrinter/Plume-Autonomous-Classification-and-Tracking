@@ -33,9 +33,10 @@ directly (`flight.payload.app`, `flight.payload.control`, and the child packages
 
 The payload app subscribes to `ModeChangeMsg` and `LaunchLockStateMsg`. It publishes
 `HeartbeatMsg`, `InferenceResultMsg`, `GimbalCommandMsg`, `FaultEventMsg`,
-`TelemetryEventMsg`, and `ProductRefMsg`. It uses the `ImagingSensor`, `GimbalActuator`,
-`IssEphemeris`, and `StorageWriter` HAL protocols. Preprocessing runs inside
-`process_frame()` and does not publish `ProcessedFrameMsg` on the bus.
+`TelemetryEventMsg`, `ProductRefMsg`, `CommandAckMsg`, and `ModeRequestMsg`. It uses
+the `ImagingSensor`, `GimbalActuator`, `IssEphemeris`, and `StorageWriter` HAL
+protocols. Preprocessing runs inside `process_frame()` and does not publish
+`ProcessedFrameMsg` on the bus. Closed-loop tracking runs only in `OPERATE`.
 
 ## Constraints
 

@@ -53,16 +53,19 @@ activates the pair on `ACTIVATE_MODEL`. A failed sanity check rolls back the pai
 1. On `ModelStagedMsg`, read bundle bytes via `storage_reader`.
 2. Verify SHA-256 digest against the announced hash.
 3. Parse the JSON pair manifest with `parse_manifest`.
-4. On success, set state to `STAGED` and publish `ModelDeployStateMsg`.
+4. On success, set state to `STAGED`, publish `ModeRequestMsg(MODEL_SUSPEND)`,
+   and publish `ModelDeployStateMsg`.
 5. On read, digest, or parse failure, publish `FaultEventMsg(MODEL_CORRUPT)`.
 6. On routed `ACTIVATE_MODEL`, require a staged pair.
 7. Compare both contracts to inference config:
    shared input `(1, len(input_bands), H, W)`, classifier output `(1, 1)`,
    segmentor output `(1, 1, H, W)`.
 8. On both matches, move staged version to active, retain previous as rollback, clear
-   staged, set state to `ACTIVE`, publish state, and ack accepted.
+   staged, set state to `ACTIVE`, publish state, publish `ModeRequestMsg(MODEL_RESUME)`,
+   and ack accepted.
 9. On either mismatch, clear staged, set state to `ROLLBACK_AVAILABLE`, publish
-   `MODEL_CORRUPT` fault, publish state, and ack rejected.
+   `MODEL_CORRUPT` fault, publish state, publish `ModeRequestMsg(MODEL_RESUME)`, and
+   ack rejected.
 10. `run` calls `tick` each loop and emits `HeartbeatMsg` every
     `fault.watchdog_interval_s`.
 
@@ -80,7 +83,7 @@ Publishes `CommandAckMsg` with `FaultCode.MODEL_CORRUPT` on rejected activation.
 command `ACTIVATE_MODEL`).
 
 **Publishes:** `ModelDeployStateMsg`, `FaultEventMsg(MODEL_CORRUPT)`, `CommandAckMsg`,
-`HeartbeatMsg`.
+`HeartbeatMsg`, `ModeRequestMsg`.
 
 ## Configuration
 

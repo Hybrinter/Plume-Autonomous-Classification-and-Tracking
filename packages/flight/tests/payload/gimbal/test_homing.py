@@ -1,7 +1,12 @@
 """Unit tests for placeholder INIT homing and STOW slew."""
 
 from flight.libs.config import GimbalConfig
-from flight.payload.gimbal.homing import HomingPhase, initial_homing, step_homing, stow_rate_deg_per_s
+from flight.payload.gimbal.homing import (
+    HomingPhase,
+    initial_homing,
+    step_homing,
+    stow_rate_deg_per_s,
+)
 
 
 def test_homing_creep_out_then_back_then_complete() -> None:

@@ -24,7 +24,11 @@ descriptive pages.
 | driver config | Per-axis sim/real HAL wiring (`DriverConfig`, `[drivers]`) |
 | drivers | Per-axis sim/real HAL wiring in `PactConfig.drivers` and profile TOML |
 | environment | Simulated world in pact-sim (`EnvironmentConfig`, named models) |
-| SAFE | System mode that stows motion and waits for ground exit |
+| SAFE | System mode that halts motion and waits for `ENTER_INIT` |
+| INIT | System mode that runs assumed-datum homing |
+| IDLE | System mode that holds rate 0 |
+| OPERATE | System mode that runs closed-loop tracking |
+| STOW | System mode that slews to rest, then requests `SAFE` |
 | scene | Synthetic imagery and readings used by SIL |
 | SIL | Software-in-the-loop harness that steps flight apps |
 | station link | Byte-level CCSDS transport to the ISS |
@@ -45,5 +49,5 @@ descriptive pages.
 
 ## Mode names
 
-Use the enum member text as written: `IDLE`, `TRACKING`, `REWIND`,
-`SCAN`, `SAFE`, `ABSOLUTE`, `STOW`, `HOME`.
+Use the enum member text as written: `INIT`, `IDLE`, `OPERATE`, `STOW`,
+`TRACKING`, `REWIND`, `SAFE`, `ABSOLUTE`, `STOW`, `HOME`.

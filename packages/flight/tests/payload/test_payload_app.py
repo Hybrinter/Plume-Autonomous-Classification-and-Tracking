@@ -17,6 +17,7 @@ from flight.libs.messages import (
     InferenceResultMsg,
     LaunchLockStateMsg,
     ModeChangeMsg,
+    ModeRequestMsg,
     ProcessedFrameMsg,
     RoutedCommandMsg,
     TelemetryEventMsg,
@@ -28,10 +29,10 @@ from flight.libs.types import (
     Err,
     FaultCode,
     FrameUsabilityTag,
-    GimbalCommandMode,
     GimbalState,
     LaunchLockState,
     MessageType,
+    ModeRequestReason,
     MosaicFrame,
     Ok,
     Result,
@@ -480,6 +481,97 @@ def test_process_frame_uses_encoder_when_command_and_motion_disagree() -> None:
     assert outcome.fault is None
     assert detector.flags
     assert FrameUsabilityTag.MOTION_SMEAR in detector.flags[0]
+
+
+def test_process_frame_skips_unless_operate() -> None:
+    """SAFE skips inference. OPERATE runs detection."""
+    app, bus, _gimbal, _clock = _build_app(_plume_detector())
+    inf_sub = bus.subscribe(InferenceResultMsg)
+    state = app.controller.initial_state()
+    _state, outcome = app.process_frame(_mosaic_frame(1), state, now=1.0)
+    assert outcome.fault is None
+    assert inf_sub.empty()
+    _enter_operate(app)
+    _state, outcome = app.process_frame(_mosaic_frame(2), state, now=2.0)
+    assert outcome.fault is None
+    assert not inf_sub.empty()
+
+
+def test_idle_hold_zeros_rate() -> None:
+    """IDLE commands rate 0 and does not run tracking."""
+    app, bus, gimbal, clock = _build_app(_plume_detector())
+    bus.publish(
+        ModeChangeMsg(
+            msg_type=MessageType.MODE_CHANGE,
+            timestamp_utc="t",
+            new_mode=SystemMode.IDLE,
+            requested_by="test",
+        )
+    )
+    app.poll_mode_changes()
+    state = replace(app.controller.initial_state(), commanded_rate_rad_s=0.2)
+    now = 0.0
+    for _ in range(4):
+        now += 1.0
+        state = app.advance_inner(state, now)
+        state, _ = app.advance_outer(state, now)
+        clock.advance(1.0)
+    assert state.commanded_rate_rad_s == 0.0
+    pos = gimbal.read_position()
+    assert isinstance(pos, Ok)
+    assert abs(pos.value.el_deg - PactConfig().gimbal.stow_el_deg) < 2.0
+
+
+def test_stow_at_rest_requests_safe() -> None:
+    """STOW at the rest pose publishes STOW_COMPLETE."""
+    app, bus, _gimbal, clock = _build_app(_plume_detector())
+    req_sub = bus.subscribe(ModeRequestMsg)
+    bus.publish(
+        ModeChangeMsg(
+            msg_type=MessageType.MODE_CHANGE,
+            timestamp_utc="t",
+            new_mode=SystemMode.STOW,
+            requested_by="test",
+        )
+    )
+    app.poll_mode_changes()
+    state = app.controller.initial_state()
+    now = 0.0
+    for _ in range(3):
+        now += 1.0
+        state = app.advance_inner(state, now)
+        state, _ = app.advance_outer(state, now)
+        clock.advance(1.0)
+    requests = []
+    while not req_sub.empty():
+        requests.append(req_sub.get_nowait())
+    assert any(r.reason is ModeRequestReason.STOW_COMPLETE for r in requests)
+
+
+def test_init_homing_requests_idle() -> None:
+    """INIT assumed-datum creep publishes HOMING_COMPLETE."""
+    app, bus, _gimbal, clock = _build_app(_plume_detector())
+    req_sub = bus.subscribe(ModeRequestMsg)
+    bus.publish(
+        ModeChangeMsg(
+            msg_type=MessageType.MODE_CHANGE,
+            timestamp_utc="t",
+            new_mode=SystemMode.INIT,
+            requested_by="test",
+        )
+    )
+    app.poll_mode_changes()
+    state = app.controller.initial_state()
+    now = 0.0
+    for _ in range(16):
+        now += 1.0
+        state = app.advance_inner(state, now)
+        state, _ = app.advance_outer(state, now)
+        clock.advance(1.0)
+    requests = []
+    while not req_sub.empty():
+        requests.append(req_sub.get_nowait())
+    assert any(r.reason is ModeRequestReason.HOMING_COMPLETE for r in requests)
 
 
 def _drain_telem(subscription: object) -> list[TelemetryEventMsg]:

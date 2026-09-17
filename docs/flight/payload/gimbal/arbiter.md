@@ -6,7 +6,7 @@
 ## Purpose
 
 `GimbalArbiter` selects TRACKING, REWIND, or SAFE. It does not emit axis rates or
-torque. SAFE latches until ground clears it.
+torque. SAFE latches until ground clears it. SAFE entry does not issue STOW.
 
 ## Public interface
 
@@ -25,11 +25,12 @@ vision_updated=True, observation_t_s=None, coast_permitted=True,
 timestamp_utc="")` returns
 `(ArbiterState, GimbalRequest | None, list[TelemetryEventMsg])`.
 
-The request is STOW on SAFE entry. Otherwise it is `None`. The outer law owns `r`.
+The request is `None` on SAFE entry. The outer law owns `r`.
 
 ## Behavior
 
-1. Enter SAFE and issue STOW when `safe_commanded` is true or `mode_flags` is nonzero.
+1. Enter SAFE and return no pose request when `safe_commanded` is true or
+   `mode_flags` is nonzero.
 2. While in SAFE, produce no commands unless `safe_cleared` returns the machine to
    TRACKING.
 3. An accepted aggregate enters or returns to TRACKING immediately. Its liveness is

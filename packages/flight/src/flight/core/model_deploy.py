@@ -42,10 +42,19 @@ from flight.libs.messages import (
     HeartbeatMsg,
     ModelDeployStateMsg,
     ModelStagedMsg,
+    ModeRequestMsg,
     RoutedCommandMsg,
 )
 from flight.libs.time import Clock
-from flight.libs.types import AckStatus, Err, FaultCode, MessageType, ModelDeployState
+from flight.libs.types import (
+    AckStatus,
+    Err,
+    FaultCode,
+    MessageType,
+    ModelDeployState,
+    ModeRequestReason,
+    SystemMode,
+)
 
 SUBSYSTEM = "model_deploy"
 _ACTIVATE_MODEL = "ACTIVATE_MODEL"
@@ -223,6 +232,7 @@ class ModelDeployService:
             segmentor=manifest.segmentor,
         )
         self.state.state = ModelDeployState.STAGED
+        self._request_mode(SystemMode.IDLE, ModeRequestReason.MODEL_SUSPEND)
         self._publish_state(self.state.staged.version, "model staged and validated")
 
     def _handle_activate(self, command: RoutedCommandMsg) -> None:
@@ -231,6 +241,7 @@ class ModelDeployService:
         if staged is None:
             self._ack(command, False, "no staged model to activate")
             return
+        self._request_mode(SystemMode.IDLE, ModeRequestReason.MODEL_SUSPEND)
         expected_classifier, expected_segmentor = self._expected_pair()
         pair_ok = contract_ok(
             staged.classifier.input_shape,
@@ -249,6 +260,7 @@ class ModelDeployService:
             self.state.staged = None
             self.state.state = ModelDeployState.ACTIVE
             self._publish_state(self.state.active_version, "model activated")
+            self._request_mode(SystemMode.OPERATE, ModeRequestReason.MODEL_RESUME)
             self._ack(command, True, f"activated {staged.version}")
         else:
             # First-frame sanity / load validation failed: keep the previous model active.
@@ -259,9 +271,22 @@ class ModelDeployService:
                 f"activation of {staged.version} failed sanity check; rolled back",
             )
             self._publish_state(self.state.active_version, f"rolled back from {staged.version}")
+            self._request_mode(SystemMode.OPERATE, ModeRequestReason.MODEL_RESUME)
             self._ack(
                 command, False, f"activation failed; rolled back to {self.state.active_version}"
             )
+
+    def _request_mode(self, requested: SystemMode, reason: ModeRequestReason) -> None:
+        """Ask the mode manager to suspend or resume OPERATE for model activity."""
+        self.bus.publish(
+            ModeRequestMsg(
+                msg_type=MessageType.MODE_REQUEST,
+                timestamp_utc=self.clock.wall_clock_iso(),
+                requested_mode=requested,
+                reason=reason,
+                subsystem=SUBSYSTEM,
+            )
+        )
 
     def _publish_state(self, version: str, detail: str) -> None:
         """Publish the current ModelDeployState as telemetry."""

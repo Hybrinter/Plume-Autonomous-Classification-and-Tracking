@@ -13,6 +13,7 @@ across subsystems.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SystemMode` | enum | Top-level operational mode |
+| `ModeRequestReason` | enum | Why a subsystem asked the mode manager to change |
 | `GimbalState` | enum | Gimbal arbiter state |
 | `GimbalCommandMode` | enum | Gimbal command axis interpretation |
 | `FaultCode` | enum | Enumerated fault conditions |
@@ -31,12 +32,21 @@ across subsystems.
 
 | Member | Description |
 | --- | --- |
-| `IDLE` | Default idle mode |
-| `ACTIVE` | Inference and gimbal running |
-| `SCAN` | Nadir scan, no active target |
-| `MODEL_UPLINK` | Model upload session |
-| `DATA_DOWNLINK` | Data downlink session |
-| `SAFE` | Fault-induced minimal activity |
+| `INIT` | Assumed-datum homing after `ENTER_INIT` |
+| `IDLE` | Zero-rate hold. Pose commands are rejected |
+| `OPERATE` | Closed-loop tracking and rewind |
+| `SAFE` | Halt in place. Wait for ground `ENTER_INIT` |
+| `STOW` | Scripted slew to rest, then request `SAFE` |
+
+### ModeRequestReason
+
+| Member | Description |
+| --- | --- |
+| `HOMING_COMPLETE` | INIT homing finished. Request `IDLE` |
+| `STOW_COMPLETE` | STOW rest confirmed. Request `SAFE` |
+| `MODEL_SUSPEND` | Model upload or activate. Request `IDLE` |
+| `MODEL_RESUME` | Model activity finished. Resume `OPERATE` if suspended |
+| `HOMING_FAILED` | INIT envelope trip. Request `SAFE` |
 
 ### GimbalState
 
@@ -44,7 +54,7 @@ across subsystems.
 | --- | --- |
 | `TRACKING` | Closed-loop pointing or limb wait with `r=0` |
 | `REWIND` | Slew elevation to the science limb after TRACKING loss |
-| `SAFE` | Gimbal inhibited; position loop drives stow |
+| `SAFE` | Gimbal inhibited. Halt in place |
 
 ### GimbalCommandMode
 
@@ -107,7 +117,7 @@ across subsystems.
 ### MessageType
 
 Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMBAL_COMMAND`,
-`TELEMETRY_EVENT`, `FAULT_EVENT`, `HEARTBEAT`, `MODE_CHANGE`, `COMMAND`, `ROUTED_COMMAND`,
+`TELEMETRY_EVENT`, `FAULT_EVENT`, `HEARTBEAT`, `MODE_CHANGE`, `MODE_REQUEST`, `COMMAND`, `ROUTED_COMMAND`,
 `SAFETY_STATE`, `STORAGE_WRITE`, `PRODUCT_REF`, `DOWNLINK_ITEM`, `UPLINK_CHUNK`, `COMMAND_ACK`,
 `LINK_STATE`, `LAUNCH_LOCK_STATE`, `MODEL_STAGED`, `MODEL_DEPLOY`.
 
@@ -157,13 +167,13 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `PING` | Liveness check, no params |
 | `NOOP` | Accepted no-op, no params |
 | `SET_THERMAL_LIMIT` | Set thermal limit (`limit_c: float`) |
-| `EXIT_SAFE` | Hazardous SAFE exit (`phase: str`) |
+| `ENTER_INIT` | Hazardous SAFE to INIT (`phase: str`) |
+| `ENTER_OPERATE` | Non-hazardous IDLE to OPERATE |
+| `ENTER_IDLE` | Non-hazardous OPERATE to IDLE |
+| `ENTER_STOW` | Hazardous IDLE to STOW (`phase: str`) |
 | `RELEASE_LAUNCH_LOCK` | Hazardous lock release (`phase: str`) |
 | `UPLOAD_MODEL_CHUNK` | Chunked classifier+segmentor pair upload params |
 | `ACTIVATE_MODEL` | Activate staged inference pair (`version: str`) |
-| `GIMBAL_STOW` | Payload stow via the position loop |
-| `GIMBAL_HOME` | Payload home via the position loop |
-| `GIMBAL_GOTO` | Payload absolute pose (`el_deg: float`) |
 
 ### ParamKind
 

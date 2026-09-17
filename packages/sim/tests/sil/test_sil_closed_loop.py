@@ -16,12 +16,12 @@ from flight.libs.messages import (
 from flight.libs.time import ManualClock
 from flight.libs.types import AckStatus, FaultCode, GimbalState, MessageType, Ok, SystemMode
 from sim.scene import build_frames, plume_detector
-from sim.sil import SilHarness, build_sil_system
+from sim.sil import SilHarness, SilSystem, build_sil_system
 
 _KEY = b"sil-test-key-0000000000000000000"
 
 
-def _commission(harness: SilHarness, system, *, homing_steps: int = 12) -> None:
+def _commission(harness: SilHarness, system: SilSystem, *, homing_steps: int = 12) -> None:
     """Leave boot SAFE via ENTER_INIT homing, then ENTER_OPERATE for tracking."""
     now = harness._now
 
@@ -304,3 +304,78 @@ def test_encoder_freeze_trips_runaway_and_safe() -> None:
     faults = _drain(fault_sub)
     assert any(f.fault_code is FaultCode.GIMBAL_RUNAWAY for f in faults)
     assert harness.payload_gimbal_state() is GimbalState.SAFE
+
+
+def test_boot_stays_safe_until_enter_init() -> None:
+    """Uncommissioned SIL remains latched SAFE with no tracking motion."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(6),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    inf_sub = system.bus.subscribe(InferenceResultMsg)
+    mode_sub = system.bus.subscribe(ModeChangeMsg)
+    SilHarness(system).run_steps(6, dt=1.0)
+    assert _drain(mode_sub) == []
+    assert _drain(inf_sub) == []
+    pos = system.gimbal.read_position()
+    assert isinstance(pos, Ok)
+    stow_el = PactConfig().gimbal.stow_el_deg
+    assert abs(pos.value.el_deg - stow_el) < 1.0
+    switch = system.gimbal.read_stow_switch()
+    assert isinstance(switch, Ok)
+    assert switch.value is False
+
+
+def test_enter_stow_returns_to_safe() -> None:
+    """ENTER_STOW after homing autonomously returns to latched SAFE."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(30),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    harness = SilHarness(system)
+    mode_sub = system.bus.subscribe(ModeChangeMsg)
+    now = harness._now
+
+    def advance() -> None:
+        nonlocal now
+        now += 1.0
+        harness.step(now)
+        system.clock.advance(1.0)
+
+    system.station.enqueue(
+        build_tc_packet("ENTER_INIT", {"phase": "ARM"}, "ground", 1, _KEY, apid=1)
+    )
+    advance()
+    system.station.enqueue(
+        build_tc_packet("ENTER_INIT", {"phase": "EXECUTE"}, "ground", 2, _KEY, apid=1)
+    )
+    advance()
+    advance()
+    for _ in range(12):
+        advance()
+    system.station.enqueue(
+        build_tc_packet("ENTER_STOW", {"phase": "ARM"}, "ground", 3, _KEY, apid=1)
+    )
+    advance()
+    system.station.enqueue(
+        build_tc_packet("ENTER_STOW", {"phase": "EXECUTE"}, "ground", 4, _KEY, apid=1)
+    )
+    for _ in range(4):
+        advance()
+    modes = _drain(mode_sub)
+    assert any(m.new_mode is SystemMode.STOW for m in modes)
+    assert modes[-1].new_mode is SystemMode.SAFE
+    pos = system.gimbal.read_position()
+    assert isinstance(pos, Ok)
+    stow_el = PactConfig().gimbal.stow_el_deg
+    assert abs(pos.value.el_deg - stow_el) < 1.0

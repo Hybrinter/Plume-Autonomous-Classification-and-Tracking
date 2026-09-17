@@ -109,7 +109,7 @@ status = "verified"
 
 [[requirement]]
 id = "REQ-SAFE-EXIT-001"
-statement = "SAFE is a single latched tier exited only by a ground EXIT_SAFE command, gated on the triggering fault having cleared."
+statement = "SAFE is a single latched tier exited only by a ground ENTER_INIT command, gated on the triggering fault having cleared."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-SAFE-EXIT-001"]

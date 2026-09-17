@@ -10,7 +10,7 @@ captures the response passively.
 
 The suite covers the nominal track plus every required fault/behavior path: a thermal hot
 sample (telemetry only), power over-limit -> SAFE -> stow, gimbal runaway, watchdog/process-died,
-EXIT_SAFE recovery via the ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the
+ENTER_INIT recovery via the ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the
 launch-lock interlock, the model upload -> activate -> rollback lifecycle, storage eviction,
 and downlink AOS/budget backpressure.
 The gimbal-runaway scenario freezes the sim encoder under a nonzero rate reference so
@@ -205,6 +205,20 @@ def _command(
     )
 
 
+def _commission_injections(
+    arm_step: int = 0,
+    execute_step: int = 1,
+    operate_step: int = 14,
+    seq: int = 100,
+) -> tuple[Injection, ...]:
+    """Timed bus injections that commission SAFE -> INIT -> OPERATE."""
+    return (
+        Injection(arm_step, _command("ENTER_INIT", "fault", {"phase": "ARM"}, seq=seq)),
+        Injection(execute_step, _command("ENTER_INIT", "fault", {"phase": "EXECUTE"}, seq=seq + 1)),
+        Injection(operate_step, _command("ENTER_OPERATE", "fault", {}, seq=seq + 2)),
+    )
+
+
 def _fault(code: FaultCode, subsystem: str, detail: str) -> FaultEventMsg:
     """Build a FaultEventMsg (the FDIR input the fault app routes through its SAFE policy)."""
     return FaultEventMsg(
@@ -302,12 +316,13 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="nominal_tracking",
             title="Nominal plume tracking",
             description=(
-                "Detect the scripted plume, enter TRACKING, and slew elevation toward "
-                "the target. No faults; the system stays nominal the whole run."
+                "Commission ENTER_INIT homing and ENTER_OPERATE, then detect the scripted "
+                "plume, enter TRACKING, and slew elevation toward the target."
             ),
             category="nominal",
-            steps=14,
-            num_frames=14,
+            steps=25,
+            num_frames=25,
+            injections=_commission_injections(),
         ),
         ScenarioSpec(
             name="thermal_hot_sample",
@@ -317,16 +332,17 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
                 "does not emit THERMAL_OVER_LIMIT. The system stays nominal."
             ),
             category="thermal",
-            steps=16,
-            num_frames=16,
-            thermal_readings=(25.0, 25.0, 95.0),
+            steps=20,
+            num_frames=20,
+            thermal_readings=(25.0,) * 16 + (95.0,) * 4,
+            injections=_commission_injections(),
         ),
         ScenarioSpec(
             name="power_over_limit_safe",
             title="Power over-limit -> SAFE",
             description=(
                 "A power draw above the 55 W limit self-reports POWER_OVER_LIMIT; FDIR "
-                "latches SAFE and the arbiter safes the gimbal."
+                "latches SAFE and the payload halts without commanding stow."
             ),
             category="power",
             steps=12,
@@ -342,9 +358,10 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
                 "it to SAFE."
             ),
             category="gimbal",
-            steps=12,
-            num_frames=12,
-            actions=(Action(3, lambda system: system.gimbal.freeze_encoder()),),
+            steps=22,
+            num_frames=22,
+            injections=_commission_injections(),
+            actions=(Action(18, lambda system: system.gimbal.freeze_encoder()),),
         ),
         ScenarioSpec(
             name="watchdog_process_died",
@@ -365,20 +382,20 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="exit_safe_recovery",
-            title="EXIT_SAFE recovery via ARM/EXECUTE",
+            title="ENTER_INIT recovery via ARM/EXECUTE",
             description=(
-                "A power spike latches SAFE, then the spike clears; a ground EXIT_SAFE is "
-                "ARMed (step 8) and EXECUTEd (step 9) through the command router and fault "
-                "app, un-latching SAFE so the arbiter returns to operations and re-acquires "
-                "the plume."
+                "A power spike latches SAFE, then the spike clears; ENTER_INIT is ARMed "
+                "(step 8) and EXECUTEd (step 9), homing runs, then ENTER_OPERATE (step 22) "
+                "returns the payload to tracking."
             ),
             category="recovery",
-            steps=14,
-            num_frames=14,
+            steps=28,
+            num_frames=28,
             power_readings=(30.0, 30.0, 80.0, 80.0, 25.0),
             injections=(
-                Injection(8, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=1)),
-                Injection(9, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=2)),
+                Injection(8, _command("ENTER_INIT", "fault", {"phase": "ARM"}, seq=1)),
+                Injection(9, _command("ENTER_INIT", "fault", {"phase": "EXECUTE"}, seq=2)),
+                Injection(22, _command("ENTER_OPERATE", "fault", {}, seq=3)),
             ),
         ),
         ScenarioSpec(

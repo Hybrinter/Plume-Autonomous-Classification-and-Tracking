@@ -36,11 +36,11 @@ def test_builtin_scenario_runs(name: str, builtin_runs: dict[str, ScenarioRun]) 
     assert run.capture.n_steps == SCENARIOS[name].steps
 
 
-def test_power_drives_safe_and_stow(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """A power over-limit run latches SAFE and stows the gimbal."""
+def test_power_drives_safe_without_stow_command(builtin_runs: dict[str, ScenarioRun]) -> None:
+    """A power over-limit run latches SAFE without commanding stow."""
     run = builtin_runs["power_over_limit_safe"]
     assert _ever_positive(run, "system", "system.safe_latched")
-    assert _ever_positive(run, "payload", "payload.stow_switch")
+    assert not _ever_positive(run, "payload", "payload.stow_switch")
 
 
 def test_thermal_hot_sample_stays_nominal(builtin_runs: dict[str, ScenarioRun]) -> None:
@@ -58,7 +58,7 @@ def test_injected_faults_drive_safe(builtin_runs: dict[str, ScenarioRun]) -> Non
         assert _final(run, "system", "system.safe_latched") == 1.0
 
 
-def test_exit_safe_recovery_unlatches(builtin_runs: dict[str, ScenarioRun]) -> None:
+def test_enter_init_recovery_unlatches(builtin_runs: dict[str, ScenarioRun]) -> None:
     """The recovery run latches SAFE but ends un-latched and back in operations."""
     run = builtin_runs["exit_safe_recovery"]
     assert _ever_positive(run, "system", "system.safe_latched")

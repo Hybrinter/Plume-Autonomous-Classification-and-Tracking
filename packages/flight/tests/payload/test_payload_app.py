@@ -11,6 +11,7 @@ from flight.hal.interfaces import GimbalHealth, GimbalPosition, GimbalRateComman
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
+    CommandAckMsg,
     FaultEventMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
@@ -22,6 +23,7 @@ from flight.libs.messages import (
 )
 from flight.libs.time import ManualClock
 from flight.libs.types import (
+    AckStatus,
     DownlinkPriority,
     Err,
     FaultCode,
@@ -106,6 +108,12 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     )
     app.lock_gate.engaged = False
     return app, bus, gimbal, clock
+
+
+def _enter_operate(app: PayloadApp) -> None:
+    """Put the payload in OPERATE for tests that exercise inference and tracking."""
+    app.safe_latch.commanded = False
+    app.mode_view.system = SystemMode.OPERATE
 
 
 class _RateGimbal:
@@ -218,6 +226,7 @@ def test_process_frame_passes_full_band_plane() -> None:
             return self._inner.detect(frame)
 
     app, _bus, _gimbal, _clock = _build_app(_CapturingDetector())
+    _enter_operate(app)
     _state, outcome = app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0)
 
     assert outcome.fault is None
@@ -227,6 +236,7 @@ def test_process_frame_passes_full_band_plane() -> None:
 def test_persistent_plume_drives_gimbal_through_app() -> None:
     """A stable plume drives TRACKING and moves elevation through the catch-up loops."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
+    _enter_operate(app)
     telem_sub = bus.subscribe(TelemetryEventMsg)
     inf_sub = bus.subscribe(InferenceResultMsg)
 
@@ -253,7 +263,7 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
 
     position = gimbal.read_position()
     assert isinstance(position, Ok)
-    assert position.value.el_deg > 0.1
+    assert position.value.el_deg > app.controller.gimbal.stow_el_deg + 0.5
     assert position.value.el_deg <= app.controller.gimbal.el_science_max_deg
     assert not hasattr(position.value, "az_deg")
 
@@ -270,6 +280,7 @@ def test_no_detection_publishes_inference_but_no_pose_command() -> None:
         np.zeros((1024, 1224), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
     )
     app, bus, _gimbal, clock = _build_app(empty_detector)
+    _enter_operate(app)
     cmd_sub = bus.subscribe(GimbalCommandMsg)
 
     state = app.controller.initial_state()
@@ -287,8 +298,8 @@ def test_no_detection_publishes_inference_but_no_pose_command() -> None:
     assert cmd_sub.empty()
 
 
-def test_mode_change_safe_issues_stow_actuation() -> None:
-    """SAFE issues STOW, but a stopped host expires torque instead of driving on."""
+def test_mode_change_safe_halts_without_stow_actuation() -> None:
+    """SAFE inhibits motion and does not publish a STOW pose command."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     cmd_sub = bus.subscribe(GimbalCommandMsg)
 
@@ -300,17 +311,16 @@ def test_mode_change_safe_issues_stow_actuation() -> None:
             requested_by="ground",
         )
     )
-    safe_commanded, safe_cleared = app.poll_mode_changes()
+    safe_commanded, operate_cleared = app.poll_mode_changes()
     assert safe_commanded is True
-    assert safe_cleared is False
+    assert operate_cleared is False
 
     state = app.controller.initial_state()
     state, _proc = app.process_frame(_mosaic_frame(1), state, now=1.0)
     state, outcome = app.advance_outer(state, now=1.0, safe_commanded=safe_commanded)
-    assert outcome.command_issued is True
+    assert outcome.command_issued is False
     assert state.arbiter.gimbal_state is GimbalState.SAFE
-    published = cmd_sub.get_nowait()
-    assert published.mode is GimbalCommandMode.STOW
+    assert cmd_sub.empty()
 
     state = app.advance_inner(state, now=7.0)
     clock.advance(7.0)
@@ -361,7 +371,7 @@ def test_lock_engaged_writes_zero_torque() -> None:
     assert state.commanded_rate_rad_s == 0.0
 
 
-def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:
+def test_safe_latch_halts_stale_tracking_torque() -> None:
     """Healthy SAFE cannot continue a stale outward tracking command."""
     app, _bus, gimbal, _clock = _build_app(_plume_detector())
     assert isinstance(gimbal.set_torque(0.2, valid_until_s=1.0), Ok)
@@ -401,9 +411,10 @@ def test_encoder_failure_contains_motion_and_commands_safe(
     assert state.arbiter.gimbal_state is GimbalState.SAFE
 
 
-def test_ground_goto_latches_pose_mode() -> None:
-    """A routed GIMBAL_GOTO sets pose_mode and publishes a pose command."""
+def test_retired_goto_command_is_rejected() -> None:
+    """Retired payload pose commands are rejected without actuation."""
     app, bus, _gimbal, _clock = _build_app(_plume_detector())
+    ack_sub = bus.subscribe(CommandAckMsg)
     cmd_sub = bus.subscribe(GimbalCommandMsg)
     bus.publish(
         RoutedCommandMsg(
@@ -417,19 +428,20 @@ def test_ground_goto_latches_pose_mode() -> None:
         )
     )
     app.handle_commands()
+    ack = ack_sub.get_nowait()
+    assert ack.status is AckStatus.REJECTED
+    assert ack.fault_code is FaultCode.COMMAND_INVALID
     state, outcome = app.advance_outer(app.controller.initial_state(), now=1.0)
-    assert outcome.command_issued is True
-    assert state.pose.pose_mode is GimbalCommandMode.ABSOLUTE
-    assert state.pose.pose_el_deg == 20.0
-    published = cmd_sub.get_nowait()
-    assert published.mode is GimbalCommandMode.ABSOLUTE
-    assert published.el_value_deg == 20.0
+    assert outcome.command_issued is False
+    assert state.pose.pose_mode is None
+    assert cmd_sub.empty()
 
 
 def test_process_frame_preserves_measured_zero_slew() -> None:
     """A stationary measured gimbal rate flags MOTION_SMEAR against a moving scene."""
     detector = _FlagDetector()
     app, _bus, _gimbal, _clock = _build_app(detector)
+    _enter_operate(app)
     initial = app.controller.initial_state()
     state = replace(
         initial,
@@ -450,6 +462,7 @@ def test_process_frame_uses_encoder_when_command_and_motion_disagree() -> None:
     """Missing measured slew uses encoder motion, not the commanded rate."""
     detector = _FlagDetector()
     app, _bus, _gimbal, _clock = _build_app(detector)
+    _enter_operate(app)
     app._record_encoder(GimbalPosition(el_deg=10.0, timestamp_s=0.9, sequence=1))
     pos = GimbalPosition(el_deg=10.0, timestamp_s=1.0, sequence=2)
     app._record_encoder(pos)

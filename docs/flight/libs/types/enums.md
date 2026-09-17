@@ -14,6 +14,7 @@ across subsystems.
 | --- | --- | --- |
 | `SystemMode` | enum | Top-level operational mode |
 | `GimbalState` | enum | Gimbal arbiter state |
+| `is_rewind_hunt` | function | True for `REWIND` and `FAST_REWIND` |
 | `GimbalCommandMode` | enum | Gimbal command axis interpretation |
 | `FaultCode` | enum | Enumerated fault conditions |
 | `Band` | enum | Mosaic-filter band names |
@@ -43,7 +44,8 @@ across subsystems.
 | Member | Description |
 | --- | --- |
 | `TRACKING` | Closed-loop pointing or limb wait with `r=0` |
-| `REWIND` | Slew elevation to the science limb after TRACKING loss |
+| `REWIND` | Smear-capped hunt toward the science limb after TRACKING loss |
+| `FAST_REWIND` | Hardware-slew hunt after the sharp REWIND window |
 | `SAFE` | Gimbal inhibited; position loop drives stow |
 
 ### GimbalCommandMode
@@ -101,7 +103,7 @@ across subsystems.
 | `CLOUD_CONTAMINATED` | Cloud contamination detected |
 | `SUNGLINT` | Sunglint detected |
 | `SATURATED` | Saturation detected |
-| `MOTION_SMEAR` | Motion smear detected |
+| `MOTION_SMEAR` | Reserved; not raised. Smear is a control cap |
 | `INCOMPLETE_METADATA` | Missing metadata |
 
 ### MessageType

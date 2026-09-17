@@ -108,6 +108,20 @@ def test_rewind_uses_boresight_not_stored_cog() -> None:
     assert abs(omega_bore - omega_cog) > 1e-8
 
 
+def test_fast_rewind_uses_boresight_not_stored_cog() -> None:
+    """FAST_REWIND selects the boresight hit. It does not keep a lost-plume CoG."""
+    eph = EphemerisConfig()
+    cog = (eph.wgs84_a_m, 0.0, 0.0)
+    theta_g = math.radians(20.0)
+    scene = _scene(GimbalState.FAST_REWIND, cog, theta_g_rad=theta_g)
+    rewind = _scene(GimbalState.REWIND, cog, theta_g_rad=theta_g)
+    assert scene.source is SceneSource.BORESIGHT
+    assert scene.point_ecef_m == rewind.point_ecef_m
+    assert scene.point_ecef_m != cog
+    assert scene.nav_valid is True
+    assert scene.los is not None
+
+
 def test_tracking_without_cog_is_none_source() -> None:
     """TRACKING with no CoG has no Earth point even when ISS is present."""
     scene = _scene(GimbalState.TRACKING, None, with_iss=True)
@@ -141,6 +155,17 @@ def test_acquire_resets_from_rewind() -> None:
     """A blob that enters TRACKING from REWIND always resets the residual."""
     assert acquire_resets_residual(
         previous_mode=GimbalState.REWIND,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=False,
+        previous_blob_ids=frozenset({2}),
+        new_blob_ids=frozenset({2}),
+    )
+
+
+def test_acquire_resets_from_fast_rewind() -> None:
+    """A blob that enters TRACKING from FAST_REWIND always resets the residual."""
+    assert acquire_resets_residual(
+        previous_mode=GimbalState.FAST_REWIND,
         new_mode=GimbalState.TRACKING,
         previous_aggregate_live=False,
         previous_blob_ids=frozenset({2}),

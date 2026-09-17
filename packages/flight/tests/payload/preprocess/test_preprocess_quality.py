@@ -102,55 +102,20 @@ def test_saturated_flag_boundary(fraction: float, expect_saturated: bool) -> Non
         )
 
 
-def test_motion_smear_from_slew_and_exposure() -> None:
-    """Elevation-relative mismatch flags; matched gimbal and scene rates stay clean."""
+def test_motion_smear_is_not_a_quality_flag() -> None:
+    """Elevation-relative smear does not raise MOTION_SMEAR. It is a control cap."""
     bands = np.zeros((4, 8, 8), dtype=np.float32)
-    cfg = PreprocessingConfig()  # max_motion_smear_px = 1.0
+    cfg = PreprocessingConfig()
     exposure_us = 50_000.0
     ifov = 0.04
     ts = "2026-06-09T00:00:00.000Z"
-    # |2 - 0| deg/s * 0.05 s / 0.04 deg/px = 2.5 px > 1.0 -> flagged
     flags = compute_quality_flags(bands, exposure_us, 2.0, ifov, ts, cfg)
-    assert FrameUsabilityTag.MOTION_SMEAR in flags
-    # Matched 2 deg/s gimbal and scene -> zero relative smear (azimuth not modeled).
+    assert FrameUsabilityTag.MOTION_SMEAR not in flags
     flags = compute_quality_flags(
         bands, exposure_us, 2.0, ifov, ts, cfg, omega_scene_el_deg_per_s=2.0
     )
     assert FrameUsabilityTag.MOTION_SMEAR not in flags
-    # Both rates zero (stationary, no scene rate) -> never flags
     flags = compute_quality_flags(bands, exposure_us, 0.0, ifov, ts, cfg)
-    assert FrameUsabilityTag.MOTION_SMEAR not in flags
-
-
-def test_azimuth_only_motion_does_not_raise_motion_smear() -> None:
-    """Lateral smear is not an input; matched elevation rates stay clean."""
-    bands = np.zeros((4, 8, 8), dtype=np.float32)
-    cfg = PreprocessingConfig()
-    flags = compute_quality_flags(
-        bands,
-        50_000.0,
-        2.0,
-        _IFOV,
-        _TS,
-        cfg,
-        omega_scene_el_deg_per_s=2.0,
-    )
-    assert FrameUsabilityTag.MOTION_SMEAR not in flags
-
-
-def test_motion_smear_scene_matched_high_gimbal_rate_is_clean() -> None:
-    """A high commanded elevation rate that tracks the scene must not raise MOTION_SMEAR."""
-    bands = np.zeros((4, 8, 8), dtype=np.float32)
-    cfg = PreprocessingConfig()
-    flags = compute_quality_flags(
-        bands,
-        50_000.0,
-        5.0,
-        _IFOV,
-        _TS,
-        cfg,
-        omega_scene_el_deg_per_s=5.0,
-    )
     assert FrameUsabilityTag.MOTION_SMEAR not in flags
 
 

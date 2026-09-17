@@ -32,7 +32,8 @@ monotonic now.
 ## Behavior
 
 1. SAFE returns source `NONE` and no Earth point.
-2. REWIND returns source `BORESIGHT`. With valid ISS, it intersects the current
+2. REWIND and FAST_REWIND return source `BORESIGHT`. With valid ISS, they
+   intersect the current
    boresight with the height-proxy ellipsoid. That hit is scene rate only. The
    function does not treat it as a CoG.
 3. TRACKING with a stored CoG returns source `COG` and predicts from that point.
@@ -40,7 +41,8 @@ monotonic now.
 4. Missing ISS sets `nav_valid` to false and leaves `los` empty. A valid
    `LosPrediction` may still hold a 0.0 rate for a stationary scene.
 5. `acquire_resets_residual` is true for a TRACKING blob from a cold aggregate,
-   a blob that leaves REWIND, or a TRACKING blob set with no overlapping
+   a blob that leaves REWIND or FAST_REWIND, or a TRACKING blob set with no
+   overlapping
    `blob_id`. An empty frame does not reset.
 
 ## Errors and faults

@@ -20,8 +20,9 @@ the station TLE HTTP API. Do not run a formal gain or plant-identification study
    Optical azimuth in the FOV still enters the CoG ray. The dual-axis analysis
    study under `packages/analysis/.../single_axis_vs_dual_axis_gimbal/` keeps
    azimuth; nowhere else does.
-4. `REWIND` is the hunt mode. Azimuth `SCAN` is gone. TRACKING, REWIND, and SAFE
-   are the only arbiter states.
+4. `REWIND` is the smear-capped hunt. `FAST_REWIND` is the hardware-slew hunt.
+   Azimuth `SCAN` is gone. TRACKING, REWIND, FAST_REWIND, and SAFE are the
+   arbiter states.
 5. Keep the repo invariants: pure cores (no I/O, no bus, no clock reads; `now` is
    an argument), `Result` in library code, HAL Protocol injection, no app-to-app
    imports, config from `PactConfig` / `config/default.toml` only.
@@ -36,8 +37,8 @@ the station TLE HTTP API. Do not run a formal gain or plant-identification study
 | --- | --- |
 | Actuator command | Production: leased absolute elevation `set_rate`. SIL detailed plant: torque \(\tau\) from the inner PI that tracks the same \(r\). |
 | Axes | Elevation motor only. No azimuth hardware, no azimuth tracking law. |
-| Hunt | `REWIND` toward the science limb. Not an azimuth raster. |
-| Arbiter | TRACKING / REWIND / SAFE. No IDLE. No ACQUIRING. Limb wait is TRACKING with \(r=0\). |
+| Hunt | `REWIND` then `FAST_REWIND` toward the science limb. Not an azimuth raster. |
+| Arbiter | TRACKING / REWIND / FAST_REWIND / SAFE. No IDLE. No ACQUIRING. Limb wait is TRACKING with \(r=0\). |
 | Ephemeris | New HAL Protocol. ISS state is ECI, SI meters. Sim driver is a circular Keplerian orbit. Station TLE API later behind the same Protocol. |
 | Plume target | Recompute the CoG LOS intersect with a 2 km geodetic-height ellipsoid every accepted vision frame. Height is a tracking proxy, not stereo. |
 | Inner rate | Cheap causal polynomial differentiator on an encoder ring. Not a Kalman filter. |
@@ -249,7 +250,7 @@ Limits:
 \]
 
 Science imaging uses the tighter window \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\).
-The arbiter enforces the science window in TRACKING/REWIND. The driver enforces (2).
+The arbiter enforces the science window in TRACKING/REWIND/FAST_REWIND. The driver enforces (2).
 
 Sim must integrate (1) in SI, then convert pose to degrees for encoder readback.
 Do not keep the first-order `sim_time_constant_s` rate plant as the tracking truth
@@ -534,7 +535,8 @@ On the next accepted vision frame, replace \(\mathbf{r}_{\mathrm{cog}}\) with th
 new intersect. A jump in ECEF is expected (CoG walk).
 
 TRACKING coast (bounded miss) keeps the last \(\mathbf{r}_{\mathrm{cog,ECEF}}\).
-REWIND stores no CoG: \(\mathbf{r}_{\mathrm{cog}}=\texttt{None}\). Intersect the
+REWIND and FAST_REWIND store no CoG: \(\mathbf{r}_{\mathrm{cog}}=\texttt{None}\).
+Intersect the
 **current boresight** with the same 2 km ellipsoid and use that hit as scene rate
 only. Do not write the boresight hit into \(\mathbf{r}_{\mathrm{cog}}\). Do not
 reuse a lost-plume ECEF point.
@@ -615,11 +617,13 @@ F=\begin{bmatrix}1&T\\ 0&1\end{bmatrix},
 2. \(\omega_g[k]\leftarrow y_m\) from the inner loop.
 3. \(\hat{\mathbf{x}}^-=F\hat{\mathbf{x}}+\mathbf{u}\), \(P^-=FPF^\top+Q\).
 
-REWIND freezes residual history. Encoder rings on `ControlState` still run for
+REWIND and FAST_REWIND freeze residual history. Encoder rings on `ControlState`
+still run for
 the inner loop. Do not submit encoder, boresight-nominal, or vision events for a
 target that does not exist. Do not wipe the filter on disappearance. Reset
 `initial_state` + `initial_history` when TRACKING acquires: first blob from cold,
-blob from REWIND, or TRACKING blobs with no overlapping `blob_id` versus the
+blob from REWIND or FAST_REWIND, or TRACKING blobs with no overlapping `blob_id`
+versus the
 previous `tracked_blobs`. Seed the checkpoint at shutter with the shutter encoder
 angle when the sample carries one. A missing shutter angle leaves the checkpoint
 angle unset. A shutter after now uses the current encoder. Drop the stored CoG on
@@ -641,7 +645,7 @@ On the first accepted \(z_v\), snap \(\hat e\leftarrow z_v\) and shrink \(P_{11}
 toward \(R_v\); keep \(P_{22}\) large.
 
 Until that first accepted \(z_v\): \(\hat e=0\), \(\hat\omega_{t,\mathrm{res}}=0\),
-\(r=0\) except REWIND/SAFE. Do not track on a cold filter.
+\(r=0\) except REWIND/FAST_REWIND/SAFE. Do not track on a cold filter.
 
 The vision queue (depth 4, drop oldest) is **not** the encoder ring and **not**
 the rewind snapshot ring.
@@ -669,7 +673,7 @@ If \(\hat e\to 0\) and \(\hat\omega_{t,\mathrm{res}}\approx\omega_{t,\mathrm{res
 then \(r\to\omega_t\) and (13) stays at zero: the gimbal leads the orbit instead
 of chasing pixels.
 
-**Smear cap (elevation-relative).** During TRACKING (once live) and sharp REWIND:
+**Smear cap (elevation-relative).** During TRACKING (once live) and REWIND:
 
 \[
 \omega_{\mathrm{sharp,el}}
@@ -704,11 +708,11 @@ ABSOLUTE / STOW / HOME. Tracking rates are `GimbalRateCommand`.
 | State | Rate reference \(r\) | Notes |
 | --- | --- | --- |
 | TRACKING (cold / limb wait) | \(0\) | No accepted aggregate, or arrived at the science limb after loss. |
-| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at 2 km at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). Reset residual on acquire (cold, from REWIND, or unmatched `blob_id`). Drop the prior CoG on that reset unless this frame intersected. IoU-matched CoG jump rebases; it does not reset. |
+| TRACKING (live) | (18) with hardware-rate, stopping-distance, and science-window clips | Live = an accepted aggregate or bounded coast. An ISS sample contributes optional nominal motion; visual feedback does not require it. Re-intersect the aggregate CoG at 2 km at shutter pose. Zero \(r\) that would leave \([\theta_{\mathrm{sci,min}},\theta_{\mathrm{sci,max}}]\). Reset residual on acquire (cold, from REWIND or FAST_REWIND, or unmatched `blob_id`). Drop the prior CoG on that reset unless this frame intersected. IoU-matched CoG jump rebases; it does not reset. |
 | Miss coast | keep last \(\hat\omega_{t,\mathrm{res}}\), predict-only, still (18) on the coasted \(\mathbf{r}_{\mathrm{cog}}\) | Ends at the first of `release_persistence_frames` received-empty samples, `max_observation_age_s`, or an estimator uncertainty gate. One empty frame does not reset the residual. |
-| REWIND (sharp window) | \(\omega_{\mathrm{el,boresight}}+\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\mathrm{sharp,el}}\) | Hunt after loss below the limb. No target CoG (\(\mathbf{r}_{\mathrm{cog}}=\texttt{None}\)). Boresight ∩ 2 km is scene rate only; not stored as CoG. Residual frozen (not fed boresight rates, not wiped). Stamp `rewind_entered_s`. |
-| REWIND (after `rewind_sharp_max_s`) | \(\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) | Hardware escape. Keep `rewind_sharp_max_s` = 2 s. |
-| REWIND at limb | → TRACKING with \(r=0\) | Wait. Blob → TRACKING live and residual reset. |
+| REWIND | \(\omega_{\mathrm{el,boresight}}+\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\mathrm{sharp,el}}\) | Hunt after loss below the limb. No target CoG (\(\mathbf{r}_{\mathrm{cog}}=\texttt{None}\)). Boresight ∩ 2 km is scene rate only; not stored as CoG. Residual frozen (not fed boresight rates, not wiped). Stamp `rewind_entered_s`. |
+| FAST_REWIND | \(\mathrm{sign}(\theta_{\mathrm{sci,max}}-\theta_g)\,\omega_{\max,\mathrm{hw}}\) | Hardware-slew hunt. Arbiter promotes from REWIND after `rewind_sharp_max_s` (keep 2 s). Same plume, limb, and SAFE edges as REWIND. |
+| REWIND or FAST_REWIND at limb | → TRACKING with \(r=0\) | Wait. Blob → TRACKING live and residual reset. |
 | SAFE | inhibit drive; request contained HAL STOW | Latch until ground clear. Blobs ignored. |
 
 Arrival at the limb is
@@ -788,7 +792,7 @@ Defaults must match `config/default.toml`. Do not hide numbers in source.
 | `controller.inner.tau_cl_s` | 0.010 | design statement |
 | `controller.outer.dt_s` | 0.020 | |
 | `controller.outer.Kp` | 8.0 | 1/s on rad |
-| `controller.outer.rewind_sharp_max_s` | 2.0 | sharp REWIND then hw escape |
+| `controller.outer.rewind_sharp_max_s` | 2.0 | REWIND then FAST_REWIND |
 | `controller.predictor.cog_height_m` | 2000.0 | tracking height proxy |
 | `controller.residual.Q_diag` | `[1e-11, 3e-8]` | per outer step |
 | `controller.residual.R_v` | 2.12e-9 | rad² (~1 band px) |
@@ -829,8 +833,9 @@ Remove `lqr_*`, dual-axis `kalman_*`, `ema_alpha`, `retarget_rate_limit_hz`,
 - PTU ASCII real driver
 
 Keep: pinhole / boresight geometry, blob gates, IoU match, SAFE stow latch,
-encoder timestamp, `REWIND` as the hunt mode, quality smear flag as an imaging
-gate (the controller respects the same cap via (19)).
+encoder timestamp, `REWIND` and `FAST_REWIND` as hunt modes, smear budget as a
+control cap only (exclude FAST_REWIND frames from training by mode, not a pixel
+flag).
 
 ---
 

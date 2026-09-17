@@ -385,11 +385,12 @@ class PayloadApp:
         state: ControlState,
         measured_rate_deg_per_s: float | None,
     ) -> tuple[float, SmearRateSource]:
-        """Elevation rate for MOTION_SMEAR: measured, else encoder, else command.
+        """Elevation rate selected by the payload app: measured, else encoder, else command.
 
         ``0.0`` is a valid measured, encoder, or commanded rate. Unknown is a
         missing measured value plus a failed encoder bracket, which falls back
-        to the commanded rate and labels it COMMANDED.
+        to the commanded rate and labels it COMMANDED. Quality flags do not
+        raise MOTION_SMEAR from this rate.
         """
         if measured_rate_deg_per_s is not None:
             return measured_rate_deg_per_s, SmearRateSource.MEASURED

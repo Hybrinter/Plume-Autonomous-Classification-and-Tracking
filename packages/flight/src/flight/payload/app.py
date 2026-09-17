@@ -781,6 +781,7 @@ class PayloadApp:
                 encoder_timestamp_s=encoder_timestamp_s,
                 locked=locked,
                 safe_latched=self._hold_inner(),
+                apply_science_guard=self.mode_view.system is SystemMode.OPERATE,
             )
             current, integrity_fault = self._apply_integrity(
                 current, tick.state, tick.tau_nm, theta, t, enc_rate, locked
@@ -1168,6 +1169,7 @@ class PayloadApp:
                     encoder_timestamp_s=encoder_timestamp_s,
                     locked=locked,
                     safe_latched=hold,
+                    apply_science_guard=self.mode_view.system is SystemMode.OPERATE,
                 )
                 stamped, integrity_fault = self._apply_integrity(
                     snap, tick.state, tick.tau_nm, theta, now_inner, enc_rate, locked

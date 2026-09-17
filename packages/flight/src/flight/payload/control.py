@@ -424,6 +424,7 @@ class PayloadController:
         encoder_timestamp_s: float | None = None,
         locked: bool = False,
         safe_latched: bool = False,
+        apply_science_guard: bool = True,
     ) -> InnerTick:
         """One inner tick: push encoder, fit y_m, PI + computed torque.
 
@@ -435,6 +436,8 @@ class PayloadController:
             locked: Launch lock engaged (freeze I; caller writes τ=0).
             safe_latched: Halt in place (commanded rate 0) while SAFE is latched
                 or the system mode is IDLE.
+            apply_science_guard: When True (OPERATE), clamp r to the science window.
+                INIT and STOW pass False so creep can use the hardware envelope.
 
         Outputs:
             InnerTick: Updated state and torque.
@@ -474,31 +477,34 @@ class PayloadController:
             )
         else:
             r = state.commanded_rate_rad_s
-            max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2
-            guard = math.radians(self.cfg.integrity.science_boundary_guard_deg)
-            if r > 0.0:
-                remaining = max(
-                    0.0,
-                    math.radians(self.gimbal.el_science_max_deg) - guard - theta_enc_rad,
-                )
-                r = min(
-                    r,
-                    math.sqrt(2.0 * max_decel * remaining),
-                    self.cfg.inner.kp * remaining,
-                )
-            elif r < 0.0:
-                remaining = max(
-                    0.0,
-                    theta_enc_rad - math.radians(self.gimbal.el_science_min_deg) - guard,
-                )
-                r = max(
-                    r,
-                    -math.sqrt(2.0 * max_decel * remaining),
-                    -self.cfg.inner.kp * remaining,
-                )
+            if apply_science_guard:
+                max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2
+                guard = math.radians(self.cfg.integrity.science_boundary_guard_deg)
+                if r > 0.0:
+                    remaining = max(
+                        0.0,
+                        math.radians(self.gimbal.el_science_max_deg) - guard - theta_enc_rad,
+                    )
+                    r = min(
+                        r,
+                        math.sqrt(2.0 * max_decel * remaining),
+                        self.cfg.inner.kp * remaining,
+                    )
+                elif r < 0.0:
+                    remaining = max(
+                        0.0,
+                        theta_enc_rad - math.radians(self.gimbal.el_science_min_deg) - guard,
+                    )
+                    r = max(
+                        r,
+                        -math.sqrt(2.0 * max_decel * remaining),
+                        -self.cfg.inner.kp * remaining,
+                    )
         if locked:
             r = 0.0
-        at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
+        at_bound = False
+        if apply_science_guard:
+            at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
         result = inner_step(
             r,
             y_m,

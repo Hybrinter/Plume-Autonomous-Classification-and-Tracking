@@ -261,6 +261,19 @@ def test_inner_step_writes_torque() -> None:
     assert tick.tau_nm != 0.0
 
 
+def test_inner_step_init_creep_crosses_science_min() -> None:
+    """INIT/STOW creep is not clamped at the science-window edge."""
+    from dataclasses import replace
+
+    controller = _controller()
+    state = replace(controller.initial_state(), commanded_rate_rad_s=math.radians(-10.0))
+    blocked = controller.inner_step(state, 0.001, 0.0, apply_science_guard=True)
+    assert blocked.state.commanded_rate_rad_s == 0.0
+    allowed = controller.inner_step(state, 0.001, 0.0, apply_science_guard=False)
+    assert allowed.state.commanded_rate_rad_s < 0.0
+    assert allowed.tau_nm < 0.0
+
+
 def test_iss_sample_feeds_predictor() -> None:
     """An IssSample with a stored CoG at the 2 km proxy produces a finite omega_t_nom."""
     controller = _controller()

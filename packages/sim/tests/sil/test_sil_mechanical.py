@@ -43,15 +43,20 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     assert abs(locked_pos.value.el_deg - stow_el) < 0.1
     assert not hasattr(locked_pos.value, "az_deg")
 
-    # Hazardous release: ARM then EXECUTE over the link.
+    harness.commission(enter_operate=False)
+    # Hazardous release is legal after ENTER_INIT unlatches SAFE.
     system.station.enqueue(
-        build_tc_packet("RELEASE_LAUNCH_LOCK", {"phase": "ARM"}, "ground", 1, _KEY, apid=1)
+        build_tc_packet("RELEASE_LAUNCH_LOCK", {"phase": "ARM"}, "ground", 3, _KEY, apid=1)
     )
-    advance(1)
+    now = harness._now + 1.0
+    harness.step(now)
+    system.clock.advance(1.0)
     system.station.enqueue(
-        build_tc_packet("RELEASE_LAUNCH_LOCK", {"phase": "EXECUTE"}, "ground", 2, _KEY, apid=1)
+        build_tc_packet("RELEASE_LAUNCH_LOCK", {"phase": "EXECUTE"}, "ground", 4, _KEY, apid=1)
     )
-    advance(1)
+    now += 1.0
+    harness.step(now)
+    system.clock.advance(1.0)
 
     execute_acks = [
         a
@@ -64,8 +69,8 @@ def test_launch_lock_inhibits_then_release_frees_the_gimbal() -> None:
     latest_lock = [m.state for m in _drain(lock_states)]
     assert latest_lock and latest_lock[-1] is LaunchLockState.RELEASED
 
-    harness.commission()
-    harness.run_steps(8, dt=1.0)
+    system.station.enqueue(build_tc_packet("ENTER_OPERATE", {}, "ground", 5, _KEY, apid=1))
+    harness.run_steps(10, dt=1.0)
     freed_pos = system.gimbal.read_position()
     assert isinstance(freed_pos, Ok)
     assert abs(freed_pos.value.el_deg - stow_el) > 0.5

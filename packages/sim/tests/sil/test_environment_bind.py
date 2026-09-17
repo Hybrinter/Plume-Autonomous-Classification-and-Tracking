@@ -424,6 +424,7 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
     )
     harness = SilHarness(system, bind=bind)
     _force_operate(system)
+    system.gimbal._theta_rad = 0.0
     now = clock0
     for _ in range(4):
         now += step_dt

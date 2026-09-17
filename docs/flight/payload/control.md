@@ -35,7 +35,8 @@ predictor events, vision replay, and the rate law.
 ## Inputs and outputs
 
 `from_config` takes controller, sensor, gimbal, ephemeris, and preprocessing
-slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
+slices. `inner_step` takes a raw encoder angle, optional encoder sample time,
+SAFE/IDLE hold, and `apply_science_guard` (False for INIT/STOW creep).
 `outer_step` takes an `EncoderSample`, optional `VisionSample`, optional
 `IssSample`, SAFE flags, and an optional explicit
 `PredictorReferenceChange`.

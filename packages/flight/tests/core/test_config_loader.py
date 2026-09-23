@@ -75,7 +75,9 @@ def test_gimbal_section_loads() -> None:
     assert g.home_el_deg == 45.0
     assert g.J_kg_m2 == 0.008
     assert g.tau_max_nm == 1.0
-    assert g.encoder_counts_per_rev == 262144
+    assert g.tau_coulomb_nm == 0.05
+    assert g.encoder_counts_per_rev == 86400
+    assert g.sim_encoder_noise_deg == 0.00625
 
 
 def test_controller_placeholder_fields_load() -> None:

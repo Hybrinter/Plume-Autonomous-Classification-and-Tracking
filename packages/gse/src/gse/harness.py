@@ -68,9 +68,9 @@ from gse.station import StationEmulator
 _SIL_KEY = b"sil-test-key-0000000000000000000"
 
 # Off-origin tolerance (deg) for the gimbal-moved flag. SimGimbal.read_position() adds
-# encoder noise at config.gimbal.sim_encoder_noise_deg (default 0.005 deg 1-sigma) on every
+# encoder noise at config.gimbal.sim_encoder_noise_deg (default 0.00625 deg 1-sigma) on every
 # read, so a strict != (0.0, 0.0) test would spuriously report motion even when stationary.
-# 0.1 deg is 20x the noise 1-sigma, well below real tracked motion (degrees).
+# 0.1 deg is 16x the noise 1-sigma, well below real tracked motion (degrees).
 _GIMBAL_MOVED_TOLERANCE_DEG = 0.1
 
 _T = TypeVar("_T")

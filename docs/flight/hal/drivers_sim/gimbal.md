@@ -5,9 +5,11 @@
 
 ## Purpose
 
-`SimGimbal` integrates `J * omega_dot + B * omega = tau` in SI. It quantizes an
-18-bit encoder, adds seeded Gaussian noise, and satisfies `GimbalActuator`
-structurally for SIL and tests.
+`SimGimbal` integrates `J * omega_dot + B * omega + friction = tau` in SI, where
+friction is a Coulomb/static-friction term (zero drive torque below the configured
+breakaway magnitude). It quantizes the encoder at the real XD-C controller's count
+resolution, adds seeded Gaussian noise sized to the datasheet effective resolution,
+and satisfies `GimbalActuator` structurally for SIL and tests.
 
 ## Public interface
 
@@ -52,7 +54,7 @@ Observability properties: `true_el_deg`, `true_omega_rad_s`. `advance_plant` and
    lease, or write last-feedback time. Stow switch uses the current true pose.
 7. `read_stow_switch` is true after `stow()` and when elevation is within 0.5 deg of
    the stow pose.
-8. Travel and slew clips apply inside the ODE step.
+8. Coulomb/static friction and travel/slew clips apply inside the ODE step.
 
 ## Errors and faults
 
@@ -65,7 +67,8 @@ None.
 
 ## Configuration
 
-Reads `GimbalConfig` plant scalars, travel, slew, encoder counts, noise, and seed.
+Reads `GimbalConfig` plant scalars (including `tau_coulomb_nm`), travel, slew, encoder
+counts, noise, and seed.
 
 ## Constraints
 

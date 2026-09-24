@@ -16,6 +16,9 @@ coarse tiles for a ShuffleNet classifier and a DilateNet segmentor.
 | [`index`](original_dataset_analysis/index.md) | module | Archive index and GeoTIFF reads |
 | [`split`](original_dataset_analysis/split.md) | module | Location-grouped splits |
 | [`grid`](original_dataset_analysis/grid.md) | module | Coarsening and mask rasterization |
+| [`normalize`](original_dataset_analysis/normalize.md) | module | Train-split band moments |
+| [`dataset`](original_dataset_analysis/dataset.md) | module | Tile samples |
+| [`models`](original_dataset_analysis/models.md) | module | ShuffleNet and DilateNet |
 
 ## Package interface
 
@@ -39,3 +42,6 @@ The package reads local tar archives. It does not import ``flight`` or
 - [`tools.original_dataset_analysis.index`](original_dataset_analysis/index.md)
 - [`tools.original_dataset_analysis.split`](original_dataset_analysis/split.md)
 - [`tools.original_dataset_analysis.grid`](original_dataset_analysis/grid.md)
+- [`tools.original_dataset_analysis.normalize`](original_dataset_analysis/normalize.md)
+- [`tools.original_dataset_analysis.dataset`](original_dataset_analysis/dataset.md)
+- [`tools.original_dataset_analysis.models`](original_dataset_analysis/models.md)

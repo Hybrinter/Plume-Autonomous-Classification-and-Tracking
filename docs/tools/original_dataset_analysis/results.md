@@ -12,17 +12,21 @@ score column.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `write_stub_tables` | function | Markdown tables |
+| `write_stub_tables` | function | Markdown tables with blank scores |
+| `write_filled_tables` | function | Native scores filled |
 
 ## Inputs and outputs
 
 `write_stub_tables(order, path) -> None`.
 
+`write_filled_tables(order, scores, path) -> None`.
+
 ## Behavior
 
 1. The native section has one row per native cell.
-2. The ground-sample section has one row per ceiling and RGB cell at each legal side.
-3. The score cell is empty.
+2. The ground-sample section has one row per 12-band and RGB cell at each legal side.
+3. ``write_stub_tables`` leaves every score empty. ``write_filled_tables`` writes
+   the native score when the key is present and leaves ground-sample scores empty.
 
 ## Errors and faults
 

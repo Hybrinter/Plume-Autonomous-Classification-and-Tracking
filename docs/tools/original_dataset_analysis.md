@@ -14,6 +14,7 @@ coarse tiles for a ShuffleNet classifier and a DilateNet segmentor.
 | --- | --- | --- |
 | [`bands`](original_dataset_analysis/bands.md) | module | Sentinel-2 ids and subset selection |
 | [`index`](original_dataset_analysis/index.md) | module | Archive index and GeoTIFF reads |
+| [`cache`](original_dataset_analysis/cache.md) | module | Native stack memmap |
 | [`split`](original_dataset_analysis/split.md) | module | Location-grouped splits |
 | [`grid`](original_dataset_analysis/grid.md) | module | Coarsening and mask rasterization |
 | [`normalize`](original_dataset_analysis/normalize.md) | module | Train-split band moments |
@@ -21,6 +22,7 @@ coarse tiles for a ShuffleNet classifier and a DilateNet segmentor.
 | [`models`](original_dataset_analysis/models.md) | module | ShuffleNet and DilateNet |
 | [`metrics`](original_dataset_analysis/metrics.md) | module | Test-split scores |
 | [`train`](original_dataset_analysis/train.md) | module | Shared training loop |
+| [`sweep`](original_dataset_analysis/sweep.md) | module | Native training sweep |
 | [`matrix`](original_dataset_analysis/matrix.md) | module | Native band matrix |
 | [`plots`](original_dataset_analysis/plots.md) | module | Score bar charts |
 | [`cli`](original_dataset_analysis/cli.md) | module | Cell list and completeness check |
@@ -46,6 +48,7 @@ The package reads local tar archives. It does not import ``flight`` or
 - [`tools`](../tools.md)
 - [`tools.original_dataset_analysis.bands`](original_dataset_analysis/bands.md)
 - [`tools.original_dataset_analysis.index`](original_dataset_analysis/index.md)
+- [`tools.original_dataset_analysis.cache`](original_dataset_analysis/cache.md)
 - [`tools.original_dataset_analysis.split`](original_dataset_analysis/split.md)
 - [`tools.original_dataset_analysis.grid`](original_dataset_analysis/grid.md)
 - [`tools.original_dataset_analysis.normalize`](original_dataset_analysis/normalize.md)
@@ -53,6 +56,7 @@ The package reads local tar archives. It does not import ``flight`` or
 - [`tools.original_dataset_analysis.models`](original_dataset_analysis/models.md)
 - [`tools.original_dataset_analysis.metrics`](original_dataset_analysis/metrics.md)
 - [`tools.original_dataset_analysis.train`](original_dataset_analysis/train.md)
+- [`tools.original_dataset_analysis.sweep`](original_dataset_analysis/sweep.md)
 - [`tools.original_dataset_analysis.matrix`](original_dataset_analysis/matrix.md)
 - [`tools.original_dataset_analysis.plots`](original_dataset_analysis/plots.md)
 - [`tools.original_dataset_analysis.cli`](original_dataset_analysis/cli.md)

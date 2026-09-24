@@ -94,4 +94,8 @@ def test_training_returns_a_checkpoint() -> None:
     )
     assert result.best_epoch in {0, 1}
     assert result.best_val_loss >= 0.0
+    assert len(result.history) == 2
+    assert result.history[0].epoch == 1
+    assert result.history[0].test_loss is None
+    assert result.history[0].train_loss is not None
     model.load_state_dict(result.state_dict)

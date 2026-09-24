@@ -60,7 +60,7 @@ class BandSpec:
     """A named band subset.
 
     Attributes:
-        kind: ``rgb``, ``ceiling``, ``loo``, or ``s2_13``.
+        kind: ``rgb``, ``s2_12``, or ``loo``.
         dropped_band: Sentinel-2 id removed when ``kind`` is ``loo``.
     """
 
@@ -121,7 +121,7 @@ def verify_band_order(descriptions: Sequence[str]) -> BandOrder:
     return BandOrder(ids=tuple(ids), index_by_id=index_by_id)
 
 
-def _ceiling_ids(order: BandOrder) -> tuple[str, ...]:
+def _s2_12_ids(order: BandOrder) -> tuple[str, ...]:
     """Return file-order ids with B10 removed."""
     return tuple(band_id for band_id in order.ids if band_id != "B10")
 
@@ -142,17 +142,14 @@ def resolve_subset(order: BandOrder, spec: BandSpec) -> BandSubset:
     if spec.kind == "rgb":
         selected = _RGB
         name = "rgb"
-    elif spec.kind == "ceiling":
-        selected = _ceiling_ids(order)
-        name = "ceiling"
-    elif spec.kind == "s2_13":
-        selected = order.ids
-        name = "s2_13"
+    elif spec.kind == "s2_12":
+        selected = _s2_12_ids(order)
+        name = "s2_12"
     elif spec.kind == "loo":
-        ceiling = _ceiling_ids(order)
-        if spec.dropped_band not in ceiling:
-            raise ValueError(f"leave-one-out band {spec.dropped_band!r} is not in the ceiling")
-        selected = tuple(band_id for band_id in ceiling if band_id != spec.dropped_band)
+        kept = _s2_12_ids(order)
+        if spec.dropped_band not in kept:
+            raise ValueError(f"leave-one-out band {spec.dropped_band!r} is not in the 12-band set")
+        selected = tuple(band_id for band_id in kept if band_id != spec.dropped_band)
         name = f"loo_{spec.dropped_band}"
     else:
         raise ValueError(f"unknown band set {spec.kind!r}")

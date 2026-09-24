@@ -29,14 +29,14 @@ named subset.
 1. Each description is scanned for a Sentinel-2 token. ``B08`` and ``B8A``
    normalize to ``B8`` and ``B8A``.
 2. Duplicate ids and a missing ``B10`` token raise.
-3. ``rgb`` selects B2, B3, B4. ``ceiling`` selects every id except B10.
-   ``loo`` removes one ceiling id. ``s2_13`` keeps the file order, including B10.
+3. ``rgb`` selects B2, B3, B4. ``s2_12`` selects every id except B10.
+   ``loo`` removes one id from that 12-band set. B10 is not a trainable input.
 4. Selected indices follow file order.
 
 ## Errors and faults
 
 `ValueError` on an empty description, a duplicate id, a missing B10 token, an
-unknown subset kind, or a leave-one-out id outside the ceiling.
+unknown subset kind, or a leave-one-out id outside the 12-band set.
 
 ## Messages
 

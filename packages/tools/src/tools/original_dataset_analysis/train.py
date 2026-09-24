@@ -1,8 +1,9 @@
 """Shared training loop for the classifier and the segmentor.
 
 Contains:
-  - TrainConfig: epochs, batch size, learning rate, and patience.
-  - TrainResult: best validation loss and the epoch that reached it.
+  - TrainConfig: epochs, learning rate, and patience.
+  - EpochLoss: one epoch of train, validation, and test loss.
+  - TrainResult: best validation loss, its epoch, its weights, and the history.
   - run_training: AdamW, cosine decay, and early stopping.
 """
 
@@ -38,6 +39,23 @@ class TrainConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class EpochLoss:
+    """Sample-weighted losses for one completed epoch.
+
+    Attributes:
+        epoch: One-based epoch index.
+        train_loss: Mean training loss. ``None`` when the epoch updated no weights.
+        val_loss: Mean validation loss. Augmentation is not applied.
+        test_loss: Mean test loss. ``None`` when no test loader was supplied.
+    """
+
+    epoch: int
+    train_loss: float | None
+    val_loss: float
+    test_loss: float | None
+
+
+@dataclass(frozen=True, slots=True)
 class TrainResult:
     """The checkpoint with the lowest validation loss.
 
@@ -45,11 +63,13 @@ class TrainResult:
         best_epoch: Zero-based epoch of the best validation loss.
         best_val_loss: That loss.
         state_dict: Weights at ``best_epoch``.
+        history: One record per completed epoch, in order.
     """
 
     best_epoch: int
     best_val_loss: float
     state_dict: dict[str, torch.Tensor]
+    history: tuple[EpochLoss, ...] = ()
 
 
 def _loss_of(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -162,6 +182,7 @@ def run_training(
     *,
     target: str,
     device: torch.device | None = None,
+    test_loader: DataLoader[_Batch] | None = None,
 ) -> TrainResult:
     """Train until patience expires or ``epochs`` is reached.
 
@@ -175,9 +196,11 @@ def run_training(
         config: Loop settings.
         target: ``label`` or ``mask``.
         device: Torch device. Defaults to CPU.
+        test_loader: Held-out batches scored every epoch without augmentation.
+            ``None`` leaves the test loss empty.
 
     Returns:
-        TrainResult: Best validation loss and its weights.
+        TrainResult: Best validation loss, its weights, and the epoch history.
 
     Raises:
         ValueError: If ``target`` is unknown, a loader is empty, a batch
@@ -187,6 +210,8 @@ def run_training(
         raise ValueError(f"target must be 'label' or 'mask'; got {target!r}")
     if len(train_loader) == 0 or len(val_loader) == 0:
         raise ValueError("train and val loaders must each yield a batch")
+    if test_loader is not None and len(test_loader) == 0:
+        raise ValueError("test loader must yield a batch")
     torch.manual_seed(config.seed)
     chosen = device if device is not None else torch.device("cpu")
     model = model.to(chosen)
@@ -198,9 +223,12 @@ def run_training(
     best_epoch = 0
     best_state = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
     stale = 0
+    history: list[EpochLoss] = []
     for epoch in range(config.epochs):
         model.train()
         stepped = False
+        train_total = 0.0
+        train_count = 0
         for batch in train_loader:
             image, label, mask, annotated = _parts(batch)
             kept = _drop_unannotated(image, label, mask, annotated, target=target)
@@ -217,12 +245,23 @@ def run_training(
             if target == "label":
                 logits = logits.reshape(batch_target.shape)
             loss = _loss_of(logits, batch_target)
+            train_total += float(loss.item()) * image.shape[0]
+            train_count += image.shape[0]
             loss.backward()  # type: ignore[no-untyped-call]
             optimizer.step()
             stepped = True
         if stepped:
             schedule.step()
         val_loss = _mean_loss(model, val_loader, chosen, target)
+        test_loss = None if test_loader is None else _mean_loss(model, test_loader, chosen, target)
+        history.append(
+            EpochLoss(
+                epoch=epoch + 1,
+                train_loss=None if train_count == 0 else train_total / float(train_count),
+                val_loss=val_loss,
+                test_loss=test_loss,
+            )
+        )
         if val_loss < best_loss:
             best_loss = val_loss
             best_epoch = epoch
@@ -235,4 +274,9 @@ def run_training(
             if stale >= config.patience:
                 break
     model.load_state_dict(best_state)
-    return TrainResult(best_epoch=best_epoch, best_val_loss=best_loss, state_dict=best_state)
+    return TrainResult(
+        best_epoch=best_epoch,
+        best_val_loss=best_loss,
+        state_dict=best_state,
+        history=tuple(history),
+    )

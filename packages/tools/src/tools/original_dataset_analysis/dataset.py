@@ -2,6 +2,7 @@
 
 Contains:
   - TileReader: reads one native stack.
+  - TileSample: image, label, mask, and annotation flag.
   - StudyDataset: selected bands, a legal side, and frozen moments.
 """
 
@@ -16,16 +17,20 @@ from torch.utils.data import Dataset
 from tools.original_dataset_analysis.bands import BandSubset
 from tools.original_dataset_analysis.grid import coarsen, rasterize_mask
 from tools.original_dataset_analysis.index import TileRef
-from tools.original_dataset_analysis.normalize import BandStats, apply_band_stats
+from tools.original_dataset_analysis.normalize import BandStats, apply_band_stats, check_band_stats
 
 TileReader = Callable[[TileRef], np.ndarray]
+TileSample = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 
 
-class StudyDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
+class StudyDataset(Dataset[TileSample]):
     """One tile at a fixed band subset and ground-sample side.
 
-    Each item is ``(image, label, mask)``. ``label`` is a scalar float.
-    ``mask`` has shape ``(1, side, side)``.
+    Each item is ``(image, label, mask, annotated)``. ``label`` and
+    ``annotated`` have shape ``(1,)``. ``mask`` has shape ``(1, side, side)``.
+    ``annotated`` is 1 when ``polygons`` is not ``None`` and 0 when the tile
+    has no annotation file. A zero mask with ``annotated`` 0 is not an empty
+    target.
     """
 
     def __init__(
@@ -51,10 +56,7 @@ class StudyDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
         Raises:
             ValueError: If stats do not match the subset width.
         """
-        if stats.mean.shape[0] != len(subset.indices):
-            raise ValueError(
-                f"stats have {stats.mean.shape[0]} channels; subset has {len(subset.indices)}"
-            )
+        check_band_stats(stats, len(subset.indices))
         self._tiles = tuple(tiles)
         self._reader = reader
         self._subset = subset
@@ -66,24 +68,30 @@ class StudyDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
         """Return the number of tiles."""
         return len(self._tiles)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Return one normalized image, its presence label, and its mask.
+    def __getitem__(self, index: int) -> TileSample:
+        """Return one normalized image, its presence label, its mask, and a flag.
 
         Args:
             index: Tile position.
 
         Returns:
-            tuple: Image ``(C, side, side)``, label ``(1,)``, mask ``(1, side, side)``.
+            tuple: Image ``(C, side, side)``, label ``(1,)``, mask
+            ``(1, side, side)``, and annotation flag ``(1,)``.
         """
         tile = self._tiles[index]
         native = np.asarray(self._reader(tile), dtype=np.float32)
         selected = native[list(self._subset.indices)]
         image = apply_band_stats(coarsen(selected, self._side_px), self._stats)
-        polygons = () if tile.polygons is None else tile.polygons
-        mask = rasterize_mask(polygons, self._side_px, rule=self._mask_rule)
+        if tile.polygons is None:
+            mask = np.zeros((1, self._side_px, self._side_px), dtype=np.float32)
+            annotated = np.array([0.0], dtype=np.float32)
+        else:
+            mask = rasterize_mask(tile.polygons, self._side_px, rule=self._mask_rule)
+            annotated = np.array([1.0], dtype=np.float32)
         label = np.array([1.0 if tile.positive else 0.0], dtype=np.float32)
         return (
             torch.from_numpy(image),
             torch.from_numpy(label),
             torch.from_numpy(mask),
+            torch.from_numpy(annotated),
         )

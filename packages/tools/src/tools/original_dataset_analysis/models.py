@@ -3,6 +3,7 @@
 Contains:
   - ShuffleNetClassifier: torchvision ShuffleNet V2 x0.5, untrained stem.
   - DilateNet: dilated segmentor at width 32, four blocks, output stride 4.
+  - _SingletonSafeBatchNorm2d: batch norm that accepts one value per channel.
 """
 
 from __future__ import annotations
@@ -70,6 +71,61 @@ def _block(
     return nn.Sequential(*layers)
 
 
+class _SingletonSafeBatchNorm2d(nn.BatchNorm2d):
+    """Batch norm that stays defined for one value per channel.
+
+    A 30-pixel tile and a batch of one sample reach a 1x1 map inside
+    ShuffleNet. Training batch norm rejects that shape. This layer uses the
+    running mean and variance for that input.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalize one activation map.
+
+        Args:
+            x: Input ``(N, C, H, W)``.
+
+        Returns:
+            torch.Tensor: Normalized activations with the same shape as ``x``.
+        """
+        values_per_channel = x.shape[0] * x.shape[2] * x.shape[3]
+        if self.training and self.track_running_stats and values_per_channel <= 1:
+            normalized: torch.Tensor = nn.functional.batch_norm(
+                x,
+                self.running_mean,
+                self.running_var,
+                self.weight,
+                self.bias,
+                training=False,
+                momentum=0.0,
+                eps=self.eps,
+            )
+            return normalized
+        output: torch.Tensor = super().forward(x)
+        return output
+
+
+def _use_singleton_safe_batchnorm(module: nn.Module) -> None:
+    """Replace each ``BatchNorm2d`` with :class:`_SingletonSafeBatchNorm2d`.
+
+    Args:
+        module: Network edited in place.
+    """
+    for name, child in list(module.named_children()):
+        if isinstance(child, nn.BatchNorm2d) and type(child) is nn.BatchNorm2d:
+            safe = _SingletonSafeBatchNorm2d(
+                child.num_features,
+                eps=child.eps,
+                momentum=child.momentum,
+                affine=child.affine,
+                track_running_stats=child.track_running_stats,
+            )
+            safe.load_state_dict(child.state_dict())
+            setattr(module, name, safe)
+        else:
+            _use_singleton_safe_batchnorm(child)
+
+
 class ShuffleNetClassifier(nn.Module):
     """ShuffleNet V2 x0.5 with a randomly initialized first convolution.
 
@@ -103,6 +159,7 @@ class ShuffleNetClassifier(nn.Module):
         )
         in_features = backbone.fc.in_features
         backbone.fc = nn.Linear(in_features, 1)
+        _use_singleton_safe_batchnorm(backbone)
         self.backbone = backbone
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

@@ -14,11 +14,14 @@ supplies, then scales later stacks with those frozen moments.
 | --- | --- | --- |
 | `BandStats` | class | Mean and standard deviation |
 | `fit_band_stats` | function | Moments from a sequence of stacks |
+| `check_band_stats` | function | Require shape ``(C,)`` for both vectors |
 | `apply_band_stats` | function | Zero-mean unit-variance scaling |
 
 ## Inputs and outputs
 
 `fit_band_stats(stacks) -> BandStats`.
+
+`check_band_stats(stats, channels) -> None`.
 
 `apply_band_stats(stack, stats) -> np.ndarray`.
 
@@ -26,12 +29,13 @@ supplies, then scales later stacks with those frozen moments.
 
 1. Moments pool every pixel of every supplied stack, per channel.
 2. Standard deviation is floored at ``1e-6``.
-3. Scaling subtracts the mean and divides by the standard deviation.
+3. Scaling subtracts the mean and divides by the standard deviation. Both
+   vectors must have shape ``(C,)``.
 
 ## Errors and faults
 
-`ValueError` when the stack list is empty, channel counts differ, or a stack
-does not match the stored channel count.
+`ValueError` when the stack list is empty, channel counts differ, or either
+moment vector is not exactly shape ``(C,)``.
 
 ## Messages
 

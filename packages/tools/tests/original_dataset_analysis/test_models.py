@@ -13,6 +13,14 @@ def test_shufflenet_accepts_twelve_channels() -> None:
     assert logits.shape == (2, 1)
 
 
+def test_shufflenet_trains_a_singleton_30px_batch() -> None:
+    """A batch of one 30-pixel tile is a legal training step."""
+    net = ShuffleNetClassifier(3).train()
+    logits = net(torch.zeros(1, 3, 30, 30))
+    assert logits.shape == (1, 1)
+    logits.sum().backward()
+
+
 def test_dilatenet_keeps_spatial_size() -> None:
     """A 3-band stem maps a stack to a full-resolution logit plane."""
     net = DilateNet(3).eval()

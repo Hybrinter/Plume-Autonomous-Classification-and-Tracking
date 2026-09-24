@@ -29,6 +29,8 @@ segmentor whose first convolution matches the study channel count.
 2. DilateNet uses a dense stem of width 32, a separable body of width 64, four
    dilated blocks at rates 1, 2, 4, and 8, and output stride 4.
 3. The segmentor head is bilinearly resized to the input spatial size.
+4. During training, a ShuffleNet batch-norm layer with one value per channel
+   uses its running mean and variance.
 
 ## Errors and faults
 

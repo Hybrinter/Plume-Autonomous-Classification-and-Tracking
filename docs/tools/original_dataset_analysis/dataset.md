@@ -13,21 +13,23 @@ chosen band subset and legal side.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `TileReader` | type | Callable that returns a native stack |
-| `StudyDataset` | class | Torch dataset of image, label, and mask |
+| `TileSample` | type | Image, label, mask, and annotation flag |
+| `StudyDataset` | class | Torch dataset of image, label, mask, and flag |
 
 ## Inputs and outputs
 
-`StudyDataset.__getitem__(index) -> tuple[Tensor, Tensor, Tensor]`.
+`StudyDataset.__getitem__(index) -> tuple[Tensor, Tensor, Tensor, Tensor]`.
 
 The image is ``(C, side, side)``. The label is ``(1,)``. The mask is
-``(1, side, side)``.
+``(1, side, side)``. The annotation flag is ``(1,)``.
 
 ## Behavior
 
 1. The reader returns a native ``(bands, 120, 120)`` stack in file order.
 2. The subset indices select channels. Those channels are coarsened, then scaled
    with frozen moments.
-3. A tile with ``polygons is None`` uses an empty polygon list.
+3. ``polygons is None`` returns a zero mask and annotation flag 0. An annotation
+   file with no smoke polygon returns a zero mask and annotation flag 1.
 
 ## Errors and faults
 

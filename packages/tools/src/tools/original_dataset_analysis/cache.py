@@ -2,6 +2,7 @@
 
 Contains:
   - TileCache: stem-addressed float32 stacks.
+  - to_native_stack: pad or crop a near-native tile to 120.
   - build_cache: write the memmap from ``iter_stacks``.
   - open_cache: reopen a cache written by ``build_cache``.
 """
@@ -19,6 +20,41 @@ from tools.original_dataset_analysis.index import TileRef, iter_stacks
 
 _META = "meta.json"
 _STACKS = "stacks.dat"
+_SLACK = 2
+
+
+def to_native_stack(stack: np.ndarray) -> np.ndarray:
+    """Return a float32 ``(C, 120, 120)`` stack.
+
+    Args:
+        stack: Array ``(C, H, W)``. Each spatial side must be within 2 pixels
+            of 120.
+
+    Returns:
+        np.ndarray: Float32 stack. A short side is edge-padded. A long side is
+        cropped from the origin.
+
+    Raises:
+        ValueError: If the array is not three-dimensional or a side is too far
+            from 120.
+    """
+    array = np.asarray(stack, dtype=np.float32)
+    if array.ndim != 3:
+        raise ValueError(f"expected (C, H, W); got {array.shape}")
+    _channels, height, width = array.shape
+    if abs(height - NATIVE_SIDE) > _SLACK or abs(width - NATIVE_SIDE) > _SLACK:
+        raise ValueError(f"expected (C, 120, 120); got {array.shape}")
+    if height == NATIVE_SIDE and width == NATIVE_SIDE:
+        return array
+    fitted = np.empty((_channels, NATIVE_SIDE, NATIVE_SIDE), dtype=np.float32)
+    copy_h = min(height, NATIVE_SIDE)
+    copy_w = min(width, NATIVE_SIDE)
+    fitted[:, :copy_h, :copy_w] = array[:, :copy_h, :copy_w]
+    if height < NATIVE_SIDE:
+        fitted[:, height:, :copy_w] = fitted[:, height - 1 : height, :copy_w]
+    if width < NATIVE_SIDE:
+        fitted[:, :, width:] = fitted[:, :, width - 1 : width]
+    return fitted
 
 
 class TileCache:
@@ -103,7 +139,7 @@ def build_cache(images_tar: Path, tiles: Sequence[TileRef], path: Path) -> TileC
         TileCache: The written cache.
 
     Raises:
-        ValueError: If ``tiles`` is empty or a stack is not ``(C, 120, 120)``.
+        ValueError: If ``tiles`` is empty or a stack is not near ``(C, 120, 120)``.
         FileNotFoundError: If the archive or a member is missing.
     """
     if not tiles:
@@ -115,9 +151,7 @@ def build_cache(images_tar: Path, tiles: Sequence[TileRef], path: Path) -> TileC
     memmap: np.memmap | None = None
     written = 0
     for tile, stack, band_descriptions in iter_stacks(images_tar, tiles):
-        array = np.asarray(stack, dtype=np.float32)
-        if array.ndim != 3 or array.shape[1] != NATIVE_SIDE or array.shape[2] != NATIVE_SIDE:
-            raise ValueError(f"expected (C, 120, 120); got {array.shape}")
+        array = to_native_stack(stack)
         if memmap is None:
             descriptions = tuple(band_descriptions)
             memmap = np.memmap(

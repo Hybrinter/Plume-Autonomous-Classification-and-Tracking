@@ -13,6 +13,7 @@ reread the archive.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `TileCache` | class | Stem-addressed float32 stacks |
+| `to_native_stack` | function | Pad or crop a near-native tile to 120 |
 | `build_cache` | function | One forward pass into a memmap |
 | `open_cache` | function | Reopen a written cache |
 
@@ -26,7 +27,8 @@ reread the archive.
 
 ## Behavior
 
-1. ``build_cache`` reads the requested members once, in archive order.
+1. A tile whose sides are within 2 pixels of 120 is edge-padded or cropped
+   to ``(C, 120, 120)``. ``build_cache`` then reads the requested members once.
 2. The directory holds ``stacks.dat`` and ``meta.json``. The sidecar stores
    stems and band descriptions.
 3. ``reader`` returns a copy of one row.

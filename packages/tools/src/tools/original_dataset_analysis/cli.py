@@ -11,7 +11,12 @@ import json
 from pathlib import Path
 
 from tools.original_dataset_analysis.bands import verify_band_order
-from tools.original_dataset_analysis.matrix import Cell, native_cells, require_complete
+from tools.original_dataset_analysis.matrix import (
+    Cell,
+    gsd_cells,
+    native_cells,
+    require_complete,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -22,6 +27,12 @@ def _parser() -> argparse.ArgumentParser:
         nargs="+",
         required=True,
         help="GeoTIFF band descriptions, in file order",
+    )
+    parser.add_argument(
+        "--axis",
+        choices=("native", "gsd"),
+        default="native",
+        help="native band matrix, or ceiling and RGB at every legal side",
     )
     parser.add_argument(
         "--results",
@@ -47,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     args = _parser().parse_args(argv)
     order = verify_band_order(args.descriptions)
-    expected = native_cells(order)
+    expected = gsd_cells(order) if args.axis == "gsd" else native_cells(order)
     if args.results is None:
         for cell in expected:
             print(f"{cell.task} {cell.subset} {cell.side_px}")

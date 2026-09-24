@@ -24,7 +24,8 @@ JSON file of ``{task, subset, side_px}`` objects.
 
 1. Descriptions are verified into a band order.
 2. Without ``--results``, each planned cell is printed as task, subset, and side.
-3. With ``--results``, the file must contain every planned cell.
+   ``--axis gsd`` lists ceiling and RGB at every legal side.
+3. With ``--results``, the file must contain every planned cell for the chosen axis.
 
 ## Errors and faults
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from tools.original_dataset_analysis.bands import verify_band_order
 from tools.original_dataset_analysis.cli import main
-from tools.original_dataset_analysis.matrix import native_cells, require_complete
+from tools.original_dataset_analysis.matrix import gsd_cells, native_cells, require_complete
 from tools.original_dataset_analysis.plots import write_band_bars
 
 _DESC = (
@@ -39,6 +39,16 @@ def test_native_cells_cover_dropout_and_b10() -> None:
     assert "loo_B10" not in names
     assert all(cell.side_px == 120 for cell in cells)
     assert {cell.task for cell in cells} == {"classify", "segment"}
+
+
+def test_gsd_axis_is_ceiling_and_rgb_only() -> None:
+    """Legal sides cover ceiling and RGB, and they omit leave-one-out."""
+    cells = gsd_cells(verify_band_order(_DESC))
+    sides = {cell.side_px for cell in cells}
+    names = {cell.subset for cell in cells}
+    assert sides == {120, 80, 60, 40, 30}
+    assert names == {"ceiling", "rgb"}
+    assert all(cell.task in {"classify", "segment"} for cell in cells)
 
 
 def test_missing_rgb_is_named(tmp_path: Path) -> None:

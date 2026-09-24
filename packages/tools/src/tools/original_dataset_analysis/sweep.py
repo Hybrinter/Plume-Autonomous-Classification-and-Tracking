@@ -24,6 +24,7 @@ from tools.original_dataset_analysis.bands import (
     BandOrder,
     BandSpec,
     BandSubset,
+    coerce_descriptions,
     resolve_subset,
     verify_band_order,
 )
@@ -407,7 +408,7 @@ def train_native(argv: Sequence[str]) -> int:
         cache = open_cache(args.cache)
     else:
         cache = build_cache(args.images, index.tiles, args.cache)
-    order = verify_band_order(cache.descriptions)
+    order = verify_band_order(coerce_descriptions(cache.descriptions))
     planned = native_cells(order)
     if args.only:
         wanted = {tuple(item.split(":", 1)) for item in args.only}

@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from tools.original_dataset_analysis.bands import BandSpec, resolve_subset, verify_band_order
+from tools.original_dataset_analysis.bands import (
+    BandSpec,
+    coerce_descriptions,
+    resolve_subset,
+    verify_band_order,
+)
 
 _HYPOTHESIS = (
     "B1 coastal",
@@ -91,6 +96,13 @@ def test_leave_one_out_preserves_order() -> None:
     assert subset.ids == tuple(band for band in order.ids if band not in {"B8A", "B10"})
     assert "B8A" not in subset.ids
     assert len(subset.ids) == 11
+
+
+def test_empty_descriptions_use_the_zenodo_order() -> None:
+    """Thirteen blank descriptions become the corpus order with B10 last."""
+    order = verify_band_order(coerce_descriptions([""] * 13))
+    assert order.ids[-1] == "B10"
+    assert resolve_subset(order, BandSpec("s2_12")).ids[-1] == "B12"
 
 
 def test_s2_13_is_not_a_subset() -> None:

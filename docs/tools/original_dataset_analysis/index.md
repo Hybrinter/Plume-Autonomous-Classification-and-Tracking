@@ -5,8 +5,8 @@
 
 ## Purpose
 
-This module indexes the image and label tar archives and reads one GeoTIFF
-member.
+This module indexes the image and label tar archives and reads GeoTIFF members
+in one forward pass.
 
 ## Public interface
 
@@ -16,13 +16,13 @@ member.
 | `TileIndex` | class | The corpus index |
 | `location_id_of` | function | Leading stem token |
 | `build_index` | function | Stems, presence, and polygons |
-| `read_stack` | function | One GeoTIFF as a float stack plus descriptions |
+| `iter_stacks` | function | One forward pass over requested GeoTIFF members |
 
 ## Inputs and outputs
 
 `build_index(images_tar, labels_tar) -> TileIndex`.
 
-`read_stack(images_tar, ref) -> tuple[np.ndarray, tuple[str, ...]]`.
+`iter_stacks(images_tar, tiles) -> Iterator[tuple[TileRef, np.ndarray, tuple[str, ...]]]`.
 
 ## Behavior
 
@@ -30,8 +30,10 @@ member.
    percentage coordinates. A file with no polygon stores an empty tuple.
 2. Image members under a path component named ``positive`` are marked positive.
 3. Duplicate stems keep the first image.
-4. ``read_stack`` opens the member with rasterio and returns float32 bands plus
-   description strings. A missing description is an empty string.
+4. ``iter_stacks`` opens the image archive once as a forward stream. It reads
+   each requested member when the stream reaches it and returns float32 bands
+   plus description strings. A missing description is an empty string. Yield
+   order follows the archive.
 
 ## Errors and faults
 

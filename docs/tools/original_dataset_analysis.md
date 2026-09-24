@@ -29,7 +29,7 @@ The package reads local tar archives. It does not import ``flight`` or
 
 ## Constraints
 
-- Rasterio is imported inside ``read_stack``.
+- Rasterio is imported inside ``iter_stacks``.
 - Tests build synthetic archives and numpy tiles. They do not download Zenodo.
 
 ## Related documents

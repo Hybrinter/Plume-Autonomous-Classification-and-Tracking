@@ -4,7 +4,7 @@ Contains:
   - TileRef: one image stem.
   - TileIndex: the corpus index.
   - build_index: stems, presence, and polygons from two tar archives.
-  - read_stack: one GeoTIFF member as a float stack plus band descriptions.
+  - iter_stacks: one forward pass over requested GeoTIFF members.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -155,29 +156,91 @@ def build_index(images_tar: Path, labels_tar: Path) -> TileIndex:
     return TileIndex(tiles=tuple(tiles))
 
 
-def read_stack(images_tar: Path, ref: TileRef) -> tuple[np.ndarray, tuple[str, ...]]:
-    """Read one GeoTIFF member.
+def _stack_from_geotiff(payload: bytes) -> tuple[np.ndarray, tuple[str, ...]]:
+    """Return float32 bands and descriptions from one GeoTIFF payload.
 
     Args:
-        images_tar: Image archive.
-        ref: Tile whose ``member_name`` is read.
+        payload: GeoTIFF bytes from one archive member.
 
     Returns:
         tuple: Float32 array ``(C, H, W)`` and one description per band.
         A missing description is an empty string.
 
     Raises:
-        FileNotFoundError: If the member is absent.
         ImportError: If rasterio is not installed.
     """
     import rasterio
 
-    with tarfile.open(images_tar, "r:*") as archive:
-        extracted = archive.extractfile(ref.member_name)
-        if extracted is None:
-            raise FileNotFoundError(ref.member_name)
-        payload = extracted.read()
     with rasterio.open(io.BytesIO(payload)) as dataset:
         stack = dataset.read().astype(np.float32)
         descriptions = tuple("" if item is None else str(item) for item in dataset.descriptions)
     return stack, descriptions
+
+
+def iter_stacks(
+    images_tar: Path,
+    tiles: Sequence[TileRef],
+) -> Iterator[tuple[TileRef, np.ndarray, tuple[str, ...]]]:
+    """Yield each requested GeoTIFF from one forward pass of the image archive.
+
+    Args:
+        images_tar: Image archive. Gzip and uncompressed tar are both accepted.
+        tiles: Tiles to read. Member names that are not in this sequence are
+            skipped. An empty sequence yields nothing and does not open the
+            archive.
+
+    Returns:
+        Iterator: ``(tile, stack, descriptions)`` in archive order. ``stack``
+        is float32 ``(C, H, W)``. A missing description is an empty string.
+
+    Raises:
+        FileNotFoundError: If the archive is missing, or a requested member is
+            absent.
+        ImportError: If rasterio is not installed.
+    """
+    if tiles and not images_tar.is_file():
+        raise FileNotFoundError(images_tar)
+    return _iter_stacks(images_tar, tiles)
+
+
+def _iter_stacks(
+    images_tar: Path,
+    tiles: Sequence[TileRef],
+) -> Iterator[tuple[TileRef, np.ndarray, tuple[str, ...]]]:
+    """Stream ``tiles`` from ``images_tar`` in archive order.
+
+    Args:
+        images_tar: Image archive that ``iter_stacks`` has already checked.
+        tiles: Tiles to read. Empty input yields nothing.
+
+    Returns:
+        Iterator: ``(tile, stack, descriptions)`` in archive order.
+
+    Raises:
+        FileNotFoundError: If a requested member is absent.
+        ImportError: If rasterio is not installed.
+    """
+    if not tiles:
+        return
+    wanted: dict[str, list[TileRef]] = {}
+    for tile in tiles:
+        wanted.setdefault(tile.member_name, []).append(tile)
+    remaining = len(tiles)
+    with tarfile.open(images_tar, "r|*") as archive:
+        for member in archive:
+            refs = wanted.get(member.name)
+            if refs is None or not member.isfile():
+                continue
+            extracted = archive.extractfile(member)
+            if extracted is None:
+                raise FileNotFoundError(member.name)
+            stack, descriptions = _stack_from_geotiff(extracted.read())
+            for ref in refs:
+                yield ref, stack, descriptions
+            del wanted[member.name]
+            remaining -= len(refs)
+            if remaining == 0:
+                break
+    if remaining:
+        missing = sorted(wanted)[0]
+        raise FileNotFoundError(missing)

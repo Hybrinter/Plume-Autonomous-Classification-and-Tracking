@@ -45,7 +45,7 @@ def _write_archives(tmp_path: Path) -> tuple[Path, Path]:
             }
         ]
     }
-    empty = {"completions": [{"result": []}]}
+    empty: dict[str, object] = {"completions": [{"result": []}]}
     with tarfile.open(labels, "w") as archive:
         _member(
             archive,

@@ -8,7 +8,7 @@ Contains:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -42,6 +42,8 @@ class StudyDataset(Dataset[TileSample]):
         side_px: int,
         *,
         mask_rule: str = "half",
+        cached_masks: np.ndarray | None = None,
+        mask_rows: Mapping[str, int] | None = None,
     ) -> None:
         """Store the tiles and the transforms applied on each read.
 
@@ -52,6 +54,8 @@ class StudyDataset(Dataset[TileSample]):
             stats: Frozen per-channel moments for ``subset``.
             side_px: Legal output side.
             mask_rule: ``touch`` or ``half``.
+            cached_masks: Optional ``(N, side, side)`` masks. ``None`` rasterizes.
+            mask_rows: Stem to row in ``cached_masks``.
 
         Raises:
             ValueError: If stats do not match the subset width.
@@ -63,6 +67,8 @@ class StudyDataset(Dataset[TileSample]):
         self._stats = stats
         self._side_px = side_px
         self._mask_rule = mask_rule
+        self._cached_masks = cached_masks
+        self._mask_rows = mask_rows
 
     def __len__(self) -> int:
         """Return the number of tiles."""
@@ -85,6 +91,14 @@ class StudyDataset(Dataset[TileSample]):
         if tile.polygons is None:
             mask = np.zeros((1, self._side_px, self._side_px), dtype=np.float32)
             annotated = np.array([0.0], dtype=np.float32)
+        elif (
+            self._cached_masks is not None
+            and self._mask_rows is not None
+            and self._cached_masks.shape[-1] == self._side_px
+        ):
+            plane = np.asarray(self._cached_masks[self._mask_rows[tile.stem]], dtype=np.float32)
+            mask = plane.reshape(1, self._side_px, self._side_px)
+            annotated = np.array([1.0], dtype=np.float32)
         else:
             mask = rasterize_mask(tile.polygons, self._side_px, rule=self._mask_rule)
             annotated = np.array([1.0], dtype=np.float32)

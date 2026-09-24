@@ -28,7 +28,12 @@ from tools.original_dataset_analysis.bands import (
     resolve_subset,
     verify_band_order,
 )
-from tools.original_dataset_analysis.cache import TileCache, build_cache, open_cache
+from tools.original_dataset_analysis.cache import (
+    TileCache,
+    build_cache,
+    build_mask_cache,
+    open_cache,
+)
 from tools.original_dataset_analysis.dataset import StudyDataset
 from tools.original_dataset_analysis.grid import rasterize_mask
 from tools.original_dataset_analysis.index import TileIndex, TileRef, build_index
@@ -108,9 +113,19 @@ def _loader(
     shuffle: bool,
     seed: int,
     device: torch.device,
+    cached_masks: np.ndarray | None = None,
+    mask_rows: Mapping[str, int] | None = None,
 ) -> DataLoader[tuple[torch.Tensor, ...]]:
     """Return a loader over one split."""
-    dataset = StudyDataset(tiles, cache.reader, subset, stats, side_px)
+    dataset = StudyDataset(
+        tiles,
+        cache.reader,
+        subset,
+        stats,
+        side_px,
+        cached_masks=cached_masks,
+        mask_rows=mask_rows,
+    )
     generator = torch.Generator()
     generator.manual_seed(seed)
     return DataLoader(
@@ -186,6 +201,9 @@ def run_native(
     cells: Sequence[Cell],
     config: TrainConfig,
     device: torch.device,
+    *,
+    cached_masks: np.ndarray | None = None,
+    mask_rows: Mapping[str, int] | None = None,
 ) -> tuple[CellResult, ...]:
     """Train each native cell and score its best validation weights.
 
@@ -196,6 +214,8 @@ def run_native(
         cells: Cells to train. Ground-sample sides other than 120 are refused.
         config: Shared loop settings.
         device: Torch device.
+        cached_masks: Native mask planes, or ``None`` to rasterize per sample.
+        mask_rows: Stem to row in ``cached_masks``.
 
     Returns:
         tuple[CellResult, ...]: One result per cell, in input order.
@@ -209,6 +229,7 @@ def run_native(
     for cell in cells:
         if cell.side_px != 120:
             raise ValueError(f"native sweep side must be 120; got {cell.side_px}")
+        print(f"training {cell.task} {cell.subset}", flush=True)
         subset = _subset(order, cell.subset)
         stats = _stats(grouped["train"], cache, subset)
         model, target = _model(cell.task, len(subset.indices))
@@ -223,6 +244,8 @@ def run_native(
                 shuffle=True,
                 seed=config.seed,
                 device=device,
+                cached_masks=cached_masks,
+                mask_rows=mask_rows,
             ),
             _loader(
                 grouped["val"],
@@ -233,6 +256,8 @@ def run_native(
                 shuffle=False,
                 seed=config.seed,
                 device=device,
+                cached_masks=cached_masks,
+                mask_rows=mask_rows,
             ),
             config,
             target=target,
@@ -246,6 +271,8 @@ def run_native(
                 shuffle=False,
                 seed=config.seed,
                 device=device,
+                cached_masks=cached_masks,
+                mask_rows=mask_rows,
             ),
         )
         model.load_state_dict(trained.state_dict)
@@ -260,6 +287,8 @@ def run_native(
                 shuffle=False,
                 seed=config.seed,
                 device=device,
+                cached_masks=cached_masks,
+                mask_rows=mask_rows,
             ),
             device,
             target,
@@ -410,6 +439,16 @@ def train_native(argv: Sequence[str]) -> int:
     else:
         cache = build_cache(args.images, index.tiles, args.cache)
     order = verify_band_order(coerce_descriptions(cache.descriptions))
+    mask_path = args.cache / "masks.dat"
+    mask_count = len(index.tiles) * 120 * 120
+    if mask_path.is_file() and mask_path.stat().st_size == mask_count:
+        cached_masks: np.ndarray = np.memmap(
+            mask_path, dtype=np.uint8, mode="r", shape=(len(index.tiles), 120, 120)
+        )
+    else:
+        print("rasterizing masks", flush=True)
+        cached_masks = build_mask_cache(index.tiles, mask_path)
+    mask_rows = {tile.stem: row for row, tile in enumerate(index.tiles)}
     planned = native_cells(order)
     if args.only:
         wanted = {tuple(item.split(":", 1)) for item in args.only}
@@ -419,7 +458,16 @@ def train_native(argv: Sequence[str]) -> int:
     if args.preview:
         write_mask_previews(cache, index.tiles, args.out / "previews", args.preview)
     config = TrainConfig(epochs=args.epochs, seed=0)
-    results = run_native(index, cache, order, planned, config, device)
+    results = run_native(
+        index,
+        cache,
+        order,
+        planned,
+        config,
+        device,
+        cached_masks=cached_masks,
+        mask_rows=mask_rows,
+    )
     write_review(order, results, args.out)
     print(f"wrote {len(results)} cells to {args.out}")
     return 0

@@ -15,6 +15,7 @@ reread the archive.
 | `TileCache` | class | Stem-addressed float32 stacks |
 | `to_native_stack` | function | Pad or crop a near-native tile to 120 |
 | `build_cache` | function | One forward pass into a memmap |
+| `build_mask_cache` | function | Rasterize each annotated tile once |
 | `open_cache` | function | Reopen a written cache |
 
 ## Inputs and outputs

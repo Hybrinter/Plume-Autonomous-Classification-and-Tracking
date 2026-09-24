@@ -108,6 +108,28 @@ class TileCache:
         return np.array(view, dtype=np.float32, copy=True)
 
 
+def build_mask_cache(tiles: Sequence[TileRef], path: Path) -> np.ndarray:
+    """Rasterize each annotated tile once and store a uint8 mask plane.
+
+    Args:
+        tiles: Corpus tiles in cache row order.
+        path: Destination ``.dat`` file. Parent directories are created.
+
+    Returns:
+        np.ndarray: Memmap ``(N, 120, 120)`` with 1 on smoke and 0 elsewhere.
+    """
+    from tools.original_dataset_analysis.grid import rasterize_mask
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    masks = np.memmap(path, dtype=np.uint8, mode="w+", shape=(len(tiles), NATIVE_SIDE, NATIVE_SIDE))
+    masks[:] = 0
+    for row, tile in enumerate(tiles):
+        if tile.polygons:
+            masks[row] = rasterize_mask(tile.polygons, NATIVE_SIDE, rule="half")[0]
+    masks.flush()
+    return masks
+
+
 def open_cache(path: Path) -> TileCache:
     """Reopen a cache directory.
 

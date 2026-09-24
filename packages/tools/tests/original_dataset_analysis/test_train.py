@@ -30,9 +30,10 @@ class _Head(nn.Module):
         self.conv = nn.Conv2d(1, 1, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        plane = self.conv(x)
+        plane: torch.Tensor = self.conv(x)
         if self.target == "label":
-            return plane.mean(dim=(2, 3))
+            reduced: torch.Tensor = plane.mean(dim=(2, 3))
+            return reduced
         return plane
 
 

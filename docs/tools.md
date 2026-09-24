@@ -15,13 +15,14 @@ and SIL telemetry analysis under `tools.analysis`.
 | --- | --- | --- |
 | [`inference`](tools/inference.md) | package | Train, export, accept, and score inference artifacts |
 | [`analysis`](tools/analysis.md) | package | Deterministic SIL capture, stats, plots, and reports |
+| [`original_dataset_analysis`](tools/original_dataset_analysis.md) | package | Zenodo band and ground-sample-distance study |
 | [`cli`](tools/cli.md) | module | Root `pact-tools` Typer application |
 | [`__main__`](tools/__main__.md) | module | `python -m tools` entry shim |
 
 ## Package interface
 
-`tools` has no top-level `__init__.py` exports. Import from `tools.inference` or
-`tools.analysis`.
+`tools` has no top-level `__init__.py` exports. Import from `tools.inference`,
+`tools.analysis`, or `tools.original_dataset_analysis`.
 
 Run inference workflows with
 `pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`.
@@ -62,5 +63,6 @@ publishes to the bus or changes flight behavior.
 
 - [`tools.inference`](tools/inference.md)
 - [`tools.analysis`](tools/analysis.md)
+- [`tools.original_dataset_analysis`](tools/original_dataset_analysis.md)
 - [`tools.cli`](tools/cli.md)
 - [`sim.sil`](sim/sil.md)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 from tools.original_dataset_analysis.train import TrainConfig, run_training
 from torch import nn
@@ -54,19 +55,30 @@ class _Unannotated(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch
 
 
 def test_segmentor_skips_tiles_without_annotations() -> None:
-    """A mask target leaves weights unchanged when every flag is 0."""
-    loader = DataLoader(_Unannotated(), batch_size=2)
+    """A mask target leaves weights unchanged when every train flag is 0."""
     model = _Head("mask")
     before = {key: value.detach().clone() for key, value in model.state_dict().items()}
     result = run_training(
         model,
-        loader,
-        loader,
+        DataLoader(_Unannotated(), batch_size=2),
+        DataLoader(_Tiles(), batch_size=2),
         TrainConfig(epochs=2, patience=2, lr=1e-2),
         target="mask",
     )
     for key, value in result.state_dict.items():
         assert torch.equal(value, before[key])
+
+
+def test_segmentor_rejects_validation_without_annotations() -> None:
+    """A mask target rejects a validation loader whose flags are all 0."""
+    with pytest.raises(ValueError, match="usable"):
+        run_training(
+            _Head("mask"),
+            DataLoader(_Tiles(), batch_size=2),
+            DataLoader(_Unannotated(), batch_size=2),
+            TrainConfig(epochs=2, patience=2, lr=1e-2),
+            target="mask",
+        )
 
 
 def test_training_returns_a_checkpoint() -> None:

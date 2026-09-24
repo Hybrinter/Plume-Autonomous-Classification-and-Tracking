@@ -126,7 +126,11 @@ def _mean_loss(
     device: torch.device,
     target: str,
 ) -> float:
-    """Return the mean loss of one loader."""
+    """Return the mean loss of one loader.
+
+    Raises:
+        ValueError: If the loader keeps no samples for ``target``.
+    """
     model.eval()
     total = 0.0
     count = 0
@@ -145,7 +149,9 @@ def _mean_loss(
             loss = _loss_of(logits, batch_target)
             total += float(loss.item()) * image.shape[0]
             count += image.shape[0]
-    return total / float(count) if count else 0.0
+    if count == 0:
+        raise ValueError("loader has no usable samples")
+    return total / float(count)
 
 
 def run_training(
@@ -174,8 +180,8 @@ def run_training(
         TrainResult: Best validation loss and its weights.
 
     Raises:
-        ValueError: If ``target`` is unknown, a loader is empty, or a batch
-            does not hold 3 or 4 tensors.
+        ValueError: If ``target`` is unknown, a loader is empty, a batch
+            does not hold 3 or 4 tensors, or validation keeps no samples.
     """
     if target not in {"label", "mask"}:
         raise ValueError(f"target must be 'label' or 'mask'; got {target!r}")

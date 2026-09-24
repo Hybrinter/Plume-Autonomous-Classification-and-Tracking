@@ -26,7 +26,7 @@ batch.
 ## Behavior
 
 1. Probabilities are a sigmoid of the logits. The decision threshold is 0.5.
-2. PR-AUC and ROC-AUC use a ranking of those probabilities.
+2. PR-AUC and ROC-AUC rank the logits. Equal logits form one threshold.
 3. Mean IoU averages the positive-class IoU and the background IoU.
 
 ## Errors and faults

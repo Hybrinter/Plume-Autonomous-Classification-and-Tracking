@@ -37,8 +37,8 @@ and one early-stopping rule.
 
 ## Errors and faults
 
-`ValueError` when ``target`` is unknown, a loader yields no batches, or a
-batch does not hold 3 or 4 tensors.
+`ValueError` when ``target`` is unknown, a loader yields no batches, a
+batch does not hold 3 or 4 tensors, or validation keeps no samples.
 
 ## Messages
 

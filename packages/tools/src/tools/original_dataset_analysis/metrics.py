@@ -56,15 +56,22 @@ def _trapz(y: np.ndarray, x: np.ndarray) -> float:
 
 
 def _ranking_areas(scores: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
-    """Return PR-AUC and ROC-AUC from ranking scores."""
-    order = np.argsort(-scores)
+    """Return PR-AUC and ROC-AUC from ranking scores.
+
+    Equal scores form one threshold. The curve steps once for that group.
+    """
+    order = np.argsort(-scores, kind="mergesort")
+    ranked_scores = scores[order]
     ranked_labels = labels[order]
     positives = float(ranked_labels.sum())
     negatives = float(len(ranked_labels) - positives)
     if positives == 0.0 or negatives == 0.0:
         return 0.0, 0.0
-    tp = np.cumsum(ranked_labels)
-    fp = np.cumsum(1.0 - ranked_labels)
+    group_end = np.empty(len(ranked_scores), dtype=bool)
+    group_end[:-1] = ranked_scores[:-1] != ranked_scores[1:]
+    group_end[-1] = True
+    tp = np.cumsum(ranked_labels)[group_end]
+    fp = np.cumsum(1.0 - ranked_labels)[group_end]
     recall = tp / positives
     precision = tp / np.maximum(tp + fp, 1.0)
     tpr = recall
@@ -84,16 +91,16 @@ def score_classifier(logits: torch.Tensor, labels: torch.Tensor) -> Classificati
         labels: Matching shape, values in {0, 1}.
 
     Returns:
-        ClassificationScores: Threshold-0.5 rates and ranking areas.
+        ClassificationScores: Threshold-0.5 rates and areas from the logits.
 
     Raises:
         ValueError: If the tensors do not share a length.
     """
-    score = torch.sigmoid(logits.detach().float().reshape(-1)).cpu().numpy()
-    truth = labels.detach().float().reshape(-1).cpu().numpy()
-    if score.shape != truth.shape:
-        raise ValueError(f"logits length {score.shape} != labels length {truth.shape}")
-    predicted = score >= 0.5
+    raw = logits.detach().double().reshape(-1).cpu().numpy()
+    truth = labels.detach().double().reshape(-1).cpu().numpy()
+    if raw.shape != truth.shape:
+        raise ValueError(f"logits length {raw.shape} != labels length {truth.shape}")
+    predicted = raw >= 0.0
     truth_bool = truth >= 0.5
     tp = float(np.logical_and(predicted, truth_bool).sum())
     fp = float(np.logical_and(predicted, np.logical_not(truth_bool)).sum())
@@ -101,7 +108,7 @@ def score_classifier(logits: torch.Tensor, labels: torch.Tensor) -> Classificati
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2.0 * precision * recall / (precision + recall) if precision + recall else 0.0
-    pr_auc, roc_auc = _ranking_areas(score, truth_bool.astype(np.float64))
+    pr_auc, roc_auc = _ranking_areas(raw, truth_bool.astype(np.float64))
     return ClassificationScores(precision, recall, f1, pr_auc, roc_auc)
 
 

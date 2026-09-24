@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from tools.original_dataset_analysis.bands import BandOrder, BandSpec, resolve_subset
-from tools.original_dataset_analysis.grid import NATIVE_SIDE
+from tools.original_dataset_analysis.grid import LEGAL_SIDES, NATIVE_SIDE
 
 _TASKS: tuple[str, ...] = ("classify", "segment")
 
@@ -48,6 +48,29 @@ def native_cells(order: BandOrder) -> tuple[Cell, ...]:
     names = tuple(resolve_subset(order, spec).name for spec in specs)
     return tuple(
         Cell(task=task, subset=name, side_px=NATIVE_SIDE) for task in _TASKS for name in names
+    )
+
+
+def gsd_cells(order: BandOrder) -> tuple[Cell, ...]:
+    """Return ceiling and RGB cells at every legal side.
+
+    Args:
+        order: Verified band order.
+
+    Returns:
+        tuple[Cell, ...]: Both tasks for ceiling and RGB at sides 120, 80, 60,
+        40, and 30. Leave-one-out and the 13-band set stay on the native matrix.
+    """
+    names = (
+        resolve_subset(order, BandSpec("ceiling")).name,
+        resolve_subset(order, BandSpec("rgb")).name,
+    )
+    sides = tuple(sorted(LEGAL_SIDES, reverse=True))
+    return tuple(
+        Cell(task=task, subset=name, side_px=side)
+        for task in _TASKS
+        for name in names
+        for side in sides
     )
 
 

@@ -14,11 +14,14 @@ omits one of them.
 | --- | --- | --- |
 | `Cell` | class | Task, subset name, and side |
 | `native_cells` | function | The native matrix |
+| `gsd_cells` | function | Ceiling and RGB at every legal side |
 | `require_complete` | function | Completeness check |
 
 ## Inputs and outputs
 
 `native_cells(order) -> tuple[Cell, ...]`.
+
+`gsd_cells(order) -> tuple[Cell, ...]`.
 
 `require_complete(rows, expected) -> None`.
 
@@ -28,6 +31,8 @@ omits one of them.
    13-band set.
 2. Each subset is listed for the classifier and the segmentor at side 120.
 3. A missing cell raises. The message includes its task, subset, and side.
+4. ``gsd_cells`` repeats ceiling and RGB at sides 120, 80, 60, 40, and 30 for
+   both tasks. Those sides are 10, 15, 20, 30, and 40 metres.
 
 ## Errors and faults
 

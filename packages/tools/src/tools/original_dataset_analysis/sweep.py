@@ -382,6 +382,8 @@ def write_review(order: BandOrder, results: Sequence[CellResult], path: Path) ->
     figures = path / "figures"
     for task, metric_names in (("classify", _CLASSIFY_METRICS), ("segment", _SEGMENT_METRICS)):
         rows = [item for item in results if item.task == task]
+        if not rows:
+            continue
         for metric in metric_names:
             write_metric_bars(
                 f"{task} {metric}",

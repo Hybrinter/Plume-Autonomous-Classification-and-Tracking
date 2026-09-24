@@ -309,7 +309,8 @@ def write_mask_previews(cache: TileCache, tiles: Sequence[TileRef], path: Path, 
         axis.imshow(stretched)
         axis.imshow(np.ma.masked_where(mask < 0.5, mask), cmap="autumn", alpha=0.45)
         axis.set_axis_off()
-        figure.savefig(path / f"{tile.stem}.png")
+        safe = "".join("-" if char in '<>:"/\\|?*' else char for char in tile.stem)
+        figure.savefig(path / f"{safe}.png")
         plt.close(figure)
 
 

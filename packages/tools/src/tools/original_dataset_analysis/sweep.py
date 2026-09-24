@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -204,6 +204,7 @@ def run_native(
     *,
     cached_masks: np.ndarray | None = None,
     mask_rows: Mapping[str, int] | None = None,
+    on_result: Callable[[tuple[CellResult, ...]], None] | None = None,
 ) -> tuple[CellResult, ...]:
     """Train each native cell and score its best validation weights.
 
@@ -303,6 +304,8 @@ def run_native(
                 history=trained.history,
             )
         )
+        if on_result is not None:
+            on_result(tuple(results))
     return tuple(results)
 
 
@@ -458,6 +461,11 @@ def train_native(argv: Sequence[str]) -> int:
     if args.preview:
         write_mask_previews(cache, index.tiles, args.out / "previews", args.preview)
     config = TrainConfig(epochs=args.epochs, seed=0)
+
+    def _publish(partial: tuple[CellResult, ...]) -> None:
+        write_review(order, partial, args.out)
+        print(f"saved {len(partial)} cells", flush=True)
+
     results = run_native(
         index,
         cache,
@@ -467,6 +475,7 @@ def train_native(argv: Sequence[str]) -> int:
         device,
         cached_masks=cached_masks,
         mask_rows=mask_rows,
+        on_result=_publish,
     )
     write_review(order, results, args.out)
     print(f"wrote {len(results)} cells to {args.out}")

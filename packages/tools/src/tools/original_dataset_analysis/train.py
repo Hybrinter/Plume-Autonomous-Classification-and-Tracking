@@ -8,11 +8,14 @@ Contains:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+
+_Batch = tuple[torch.Tensor, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,9 +72,57 @@ def _augment(image: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, tor
     return image, mask
 
 
+def _parts(
+    batch: Sequence[torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    """Split a collated batch into image, label, mask, and an optional flag.
+
+    Args:
+        batch: Three tensors, or four when the dataset reports annotation flags.
+
+    Returns:
+        tuple: Image, label, mask, and the annotation flag or ``None``.
+
+    Raises:
+        ValueError: If ``batch`` does not hold three or four tensors.
+    """
+    if len(batch) not in {3, 4}:
+        raise ValueError(f"batch must hold 3 or 4 tensors; got {len(batch)}")
+    annotated = batch[3] if len(batch) == 4 else None
+    return batch[0], batch[1], batch[2], annotated
+
+
+def _drop_unannotated(
+    image: torch.Tensor,
+    label: torch.Tensor,
+    mask: torch.Tensor,
+    annotated: torch.Tensor | None,
+    *,
+    target: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
+    """Drop tiles that have no annotation file when the target is the mask.
+
+    Args:
+        image: Batch images.
+        label: Presence labels.
+        mask: Raster masks.
+        annotated: Flag with shape ``(N,)`` or ``(N, 1)``. ``None`` keeps the batch.
+        target: ``label`` or ``mask``.
+
+    Returns:
+        The kept tensors, or ``None`` when no tile remains.
+    """
+    if target != "mask" or annotated is None:
+        return image, label, mask
+    keep = annotated.reshape(-1) > 0
+    if int(keep.sum().item()) == 0:
+        return None
+    return image[keep], label[keep], mask[keep]
+
+
 def _mean_loss(
     model: nn.Module,
-    loader: DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+    loader: DataLoader[_Batch],
     device: torch.device,
     target: str,
 ) -> float:
@@ -80,7 +131,12 @@ def _mean_loss(
     total = 0.0
     count = 0
     with torch.no_grad():
-        for image, label, mask in loader:
+        for batch in loader:
+            image, label, mask, annotated = _parts(batch)
+            kept = _drop_unannotated(image, label, mask, annotated, target=target)
+            if kept is None:
+                continue
+            image, label, mask = kept
             image = image.to(device)
             batch_target = label.to(device) if target == "label" else mask.to(device)
             logits = model(image)
@@ -94,8 +150,8 @@ def _mean_loss(
 
 def run_training(
     model: nn.Module,
-    train_loader: DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
-    val_loader: DataLoader[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+    train_loader: DataLoader[_Batch],
+    val_loader: DataLoader[_Batch],
     config: TrainConfig,
     *,
     target: str,
@@ -106,8 +162,10 @@ def run_training(
     Args:
         model: Classifier or segmentor. The classifier reads ``label``.
             The segmentor reads ``mask``.
-        train_loader: Batches of image, label, and mask.
-        val_loader: Held-out batches. Augmentation is not applied.
+        train_loader: Batches of image, label, and mask. A fourth tensor is an
+            annotation flag.
+        val_loader: Held-out batches. Augmentation is not applied. A fourth
+            tensor is an annotation flag.
         config: Loop settings.
         target: ``label`` or ``mask``.
         device: Torch device. Defaults to CPU.
@@ -116,7 +174,8 @@ def run_training(
         TrainResult: Best validation loss and its weights.
 
     Raises:
-        ValueError: If ``target`` is unknown or a loader is empty.
+        ValueError: If ``target`` is unknown, a loader is empty, or a batch
+            does not hold 3 or 4 tensors.
     """
     if target not in {"label", "mask"}:
         raise ValueError(f"target must be 'label' or 'mask'; got {target!r}")
@@ -135,7 +194,13 @@ def run_training(
     stale = 0
     for epoch in range(config.epochs):
         model.train()
-        for image, label, mask in train_loader:
+        stepped = False
+        for batch in train_loader:
+            image, label, mask, annotated = _parts(batch)
+            kept = _drop_unannotated(image, label, mask, annotated, target=target)
+            if kept is None:
+                continue
+            image, label, mask = kept
             image = image.to(chosen)
             label = label.to(chosen)
             mask = mask.to(chosen)
@@ -148,7 +213,9 @@ def run_training(
             loss = _loss_of(logits, batch_target)
             loss.backward()  # type: ignore[no-untyped-call]
             optimizer.step()
-        schedule.step()
+            stepped = True
+        if stepped:
+            schedule.step()
         val_loss = _mean_loss(model, val_loader, chosen, target)
         if val_loss < best_loss:
             best_loss = val_loss

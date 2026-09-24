@@ -31,10 +31,14 @@ and one early-stopping rule.
 3. Validation loss is computed without augmentation. Training stops after
    ``patience`` epochs without a new minimum. The returned weights are that
    minimum.
+4. A batch may include an annotation flag. The segmentor omits tiles whose
+   flag is 0. The classifier uses every tile. The cosine schedule advances on
+   an epoch that updates the weights.
 
 ## Errors and faults
 
-`ValueError` when ``target`` is unknown or a loader yields no batches.
+`ValueError` when ``target`` is unknown, a loader yields no batches, or a
+batch does not hold 3 or 4 tensors.
 
 ## Messages
 

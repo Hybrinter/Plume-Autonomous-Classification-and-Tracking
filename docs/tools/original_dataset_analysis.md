@@ -24,6 +24,7 @@ coarse tiles for a ShuffleNet classifier and a DilateNet segmentor.
 | [`matrix`](original_dataset_analysis/matrix.md) | module | Native band matrix |
 | [`plots`](original_dataset_analysis/plots.md) | module | Score bar charts |
 | [`cli`](original_dataset_analysis/cli.md) | module | Cell list and completeness check |
+| [`results`](original_dataset_analysis/results.md) | module | Blank result tables |
 
 ## Package interface
 
@@ -55,3 +56,4 @@ The package reads local tar archives. It does not import ``flight`` or
 - [`tools.original_dataset_analysis.matrix`](original_dataset_analysis/matrix.md)
 - [`tools.original_dataset_analysis.plots`](original_dataset_analysis/plots.md)
 - [`tools.original_dataset_analysis.cli`](original_dataset_analysis/cli.md)
+- [`tools.original_dataset_analysis.results`](original_dataset_analysis/results.md)

@@ -19,6 +19,8 @@ coarse tiles for a ShuffleNet classifier and a DilateNet segmentor.
 | [`normalize`](original_dataset_analysis/normalize.md) | module | Train-split band moments |
 | [`dataset`](original_dataset_analysis/dataset.md) | module | Tile samples |
 | [`models`](original_dataset_analysis/models.md) | module | ShuffleNet and DilateNet |
+| [`metrics`](original_dataset_analysis/metrics.md) | module | Test-split scores |
+| [`train`](original_dataset_analysis/train.md) | module | Shared training loop |
 
 ## Package interface
 
@@ -45,3 +47,5 @@ The package reads local tar archives. It does not import ``flight`` or
 - [`tools.original_dataset_analysis.normalize`](original_dataset_analysis/normalize.md)
 - [`tools.original_dataset_analysis.dataset`](original_dataset_analysis/dataset.md)
 - [`tools.original_dataset_analysis.models`](original_dataset_analysis/models.md)
+- [`tools.original_dataset_analysis.metrics`](original_dataset_analysis/metrics.md)
+- [`tools.original_dataset_analysis.train`](original_dataset_analysis/train.md)

@@ -18,6 +18,7 @@ with no I/O and no global state.
 | [`normalize`](preprocess/normalize.md) | module | DN to [0, 1] scaling by ADC full scale |
 | [`band_select`](preprocess/band_select.md) | module | Reorder band planes for model input |
 | [`quality`](preprocess/quality.md) | module | Per-frame usability flags |
+| [`crop`](preprocess/crop.md) | module | ROI crop, decimate/upsample resampling, and pixel back-projection |
 
 ## Package interface
 

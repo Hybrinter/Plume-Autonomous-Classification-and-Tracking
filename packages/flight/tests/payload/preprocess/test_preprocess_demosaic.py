@@ -36,3 +36,14 @@ def test_interleave_is_inverse_of_separate() -> None:
     rebuilt = interleave_bands(planes.value)
     assert isinstance(rebuilt, Ok)
     np.testing.assert_array_equal(rebuilt.value, mosaic)
+
+
+def test_separate_bands_rejects_bad_cfa_phase() -> None:
+    """A cfa_phase that is not exactly 2 values in {0, 1} is Err, not a crash."""
+    mosaic = np.zeros((8, 8), dtype=np.float32)
+    for bad_phase in ((0, 0, 0), (2, 0), (0,), (-1, 0)):
+        result = separate_bands(mosaic, bad_phase)  # type: ignore[arg-type]
+        assert isinstance(result, Err)
+        assert result.error == FaultCode.FRAME_MALFORMED
+    result = separate_bands(mosaic, (0, 1))  # valid nonzero phase
+    assert isinstance(result, Ok)

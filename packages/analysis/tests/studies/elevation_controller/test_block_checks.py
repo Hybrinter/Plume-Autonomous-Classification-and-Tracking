@@ -317,8 +317,6 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
         2000.0,
         1.0,
         ifov,
-        rewind_elapsed_s=0.1,
-        rewind_sharp_max_s=2.0,
     )
     assert abs(r_rewind.commanded_rate_rad_s - (nom + oracle)) < 1e-12
 

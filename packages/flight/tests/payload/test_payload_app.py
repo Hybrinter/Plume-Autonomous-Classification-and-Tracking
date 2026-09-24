@@ -427,7 +427,7 @@ def test_ground_goto_latches_pose_mode() -> None:
 
 
 def test_process_frame_preserves_measured_zero_slew() -> None:
-    """A stationary measured gimbal rate flags MOTION_SMEAR against a moving scene."""
+    """A stationary measured gimbal rate is kept even when the scene rate is nonzero."""
     detector = _FlagDetector()
     app, _bus, _gimbal, _clock = _build_app(detector)
     initial = app.controller.initial_state()
@@ -443,7 +443,7 @@ def test_process_frame_preserves_measured_zero_slew() -> None:
     _state, outcome = app.process_frame(raw, state, now=1.0, slew_rate_deg_per_s=0.0)
     assert outcome.fault is None
     assert detector.flags
-    assert FrameUsabilityTag.MOTION_SMEAR in detector.flags[0]
+    assert FrameUsabilityTag.MOTION_SMEAR not in detector.flags[0]
 
 
 def test_process_frame_uses_encoder_when_command_and_motion_disagree() -> None:
@@ -466,7 +466,7 @@ def test_process_frame_uses_encoder_when_command_and_motion_disagree() -> None:
     _state, outcome = app.process_frame(raw, state, now=1.0, gimbal_pos=pos)
     assert outcome.fault is None
     assert detector.flags
-    assert FrameUsabilityTag.MOTION_SMEAR in detector.flags[0]
+    assert FrameUsabilityTag.MOTION_SMEAR not in detector.flags[0]
 
 
 def _drain_telem(subscription: object) -> list[TelemetryEventMsg]:

@@ -756,3 +756,82 @@ def test_rewind_production_zeros_outward_rate_at_sci_min() -> None:
     assert tick.state.commanded_rate_rad_s == 0.0
     assert math.isfinite(tick.state.commanded_rate_rad_s)
     assert tick.state.target.last_omega_t_nom < 0.0
+
+
+def test_fast_rewind_commands_hardware_slew() -> None:
+    """FAST_REWIND hunts at the hardware cap and reports the mode in pointing telemetry."""
+    controller = _controller()
+    iss = _iss()
+    theta_g = math.radians(20.0)
+    cold = controller.initial_state()
+    state = replace(
+        cold,
+        arbiter=ArbiterState(
+            gimbal_state=GimbalState.FAST_REWIND,
+            tracked_blobs=(),
+            current_target_id=None,
+            miss_count=0,
+            aggregate_live=False,
+            last_observation_s=None,
+            loss_handled=True,
+            rewind_entered_s=0.0,
+        ),
+        target=replace(cold.target, last_exposure_us=1000.0),
+    )
+    tick = controller.outer_step(
+        state,
+        0.1,
+        _encoder(0.1, theta_g),
+        None,
+        iss,
+        False,
+        False,
+        timestamp_utc="2026-06-01T00:00:00.000Z",
+    )
+    cap = math.radians(controller.gimbal.max_hw_slew_rate_deg_per_s)
+    assert tick.state.arbiter.gimbal_state is GimbalState.FAST_REWIND
+    assert tick.state.target.r_cog_ecef_m is None
+    assert abs(tick.state.commanded_rate_rad_s - cap) < 1e-12
+    pointing = [event for event in tick.telemetry if event.event_name == "pointing"]
+    assert pointing
+    assert pointing[0].payload["gimbal_state"] == GimbalState.FAST_REWIND.value
+    assert "rewind_escape" not in pointing[0].payload
+
+
+def test_rewind_promotes_to_fast_rewind_after_sharp_window() -> None:
+    """The controller promotes REWIND to FAST_REWIND after rewind_sharp_max_s."""
+    controller = _controller()
+    iss = _iss()
+    theta_g = math.radians(20.0)
+    cold = controller.initial_state()
+    sharp = controller.cfg.outer.rewind_sharp_max_s
+    state = replace(
+        cold,
+        arbiter=ArbiterState(
+            gimbal_state=GimbalState.REWIND,
+            tracked_blobs=(),
+            current_target_id=None,
+            miss_count=0,
+            aggregate_live=False,
+            last_observation_s=None,
+            loss_handled=True,
+            rewind_entered_s=0.0,
+        ),
+        target=replace(cold.target, last_exposure_us=1000.0),
+    )
+    tick = controller.outer_step(
+        state,
+        sharp,
+        _encoder(sharp, theta_g),
+        None,
+        iss,
+        False,
+        False,
+        timestamp_utc="2026-06-01T00:00:00.000Z",
+    )
+    cap = math.radians(controller.gimbal.max_hw_slew_rate_deg_per_s)
+    assert tick.state.arbiter.gimbal_state is GimbalState.FAST_REWIND
+    assert abs(tick.state.commanded_rate_rad_s - cap) < 1e-12
+    pointing = [event for event in tick.telemetry if event.event_name == "pointing"]
+    assert pointing
+    assert pointing[0].payload["gimbal_state"] == GimbalState.FAST_REWIND.value

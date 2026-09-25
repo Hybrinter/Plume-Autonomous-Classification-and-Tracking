@@ -59,7 +59,8 @@ class ImagingSensor(Protocol):
         Notes:
             A free-running camera continues to expose after start_acquisition.
             Off-duty payload ticks call this method. The call returns no mosaic.
-            Replay drivers leave scripted frames queued for acquire_frame.
+            A scripted replay drops one unread frame in acquire order. An empty
+            replay queue returns Ok(None).
         """
         ...
 

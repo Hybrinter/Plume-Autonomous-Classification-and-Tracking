@@ -48,3 +48,42 @@ def test_step_once_processes_one_frame_per_call() -> None:
     assert isinstance(position, Ok)
     assert position.value.el_deg != 0.0
     assert not hasattr(position.value, "az_deg")
+
+
+def test_step_once_duty_half_processes_due_scripted_frames() -> None:
+    """Duty 0.5 processes scripted frames stamped at even steps, not the skipped ones."""
+    frames = build_frames(4)
+    assert [frame.timestamp_s for frame in frames] == [1.0, 2.0, 3.0, 4.0]
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        frames,
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    inf_sub = system.bus.subscribe(InferenceResultMsg)
+    payload_state = system.apps.payload.controller.initial_state()
+    fault_entries = system.apps.fault.initial_entries()
+
+    now = 0.0
+    for _ in range(4):
+        now += 1.0
+        payload_state, fault_entries = step_once(
+            system.apps,
+            system.sensor,
+            system.gimbal,
+            system.bus,
+            system.clock,
+            now,
+            payload_state,
+            fault_entries,
+        )
+        system.clock.advance(1.0)
+
+    processed: list[int] = []
+    while not inf_sub.empty():
+        processed.append(inf_sub.get_nowait().frame_id)
+    assert processed == [2, 4]
+    assert system.sensor.unread_scripted_count() == 0

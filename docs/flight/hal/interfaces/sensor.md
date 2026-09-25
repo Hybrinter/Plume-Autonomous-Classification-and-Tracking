@@ -34,7 +34,8 @@ a bus message.
 1. The payload app calls `acquire_frame()` on the capture path.
 2. A successful call returns a raw mosaic plane with no in-driver processing.
 3. Off-duty ticks call `drain_frame()`. The call releases images already waiting
-   in the stream and returns no mosaic. An empty stream is success.
+   in the stream and returns no mosaic. An empty stream is success. A scripted
+   replay drops one unread frame in `acquire_frame` order.
 4. Control-plane calls adjust exposure, gain, and acquisition state.
 5. Implementations serialize capture and control access when both paths are active.
 

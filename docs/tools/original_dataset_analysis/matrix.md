@@ -14,7 +14,7 @@ omits one of them.
 | --- | --- | --- |
 | `Cell` | class | Task, subset name, and side |
 | `native_cells` | function | The native matrix |
-| `gsd_cells` | function | Ceiling and RGB at every legal side |
+| `gsd_cells` | function | 12-band set and RGB at every legal side |
 | `require_complete` | function | Completeness check |
 
 ## Inputs and outputs
@@ -27,12 +27,13 @@ omits one of them.
 
 ## Behavior
 
-1. Subsets are ceiling, RGB, one leave-one-out cell per ceiling band, and the
-   13-band set.
+1. Subsets are the 12-band set, RGB, and one leave-one-out cell per 12-band id.
+   B10 is not a cell.
 2. Each subset is listed for the classifier and the segmentor at side 120.
+   That is 28 cells.
 3. A missing cell raises. The message includes its task, subset, and side.
-4. ``gsd_cells`` repeats ceiling and RGB at sides 120, 80, 60, 40, and 30 for
-   both tasks. Those sides are 10, 15, 20, 30, and 40 metres.
+4. ``gsd_cells`` repeats the 12-band set and RGB at sides 120, 80, 60, 40, and
+   30 for both tasks. Those sides are 10, 15, 20, 30, and 40 metres.
 
 ## Errors and faults
 
@@ -48,7 +49,7 @@ None.
 
 ## Constraints
 
-Leave-one-out names come from the verified ceiling. B10 is not a dropout.
+Leave-one-out names come from the verified 12-band set. B10 is not a dropout.
 
 ## Related documents
 

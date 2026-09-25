@@ -2,6 +2,7 @@
 
 Contains:
   - BandStats: one mean and one standard deviation per channel.
+  - MomentAccumulator: running train-split moments.
   - fit_band_stats: moments from train stacks.
   - check_band_stats: both moment vectors have shape ``(C,)``.
   - apply_band_stats: zero-mean unit-variance scaling.
@@ -30,6 +31,63 @@ class BandStats:
     std: np.ndarray
 
 
+class MomentAccumulator:
+    """Running sum of pixels for one channel count.
+
+    Call :meth:`update` once per train stack, then :meth:`finish`.
+    """
+
+    def __init__(self, channels: int) -> None:
+        """Allocate the running sums.
+
+        Args:
+            channels: Channel count of every later stack.
+
+        Raises:
+            ValueError: If ``channels`` is below 1.
+        """
+        if channels < 1:
+            raise ValueError(f"channels must be at least 1; got {channels}")
+        self._channels = channels
+        self._total = np.zeros(channels, dtype=np.float64)
+        self._total_sq = np.zeros(channels, dtype=np.float64)
+        self._count = 0
+
+    def update(self, stack: np.ndarray) -> None:
+        """Add one ``(C, H, W)`` stack.
+
+        Args:
+            stack: Train pixels. ``C`` matches the constructor.
+
+        Raises:
+            ValueError: If the channel count differs.
+        """
+        array = np.asarray(stack, dtype=np.float64)
+        if array.ndim != 3 or array.shape[0] != self._channels:
+            raise ValueError(f"expected (C={self._channels}, H, W); got {array.shape}")
+        flat = array.reshape(self._channels, -1)
+        self._total += flat.sum(axis=1)
+        self._total_sq += np.square(flat).sum(axis=1)
+        self._count += int(flat.shape[1])
+
+    def finish(self) -> BandStats:
+        """Return the mean and standard deviation.
+
+        Returns:
+            BandStats: Moments across every pixel passed to :meth:`update`.
+
+        Raises:
+            ValueError: If :meth:`update` was never called.
+        """
+        if self._count == 0:
+            raise ValueError("need at least one stack to fit band stats")
+        mean = self._total / float(self._count)
+        variance = self._total_sq / float(self._count) - np.square(mean)
+        std = np.sqrt(np.maximum(variance, 0.0))
+        std = np.maximum(std, _EPS)
+        return BandStats(mean=mean.astype(np.float32), std=std.astype(np.float32))
+
+
 def fit_band_stats(stacks: Sequence[np.ndarray]) -> BandStats:
     """Fit per-channel moments.
 
@@ -44,23 +102,11 @@ def fit_band_stats(stacks: Sequence[np.ndarray]) -> BandStats:
     """
     if not stacks:
         raise ValueError("need at least one stack to fit band stats")
-    channels = int(stacks[0].shape[0])
-    total = np.zeros(channels, dtype=np.float64)
-    total_sq = np.zeros(channels, dtype=np.float64)
-    count = 0
+    channels = int(np.asarray(stacks[0]).shape[0])
+    accumulator = MomentAccumulator(channels)
     for stack in stacks:
-        array = np.asarray(stack, dtype=np.float64)
-        if array.ndim != 3 or array.shape[0] != channels:
-            raise ValueError(f"expected (C={channels}, H, W); got {array.shape}")
-        flat = array.reshape(channels, -1)
-        total += flat.sum(axis=1)
-        total_sq += np.square(flat).sum(axis=1)
-        count += flat.shape[1]
-    mean = total / float(count)
-    variance = total_sq / float(count) - np.square(mean)
-    std = np.sqrt(np.maximum(variance, 0.0))
-    std = np.maximum(std, _EPS)
-    return BandStats(mean=mean.astype(np.float32), std=std.astype(np.float32))
+        accumulator.update(stack)
+    return accumulator.finish()
 
 
 def check_band_stats(stats: BandStats, channels: int) -> None:

@@ -13,7 +13,8 @@ and one early-stopping rule.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `TrainConfig` | class | Epochs, learning rate, patience, seed |
-| `TrainResult` | class | Best epoch, validation loss, and weights |
+| `EpochLoss` | class | Train, validation, and test loss for one epoch |
+| `TrainResult` | class | Best epoch, validation loss, weights, and history |
 | `run_training` | function | The shared loop |
 
 ## Inputs and outputs
@@ -28,9 +29,10 @@ and one early-stopping rule.
    degrees. The mask receives the same transform.
 2. The loss is binary cross-entropy with logits. The optimizer is AdamW. The
    learning rate follows a cosine schedule over ``epochs``.
-3. Validation loss is computed without augmentation. Training stops after
-   ``patience`` epochs without a new minimum. The returned weights are that
-   minimum.
+3. Validation loss is computed without augmentation. An optional test loader
+   is scored the same way and stored on the history. Training stops after
+   ``patience`` epochs without a new minimum validation loss. The returned
+   weights are that minimum. History epochs are one-based.
 4. A batch may include an annotation flag. The segmentor omits tiles whose
    flag is 0. The classifier uses every tile. The cosine schedule advances on
    an epoch that updates the weights.

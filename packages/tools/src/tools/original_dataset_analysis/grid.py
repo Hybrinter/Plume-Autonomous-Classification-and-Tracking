@@ -77,16 +77,12 @@ def coarsen(planes: np.ndarray, side_px: int) -> np.ndarray:
     src = np.asarray(planes, dtype=np.float64)
     weight_sum = weights.sum(axis=1)
     weight_sum = np.where(weight_sum == 0.0, 1.0, weight_sum)
-    channels, _height, width = src.shape
-    row_reduced = np.zeros((channels, side_px, width), dtype=np.float64)
-    for out_row in range(side_px):
-        row_reduced[:, out_row, :] = np.tensordot(weights[out_row], src, axes=(0, 1))
-        row_reduced[:, out_row, :] /= weight_sum[out_row]
-    out = np.zeros((channels, side_px, side_px), dtype=np.float64)
-    for out_col in range(side_px):
-        out[:, :, out_col] = row_reduced @ weights[out_col]
-        out[:, :, out_col] /= weight_sum[out_col]
-    return out.astype(np.float32)
+    row_reduced = np.einsum("oh,chw->cow", weights, src)
+    row_reduced /= weight_sum[None, :, None]
+    out = np.einsum("cow,vw->cov", row_reduced, weights)
+    out /= weight_sum[None, None, :]
+    result: np.ndarray = out.astype(np.float32)
+    return result
 
 
 def _cell_samples(side_px: int) -> np.ndarray:

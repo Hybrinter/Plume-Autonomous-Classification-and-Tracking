@@ -30,6 +30,7 @@ The image is ``(C, side, side)``. The label is ``(1,)``. The mask is
    with frozen moments.
 3. ``polygons is None`` returns a zero mask and annotation flag 0. An annotation
    file with no smoke polygon returns a zero mask and annotation flag 1.
+   A cached mask at the same side is used when one is supplied.
 
 ## Errors and faults
 

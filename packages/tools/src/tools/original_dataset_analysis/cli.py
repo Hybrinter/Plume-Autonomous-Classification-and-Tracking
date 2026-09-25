@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from tools.original_dataset_analysis.bands import verify_band_order
@@ -32,7 +33,7 @@ def _parser() -> argparse.ArgumentParser:
         "--axis",
         choices=("native", "gsd"),
         default="native",
-        help="native band matrix, or ceiling and RGB at every legal side",
+        help="native band matrix, or the 12-band set and RGB at every legal side",
     )
     parser.add_argument(
         "--results",
@@ -43,20 +44,25 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """List native cells, or refuse an incomplete result file.
+    """List native cells, check a result file, or train the native sweep.
 
     Args:
         argv: Arguments excluding the program name. ``None`` reads the process
-            arguments.
+            arguments. ``train-native`` dispatches to the sweep.
 
     Returns:
-        int: Zero after listing or after a complete table.
+        int: Zero after listing, a complete table, or a finished sweep.
 
     Raises:
         ValueError: If ``--results`` omits a planned cell or a description is
             not a Sentinel-2 id.
     """
-    args = _parser().parse_args(argv)
+    incoming = list(sys.argv[1:] if argv is None else argv)
+    if incoming and incoming[0] == "train-native":
+        from tools.original_dataset_analysis.sweep import train_native
+
+        return train_native(incoming[1:])
+    args = _parser().parse_args(incoming)
     order = verify_band_order(args.descriptions)
     expected = gsd_cells(order) if args.axis == "gsd" else native_cells(order)
     if args.results is None:

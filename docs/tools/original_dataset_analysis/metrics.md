@@ -16,6 +16,8 @@ batch.
 | `SegmentationScores` | class | Mean IoU, Dice, accuracy |
 | `score_classifier` | function | Scores from logits and labels |
 | `score_segmentor` | function | Scores from logit planes and masks |
+| `NativeGridScores` | class | Dice and positive IoU on the 120 px mask |
+| `score_on_native_grid` | function | Coarse logits expanded onto the native mask |
 
 ## Inputs and outputs
 
@@ -23,11 +25,15 @@ batch.
 
 `score_segmentor(logits, masks) -> SegmentationScores`.
 
+`score_on_native_grid(logits, native_masks) -> NativeGridScores`.
+
 ## Behavior
 
 1. Probabilities are a sigmoid of the logits. The decision threshold is 0.5.
 2. PR-AUC and ROC-AUC rank the logits. Equal logits form one threshold.
 3. Mean IoU averages the positive-class IoU and the background IoU.
+4. ``score_on_native_grid`` repeats each coarse logit across the native cells
+   it covers, then scores Dice and positive-class IoU on the 120 px mask.
 
 ## Errors and faults
 

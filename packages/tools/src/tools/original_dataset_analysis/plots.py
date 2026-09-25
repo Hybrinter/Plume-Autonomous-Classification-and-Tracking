@@ -10,7 +10,7 @@ Contains:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import matplotlib
@@ -185,6 +185,51 @@ def write_loss_curve(
     axis.set_xlabel("epoch")
     axis.set_ylabel("loss")
     axis.legend()
+    figure.tight_layout()
+    figure.savefig(path)
+    plt.close(figure)
+
+
+def write_gsd_lines(
+    scores: Mapping[tuple[str, str, int], float],
+    path: Path,
+) -> None:
+    """Write classifier PR-AUC and native-grid Dice against ground-sample distance.
+
+    Args:
+        scores: Metric keyed by ``(task, subset, side_px)``. Classifier values
+            are PR-AUC. Segmentor values are Dice on the 120 px mask.
+        path: PNG destination. Parent directories are created.
+
+    Raises:
+        ValueError: If either head is missing a 12-band or RGB point.
+    """
+    from tools.original_dataset_analysis.grid import gsd_m
+
+    sides = (120, 80, 60, 40, 30)
+    series = (
+        ("classify", "PR-AUC"),
+        ("segment", "Dice on the 120 px mask"),
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    matplotlib.use("Agg")
+    figure, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+    metres = [gsd_m(side) for side in sides]
+    for axis, (task, ylabel) in zip(axes, series, strict=True):
+        for subset in ("s2_12", "rgb"):
+            values = [scores.get((task, subset, side)) for side in sides]
+            if any(value is None for value in values):
+                raise ValueError(f"missing {task} {subset} ground-sample score")
+            axis.plot(
+                metres,
+                [float(value) for value in values if value is not None],
+                marker="o",
+                label=subset,
+            )
+        axis.set_xlabel("ground sample distance (m)")
+        axis.set_ylabel(ylabel)
+        axis.set_ylim(0.0, 1.0)
+        axis.legend()
     figure.tight_layout()
     figure.savefig(path)
     plt.close(figure)

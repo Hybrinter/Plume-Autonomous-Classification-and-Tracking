@@ -16,6 +16,7 @@ This module writes a horizontal bar chart of one score per subset.
 | `write_delta_bars` | function | Difference from the 12-band score |
 | `write_loss_curve` | function | Train, validation, and test loss |
 | `write_pr_curve` | function | Precision-recall curve |
+| `write_gsd_lines` | function | PR-AUC and native-grid Dice versus ground-sample distance |
 
 ## Inputs and outputs
 

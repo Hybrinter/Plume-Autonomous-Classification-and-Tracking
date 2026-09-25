@@ -41,10 +41,19 @@ from tools.original_dataset_analysis.dataset import StudyDataset
 from tools.original_dataset_analysis.grid import rasterize_mask
 from tools.original_dataset_analysis.index import TileIndex, TileRef, build_index
 from tools.original_dataset_analysis.matrix import Cell, gsd_cells, native_cells
-from tools.original_dataset_analysis.metrics import score_classifier, score_segmentor
+from tools.original_dataset_analysis.metrics import (
+    score_classifier,
+    score_on_native_grid,
+    score_segmentor,
+)
 from tools.original_dataset_analysis.models import DilateNet, ShuffleNetClassifier
 from tools.original_dataset_analysis.normalize import BandStats, MomentAccumulator
-from tools.original_dataset_analysis.plots import write_delta_bars, write_loss_curve, write_pr_curve
+from tools.original_dataset_analysis.plots import (
+    write_delta_bars,
+    write_gsd_lines,
+    write_loss_curve,
+    write_pr_curve,
+)
 from tools.original_dataset_analysis.results import write_filled_tables
 from tools.original_dataset_analysis.split import SplitRecipe, assign_location_splits
 from tools.original_dataset_analysis.train import EpochLoss, TrainConfig, run_training
@@ -175,6 +184,7 @@ def _metrics(
     loader: DataLoader[tuple[torch.Tensor, ...]],
     device: torch.device,
     target: str,
+    native_masks: np.ndarray | None = None,
 ) -> tuple[dict[str, float], tuple[float, ...], tuple[float, ...]]:
     """Score the test loader with the weights already loaded in ``model``."""
     model.eval()
@@ -220,11 +230,15 @@ def _metrics(
             tuple(float(value) for value in precision_curve),
         )
     scored_mask = score_segmentor(logits, truth)
+    native_source = truth if native_masks is None else torch.as_tensor(native_masks)
+    native = score_on_native_grid(logits, native_source)
     return (
         {
             "mean_iou": scored_mask.mean_iou,
             "dice": scored_mask.dice,
             "accuracy": scored_mask.accuracy,
+            "native_dice": native.dice,
+            "native_iou": native.positive_iou,
         },
         (),
         (),
@@ -252,6 +266,7 @@ def run_native(
     mask_rows: Mapping[str, int] | None = None,
     mask_by_side: Mapping[int, np.ndarray] | None = None,
     pack: SidePack | None = None,
+    native_masks_all: np.ndarray | None = None,
     on_result: Callable[[tuple[CellResult, ...]], None] | None = None,
 ) -> tuple[CellResult, ...]:
     """Train each native cell and score its best validation weights.
@@ -352,6 +367,16 @@ def run_native(
             ),
         )
         model.load_state_dict(trained.state_dict)
+        native_masks = None
+        if (
+            target == "mask"
+            and pack is not None
+            and native_masks_all is not None
+            and test_rows is not None
+            and cell.side_px != 120
+        ):
+            kept = [int(row) for row in test_rows if int(pack.annotated[int(row)]) > 0]
+            native_masks = np.asarray(native_masks_all[kept], dtype=np.float32)
         metrics, pr_recall, pr_precision = _metrics(
             model,
             _loader(
@@ -370,6 +395,7 @@ def run_native(
             ),
             device,
             target,
+            native_masks,
         )
         results.append(
             CellResult(
@@ -443,6 +469,23 @@ def write_review(
     path.mkdir(parents=True, exist_ok=True)
     scores = {(item.task, item.subset, item.side_px): item.score for item in results}
     write_filled_tables(order, scores, path / "RESULTS.md", prevalence=prevalence)
+    gsd_scores: dict[tuple[str, str, int], float] = {}
+    for item in results:
+        if item.subset not in {"s2_12", "rgb"}:
+            continue
+        if item.task == "classify":
+            gsd_scores[(item.task, item.subset, item.side_px)] = float(item.metrics["pr_auc"])
+        elif "native_dice" in item.metrics:
+            gsd_scores[(item.task, item.subset, item.side_px)] = float(item.metrics["native_dice"])
+        elif item.side_px == 120 and "dice" in item.metrics:
+            gsd_scores[(item.task, item.subset, item.side_px)] = float(item.metrics["dice"])
+    if all(
+        (task, subset, side) in gsd_scores
+        for task in ("classify", "segment")
+        for subset in ("s2_12", "rgb")
+        for side in (120, 80, 60, 40, 30)
+    ):
+        write_gsd_lines(gsd_scores, path / "figures" / "gsd_lines.png")
     payload = [
         {
             "task": item.task,
@@ -591,10 +634,11 @@ def train_native(argv: Sequence[str]) -> int:
     planned = gsd_cells(order) if args.axis == "gsd" else native_cells(order)
     if args.axis == "gsd":
         planned = tuple(cell for cell in planned if cell.side_px != 120)
+    replace: set[tuple[str, str]] = set()
     if args.only:
-        wanted = {tuple(item.split(":", 1)) for item in args.only}
-        planned = tuple(cell for cell in planned if (cell.task, cell.subset) in wanted)
-        if len(planned) != len(wanted):
+        replace = {tuple(item.split(":", 1)) for item in args.only}
+        planned = tuple(cell for cell in planned if (cell.task, cell.subset) in replace)
+        if not planned:
             raise ValueError(f"unknown cells in {args.only}")
     if args.preview:
         write_mask_previews(cache, index.tiles, args.out / "previews", args.preview)
@@ -606,6 +650,10 @@ def train_native(argv: Sequence[str]) -> int:
         if stems
     }
     prior = _load_saved(args.out / "results.json")
+    if replace:
+        prior = tuple(
+            item for item in prior if item.side_px == 120 or (item.task, item.subset) not in replace
+        )
     done = {(item.task, item.subset, item.side_px) for item in prior}
     planned = tuple(cell for cell in planned if (cell.task, cell.subset, cell.side_px) not in done)
     if prior:
@@ -642,6 +690,12 @@ def train_native(argv: Sequence[str]) -> int:
                 )
                 native.close()
             pack = open_side_pack(pack_dir)
+            native_plane = np.memmap(
+                args.cache / "masks.dat",
+                dtype=np.uint8,
+                mode="r",
+                shape=(len(index.tiles), 120, 120),
+            )
             batch = run_native(
                 index,
                 cache,
@@ -650,6 +704,7 @@ def train_native(argv: Sequence[str]) -> int:
                 config,
                 device,
                 pack=pack,
+                native_masks_all=native_plane,
                 on_result=_publish_gsd,
             )
             accumulated.extend(batch)

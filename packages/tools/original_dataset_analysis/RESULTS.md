@@ -49,22 +49,22 @@ best_epoch in the JSON is zero-based. Loss charts label the one-based epoch.
 | task | subset | side_px | gsd_m | score |
 | --- | --- | --- | --- | --- |
 | classify | s2_12 | 120 | 10 | 0.8340 |
-| classify | s2_12 | 80 | 15 | |
-| classify | s2_12 | 60 | 20 | |
-| classify | s2_12 | 40 | 30 | |
-| classify | s2_12 | 30 | 40 | |
+| classify | s2_12 | 80 | 15 | 0.7878 |
+| classify | s2_12 | 60 | 20 | 0.7341 |
+| classify | s2_12 | 40 | 30 | 0.6805 |
+| classify | s2_12 | 30 | 40 | 0.6664 |
 | classify | rgb | 120 | 10 | 0.6965 |
-| classify | rgb | 80 | 15 | |
-| classify | rgb | 60 | 20 | |
-| classify | rgb | 40 | 30 | |
-| classify | rgb | 30 | 40 | |
+| classify | rgb | 80 | 15 | 0.6729 |
+| classify | rgb | 60 | 20 | 0.7284 |
+| classify | rgb | 40 | 30 | 0.6188 |
+| classify | rgb | 30 | 40 | 0.7078 |
 | segment | s2_12 | 120 | 10 | 0.7779 |
-| segment | s2_12 | 80 | 15 | |
-| segment | s2_12 | 60 | 20 | |
-| segment | s2_12 | 40 | 30 | |
-| segment | s2_12 | 30 | 40 | |
+| segment | s2_12 | 80 | 15 | 0.7415 |
+| segment | s2_12 | 60 | 20 | 0.7545 |
+| segment | s2_12 | 40 | 30 | 0.6484 |
+| segment | s2_12 | 30 | 40 | 0.5819 |
 | segment | rgb | 120 | 10 | 0.7591 |
-| segment | rgb | 80 | 15 | |
-| segment | rgb | 60 | 20 | |
-| segment | rgb | 40 | 30 | |
-| segment | rgb | 30 | 40 | |
+| segment | rgb | 80 | 15 | 0.7256 |
+| segment | rgb | 60 | 20 | 0.7253 |
+| segment | rgb | 40 | 30 | 0.6558 |
+| segment | rgb | 30 | 40 | 0.6259 |

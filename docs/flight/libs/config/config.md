@@ -121,10 +121,10 @@ not compare these values.
 
 ### GimbalConfig
 
-Hardware elevation `[el_hw_min_deg, el_hw_max_deg]`, science window
-`[el_science_min_deg, el_science_max_deg]`, stow and home elevation, max hardware slew,
-plant copies `J_kg_m2`, `B_nms_per_rad`, `tau_max_nm`, 18-bit encoder counts, and sim
-encoder noise. There is no azimuth travel field.
+Hardware elevation `[0, +90]` deg, science window `[+5, +45]`, stow at `+90`
+(flat launch pose), home at `+45`, and max hardware slew. Plant `J_kg_m2` is capped
+by the XRT-U-60 payload inertia limit, with `B_nms_per_rad`, `tau_max_nm` (90 mN·m),
+64800 encoder counts, and sim encoder noise. There is no azimuth travel field.
 
 ### LinkConfig
 
@@ -151,7 +151,7 @@ ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
 - `calibration_dir=""` selects identity calibration (SIL only).
 - Launch-lock axis is not in `DriverConfig`.
 - Science elevation must lie inside hardware travel. Stow and home must lie inside
-  hardware travel.
+  hardware travel. Plant `J_kg_m2` must be at most `xeryon.payload_inertia_limit_kg_m2`.
 - `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have
   length 2.
 

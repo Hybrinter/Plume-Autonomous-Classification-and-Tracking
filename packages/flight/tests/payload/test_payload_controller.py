@@ -249,7 +249,19 @@ def test_safe_entry_produces_stow_request() -> None:
     assert tick.request.mode is GimbalCommandMode.STOW
     assert tick.state.arbiter.gimbal_state is GimbalState.SAFE
     assert tick.state.pose.pose_mode is GimbalCommandMode.STOW
-    assert tick.state.commanded_rate_rad_s < 0.0
+    assert tick.state.commanded_rate_rad_s > 0.0
+
+
+def test_lower_stop_ignores_phantom_inbound_rate() -> None:
+    """A rising encoder count on the nadir stop still drives off the stop."""
+    controller = _controller()
+    state = replace(controller.initial_state(), commanded_rate_rad_s=0.05)
+    tick = None
+    for i in range(1, 8):
+        tick = controller.inner_step(state, i * 0.001, 1.0e-5 * i)
+        state = tick.state
+    assert tick is not None
+    assert tick.tau_nm > 0.0
 
 
 def test_inner_step_writes_torque() -> None:

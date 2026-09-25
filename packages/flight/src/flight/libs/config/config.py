@@ -307,7 +307,7 @@ class ThermalConfig:
     camera_max_c: float = 50.0
     lens_min_c: float = -10.0
     lens_max_c: float = 50.0
-    gimbal_min_c: float = -20.0
+    gimbal_min_c: float = -30.0
     gimbal_max_c: float = 70.0
     compute_min_c: float = 0.0
     compute_max_c: float = 80.0
@@ -336,38 +336,43 @@ class GimbalSimulationConfig:
     so a SIL run cannot accidentally be mistaken for hardware characterization.
     encoder_counts_per_rev and encoder_noise_deg match the real XD-C controller
     resolution (GimbalConfig.xeryon.controller_counts_per_rev /
-    effective_encoder_resolution_urad); J, B, tau_max, and tau_coulomb remain
-    unmeasured plant placeholders pending a bench identification study.
+    effective_encoder_resolution_urad). J is the XRT-U-60 payload-inertia cap
+    until the camera, lens, fixture, and thermal straps are measured. tau_max is
+    the stage minimum driving torque. tau_coulomb stays at 5% of tau_max so the
+    unmeasured friction term does not exceed the drive the inner law produces.
+    B remains unmeasured.
     """
 
-    J_kg_m2: float = Field(default=0.008, gt=0.0)  # noqa: N815
+    J_kg_m2: float = Field(default=0.0025, gt=0.0)  # noqa: N815
     B_nms_per_rad: float = Field(default=0.04, ge=0.0)  # noqa: N815
-    tau_max_nm: float = Field(default=1.0, gt=0.0)
-    tau_coulomb_nm: float = Field(default=0.05, ge=0.0)
-    encoder_counts_per_rev: int = Field(default=86_400, ge=2)
+    tau_max_nm: float = Field(default=0.09, gt=0.0)
+    tau_coulomb_nm: float = Field(default=0.0045, ge=0.0)
+    encoder_counts_per_rev: int = Field(default=64_800, ge=2)
     encoder_noise_deg: float = Field(default=0.00625, ge=0.0)
     seed: int = 0
 
 
 @dataclass(frozen=True, config=_SCHEMA)
 class XeryonConfig:
-    """Typed, fail-closed configuration for the XRT-U-40-109-HV/XD-C path.
+    """Typed, fail-closed configuration for the XRT-U-60-109-HV/XD-C path.
 
     Values describing the controller protocol are intentionally explicit.  The
     adapter remains motion-disabled until the audit and bench-validation flags
-    are all true; defaults are therefore safe for development and CI.
+    are all true; defaults are therefore safe for development and CI. The
+    vendored SDK defines XRTU_60_109 at 64800 counts/rev.
     """
 
-    model: Literal["XRT-U-40-109-HV"] = "XRT-U-40-109-HV"
+    model: Literal["XRT-U-60-109-HV"] = "XRT-U-60-109-HV"
     controller: Literal["XD-C"] = "XD-C"
-    controller_counts_per_rev: int = Field(default=86_400, ge=2)
+    controller_counts_per_rev: int = Field(default=64_800, ge=2)
     effective_encoder_resolution_urad: float = Field(default=109.0, gt=0.0)
-    min_incremental_motion_urad: float = Field(default=109.0, gt=0.0)
-    repeatability_uni_urad: float = Field(default=109.0, ge=0.0)
-    repeatability_bi_urad: float = Field(default=109.0, ge=0.0)
-    wobble_urad: float = Field(default=0.0, ge=0.0)
+    min_incremental_motion_urad: float = Field(default=125.0, gt=0.0)
+    repeatability_uni_urad: float = Field(default=125.0, ge=0.0)
+    repeatability_bi_urad: float = Field(default=250.0, ge=0.0)
+    wobble_urad: float = Field(default=250.0, ge=0.0)
+    payload_inertia_limit_kg_m2: float = Field(default=0.0025, gt=0.0)
     command_quantum_deg_per_s: float = Field(default=0.01, gt=0.0)
-    rated_speed_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
+    rated_speed_limit_deg_per_s: float = Field(default=360.0, gt=0.0)
     software_tracking_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
     encoder_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
     reversal_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
@@ -386,7 +391,7 @@ class XeryonConfig:
     feedback_info_level: int = Field(default=4, ge=0)
     feedback_poll_interval_ms: float = Field(default=2.0, gt=0.0)
     vendor_module: str = "Xeryon"
-    vendor_stage: str = "XRTU_40_109"
+    vendor_stage: str = "XRTU_60_109"
     axis_letter: str = Field(default="X", min_length=1, max_length=1)
     motion_enabled: bool = False
     vendor_license_audited: bool = False
@@ -427,18 +432,19 @@ class GimbalConfig:
     """Configuration for the single-axis gimbal envelope, plant, and encoder.
 
     Elevation is signed off-nadir degrees: 0 at geocentric nadir, positive along-track
-    (velocity), negative look-back. Hardware travel, science imaging window, and stow/home
-    poses are distinct. Plant scalars J, B, tau_max are placeholders until hardware exists.
+    (velocity). Hardware travel is nadir to the flat pose, with no look-back. The science
+    window and stow/home poses are distinct. Plant J is the motor inertia cap until the
+    assembly is measured.
 
     Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
     """
 
-    el_hw_min_deg: float = -45.0
+    el_hw_min_deg: float = 0.0
     el_hw_max_deg: float = 90.0
-    el_science_min_deg: float = 0.0
+    el_science_min_deg: float = 5.0
     el_science_max_deg: float = 45.0
     max_hw_slew_rate_deg_per_s: float = Field(default=10.0, gt=0.0)
-    stow_el_deg: float = -45.0
+    stow_el_deg: float = 90.0
     home_el_deg: float = 45.0
     simulation: GimbalSimulationConfig = field(default_factory=GimbalSimulationConfig)
     xeryon: XeryonConfig = field(default_factory=XeryonConfig)
@@ -494,6 +500,8 @@ class GimbalConfig:
             raise ValueError("stow_el_deg must be within [el_hw_min_deg, el_hw_max_deg]")
         if not (self.el_hw_min_deg <= self.home_el_deg <= self.el_hw_max_deg):
             raise ValueError("home_el_deg must be within [el_hw_min_deg, el_hw_max_deg]")
+        if self.simulation.J_kg_m2 > self.xeryon.payload_inertia_limit_kg_m2:
+            raise ValueError("simulation.J_kg_m2 must be <= xeryon.payload_inertia_limit_kg_m2")
         return self
 
 

@@ -250,7 +250,7 @@ def test_fake_vendor_rate_sequence_feedback_mapping_and_safe_shutdown() -> None:
     ]
     position = gimbal.read_position()
     assert isinstance(position, Ok)
-    assert position.value.el_deg == 180.0
+    assert position.value.el_deg == 240.0
     assert position.value.raw_controller_time_s == 42.0
     assert position.value.time_mapping_uncertainty_s == 1.0e-5
     health = gimbal.read_health()
@@ -276,8 +276,8 @@ def test_connect_programs_soft_limits_as_encoder_min_max() -> None:
         vendor_factory=cast(VendorFactory, lambda _cfg: (controller, axis)),
     )
     assert isinstance(gimbal.set_rate(GimbalRateCommand(0.9, 1.0)), Ok)
-    assert ("setSetting", ("LLIM", "-10800")) in axis.calls
-    assert ("setSetting", ("HLIM", "21600")) in axis.calls
+    assert ("setSetting", ("LLIM", "0")) in axis.calls
+    assert ("setSetting", ("HLIM", "16200")) in axis.calls
     assert ("setSpeed", 0.9) in axis.calls
 
 

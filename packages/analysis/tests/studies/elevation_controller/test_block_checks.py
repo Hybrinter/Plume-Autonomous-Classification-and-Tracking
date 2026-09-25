@@ -338,7 +338,7 @@ def test_safe_position_loop_and_cold_start() -> None:
     assert safe.state.arbiter.gimbal_state is GimbalState.SAFE
     assert safe.request is not None
     assert safe.request.mode is GimbalCommandMode.STOW
-    assert safe.state.commanded_rate_rad_s < 0.0
+    assert safe.state.commanded_rate_rad_s > 0.0
 
     blob = BlobMeta(
         blob_id=1,

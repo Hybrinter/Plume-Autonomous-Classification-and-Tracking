@@ -120,8 +120,8 @@ def test_safe_stows_the_gimbal() -> None:
         )
     )
 
-    # Enough steps for the slew-limited dynamics to settle at stow.
-    SilHarness(system).run_steps(15, dt=1.0)
+    # Stow is +90 deg at 8 deg/s, so the slew from nadir needs longer than the old -45 deg park.
+    SilHarness(system).run_steps(20, dt=1.0)
 
     switch = system.gimbal.read_stow_switch()
     assert isinstance(switch, Ok)

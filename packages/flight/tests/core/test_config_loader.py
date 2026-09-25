@@ -66,18 +66,21 @@ def test_gimbal_section_loads() -> None:
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     g = result.value.gimbal
-    assert g.el_hw_min_deg == -45.0
+    assert g.el_hw_min_deg == 0.0
     assert g.el_hw_max_deg == 90.0
-    assert g.el_science_min_deg == 0.0
+    assert g.el_science_min_deg == 5.0
     assert g.el_science_max_deg == 45.0
     assert g.max_hw_slew_rate_deg_per_s == 10.0
-    assert g.stow_el_deg == -45.0
+    assert g.stow_el_deg == 90.0
     assert g.home_el_deg == 45.0
-    assert g.J_kg_m2 == 0.008
-    assert g.tau_max_nm == 1.0
-    assert g.tau_coulomb_nm == 0.05
-    assert g.encoder_counts_per_rev == 86400
+    assert g.J_kg_m2 == 0.0025
+    assert g.tau_max_nm == 0.09
+    assert g.tau_coulomb_nm == 0.0045
+    assert g.encoder_counts_per_rev == 64800
     assert g.sim_encoder_noise_deg == 0.00625
+    assert g.xeryon.model == "XRT-U-60-109-HV"
+    assert g.xeryon.payload_inertia_limit_kg_m2 == 0.0025
+    assert g.xeryon.vendor_stage == "XRTU_60_109"
 
 
 def test_controller_placeholder_fields_load() -> None:
@@ -211,6 +214,15 @@ def test_stow_pose_outside_travel_rejected(tmp_path: Path) -> None:
     result = load_config(_DEFAULT_TOML, _override(tmp_path, "[gimbal]\nstow_el_deg = -200.0\n"))
     assert isinstance(result, Err)
     assert "stow" in result.error
+
+
+def test_plant_inertia_above_motor_limit_rejected(tmp_path: Path) -> None:
+    """Simulation inertia must stay within the XRT-U-60 payload limit."""
+    result = load_config(
+        _DEFAULT_TOML, _override(tmp_path, "[gimbal.simulation]\nJ_kg_m2 = 0.008\n")
+    )
+    assert isinstance(result, Err)
+    assert "J_kg_m2" in result.error
 
 
 def test_mosaic_layout_not_permutation_rejected(tmp_path: Path) -> None:

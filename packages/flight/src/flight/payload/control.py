@@ -461,6 +461,9 @@ class PayloadController:
         stopped = (
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
         )
+        quantum_deg = (
+            self.gimbal.xeryon.effective_encoder_resolution_urad * 1.0e-6 * (180.0 / math.pi)
+        )
         if safe_latched or state.pose.pose_mode is not None:
             pose_el = (
                 state.pose.pose_el_deg
@@ -506,6 +509,14 @@ class PayloadController:
                 )
         if locked:
             r = 0.0
+        # One encoder count differentiated at the inner rate looks like several deg/s.
+        # Against a hard stop that phantom rate commands torque into the stop, and
+        # the stage cannot move the other way to bleed it. Drop the inbound estimate
+        # while the rate command points off the stop.
+        if el_deg <= self.gimbal.el_hw_min_deg + 3.0 * quantum_deg and r > 0.0:
+            y_m = min(y_m, 0.0)
+        elif el_deg >= self.gimbal.el_hw_max_deg - 3.0 * quantum_deg and r < 0.0:
+            y_m = max(y_m, 0.0)
         at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
         result = inner_step(
             r,

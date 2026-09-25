@@ -370,10 +370,10 @@ def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:
     state = replace(
         initial,
         inner=replace(initial.inner, last_inner_s=0.0),
-        commanded_rate_rad_s=0.1,
+        commanded_rate_rad_s=-0.1,
     )
     app.advance_inner(state, now=0.001)
-    assert gimbal._tau_nm <= 0.0
+    assert gimbal._tau_nm > 0.0
 
 
 def test_encoder_failure_contains_motion_and_commands_safe(

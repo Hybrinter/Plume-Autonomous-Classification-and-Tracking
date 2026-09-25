@@ -297,7 +297,7 @@ class InProcessBackend:
 
         Notes:
             gimbal_moved is True only when elevation left the origin and is not at the
-            stow pose. SAFE-only stow to -45 deg does not count as tracking motion.
+            stow pose. SAFE-only stow to +90 deg does not count as tracking motion.
         """
         if (
             self._system is None

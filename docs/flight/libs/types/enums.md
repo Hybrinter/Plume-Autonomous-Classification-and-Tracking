@@ -16,7 +16,7 @@ across subsystems.
 | `GimbalState` | enum | Gimbal arbiter state |
 | `GimbalCommandMode` | enum | Gimbal command axis interpretation |
 | `FaultCode` | enum | Enumerated fault conditions |
-| `Band` | enum | Mosaic-filter band names |
+| `Band` | enum | Prism RGB band names |
 | `FrameUsabilityTag` | enum | Per-frame quality classification |
 | `MessageType` | enum | Bus message discriminant |
 | `DownlinkPriority` | enum | Downlink queue priority |
@@ -89,7 +89,6 @@ across subsystems.
 | `BLUE` | Blue passband (~490 nm) |
 | `GREEN` | Green passband (~560 nm) |
 | `RED` | Red passband (~665 nm) |
-| `NIR` | Near-infrared passband (~842 nm) |
 
 ### FrameUsabilityTag
 

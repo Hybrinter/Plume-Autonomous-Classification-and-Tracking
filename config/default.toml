@@ -69,9 +69,9 @@ classifier_model_path = "data/models/active_classifier.onnx"
 segmentor_rollback_model_path = "data/models/rollback_segmentor.onnx"
 classifier_rollback_model_path = "data/models/rollback_classifier.onnx"
 classifier_logit_threshold = 0.0
-input_bands = ["BLUE", "GREEN", "RED", "NIR"]
-input_height_px = 1024
-input_width_px = 1224
+input_bands = ["BLUE", "GREEN", "RED"]
+input_height_px = 1544
+input_width_px = 2064
 use_int8 = false
 # Derived expected detect wall (Orin Nano Super, mixed knee: cls FP16 + seg INT8).
 latency_budget_ms = 4.0
@@ -94,39 +94,46 @@ checksum_algorithm = "sha256"
 
 [preprocessing]
 saturation_fraction_threshold = 0.05
-nir_red_ratio_threshold = 3.0
-sunglint_nir_mean_threshold = 0.6
 max_motion_smear_px = 1.0
 
 [sensor]
-# BFS-U3-50S5M-C, Sony IMX264, global shutter. width is lateral; height is along-track.
-part_number = "BFS-U3-50S5M-C"
-sensor_name = "Sony IMX264"
-width_px = 2448
-height_px = 2048
+# JAI AP-3200T-USB, Sony IMX265, 3-CMOS prism. width is lateral; height is along-track.
+part_number = "AP-3200T-USB"
+sensor_name = "Sony IMX265"
+width_px = 2064
+height_px = 1544
 bit_depth = 12
-mosaic_layout = ["BLUE", "GREEN", "RED", "NIR"]
+# Wire order. inference.input_bands reorders to BLUE, GREEN, RED.
+channel_layout = ["RED", "GREEN", "BLUE"]
 pixel_um = 3.45
-focal_length_mm = 150.0
-f_number = 4.0
-lens_distortion_pct = 0.66
-ifov_mosaic_deg_per_px = 0.001318
-ifov_band_deg_per_px = 0.002636
-fov_lateral_deg = 3.204
-fov_along_deg = 2.681
-datasheet_hfov_2_3_deg = 3.36
-qe_530_pct = 62.51
-saturation_capacity_e = 10824.0
-temporal_dark_noise_e = 2.27
-dynamic_range_db = 71.83
-max_frame_rate_hz = 35.0
-exposure_min_us = 13.0
-exposure_max_us = 30000000.0
-initial_exposure_us = 13.0
-gain_min_db = 0.0
-gain_max_db = 47.0
-initial_gain_db = 0.0
 calibration_dir = ""
+
+[sensor.optics]
+# Edmund Optics TECHSPEC athermal 16-849, 100 mm f/4, C-mount.
+# Paraxial nadir GSD at 460 km is 15.87 m (460e3 * 3.45e-6 / 0.1).
+part_number = "16-849"
+focal_length_mm = 100.0
+f_number = 4.0
+lens_distortion_pct = 1.21
+# degrees(pixel_um * 1e-6 / focal_m), stored to 1e-6 deg.
+ifov_band_deg_per_px = 0.001977
+# Active-pixel FOV at 100 mm. Lateral 4.077 deg, along-track 3.051 deg.
+fov_lateral_deg = 4.077
+fov_along_deg = 3.051
+# Edmund 1/1.8 in sensor-row HFOV. The lens page's 2.74 um pixel is not this camera.
+datasheet_hfov_deg = 4.12
+
+[sensor.capture]
+# Datasheet 8-bit maximum is 38.3 Hz. Operational cap stays 35 Hz.
+max_frame_rate_hz = 35.0
+# 8-bit timed range. 12-bit limits are not on the sheet.
+exposure_min_us = 30.73
+exposure_max_us = 8000000.0
+initial_exposure_us = 30.73
+# ALC gain span.
+gain_min_db = 0.0
+gain_max_db = 12.0
+initial_gain_db = 0.0
 
 [fault]
 watchdog_interval_s = 5.0
@@ -139,8 +146,9 @@ power_limit_w = 55.0
 
 [thermal]
 # Record-only datasheet limits. Housekeeping does not compare until per-component sensors exist.
-camera_min_c = 0.0
-camera_max_c = 50.0
+# AP-3200T-USB operating range.
+camera_min_c = -5.0
+camera_max_c = 45.0
 lens_min_c = -10.0
 lens_max_c = 50.0
 # XRT-U operating range.

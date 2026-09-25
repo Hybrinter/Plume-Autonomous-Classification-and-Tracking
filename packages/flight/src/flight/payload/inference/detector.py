@@ -87,7 +87,7 @@ class Detector:
         """Classify, optionally segment, extract blobs, and enforce the latency budget.
 
         Args:
-            frame: Preprocessed frame with tensor (C, H, W) float32.
+            frame: Preprocessed frame with tensor (1, C, H, W) float32.
 
         Returns:
             Ok(InferenceResultMsg) with blobs from the mask, or empty blobs when
@@ -104,8 +104,11 @@ class Detector:
             return decision
         blobs: tuple[BlobMeta, ...]
         if not decision.value.positive:
-            height = int(np.asarray(frame.tensor).shape[1])
-            width = int(np.asarray(frame.tensor).shape[2])
+            tensor = np.asarray(frame.tensor)
+            if tensor.ndim != 4:
+                return Err(FaultCode.FRAME_MALFORMED)
+            height = int(tensor.shape[2])
+            width = int(tensor.shape[3])
             prob_mask = np.zeros((height, width), dtype=np.float32)  # np.ndarray[float32, (H, W)]
             blobs = ()
         else:

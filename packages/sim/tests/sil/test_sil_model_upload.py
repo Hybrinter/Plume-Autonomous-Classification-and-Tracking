@@ -18,8 +18,8 @@ _H = _INF.input_height_px
 _W = _INF.input_width_px
 
 
-def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 4) -> bytes:
-    """A pair-upload manifest; channels=4 matches flight, other values fail activate."""
+def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 3) -> bytes:
+    """A pair-upload manifest. Three channels match flight; other counts fail activate."""
     return json.dumps(
         {
             "version": version,
@@ -93,7 +93,7 @@ def test_model_upload_activate_then_rollback() -> None:
         return system.apps.model_deploy.state.state
 
     # --- good model: upload -> stage -> activate -> ACTIVE ---
-    for pkt in _chunk_packets(_manifest("v2", classifier_channels=4), base_seq=1):
+    for pkt in _chunk_packets(_manifest("v2", classifier_channels=3), base_seq=1):
         system.station.enqueue(pkt)
     advance(4)  # ingest + route + reassemble + stage
     assert deploy_state() is ModelDeployState.STAGED
@@ -103,7 +103,7 @@ def test_model_upload_activate_then_rollback() -> None:
     assert system.apps.model_deploy.state.active_version == "v2"
 
     # --- bad model: upload -> stage -> activate -> auto-rollback ---
-    for pkt in _chunk_packets(_manifest("v3", classifier_channels=3), base_seq=4):
+    for pkt in _chunk_packets(_manifest("v3", classifier_channels=4), base_seq=4):
         system.station.enqueue(pkt)
     advance(4)
     assert deploy_state() is ModelDeployState.STAGED

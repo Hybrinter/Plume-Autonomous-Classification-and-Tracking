@@ -19,6 +19,7 @@ from flight.libs.types import AckStatus, Err, FaultCode, MessageType, ModelDeplo
 _INF = PactConfig().inference
 _H = _INF.input_height_px
 _W = _INF.input_width_px
+_C = len(_INF.input_bands)
 
 
 class _MemStorageReader:
@@ -42,11 +43,11 @@ class _MemStorageReader:
 def _manifest(
     version: str,
     *,
-    classifier_channels: int = 4,
-    segmentor_channels: int = 4,
+    classifier_channels: int = _C,
+    segmentor_channels: int = _C,
     omit: str | None = None,
 ) -> bytes:
-    """Build a pair-manifest blob. Default channels=4 match the flight contracts."""
+    """Build a pair-manifest blob. Default channels match the flight contract."""
     data: dict[str, object] = {
         "version": version,
         "classifier": {
@@ -102,13 +103,13 @@ def test_parse_manifest_and_contract() -> None:
     """parse_manifest extracts both contracts; contract_ok compares shapes."""
     parsed = parse_manifest(_manifest("v2"))
     assert parsed is not None
-    assert parsed.classifier.input_shape == (1, 4, _H, _W)
+    assert parsed.classifier.input_shape == (1, _C, _H, _W)
     assert parsed.classifier.output_shape == (1, 1)
     assert parsed.segmentor.output_shape == (1, 1, _H, _W)
     assert contract_ok(
         parsed.segmentor.input_shape,
         parsed.segmentor.output_shape,
-        (1, 4, _H, _W),
+        (1, _C, _H, _W),
         (1, 1, _H, _W),
     )
     assert parse_manifest(b"not json") is None
@@ -121,7 +122,7 @@ def test_parse_manifest_rejects_single_network() -> None:
     legacy = json.dumps(
         {
             "version": "v2",
-            "input_shape": [1, 4, _H, _W],
+            "input_shape": [1, _C, _H, _W],
             "output_shape": [1, 1, _H, _W],
         }
     ).encode("utf-8")
@@ -181,7 +182,7 @@ def test_activate_good_model_goes_active() -> None:
 def test_activate_bad_contract_rolls_back() -> None:
     """Activating a staged model that fails the I/O contract auto-rolls-back and faults."""
     storage = _MemStorageReader()
-    blob = _manifest("v3", classifier_channels=3)  # classifier contract fails the pair
+    blob = _manifest("v3", classifier_channels=4)  # on-disk 4-channel graph is not the contract
     storage.put("e1", blob)
     svc, bus = _service(storage)
     acks = bus.subscribe(CommandAckMsg)
@@ -199,7 +200,7 @@ def test_activate_bad_contract_rolls_back() -> None:
 def test_activate_bad_segmentor_contract_rolls_back() -> None:
     """A pair whose segmentor contract fails rolls back the whole pair."""
     storage = _MemStorageReader()
-    blob = _manifest("v3", segmentor_channels=3)
+    blob = _manifest("v3", segmentor_channels=4)
     storage.put("e1", blob)
     svc, bus = _service(storage)
     _stage(bus, "e1", blob)

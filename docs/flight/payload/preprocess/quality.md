@@ -36,9 +36,6 @@ plus a failed encoder bracket uses the commanded rate and labels it `COMMANDED`.
    `abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s) * exposure_s / ifov`.
    Raise `MOTION_SMEAR` when it exceeds `max_motion_smear_px`. Azimuth motion does not
    contribute. Matching rates, including both zero, do not flag.
-4. Raise `CLOUD_CONTAMINATED` when the NIR-to-Red mean ratio exceeds
-   `nir_red_ratio_threshold` (bands at indices 2 and 3 after select).
-5. Raise `SUNGLINT` when mean NIR exceeds `sunglint_nir_mean_threshold`.
 
 ## Errors and faults
 
@@ -50,13 +47,14 @@ None. Flags are carried on the in-process processed frame; they are not bus mess
 
 ## Configuration
 
-Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_px`,
-`nir_red_ratio_threshold`, `sunglint_nir_mean_threshold`. Also uses
-`SensorConfig.ifov_band_deg_per_px` and frame metadata from the raw mosaic.
+Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_px`.
+Also uses `SensorOpticsConfig.ifov_band_deg_per_px` and frame metadata from the
+camera buffer.
 
 ## Constraints
 
-Quality evaluation runs on the full band plane. A zero gimbal rate is a stationary
+Quality evaluation runs on the selected channels before the batch axis is added.
+A zero gimbal rate is a stationary
 measurement. The payload app supplies a measured, encoder, or commanded elevation
 rate and a `SmearRateSource` label.
 

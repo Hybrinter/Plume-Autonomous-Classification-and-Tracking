@@ -19,7 +19,7 @@ The records module defines frozen dataclasses for one environment evaluation.
 | `EnvTruth` | class | Oracle record |
 | `DriverFeed` | class | Optional mosaic and mask |
 | `EnvSample` | class | Truth plus feed |
-| `camera_from_sensor` | function | Band-plane `CameraGeometry` from `SensorConfig` |
+| `camera_from_sensor` | function | Full-frame `CameraGeometry` from `SensorConfig` |
 
 ## Inputs and outputs
 
@@ -31,7 +31,7 @@ The records module defines frozen dataclasses for one environment evaluation.
 **`camera_from_sensor(sensor) -> CameraGeometry`**
 
 - Input: `SensorConfig`.
-- Output: band-plane size, twice mosaic pitch, focal length in meters.
+- Output: full-frame size, one-pixel pitch, focal length in meters.
 
 ## Behavior
 

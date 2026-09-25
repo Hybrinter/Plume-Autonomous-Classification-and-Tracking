@@ -11,7 +11,7 @@ Includes:
   (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
   command-ingress integrity codes (COMMAND_CRC_FAIL, COMMAND_AUTH_FAIL, COMMAND_SEQ_ERROR,
   COMMAND_INVALID).
-- Band: physical 2x2 mosaic-filter band vocabulary (BLUE/GREEN/RED/NIR).
+- Band: prism RGB band vocabulary (BLUE/GREEN/RED).
 - FrameUsabilityTag: per-frame quality classification.
 - MessageType: typed discriminant for all bus messages.
 - DownlinkPriority: downlink queue priority.
@@ -108,11 +108,7 @@ class FaultCode(enum.Enum):
 
 
 class Band(enum.Enum):
-    """Physical 2x2 mosaic-filter band names.
-
-    Passbands approximate Sentinel-2: BLUE ~490 nm (B2), GREEN ~560 nm (B3),
-    RED ~665 nm (B4), NIR ~842 nm (B8) -- chosen so Sentinel-2-derived training
-    data remains a valid domain (spec Section 2).
+    """Prism RGB band names for the AP-3200T-USB.
 
     String values mirror member names (log readability convention).
     """
@@ -120,7 +116,6 @@ class Band(enum.Enum):
     BLUE = "BLUE"
     GREEN = "GREEN"
     RED = "RED"
-    NIR = "NIR"
 
 
 class FrameUsabilityTag(enum.Enum):

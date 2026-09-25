@@ -60,8 +60,8 @@ class _MemStorage:
 
 
 def _mosaic_frame(frame_id: int) -> MosaicFrame:
-    """Build a zeroed (2048, 2448) uint16 mosaic frame matching the default sensor geometry."""
-    mosaic = np.zeros((2048, 2448), dtype=np.uint16)
+    """Build a zeroed (3, 1544, 2064) uint16 prism buffer matching the default sensor."""
+    mosaic = np.zeros((3, 1544, 2064), dtype=np.uint16)
     return MosaicFrame(
         timestamp_utc="2026-06-01T00:00:00.000Z",
         timestamp_s=float(frame_id),
@@ -74,8 +74,8 @@ def _mosaic_frame(frame_id: int) -> MosaicFrame:
 
 def _plume_detector() -> ScriptedDetector:
     """Scripted detector whose mask yields one strong above-boresight blob each frame."""
-    mask = np.zeros((1024, 1224), dtype=np.float32)
-    mask[99:149, 587:637] = 1.0
+    mask = np.zeros((1544, 2064), dtype=np.float32)
+    mask[149:225, 990:1074] = 1.0
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 
@@ -202,8 +202,8 @@ def test_rate_mode_inner_catchup_samples_encoder_before_outer() -> None:
     assert len(app.encoder_stream.samples) == gimbal.reads
 
 
-def test_process_frame_passes_full_band_plane() -> None:
-    """A 2048x2448 mosaic demosaics to (4, 1024, 1224) and is passed to detect() uncropped."""
+def test_process_frame_passes_nchw_tensor() -> None:
+    """A prism buffer is published as NCHW (1, 3, 1544, 2064) with no crop."""
     captured: list[tuple[int, ...]] = []
 
     class _CapturingDetector:
@@ -221,7 +221,7 @@ def test_process_frame_passes_full_band_plane() -> None:
     _state, outcome = app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0)
 
     assert outcome.fault is None
-    assert captured == [(4, 1024, 1224)]
+    assert captured == [(1, 3, 1544, 2064)]
 
 
 def test_persistent_plume_drives_gimbal_through_app() -> None:
@@ -267,7 +267,7 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
 def test_no_detection_publishes_inference_but_no_pose_command() -> None:
     """Empty masks publish inference and do not issue pose GimbalCommandMsg."""
     empty_detector = ScriptedDetector(
-        np.zeros((1024, 1224), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
+        np.zeros((1544, 2064), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
     )
     app, bus, _gimbal, clock = _build_app(empty_detector)
     cmd_sub = bus.subscribe(GimbalCommandMsg)

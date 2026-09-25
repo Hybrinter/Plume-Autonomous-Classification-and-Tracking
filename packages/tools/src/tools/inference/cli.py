@@ -208,8 +208,8 @@ def reexport_spatial_command(
     artifact: Annotated[str, typer.Option(help="Source ONNX path.")],
     arch: Annotated[str, typer.Option(help="Architecture name.")],
     out: Annotated[str, typer.Option(help="ONNX output path.")],
-    height: Annotated[int, typer.Option(help="Input height in pixels.")] = 1024,
-    width: Annotated[int, typer.Option(help="Input width in pixels.")] = 1224,
+    height: Annotated[int, typer.Option(help="Input height in pixels.")] = _INF.input_height_px,
+    width: Annotated[int, typer.Option(help="Input width in pixels.")] = _INF.input_width_px,
 ) -> None:
     """Rebuild an ONNX graph at a new H/W and copy matching trained weights."""
     try:

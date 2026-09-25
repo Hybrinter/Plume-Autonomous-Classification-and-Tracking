@@ -79,16 +79,16 @@ _SCHEMA = ConfigDict(extra="forbid")
 class TrainConfig:
     """Frozen train hyperparameters.
 
-    Defaults match the flight inference contract (4 bands, 256 px) and a short
-    SGD schedule. Spatial size is not frozen in the network; it comes from
-    these fields.
+    Defaults are 3 bands and a 256 px spatial crop (the short training crop, not
+    the flight frame) and a short SGD schedule. Spatial size is not frozen in
+    the network; it comes from these fields.
     """
 
     kind: TrainKind = "segmentor"
     arch: str = ""
     input_height_px: int = 256
     input_width_px: int = 256
-    in_channels: int = 4
+    in_channels: int = 3
     epochs: int = 1
     batch_size: int = 2
     learning_rate: float = 0.01

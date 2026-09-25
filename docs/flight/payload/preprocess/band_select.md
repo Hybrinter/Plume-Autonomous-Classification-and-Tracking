@@ -5,8 +5,8 @@
 
 ## Purpose
 
-This module reorders demosaicked band planes from sensor layout order into the channel
-order the inference model expects.
+This module reorders stacked channels from wire order into the channel order the
+inference model expects.
 
 ## Public interface
 
@@ -17,7 +17,7 @@ order the inference model expects.
 ## Inputs and outputs
 
 `select_bands(planes, layout, band_names)` takes `(len(layout), H, W)` planes in
-mosaic cell order. It returns `Result[np.ndarray, FaultCode]` with shape
+`channel_layout` order. It returns `Result[np.ndarray, FaultCode]` with shape
 `(len(band_names), H, W)`.
 
 ## Behavior
@@ -38,14 +38,14 @@ None.
 
 ## Configuration
 
-Uses `SensorConfig.mosaic_layout` and `InferenceConfig.input_bands`.
+Uses `SensorConfig.channel_layout` and `InferenceConfig.input_bands`.
 
 ## Constraints
 
 The module matches names only; it does not assume fixed band indices. `input_bands` must
-be a subset of `mosaic_layout`.
+be a subset of `channel_layout`.
 
 ## Related documents
 
-- [`flight.payload.preprocess`](preprocess.md)
-- [`flight.payload.preprocess.demosaic`](demosaic.md)
+- [`flight.payload.preprocess`](../preprocess.md)
+- [`flight.payload.preprocess.stack`](stack.md)

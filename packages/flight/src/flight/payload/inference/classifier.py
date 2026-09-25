@@ -119,13 +119,16 @@ class OnnxClassifier:
         """Run the classifier session and gate on the logit threshold.
 
         Args:
-            frame: Preprocessed frame whose tensor is (C, H, W) float32.
+            frame: Preprocessed frame whose tensor is (1, C, H, W) float32.
 
         Returns:
-            Ok(ClassifierDecision) on a finite logit, else Err(INFERENCE_NAN).
+            Ok(ClassifierDecision) on a finite logit, else Err(INFERENCE_NAN)
+            or Err(FRAME_MALFORMED) when the tensor is not 4-D.
         """
-        bands = np.asarray(frame.tensor, dtype=np.float32)  # np.ndarray[float32, (C, H, W)]
-        model_input = bands[np.newaxis, ...]  # (1, C, H, W)
+        bands = np.asarray(frame.tensor, dtype=np.float32)
+        if bands.ndim != 4:
+            return Err(FaultCode.FRAME_MALFORMED)
+        model_input = bands
         input_name = self._session.get_inputs()[0].name
         raw = self._session.run(None, {input_name: model_input})[0]
         logit = float(np.asarray(raw, dtype=np.float32).reshape(-1)[0])

@@ -27,9 +27,11 @@ def test_loads_default_config() -> None:
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     assert isinstance(result.value, PactConfig)
-    assert result.value.inference.input_height_px == 1024
-    assert result.value.inference.input_width_px == 1224
-    assert result.value.thermal.camera_max_c == 50.0
+    assert result.value.inference.input_height_px == 1544
+    assert result.value.inference.input_width_px == 2064
+    assert result.value.inference.input_bands == ("BLUE", "GREEN", "RED")
+    assert result.value.thermal.camera_min_c == -5.0
+    assert result.value.thermal.camera_max_c == 45.0
     assert result.value.fault.inference_timeout_ms == 20.0
 
 
@@ -51,13 +53,28 @@ def test_sensor_section_loads() -> None:
     result = load_config(_DEFAULT_TOML)
     assert isinstance(result, Ok)
     sensor = result.value.sensor
-    assert sensor.width_px == 2448
-    assert sensor.height_px == 2048
+    assert sensor.part_number == "AP-3200T-USB"
+    assert sensor.sensor_name == "Sony IMX265"
+    assert sensor.width_px == 2064
+    assert sensor.height_px == 1544
     assert sensor.bit_depth == 12
-    assert sensor.mosaic_layout == ("BLUE", "GREEN", "RED", "NIR")
-    assert sensor.ifov_band_deg_per_px == 0.002636
-    assert sensor.initial_exposure_us == 13.0
-    assert sensor.initial_gain_db == 0.0
+    assert sensor.channel_layout == ("RED", "GREEN", "BLUE")
+    assert sensor.pixel_um == 3.45
+    assert sensor.optics.part_number == "16-849"
+    assert sensor.optics.focal_length_mm == 100.0
+    assert sensor.optics.f_number == 4.0
+    assert sensor.optics.lens_distortion_pct == 1.21
+    assert sensor.optics.ifov_band_deg_per_px == 0.001977
+    assert sensor.optics.fov_lateral_deg == 4.077
+    assert sensor.optics.fov_along_deg == 3.051
+    assert sensor.optics.datasheet_hfov_deg == 4.12
+    assert sensor.capture.max_frame_rate_hz == 35.0
+    assert sensor.capture.exposure_min_us == 30.73
+    assert sensor.capture.exposure_max_us == 8_000_000.0
+    assert sensor.capture.initial_exposure_us == 30.73
+    assert sensor.capture.gain_min_db == 0.0
+    assert sensor.capture.gain_max_db == 12.0
+    assert sensor.capture.initial_gain_db == 0.0
     assert sensor.calibration_dir == ""
 
 
@@ -225,18 +242,18 @@ def test_plant_inertia_above_motor_limit_rejected(tmp_path: Path) -> None:
     assert "J_kg_m2" in result.error
 
 
-def test_mosaic_layout_not_permutation_rejected(tmp_path: Path) -> None:
-    """mosaic_layout must name each Band exactly once (cross-field)."""
+def test_channel_layout_not_permutation_rejected(tmp_path: Path) -> None:
+    """channel_layout must name each RGB band exactly once."""
     result = load_config(
         _DEFAULT_TOML,
-        _override(tmp_path, '[sensor]\nmosaic_layout = ["BLUE", "GREEN", "RED", "RED"]\n'),
+        _override(tmp_path, '[sensor]\nchannel_layout = ["RED", "GREEN", "RED"]\n'),
     )
     assert isinstance(result, Err)
-    assert "mosaic_layout" in result.error
+    assert "channel_layout" in result.error
 
 
-def test_input_bands_not_in_mosaic_rejected(tmp_path: Path) -> None:
-    """input_bands must be a subset of mosaic_layout band names (cross-field)."""
+def test_input_bands_not_in_layout_rejected(tmp_path: Path) -> None:
+    """input_bands must be a subset of channel_layout band names."""
     result = load_config(
         _DEFAULT_TOML, _override(tmp_path, '[inference]\ninput_bands = ["BLUE", "ORANGE"]\n')
     )
@@ -244,11 +261,22 @@ def test_input_bands_not_in_mosaic_rejected(tmp_path: Path) -> None:
     assert "input_bands" in result.error
 
 
-def test_odd_sensor_dimension_rejected(tmp_path: Path) -> None:
-    """Mosaic dimensions must be even (2x2 CFA separation requires it)."""
-    result = load_config(_DEFAULT_TOML, _override(tmp_path, "[sensor]\nwidth_px = 1025\n"))
+def test_inference_size_must_match_sensor_frame(tmp_path: Path) -> None:
+    """Inference H,W must equal the full sensor frame."""
+    result = load_config(
+        _DEFAULT_TOML, _override(tmp_path, "[inference]\ninput_height_px = 1024\n")
+    )
     assert isinstance(result, Err)
-    assert "width_px" in result.error
+    assert "inference input size" in result.error
+
+
+def test_stored_ifov_must_match_pitch_and_focal_length(tmp_path: Path) -> None:
+    """Stored IFOV must agree with pixel pitch and focal length."""
+    result = load_config(
+        _DEFAULT_TOML, _override(tmp_path, "[sensor.optics]\nifov_band_deg_per_px = 0.01\n")
+    )
+    assert isinstance(result, Err)
+    assert "ifov_band_deg_per_px" in result.error
 
 
 def test_all_profiles_still_validate() -> None:

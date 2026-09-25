@@ -62,7 +62,7 @@ def test_comms_and_sensor_caps_match_flight_defaults() -> None:
     assert CommsConfig().max_daily_uplink_bytes == MAX_DAILY_UPLINK_BYTES
     assert CommsConfig().max_uplink_rate_bps == MAX_UPLINK_BPS
     assert StorageConfig().max_storage_bytes == MAX_STORAGE_BYTES
-    assert SensorConfig().max_frame_rate_hz == MAX_FRAME_RATE_HZ
+    assert SensorConfig().capture.max_frame_rate_hz == MAX_FRAME_RATE_HZ
 
 
 def test_shipped_pair_is_under_one_mib() -> None:

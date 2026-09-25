@@ -2,7 +2,7 @@
 
 Contains:
   - Cell: one task, subset name, and side.
-  - native_cells: ceiling, RGB, leave-one-out, and the 13-band set.
+  - native_cells: the 12-band set, RGB, and leave-one-out.
   - require_complete: refuse a table that omits a planned cell.
 """
 
@@ -36,15 +36,15 @@ def native_cells(order: BandOrder) -> tuple[Cell, ...]:
     """Return the native-resolution matrix.
 
     Args:
-        order: Verified band order. Leave-one-out names follow the ceiling.
+        order: Verified band order. Leave-one-out names follow the 12-band set.
 
     Returns:
-        tuple[Cell, ...]: Both tasks for ceiling, RGB, each ceiling dropout,
-        and the 13-band set, at 120 pixels.
+        tuple[Cell, ...]: Both tasks for the 12-band set, RGB, and each
+        12-band dropout, at 120 pixels. B10 is not a trained input.
     """
-    specs = [BandSpec("ceiling"), BandSpec("rgb"), BandSpec("s2_13")]
-    ceiling = resolve_subset(order, BandSpec("ceiling"))
-    specs.extend(BandSpec("loo", dropped_band=band_id) for band_id in ceiling.ids)
+    specs = [BandSpec("s2_12"), BandSpec("rgb")]
+    full = resolve_subset(order, BandSpec("s2_12"))
+    specs.extend(BandSpec("loo", dropped_band=band_id) for band_id in full.ids)
     names = tuple(resolve_subset(order, spec).name for spec in specs)
     return tuple(
         Cell(task=task, subset=name, side_px=NATIVE_SIDE) for task in _TASKS for name in names
@@ -52,17 +52,17 @@ def native_cells(order: BandOrder) -> tuple[Cell, ...]:
 
 
 def gsd_cells(order: BandOrder) -> tuple[Cell, ...]:
-    """Return ceiling and RGB cells at every legal side.
+    """Return the 12-band set and RGB cells at every legal side.
 
     Args:
         order: Verified band order.
 
     Returns:
-        tuple[Cell, ...]: Both tasks for ceiling and RGB at sides 120, 80, 60,
-        40, and 30. Leave-one-out and the 13-band set stay on the native matrix.
+        tuple[Cell, ...]: Both tasks for the 12-band set and RGB at sides 120,
+        80, 60, 40, and 30. Leave-one-out stays on the native matrix.
     """
     names = (
-        resolve_subset(order, BandSpec("ceiling")).name,
+        resolve_subset(order, BandSpec("s2_12")).name,
         resolve_subset(order, BandSpec("rgb")).name,
     )
     sides = tuple(sorted(LEGAL_SIDES, reverse=True))

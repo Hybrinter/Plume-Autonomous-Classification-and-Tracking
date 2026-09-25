@@ -13,6 +13,7 @@ supplies, then scales later stacks with those frozen moments.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `BandStats` | class | Mean and standard deviation |
+| `MomentAccumulator` | class | Running pixel sums |
 | `fit_band_stats` | function | Moments from a sequence of stacks |
 | `check_band_stats` | function | Require shape ``(C,)`` for both vectors |
 | `apply_band_stats` | function | Zero-mean unit-variance scaling |
@@ -27,7 +28,8 @@ supplies, then scales later stacks with those frozen moments.
 
 ## Behavior
 
-1. Moments pool every pixel of every supplied stack, per channel.
+1. ``MomentAccumulator.update`` adds one stack. ``finish`` returns the same
+   moments as ``fit_band_stats`` on the same stacks. Both pool every pixel.
 2. Standard deviation is floored at ``1e-6``.
 3. Scaling subtracts the mean and divides by the standard deviation. Both
    vectors must have shape ``(C,)``.

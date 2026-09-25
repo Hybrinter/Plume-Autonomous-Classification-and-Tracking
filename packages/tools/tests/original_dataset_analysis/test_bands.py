@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from tools.original_dataset_analysis.bands import BandSpec, resolve_subset, verify_band_order
+from tools.original_dataset_analysis.bands import (
+    BandSpec,
+    coerce_descriptions,
+    resolve_subset,
+    verify_band_order,
+)
 
 _HYPOTHESIS = (
     "B1 coastal",
@@ -39,14 +44,15 @@ _STANDARD = (
 
 
 def test_hypothesis_order_drops_b10_by_name() -> None:
-    """Ceiling and RGB follow descriptions, including B10 at the last index."""
+    """The 12-band set and RGB follow descriptions, including B10 at the last index."""
     order = verify_band_order(_HYPOTHESIS)
     rgb = resolve_subset(order, BandSpec("rgb"))
-    ceiling = resolve_subset(order, BandSpec("ceiling"))
+    full = resolve_subset(order, BandSpec("s2_12"))
     assert rgb.indices == (1, 2, 3)
     assert rgb.ids == ("B2", "B3", "B4")
-    assert "B10" not in ceiling.ids
-    assert ceiling.indices == tuple(index for index in range(13) if index != 12)
+    assert full.name == "s2_12"
+    assert "B10" not in full.ids
+    assert full.indices == tuple(index for index in range(13) if index != 12)
 
 
 def test_standard_slot_still_drops_b10() -> None:
@@ -54,11 +60,11 @@ def test_standard_slot_still_drops_b10() -> None:
     order = verify_band_order(_STANDARD)
     assert order.index_by_id["B10"] == 10
     rgb = resolve_subset(order, BandSpec("rgb"))
-    ceiling = resolve_subset(order, BandSpec("ceiling"))
+    full = resolve_subset(order, BandSpec("s2_12"))
     assert rgb.ids == ("B2", "B3", "B4")
     assert rgb.indices == (1, 2, 3)
-    assert 10 not in ceiling.indices
-    assert ceiling.ids[-2:] == ("B11", "B12")
+    assert 10 not in full.indices
+    assert full.ids[-2:] == ("B11", "B12")
 
 
 def test_missing_description_raises() -> None:
@@ -92,9 +98,15 @@ def test_leave_one_out_preserves_order() -> None:
     assert len(subset.ids) == 11
 
 
-def test_s2_13_keeps_b10() -> None:
-    """The 13-band subset retains B10 at its verified index."""
+def test_empty_descriptions_use_the_zenodo_order() -> None:
+    """Thirteen blank descriptions become the corpus order with B10 last."""
+    order = verify_band_order(coerce_descriptions([""] * 13))
+    assert order.ids[-1] == "B10"
+    assert resolve_subset(order, BandSpec("s2_12")).ids[-1] == "B12"
+
+
+def test_s2_13_is_not_a_subset() -> None:
+    """The full GeoTIFF, including B10, is not a trainable subset."""
     order = verify_band_order(_STANDARD)
-    subset = resolve_subset(order, BandSpec("s2_13"))
-    assert "B10" in subset.ids
-    assert subset.ids[order.index_by_id["B10"]] == "B10"
+    with pytest.raises(ValueError, match="unknown band set"):
+        resolve_subset(order, BandSpec("s2_13"))

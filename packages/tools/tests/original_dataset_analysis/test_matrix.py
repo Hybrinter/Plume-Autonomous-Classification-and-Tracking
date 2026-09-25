@@ -28,26 +28,27 @@ _DESC = (
 )
 
 
-def test_native_cells_cover_dropout_and_b10() -> None:
-    """Both tasks include ceiling, RGB, each ceiling dropout, and the 13-band set."""
+def test_native_cells_cover_the_12_band_set() -> None:
+    """Both tasks include the 12-band set, RGB, and each 12-band dropout."""
     cells = native_cells(verify_band_order(_DESC))
     names = {cell.subset for cell in cells if cell.task == "classify"}
-    assert "ceiling" in names
+    assert "s2_12" in names
     assert "rgb" in names
-    assert "s2_13" in names
+    assert "s2_13" not in names
     assert "loo_B8A" in names
     assert "loo_B10" not in names
+    assert len(cells) == 28
     assert all(cell.side_px == 120 for cell in cells)
     assert {cell.task for cell in cells} == {"classify", "segment"}
 
 
-def test_gsd_axis_is_ceiling_and_rgb_only() -> None:
-    """Legal sides cover ceiling and RGB, and they omit leave-one-out."""
+def test_gsd_axis_is_s2_12_and_rgb_only() -> None:
+    """Legal sides cover the 12-band set and RGB, and they omit leave-one-out."""
     cells = gsd_cells(verify_band_order(_DESC))
     sides = {cell.side_px for cell in cells}
     names = {cell.subset for cell in cells}
     assert sides == {120, 80, 60, 40, 30}
-    assert names == {"ceiling", "rgb"}
+    assert names == {"s2_12", "rgb"}
     assert all(cell.task in {"classify", "segment"} for cell in cells)
 
 
@@ -72,6 +73,6 @@ def test_missing_rgb_is_named(tmp_path: Path) -> None:
 def test_band_bars_write_a_png(tmp_path: Path) -> None:
     """A score table becomes a PNG file."""
     path = tmp_path / "bars.png"
-    write_band_bars(("rgb", "ceiling"), (0.4, 0.8), path)
+    write_band_bars(("rgb", "s2_12"), (0.4, 0.8), path)
     assert path.is_file()
     assert path.stat().st_size > 0

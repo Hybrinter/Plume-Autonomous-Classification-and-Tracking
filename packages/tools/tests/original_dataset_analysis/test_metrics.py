@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import torch
-from tools.original_dataset_analysis.metrics import score_classifier, score_segmentor
+from tools.original_dataset_analysis.metrics import (
+    score_classifier,
+    score_on_native_grid,
+    score_segmentor,
+)
 
 
 def test_perfect_classifier_scores() -> None:
@@ -43,3 +47,12 @@ def test_perfect_segmentor_scores() -> None:
     assert scores.dice == 1.0
     assert scores.accuracy == 1.0
     assert scores.mean_iou == 1.0
+
+
+def test_native_grid_expands_a_coarse_hit() -> None:
+    """A positive coarse cell scores as that block on the 120 px mask."""
+    logits = torch.full((1, 1, 1, 1), 10.0)
+    native = torch.ones(1, 120, 120)
+    scores = score_on_native_grid(logits, native)
+    assert scores.dice == 1.0
+    assert scores.positive_iou == 1.0

@@ -4,6 +4,7 @@ Contains:
   - BandOrder: verified file order of Sentinel-2 ids.
   - BandSpec: named subset request.
   - BandSubset: ids and file indices for one run.
+  - coerce_descriptions: fill the corpus order when descriptions are empty.
   - verify_band_order: descriptions to a BandOrder.
   - resolve_subset: a BandSpec against a verified order.
 """
@@ -40,6 +41,21 @@ _CANONICAL: dict[str, str] = {
 }
 
 _RGB: tuple[str, ...] = ("B2", "B3", "B4")
+_ZENODO_IDS: tuple[str, ...] = (
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B6",
+    "B7",
+    "B8",
+    "B8A",
+    "B9",
+    "B11",
+    "B12",
+    "B10",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +76,7 @@ class BandSpec:
     """A named band subset.
 
     Attributes:
-        kind: ``rgb``, ``ceiling``, ``loo``, or ``s2_13``.
+        kind: ``rgb``, ``s2_12``, or ``loo``.
         dropped_band: Sentinel-2 id removed when ``kind`` is ``loo``.
     """
 
@@ -92,6 +108,29 @@ def _token(description: str) -> str:
     raise ValueError(f"band description {description!r} has no Sentinel-2 id")
 
 
+def coerce_descriptions(descriptions: Sequence[str]) -> tuple[str, ...]:
+    """Fill the Zenodo 4250706 order when every description is empty.
+
+    Args:
+        descriptions: One description per GeoTIFF band. Missing text is empty.
+
+    Returns:
+        tuple[str, ...]: The input when any description is present, otherwise
+        the 13 Sentinel-2 ids used by this corpus, with B10 last.
+
+    Raises:
+        ValueError: If every description is empty and the count is not 13.
+    """
+    cleaned = tuple(item.strip() for item in descriptions)
+    if cleaned and all(not item for item in cleaned):
+        if len(cleaned) != len(_ZENODO_IDS):
+            raise ValueError(
+                f"empty descriptions need {len(_ZENODO_IDS)} bands; got {len(cleaned)}"
+            )
+        return _ZENODO_IDS
+    return cleaned
+
+
 def verify_band_order(descriptions: Sequence[str]) -> BandOrder:
     """Map GeoTIFF band descriptions to Sentinel-2 ids.
 
@@ -121,7 +160,7 @@ def verify_band_order(descriptions: Sequence[str]) -> BandOrder:
     return BandOrder(ids=tuple(ids), index_by_id=index_by_id)
 
 
-def _ceiling_ids(order: BandOrder) -> tuple[str, ...]:
+def _s2_12_ids(order: BandOrder) -> tuple[str, ...]:
     """Return file-order ids with B10 removed."""
     return tuple(band_id for band_id in order.ids if band_id != "B10")
 
@@ -142,17 +181,14 @@ def resolve_subset(order: BandOrder, spec: BandSpec) -> BandSubset:
     if spec.kind == "rgb":
         selected = _RGB
         name = "rgb"
-    elif spec.kind == "ceiling":
-        selected = _ceiling_ids(order)
-        name = "ceiling"
-    elif spec.kind == "s2_13":
-        selected = order.ids
-        name = "s2_13"
+    elif spec.kind == "s2_12":
+        selected = _s2_12_ids(order)
+        name = "s2_12"
     elif spec.kind == "loo":
-        ceiling = _ceiling_ids(order)
-        if spec.dropped_band not in ceiling:
-            raise ValueError(f"leave-one-out band {spec.dropped_band!r} is not in the ceiling")
-        selected = tuple(band_id for band_id in ceiling if band_id != spec.dropped_band)
+        kept = _s2_12_ids(order)
+        if spec.dropped_band not in kept:
+            raise ValueError(f"leave-one-out band {spec.dropped_band!r} is not in the 12-band set")
+        selected = tuple(band_id for band_id in kept if band_id != spec.dropped_band)
         name = f"loo_{spec.dropped_band}"
     else:
         raise ValueError(f"unknown band set {spec.kind!r}")

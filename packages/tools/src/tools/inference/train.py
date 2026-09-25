@@ -18,6 +18,7 @@ Contains:
   - overlay_train_config: CLI field overlays.
   - apply_train_mapping: overlay from a string-key mapping.
   - config_digest: 8-hex identity of experiment fields.
+  - resolve_train_channels: pack channel count used for the model build.
   - train: run the loop and write a run directory.
   - is_cuda_oom: detect a CUDA allocator failure.
   - next_batch_after_oom: halve a batch size, or raise at size 1.
@@ -342,6 +343,46 @@ def _default_val_metric(kind: str, name: str) -> str:
             raise ValueError(f"unknown train kind {kind!r}")
 
 
+def resolve_train_channels(cfg: TrainConfig, pack: ProcessedPack) -> int:
+    """Return the input channel count to use for model build and checkpoints.
+
+    Args:
+        cfg: Frozen train hyperparameters after pack load.
+        pack: Processed pack whose band count may override the default.
+
+    Returns:
+        int: Resolved channel count.
+
+    Raises:
+        ValueError: If pack metadata disagrees with image tensors, synthetic
+            pack channels disagree with ``cfg.in_channels``, or an explicit
+            non-default ``in_channels`` disagrees with the pack.
+    """
+    pack_channels = int(pack.meta.in_channels)
+    image_channels = int(pack.images.shape[1])
+    if pack_channels != image_channels:
+        raise ValueError(
+            f"pack meta in_channels={pack_channels} does not match "
+            f"images shape channels={image_channels}"
+        )
+    if not cfg.data_dir:
+        if pack_channels != cfg.in_channels:
+            raise ValueError(
+                f"synthetic pack channels={pack_channels} does not match "
+                f"cfg.in_channels={cfg.in_channels}"
+            )
+        return int(cfg.in_channels)
+    if cfg.in_channels == pack_channels:
+        return pack_channels
+    default_channels = TrainConfig().in_channels
+    if cfg.in_channels == default_channels:
+        return pack_channels
+    raise ValueError(
+        f"in_channels={cfg.in_channels} does not match pack channel count "
+        f"{pack_channels}; pass the pack channel count (Zenodo packs are 4)"
+    )
+
+
 def _pack_from_config(cfg: TrainConfig, run_root: Path) -> ProcessedPack:
     """Load a processed pack, an unsplit disk adapter, or a synthetic pack."""
     if cfg.data_dir:
@@ -654,6 +695,14 @@ def train(config: TrainConfig | None = None) -> Path:
         raise ValueError(f"unknown loss {cfg.loss!r}")
     arch = resolve_arch(cfg.kind, cfg.arch)
     val_metric = _default_val_metric(cfg.kind, cfg.val_metric)
+    # A disk pack can replace the default channel count. Resolve that before the
+    # run id so config_digest names the channels the run actually trains.
+    disk_pack: ProcessedPack | None = None
+    if cfg.data_dir:
+        disk_pack = _pack_from_config(cfg, Path(cfg.run_dir))
+        resolved_channels = resolve_train_channels(cfg, disk_pack)
+        if resolved_channels != cfg.in_channels:
+            cfg = apply_train_mapping(cfg, {"in_channels": resolved_channels})
     run_id = cfg.run_id if cfg.run_id else f"{cfg.kind}-{arch}-{cfg.seed}-{config_digest(cfg)}"
     run_root = Path(cfg.run_dir) / run_id
     if (run_root / "summary.json").is_file() and not cfg.overwrite:
@@ -667,7 +716,9 @@ def train(config: TrainConfig | None = None) -> Path:
     # Every batch has the same shape, so letting cuDNN benchmark once and reuse
     # the winning algorithm pays for itself across a multi-epoch run.
     torch.backends.cudnn.benchmark = device.startswith("cuda")
-    pack = _pack_from_config(cfg, run_root)
+    pack = disk_pack if disk_pack is not None else _pack_from_config(cfg, run_root)
+    if disk_pack is None:
+        resolve_train_channels(cfg, pack)
     cost_model = build(cfg.kind, arch, cfg.in_channels)
     n_params = count_params(cost_model)
     flops = count_flops(cost_model, (1, cfg.in_channels, cfg.input_height_px, cfg.input_width_px))

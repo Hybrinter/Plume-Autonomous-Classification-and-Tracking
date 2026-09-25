@@ -7,8 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from tools.inference.data import make_synthetic_pack, write_processed_pack
-from tools.inference.split import SplitRecipe
+from tools.inference.data import ProcessedPack, make_synthetic_pack, write_processed_pack
+from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
 from tools.inference.train import (
     TrainConfig,
     config_digest,
@@ -17,8 +17,41 @@ from tools.inference.train import (
     load_train_config,
     next_batch_after_oom,
     overlay_train_config,
+    resolve_train_channels,
     train,
 )
+
+
+def _minimal_pack(
+    channels: int,
+    *,
+    meta_channels: int | None = None,
+    n: int = 2,
+    height: int = 8,
+    width: int = 8,
+) -> ProcessedPack:
+    """Return a tiny processed pack for resolve_train_channels tests."""
+    meta_c = meta_channels if meta_channels is not None else channels
+    images = torch.zeros((n, channels, height, width), dtype=torch.float32)
+    masks = torch.zeros((n, 1, height, width), dtype=torch.float32)
+    labels = torch.zeros((n, 1), dtype=torch.float32)
+    splits = SplitIndex(train=tuple(range(n)), val=(), test=())
+    meta = DatasetMeta(
+        dataset_hash="test",
+        source_doi="",
+        n=n,
+        height=height,
+        width=width,
+        in_channels=meta_c,
+    )
+    return ProcessedPack(
+        images=images,
+        masks=masks,
+        labels=labels,
+        splits=splits,
+        meta=meta,
+        pack_dir=Path("."),
+    )
 
 
 def test_load_train_config_defaults() -> None:
@@ -321,3 +354,40 @@ def test_train_unknown_optimizer() -> None:
     """Unknown optimizer fails schema validation."""
     with pytest.raises(ValueError, match="optimizer"):
         TrainConfig(optimizer="nope")  # type: ignore[arg-type]
+
+
+def test_resolve_train_channels_adopts_pack_default_mismatch() -> None:
+    """Default in_channels adopts a 4-band pack when data_dir is set."""
+    pack = _minimal_pack(4)
+    cfg = TrainConfig(data_dir="/pack", in_channels=3)
+    assert resolve_train_channels(cfg, pack) == 4
+
+
+def test_resolve_train_channels_explicit_pack_match() -> None:
+    """Explicit in_channels that matches the pack is returned unchanged."""
+    pack = _minimal_pack(4)
+    cfg = TrainConfig(data_dir="/pack", in_channels=4)
+    assert resolve_train_channels(cfg, pack) == 4
+
+
+def test_resolve_train_channels_explicit_mismatch_raises() -> None:
+    """A non-default in_channels that disagrees with the pack raises."""
+    pack = _minimal_pack(4)
+    cfg = TrainConfig(data_dir="/pack", in_channels=5)
+    with pytest.raises(ValueError, match="in_channels=5"):
+        resolve_train_channels(cfg, pack)
+
+
+def test_resolve_train_channels_meta_shape_mismatch_raises() -> None:
+    """Pack metadata must agree with the image tensor channel axis."""
+    pack = _minimal_pack(4, meta_channels=3)
+    cfg = TrainConfig(data_dir="/pack", in_channels=3)
+    with pytest.raises(ValueError, match="pack meta in_channels=3"):
+        resolve_train_channels(cfg, pack)
+
+
+def test_resolve_train_channels_synthetic_keeps_cfg() -> None:
+    """Synthetic training keeps cfg.in_channels when the pack matches."""
+    pack = _minimal_pack(3)
+    cfg = TrainConfig(in_channels=3)
+    assert resolve_train_channels(cfg, pack) == 3

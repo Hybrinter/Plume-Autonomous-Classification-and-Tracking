@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from tools.original_dataset_analysis.grid import NATIVE_SIDE
+from tools.original_dataset_analysis.grid import LEGAL_SIDES, NATIVE_SIDE, coarsen, rasterize_mask
 from tools.original_dataset_analysis.index import TileRef, iter_stacks
 
 _META = "meta.json"
@@ -107,6 +108,12 @@ class TileCache:
         view = self._stacks.reshape(self._shape)[row]
         return np.array(view, dtype=np.float32, copy=True)
 
+    def close(self) -> None:
+        """Release the native memmap."""
+        mapped = getattr(self._stacks, "_mmap", None)
+        if mapped is not None:
+            mapped.close()
+
 
 def build_mask_cache(
     tiles: Sequence[TileRef], path: Path, side_px: int = NATIVE_SIDE
@@ -195,3 +202,151 @@ def build_cache(images_tar: Path, tiles: Sequence[TileRef], path: Path) -> TileC
     payload = {"stems": stems, "descriptions": list(descriptions)}
     (path / _META).write_text(json.dumps(payload), encoding="utf-8")
     return open_cache(path)
+
+
+@dataclass(frozen=True, slots=True)
+class SidePack:
+    """One ground-sample size, already resampled.
+
+    Attributes:
+        path: Pack directory.
+        side_px: Output side.
+        stems: Row order shared by the image and mask arrays.
+        images: Float32 memmap ``(N, C, side, side)``.
+        masks: Uint8 memmap ``(N, side, side)``.
+        positive: Uint8 presence label per row.
+        annotated: Uint8 annotation flag per row.
+    """
+
+    path: Path
+    side_px: int
+    stems: tuple[str, ...]
+    images: np.ndarray
+    masks: np.ndarray
+    positive: np.ndarray
+    annotated: np.ndarray
+
+    def close(self) -> None:
+        """Release the image and mask memmaps."""
+        for array in (self.images, self.masks, self.positive, self.annotated):
+            mapped = getattr(array, "_mmap", None)
+            if mapped is not None:
+                mapped.close()
+
+
+def open_side_pack(path: Path) -> SidePack:
+    """Open a prepared side pack.
+
+    Args:
+        path: Directory written by :func:`prepare_side`.
+
+    Returns:
+        SidePack: The stored arrays.
+
+    Raises:
+        FileNotFoundError: If the sidecar is missing.
+        ValueError: If a memmap does not match the sidecar.
+    """
+    meta_path = path / _META
+    if not meta_path.is_file():
+        raise FileNotFoundError(meta_path)
+    payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    stems = tuple(str(item) for item in payload["stems"])
+    side = int(payload["side_px"])
+    channels = int(payload["channels"])
+    count = len(stems)
+    images = np.memmap(path / "images.dat", dtype=np.float32, mode="r")
+    masks = np.memmap(path / "masks.dat", dtype=np.uint8, mode="r")
+    positive = np.memmap(path / "positive.dat", dtype=np.uint8, mode="r")
+    annotated = np.memmap(path / "annotated.dat", dtype=np.uint8, mode="r")
+    expected_images = count * channels * side * side
+    if images.size != expected_images or masks.size != count * side * side:
+        raise ValueError(f"pack at {path} does not match its sidecar")
+    if positive.size != count or annotated.size != count:
+        raise ValueError(f"pack flags at {path} do not match its sidecar")
+    return SidePack(
+        path=path,
+        side_px=side,
+        stems=stems,
+        images=images.reshape(count, channels, side, side),
+        masks=masks.reshape(count, side, side),
+        positive=positive,
+        annotated=annotated,
+    )
+
+
+def prepare_side(
+    cache: TileCache,
+    tiles: Sequence[TileRef],
+    side_px: int,
+    path: Path,
+    *,
+    mask_source: Path | None = None,
+) -> SidePack:
+    """Resample the native cache once and write a side pack.
+
+    Args:
+        cache: Native stacks in the same row order as ``tiles``.
+        tiles: Corpus tiles. Presence and annotation flags are copied from here.
+        side_px: Legal output side.
+        path: Destination directory.
+        mask_source: Existing uint8 mask memmap ``(N, side, side)``. ``None``
+            rasterizes each annotated tile.
+
+    Returns:
+        SidePack: The opened pack. The native cache is left open.
+
+    Raises:
+        ValueError: If the side is illegal or the stem order disagrees.
+    """
+    if side_px not in LEGAL_SIDES:
+        raise ValueError(f"side_px must be one of {sorted(LEGAL_SIDES)}; got {side_px}")
+    if len(tiles) != len(cache.stems):
+        raise ValueError(f"tiles {len(tiles)} != cache rows {len(cache.stems)}")
+    for row, tile in enumerate(tiles):
+        if tile.stem != cache.stems[row]:
+            raise ValueError(f"stem mismatch at row {row}")
+    path.mkdir(parents=True, exist_ok=True)
+    count = len(tiles)
+    probe = coarsen(cache.reader(tiles[0]), side_px)
+    channels = int(probe.shape[0])
+    images = np.memmap(
+        path / "images.dat",
+        dtype=np.float32,
+        mode="w+",
+        shape=(count, channels, side_px, side_px),
+    )
+    masks = np.memmap(
+        path / "masks.dat", dtype=np.uint8, mode="w+", shape=(count, side_px, side_px)
+    )
+    positive = np.memmap(path / "positive.dat", dtype=np.uint8, mode="w+", shape=(count,))
+    annotated = np.memmap(path / "annotated.dat", dtype=np.uint8, mode="w+", shape=(count,))
+    copied_masks: np.ndarray | None = None
+    if mask_source is not None and mask_source.is_file():
+        copied_masks = np.memmap(mask_source, dtype=np.uint8, mode="r")
+        if copied_masks.size != count * side_px * side_px:
+            copied_masks = None
+        else:
+            masks[:] = copied_masks.reshape(count, side_px, side_px)
+    for row, tile in enumerate(tiles):
+        if row == 0:
+            images[0] = probe
+        else:
+            images[row] = coarsen(cache.reader(tile), side_px)
+        positive[row] = 1 if tile.positive else 0
+        annotated[row] = 0 if tile.polygons is None else 1
+        if copied_masks is None and tile.polygons:
+            masks[row] = rasterize_mask(tile.polygons, side_px, rule="half")[0]
+    images.flush()
+    masks.flush()
+    positive.flush()
+    annotated.flush()
+    payload = {"stems": list(cache.stems), "side_px": side_px, "channels": channels}
+    (path / _META).write_text(json.dumps(payload), encoding="utf-8")
+    for array in (images, masks, positive, annotated, copied_masks):
+        if array is None:
+            continue
+        mapped = getattr(array, "_mmap", None)
+        if mapped is not None:
+            mapped.close()
+    return open_side_pack(path)

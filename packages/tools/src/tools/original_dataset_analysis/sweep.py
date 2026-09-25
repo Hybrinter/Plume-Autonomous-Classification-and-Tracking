@@ -29,10 +29,13 @@ from tools.original_dataset_analysis.bands import (
     verify_band_order,
 )
 from tools.original_dataset_analysis.cache import (
+    SidePack,
     TileCache,
     build_cache,
     build_mask_cache,
     open_cache,
+    open_side_pack,
+    prepare_side,
 )
 from tools.original_dataset_analysis.dataset import StudyDataset
 from tools.original_dataset_analysis.grid import rasterize_mask
@@ -96,10 +99,23 @@ def _tiles(index: TileIndex, stems: Sequence[str]) -> tuple[TileRef, ...]:
     return tuple(tile for tile in index.tiles if tile.stem in wanted)
 
 
-def _stats(tiles: Sequence[TileRef], cache: TileCache, subset: BandSubset) -> BandStats:
+def _stats(
+    tiles: Sequence[TileRef],
+    cache: TileCache | None,
+    subset: BandSubset,
+    *,
+    pack: SidePack | None = None,
+    rows: np.ndarray | None = None,
+) -> BandStats:
     """Fit train moments on the selected channels."""
     accumulator = MomentAccumulator(len(subset.indices))
     columns = list(subset.indices)
+    if pack is not None and rows is not None:
+        for row in rows:
+            accumulator.update(np.asarray(pack.images[int(row)][columns], dtype=np.float32))
+        return accumulator.finish()
+    if cache is None:
+        raise ValueError("stats need a cache or a pack")
     for tile in tiles:
         accumulator.update(cache.reader(tile)[columns])
     return accumulator.finish()
@@ -117,8 +133,22 @@ def _loader(
     device: torch.device,
     cached_masks: np.ndarray | None = None,
     mask_rows: Mapping[str, int] | None = None,
+    pack: SidePack | None = None,
+    rows: np.ndarray | None = None,
 ) -> DataLoader[tuple[torch.Tensor, ...]]:
     """Return a loader over one split."""
+    if pack is not None and rows is not None:
+        dataset = StudyDataset.from_pack(pack, rows, subset.indices, stats)
+        generator = torch.Generator()
+        generator.manual_seed(seed)
+        return DataLoader(
+            dataset,
+            batch_size=_BATCH,
+            shuffle=shuffle,
+            generator=generator if shuffle else None,
+            num_workers=0,
+            pin_memory=False,
+        )
     dataset = StudyDataset(
         tiles,
         cache.reader,
@@ -221,6 +251,7 @@ def run_native(
     cached_masks: np.ndarray | None = None,
     mask_rows: Mapping[str, int] | None = None,
     mask_by_side: Mapping[int, np.ndarray] | None = None,
+    pack: SidePack | None = None,
     on_result: Callable[[tuple[CellResult, ...]], None] | None = None,
 ) -> tuple[CellResult, ...]:
     """Train each native cell and score its best validation weights.
@@ -243,6 +274,7 @@ def run_native(
     """
     split = assign_location_splits(index, SplitRecipe(seed=config.seed))
     grouped = {name: _tiles(index, stems) for name, stems in split.stems.items()}
+    stem_row = None if pack is None else {stem: row for row, stem in enumerate(pack.stems)}
     results: list[CellResult] = []
     for cell in cells:
         if cell.side_px not in {120, 80, 60, 40, 30}:
@@ -252,7 +284,24 @@ def run_native(
         if mask_by_side is not None and cell.side_px in mask_by_side:
             side_masks = mask_by_side[cell.side_px]
         subset = _subset(order, cell.subset)
-        stats = _stats(grouped["train"], cache, subset)
+        train_rows = None
+        val_rows = None
+        test_rows = None
+        if stem_row is not None:
+            train_rows = np.asarray(
+                [stem_row[tile.stem] for tile in grouped["train"]], dtype=np.int32
+            )
+            val_rows = np.asarray([stem_row[tile.stem] for tile in grouped["val"]], dtype=np.int32)
+            test_rows = np.asarray(
+                [stem_row[tile.stem] for tile in grouped["test"]], dtype=np.int32
+            )
+        stats = _stats(
+            grouped["train"],
+            None if pack is not None else cache,
+            subset,
+            pack=pack,
+            rows=train_rows,
+        )
         model, target = _model(cell.task, len(subset.indices))
         trained = run_training(
             model,
@@ -267,6 +316,8 @@ def run_native(
                 device=device,
                 cached_masks=side_masks,
                 mask_rows=mask_rows,
+                pack=pack,
+                rows=train_rows,
             ),
             _loader(
                 grouped["val"],
@@ -279,6 +330,8 @@ def run_native(
                 device=device,
                 cached_masks=side_masks,
                 mask_rows=mask_rows,
+                pack=pack,
+                rows=val_rows,
             ),
             config,
             target=target,
@@ -294,6 +347,8 @@ def run_native(
                 device=device,
                 cached_masks=side_masks,
                 mask_rows=mask_rows,
+                pack=pack,
+                rows=test_rows,
             ),
         )
         model.load_state_dict(trained.state_dict)
@@ -310,6 +365,8 @@ def run_native(
                 device=device,
                 cached_masks=side_masks,
                 mask_rows=mask_rows,
+                pack=pack,
+                rows=test_rows,
             ),
             device,
             target,
@@ -531,17 +588,6 @@ def train_native(argv: Sequence[str]) -> int:
         cached_masks = build_mask_cache(index.tiles, mask_path)
     mask_rows = {tile.stem: row for row, tile in enumerate(index.tiles)}
     mask_by_side: dict[int, np.ndarray] = {120: cached_masks}
-    if args.axis == "gsd":
-        for side in (80, 60, 40, 30):
-            side_path = args.cache / f"masks_{side}.dat"
-            expected = len(index.tiles) * side * side
-            if side_path.is_file() and side_path.stat().st_size == expected:
-                mask_by_side[side] = np.memmap(
-                    side_path, dtype=np.uint8, mode="r", shape=(len(index.tiles), side, side)
-                )
-            else:
-                print(f"rasterizing masks at {side}", flush=True)
-                mask_by_side[side] = build_mask_cache(index.tiles, side_path, side)
     planned = gsd_cells(order) if args.axis == "gsd" else native_cells(order)
     if args.axis == "gsd":
         planned = tuple(cell for cell in planned if cell.side_px != 120)
@@ -569,18 +615,59 @@ def train_native(argv: Sequence[str]) -> int:
         write_review(order, prior + partial, args.out, prevalence=prevalence)
         print(f"saved {len(prior) + len(partial)} cells", flush=True)
 
-    results = run_native(
-        index,
-        cache,
-        order,
-        planned,
-        config,
-        device,
-        cached_masks=cached_masks,
-        mask_rows=mask_rows,
-        mask_by_side=mask_by_side,
-        on_result=_publish,
-    )
+    results: tuple[CellResult, ...] = ()
+    if args.axis == "gsd":
+        cache.close()
+        accumulated = list(prior)
+
+        def _publish_gsd(partial: tuple[CellResult, ...]) -> None:
+            write_review(order, tuple(accumulated) + partial, args.out, prevalence=prevalence)
+            print(f"saved {len(accumulated) + len(partial)} cells", flush=True)
+
+        for side in (80, 60, 40, 30):
+            side_cells = tuple(cell for cell in planned if cell.side_px == side)
+            if not side_cells:
+                continue
+            pack_dir = args.cache.parent / "packs" / str(side)
+            if not (pack_dir / "meta.json").is_file():
+                print(f"preparing pack {side}", flush=True)
+                native = open_cache(args.cache)
+                mask_file = args.cache / f"masks_{side}.dat"
+                prepare_side(
+                    native,
+                    index.tiles,
+                    side,
+                    pack_dir,
+                    mask_source=mask_file if mask_file.is_file() else None,
+                )
+                native.close()
+            pack = open_side_pack(pack_dir)
+            batch = run_native(
+                index,
+                cache,
+                order,
+                side_cells,
+                config,
+                device,
+                pack=pack,
+                on_result=_publish_gsd,
+            )
+            accumulated.extend(batch)
+            pack.close()
+        results = tuple(accumulated[len(prior) :])
+    else:
+        results = run_native(
+            index,
+            cache,
+            order,
+            planned,
+            config,
+            device,
+            cached_masks=cached_masks,
+            mask_rows=mask_rows,
+            mask_by_side=mask_by_side,
+            on_result=_publish,
+        )
     write_review(order, prior + results, args.out, prevalence=prevalence)
     print(f"wrote {len(results)} cells to {args.out}")
     return 0

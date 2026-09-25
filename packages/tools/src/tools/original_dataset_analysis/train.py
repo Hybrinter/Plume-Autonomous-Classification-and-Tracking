@@ -254,14 +254,14 @@ def run_training(
             schedule.step()
         val_loss = _mean_loss(model, val_loader, chosen, target)
         test_loss = None if test_loader is None else _mean_loss(model, test_loader, chosen, target)
-        history.append(
-            EpochLoss(
-                epoch=epoch + 1,
-                train_loss=None if train_count == 0 else train_total / float(train_count),
-                val_loss=val_loss,
-                test_loss=test_loss,
-            )
+        record = EpochLoss(
+            epoch=epoch + 1,
+            train_loss=None if train_count == 0 else train_total / float(train_count),
+            val_loss=val_loss,
+            test_loss=test_loss,
         )
+        history.append(record)
+        print(f"epoch {record.epoch} val {val_loss:.4f}", flush=True)
         if val_loss < best_loss:
             best_loss = val_loss
             best_epoch = epoch

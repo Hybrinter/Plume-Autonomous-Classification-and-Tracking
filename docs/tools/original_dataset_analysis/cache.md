@@ -17,6 +17,9 @@ reread the archive.
 | `build_cache` | function | One forward pass into a memmap |
 | `build_mask_cache` | function | Rasterize each annotated tile once |
 | `open_cache` | function | Reopen a written cache |
+| `SidePack` | class | One prepared ground-sample size |
+| `prepare_side` | function | Resample the native cache once |
+| `open_side_pack` | function | Open a prepared side pack |
 
 ## Inputs and outputs
 
@@ -33,6 +36,9 @@ reread the archive.
 2. The directory holds ``stacks.dat`` and ``meta.json``. The sidecar stores
    stems and band descriptions.
 3. ``reader`` returns a copy of one row.
+4. ``prepare_side`` writes ``images.dat``, ``masks.dat``, ``positive.dat``,
+   ``annotated.dat``, and ``meta.json`` for one legal side. ``open_side_pack``
+   returns those arrays as a ``SidePack``.
 
 ## Errors and faults
 

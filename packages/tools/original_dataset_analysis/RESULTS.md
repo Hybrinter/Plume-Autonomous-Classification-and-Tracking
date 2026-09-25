@@ -1,6 +1,15 @@
 # Original-dataset results
 
 The native score is PR-AUC for the classifier and Dice for the segmentor.
+best_epoch in the JSON is zero-based. Loss charts label the one-based epoch.
+
+## Positive rate
+
+| split | positive_rate |
+| --- | --- |
+| train | 0.1802 |
+| val | 0.2091 |
+| test | 0.1281 |
 
 ## Native matrix
 
@@ -37,26 +46,24 @@ The native score is PR-AUC for the classifier and Dice for the segmentor.
 
 ## Ground sample distance
 
-These cells are not trained in the native pass.
-
 | task | subset | side_px | gsd_m | score |
 | --- | --- | --- | --- | --- |
-| classify | s2_12 | 120 | 10 | |
+| classify | s2_12 | 120 | 10 | 0.8340 |
 | classify | s2_12 | 80 | 15 | |
 | classify | s2_12 | 60 | 20 | |
 | classify | s2_12 | 40 | 30 | |
 | classify | s2_12 | 30 | 40 | |
-| classify | rgb | 120 | 10 | |
+| classify | rgb | 120 | 10 | 0.6965 |
 | classify | rgb | 80 | 15 | |
 | classify | rgb | 60 | 20 | |
 | classify | rgb | 40 | 30 | |
 | classify | rgb | 30 | 40 | |
-| segment | s2_12 | 120 | 10 | |
+| segment | s2_12 | 120 | 10 | 0.7779 |
 | segment | s2_12 | 80 | 15 | |
 | segment | s2_12 | 60 | 20 | |
 | segment | s2_12 | 40 | 30 | |
 | segment | s2_12 | 30 | 40 | |
-| segment | rgb | 120 | 10 | |
+| segment | rgb | 120 | 10 | 0.7591 |
 | segment | rgb | 80 | 15 | |
 | segment | rgb | 60 | 20 | |
 | segment | rgb | 40 | 30 | |

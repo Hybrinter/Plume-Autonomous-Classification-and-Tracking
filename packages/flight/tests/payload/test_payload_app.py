@@ -224,6 +224,38 @@ def test_process_frame_passes_nchw_tensor() -> None:
     assert captured == [(1, 3, 1544, 2064)]
 
 
+def test_imaging_duty_limits_tensors_and_keeps_gimbal_steps() -> None:
+    """N acquire opportunities publish floor(N * duty) tensors and still step the gimbal."""
+    app, bus, gimbal, clock = _build_app(_plume_detector())
+    inf_sub = bus.subscribe(InferenceResultMsg)
+    state = app.controller.initial_state()
+    n = 8
+    now = 0.0
+    for frame_id in range(1, n + 1):
+        now += 1.0
+        position = gimbal.read_position()
+        assert isinstance(position, Ok)
+        shutter = replace(position.value, timestamp_s=now)
+        if app.capture_this_opportunity():
+            state, outcome = app.process_frame(
+                _mosaic_frame(frame_id), state, now, gimbal_pos=shutter
+            )
+            assert outcome.fault is None
+        else:
+            app.note_gimbal_feedback(shutter)
+        state, _outer = app.advance_outer(state, now)
+        state = app.advance_inner(state, now)
+        clock.advance(1.0)
+    duty = app.sensor_cfg.capture.duty_cycle
+    inference_count = 0
+    while not inf_sub.empty():
+        inf_sub.get_nowait()
+        inference_count += 1
+    assert duty == 0.5
+    assert inference_count == math.floor(n * duty)
+    assert state.last_outer_s == pytest.approx(now)
+
+
 def test_persistent_plume_drives_gimbal_through_app() -> None:
     """A stable plume drives TRACKING and moves elevation through the catch-up loops."""
     app, bus, gimbal, clock = _build_app(_plume_detector())

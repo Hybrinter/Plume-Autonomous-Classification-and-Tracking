@@ -9,7 +9,7 @@ from sim.sil import build_sil_system, step_once
 
 
 def test_step_once_processes_one_frame_per_call() -> None:
-    """step_once runs the full per-cycle body: one inference is published per call."""
+    """step_once runs the full per-cycle body. Duty 0.5 captures even opportunities."""
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
@@ -42,7 +42,7 @@ def test_step_once_processes_one_frame_per_call() -> None:
     while not inf_sub.empty():
         inf_sub.get_nowait()
         inference_count += 1
-    assert inference_count == 3
+    assert inference_count == 1
 
     position = system.gimbal.read_position()
     assert isinstance(position, Ok)

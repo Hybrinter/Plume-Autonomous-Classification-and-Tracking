@@ -61,12 +61,12 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
         for m in transitions
     )
 
-    # Inference ran once per frame.
+    # Imaging duty 0.5 captures even opportunities: floor(8 * 0.5) == 4.
     inference_count = 0
     while not inf_sub.empty():
         inf_sub.get_nowait()
         inference_count += 1
-    assert inference_count == 8
+    assert inference_count == 4
 
     # Housekeeping telemetry flowed and the system stayed nominal (no SAFE).
     assert telem

@@ -54,7 +54,8 @@ this cycle apply on a later cycle's catch-up.
 
 ## Errors and faults
 
-Sensor acquire or gimbal read failures skip `process_frame` for that cycle. Fault routing
+`capture_this_opportunity` skips acquire on off-duty cycles and still records gimbal
+feedback. Sensor acquire or gimbal read failures skip `process_frame` for that cycle. Fault routing
 happens inside the fault app tick. `bind.pre_step` may raise `ValueError` when a live mosaic
 would mix with unread constructor frames.
 

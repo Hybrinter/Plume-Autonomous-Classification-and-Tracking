@@ -126,6 +126,16 @@ class StowGate:
 
 
 @dataclass(slots=True)
+class ImagingDuty:
+    """Acquire-opportunity counter for sensor.capture.duty_cycle.
+
+    Opportunity 1 is the first loop. A duty of 0.5 captures even opportunities.
+    """
+
+    opportunities: int = 0
+
+
+@dataclass(slots=True)
 class PoseIntent:
     """Ground pose waiting to apply on the next outer tick."""
 
@@ -202,6 +212,7 @@ class PayloadApp:
     actuator_io_lock: threading.Lock = field(default_factory=threading.Lock)
     actuator_safety: ActuatorSafety = field(default_factory=ActuatorSafety)
     encoder_stream: EncoderStream = field(default_factory=EncoderStream)
+    imaging_duty: ImagingDuty = field(default_factory=ImagingDuty)
 
     @staticmethod
     def from_config(
@@ -309,6 +320,21 @@ class PayloadApp:
         """Drop consumption markers for samples no longer in the retained history."""
         retained = {sample.sample_id for sample in self.encoder_stream.samples}
         self.encoder_stream.consumed_ids &= retained
+
+    def capture_this_opportunity(self) -> bool:
+        """Return whether this acquire opportunity should capture a frame.
+
+        The opportunity index starts at 1. Capture when the running floor of
+        index * duty_cycle increases. Duty 0.5 therefore captures even indexes.
+        """
+        duty = self.sensor_cfg.capture.duty_cycle
+        self.imaging_duty.opportunities += 1
+        index = self.imaging_duty.opportunities
+        return math.floor(index * duty) > math.floor((index - 1) * duty)
+
+    def note_gimbal_feedback(self, position: GimbalPosition) -> None:
+        """Record encoder feedback on a tick that does not capture."""
+        self._record_encoder(position)
 
     def _record_encoder(self, position: GimbalPosition) -> EncoderSample:
         """Record one valid feedback frame and return its estimator-domain sample."""
@@ -1159,8 +1185,14 @@ class PayloadApp:
                 safe_commanded, safe_cleared = self.poll_mode_changes()
                 self.poll_lock_state()
                 self.handle_commands()
-                acq = self.sensor.acquire_frame()
-                if isinstance(acq, Ok):
+                if self.capture_this_opportunity():
+                    acq = self.sensor.acquire_frame()
+                else:
+                    acq = None
+                    skipped = self._read_position()
+                    if isinstance(skipped, Ok):
+                        self.note_gimbal_feedback(skipped.value)
+                if acq is not None and isinstance(acq, Ok):
                     pos_res = self._read_position()
                     pos: GimbalPosition | None = pos_res.value if isinstance(pos_res, Ok) else None
                     with self.inner_lock:
@@ -1169,7 +1201,7 @@ class PayloadApp:
                     with self.inner_lock:
                         latest = holder["state"]
                         holder["state"] = replace(latest, last_e_az=current.last_e_az)
-                else:
+                elif acq is not None:
                     self._publish_fault(acq.error, "imaging sensor stall")
                     if safe_commanded and not self.lock_gate.engaged:
                         self._actuate_pose(

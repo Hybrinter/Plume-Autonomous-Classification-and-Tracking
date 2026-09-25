@@ -55,7 +55,7 @@ def test_build_validation_system_yields_sim_drivers() -> None:
 
 
 def test_validation_harness_drives_inference_per_frame() -> None:
-    """Four steps over four frames drive exactly four InferenceResultMsg publications."""
+    """Four steps at duty 0.5 publish floor(4 * 0.5) inference results."""
     system = build_validation_system(_all_sim_config(), ManualClock(), _sim_inputs())
     inf_sub = system.bus.subscribe(InferenceResultMsg)
 
@@ -65,7 +65,7 @@ def test_validation_harness_drives_inference_per_frame() -> None:
     while not inf_sub.empty():
         inf_sub.get_nowait()
         inference_count += 1
-    assert inference_count == 4
+    assert inference_count == 2
 
 
 def test_load_profile_config_loads_sim_profile() -> None:

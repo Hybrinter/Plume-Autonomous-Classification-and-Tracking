@@ -134,6 +134,9 @@ initial_exposure_us = 30.73
 gain_min_db = 0.0
 gain_max_db = 12.0
 initial_gain_db = 0.0
+# Imaging duty. 0.5 stretches storage fill from about 2-4 months to about 6 months.
+# Not gimbal.xeryon.hv_duty_fraction (the vacuum-variant stage duty).
+duty_cycle = 0.5
 
 [fault]
 watchdog_interval_s = 5.0

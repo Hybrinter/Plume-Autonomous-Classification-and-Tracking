@@ -91,7 +91,7 @@ def step_once(
 
     Order: publish current launch-lock snapshot -> poll mode/lock -> per-T_out
     inner-then-outer catch-up to ``now`` -> optional bind.pre_step -> acquire +
-    process one payload frame (if available) -> apply payload pose commands from
+    process one payload frame when the imaging duty gate is due -> apply payload pose commands from
     the prior cycle -> ISS bridge pump -> command router -> mechanical tick ->
     housekeeping handle-commands + sample -> storage/downlink ticks -> heartbeats
     -> FDIR tick. A lock snapshot at the start of the cycle lets fail-closed
@@ -132,17 +132,22 @@ def step_once(
     payload_state = _catch_up_loops(apps, now, payload_state, safe_commanded, safe_cleared)
     if bind is not None:
         bind.pre_step(now)
-    acquired = sensor.acquire_frame()
-    if isinstance(acquired, Ok):
+    if apps.payload.capture_this_opportunity():
+        acquired = sensor.acquire_frame()
+        if isinstance(acquired, Ok):
+            pos = gimbal.read_position()
+            payload_state, _ = apps.payload.process_frame(
+                acquired.value,
+                payload_state,
+                now,
+                gimbal_pos=pos.value if isinstance(pos, Ok) else None,
+                safe_commanded=safe_commanded,
+                safe_cleared=safe_cleared,
+            )
+    else:
         pos = gimbal.read_position()
-        payload_state, _ = apps.payload.process_frame(
-            acquired.value,
-            payload_state,
-            now,
-            gimbal_pos=pos.value if isinstance(pos, Ok) else None,
-            safe_commanded=safe_commanded,
-            safe_cleared=safe_cleared,
-        )
+        if isinstance(pos, Ok):
+            apps.payload.note_gimbal_feedback(pos.value)
     apps.payload.handle_commands()
 
     apps.iss_iface.tick()

@@ -77,7 +77,10 @@ command.
    sample and does not write torque.
 8. SAFE and launch-lock states inhibit motion. SAFE operation commands the stow
    position loop. A pending SAFE STOW is retried after lock release.
-9. Shutdown stops acquisition and joins the detailed-plant thread when one is
+9. `sensor.capture.duty_cycle` gates `acquire_frame`. Duty 0.5 captures even
+   opportunities. The outer gimbal step still runs on the skipped opportunities.
+   This duty is not `gimbal.xeryon.hv_duty_fraction`.
+10. Shutdown stops acquisition and joins the detailed-plant thread when one is
    running. The Xeryon adapter shutdown path remains fail-closed.
 
 ## Errors and faults

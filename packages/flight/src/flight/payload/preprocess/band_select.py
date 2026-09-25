@@ -1,15 +1,13 @@
-"""flight.payload.preprocess.band_select -- reorder demosaicked band planes for inference.
+"""flight.payload.preprocess.band_select -- reorder stacked channels for inference.
 
 Satisfies: REQ-AIML-PREP-001, REQ-AIML-IMAG-001
 
-After CFA separation the band planes arrive in SensorConfig.mosaic_layout (row-major
-2x2 cell) order. select_bands reorders them into the InferenceConfig.input_bands order
-the model expects. The band vocabulary is BLUE/GREEN/RED/NIR (the 2x2 mosaic filter
-passbands), which approximate Sentinel-2 B2 (~490 nm) / B3 (~560 nm) / B4 (~665 nm) /
-B8 (~842 nm) so Sentinel-2-derived training data remains a valid domain (spec Section 2).
+After stacking, channels arrive in SensorConfig.channel_layout (wire) order.
+select_bands reorders them into the InferenceConfig.input_bands order the model
+expects. The band vocabulary is RED/GREEN/BLUE.
 
 This module is layout-agnostic: it only matches names, it does not assume any fixed
-index, so the legacy fixed BAND_INDICES table is gone.
+index.
 
 Contains:
   - select_bands: gather/reorder layout-ordered planes into the requested band order,
@@ -26,7 +24,7 @@ from flight.libs.types import Err, FaultCode, Ok, Result
 
 
 def select_bands(
-    planes: np.ndarray,  # np.ndarray[float32, (len(layout), H, W)], in mosaic_layout cell order
+    planes: np.ndarray,  # np.ndarray[float32, (len(layout), H, W)], in channel_layout order
     layout: tuple[str, ...],
     band_names: tuple[str, ...],
 ) -> Result[np.ndarray, FaultCode]:
@@ -34,9 +32,9 @@ def select_bands(
 
     Inputs:
         planes (np.ndarray[float32, (len(layout), H, W)]): Band planes in
-            SensorConfig.mosaic_layout (row-major 2x2 cell) order.
+            SensorConfig.channel_layout (wire) order.
         layout (tuple[str, ...]): The band name of each plane, e.g.
-            ("BLUE", "GREEN", "RED", "NIR").
+            ("RED", "GREEN", "BLUE").
         band_names (tuple[str, ...]): Requested output order
             (InferenceConfig.input_bands).
 

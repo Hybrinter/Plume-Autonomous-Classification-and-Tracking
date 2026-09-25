@@ -25,7 +25,7 @@ object is constructed.
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
-| `SensorConfig` | class | Purchased mosaic geometry, optics, IFOV, and exposure/gain ranges |
+| `SensorConfig` | class | AP-3200T-USB frame, channel layout, optics, and capture limits |
 | `PreprocessingConfig` | class | Quality-flag thresholds |
 | `FaultConfig` | class | Watchdog, inference timeout, and power limit |
 | `ThermalConfig` | class | Record-only per-component temperature limits |
@@ -52,8 +52,8 @@ into `PactConfig`.
 2. Frozen dataclasses prevent runtime mutation after load.
 3. Tuple fields hold array-like values. TOML arrays load as lists and map into tuples.
 4. Unknown keys and out-of-range values fail at construction.
-5. `PactConfig` requires inference `H,W` to equal the demosaiced band plane
-   (`height_px/2`, `width_px/2`).
+5. `PactConfig` requires inference `H,W` to equal the sensor frame
+   (`height_px`, `width_px`) and `input_bands` to be a subset of `channel_layout`.
 6. `DriverConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
 7. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
 8. `CommandIngressConfig` names the HMAC key path and accepted command sources.
@@ -94,8 +94,8 @@ Nested tables under `[controller]`:
 
 `segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
 `classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
-dimensions (`1024 x 1224`), INT8 flag, and `latency_budget_ms` (4 ms expected
-detect).
+dimensions (`1544 x 2064`), INT8 flag, and `latency_budget_ms` (4 ms expected
+detect). `input_bands` is BLUE, GREEN, RED.
 
 ### CommsConfig
 
@@ -104,10 +104,11 @@ staged segmentor and classifier paths, and per-pass downlink byte budget.
 
 ### SensorConfig
 
-Mosaic `width_px` (lateral 2448) and `height_px` (along-track 2048), bit depth, mosaic
-layout, pixel pitch, focal length, f-number, mosaic and band IFOV, FOV check fields,
-QE and well-capacity records, exposure and gain legal ranges plus initials, and
-`calibration_dir`.
+`width_px` (lateral 2064) and `height_px` (along-track 1544), bit depth, wire
+`channel_layout` RED/GREEN/BLUE, and pixel pitch. `SensorOpticsConfig` holds the
+Edmund 16-849 focal length, f-number, stored distortion, one-pixel IFOV, active-area
+FOV, and the 1/1.8 in datasheet HFOV. `SensorCaptureConfig` holds the 35 Hz cap,
+8-bit exposure range, and ALC gain range. `calibration_dir` selects artifact loading.
 
 ### FaultConfig
 

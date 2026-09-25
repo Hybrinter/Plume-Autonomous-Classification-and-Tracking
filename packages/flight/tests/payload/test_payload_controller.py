@@ -13,8 +13,9 @@ from flight.payload.gimbal.intersect import CameraGeometry, intersect_cog
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.tracking import EncoderSample
 
-_BORESIGHT_X = 612.0
-_BORESIGHT_Y = 512.0
+_SENSOR = SensorConfig()
+_BORESIGHT_X = _SENSOR.width_px / 2.0
+_BORESIGHT_Y = _SENSOR.height_px / 2.0
 
 
 def _encoder(t_s: float, angle_rad: float = 0.0) -> EncoderSample:

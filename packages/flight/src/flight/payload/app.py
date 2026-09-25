@@ -78,7 +78,7 @@ from flight.payload.preprocess import (
     compute_quality_flags,
     normalize_dn,
     select_bands,
-    separate_bands,
+    stack_channels,
 )
 from flight.payload.tracking import EncoderSample
 
@@ -218,17 +218,17 @@ class PayloadApp:
         """Assemble a PayloadApp from a PactConfig and injected services.
 
         Raises:
-            ValueError: Invalid sensor mosaic or inference geometry.
+            ValueError: Invalid channel layout or inference geometry.
         """
-        if cfg.sensor.width_px % 2 or cfg.sensor.height_px % 2:
-            raise ValueError("sensor mosaic dimensions must be even")
-        plane_h, plane_w = cfg.sensor.height_px // 2, cfg.sensor.width_px // 2
-        if plane_h != cfg.inference.input_height_px or plane_w != cfg.inference.input_width_px:
-            raise ValueError("band plane must equal the inference input size")
-        if sorted(cfg.sensor.mosaic_layout) != sorted(b.value for b in Band):
-            raise ValueError("mosaic_layout must name each Band exactly once")
-        if any(b not in cfg.sensor.mosaic_layout for b in cfg.inference.input_bands):
-            raise ValueError("input_bands must be a subset of mosaic_layout")
+        if (
+            cfg.sensor.height_px != cfg.inference.input_height_px
+            or cfg.sensor.width_px != cfg.inference.input_width_px
+        ):
+            raise ValueError("sensor frame must equal the inference input size")
+        if sorted(cfg.sensor.channel_layout) != sorted(b.value for b in Band):
+            raise ValueError("channel_layout must name each Band exactly once")
+        if any(b not in cfg.sensor.channel_layout for b in cfg.inference.input_bands):
+            raise ValueError("input_bands must be a subset of channel_layout")
         return PayloadApp(
             sensor=sensor,
             gimbal=gimbal,
@@ -441,21 +441,19 @@ class PayloadApp:
         ``None`` uses encoder motion over the exposure, then the commanded rate.
         """
         del safe_commanded, safe_cleared
-        mosaic = np.asarray(raw.mosaic, dtype=np.float32)
+        stacked = stack_channels(np.asarray(raw.mosaic))
+        if isinstance(stacked, Err):
+            self._publish_fault(stacked.error, f"stack failed frame_id={raw.frame_id}")
+            return state, self._fault_outcome(raw.frame_id, stacked.error, state)
 
-        calibrated = calibrate_mosaic(mosaic, self.calib)
+        calibrated = calibrate_mosaic(stacked.value, self.calib)
         if isinstance(calibrated, Err):
             self._publish_fault(calibrated.error, f"calibration failed frame_id={raw.frame_id}")
             return state, self._fault_outcome(raw.frame_id, calibrated.error, state)
 
-        planes = separate_bands(calibrated.value)
-        if isinstance(planes, Err):
-            self._publish_fault(planes.error, f"demosaic failed frame_id={raw.frame_id}")
-            return state, self._fault_outcome(raw.frame_id, planes.error, state)
-
-        normalized = normalize_dn(planes.value, self.sensor_cfg.bit_depth)
+        normalized = normalize_dn(calibrated.value, self.sensor_cfg.bit_depth)
         selected = select_bands(
-            normalized, self.sensor_cfg.mosaic_layout, self.inference_cfg.input_bands
+            normalized, self.sensor_cfg.channel_layout, self.inference_cfg.input_bands
         )
         if isinstance(selected, Err):
             self._publish_fault(selected.error, f"band select failed frame_id={raw.frame_id}")
@@ -478,7 +476,7 @@ class PayloadApp:
             selected.value,
             raw.exposure_us,
             gimbal_rate_deg_per_s,
-            self.sensor_cfg.ifov_band_deg_per_px,
+            self.sensor_cfg.optics.ifov_band_deg_per_px,
             raw.timestamp_utc,
             self.preprocessing_cfg,
             omega_scene_el_deg_per_s=omega_scene_el_deg_per_s,
@@ -488,7 +486,7 @@ class PayloadApp:
             msg_type=MessageType.PROCESSED_FRAME,
             timestamp_utc=raw.timestamp_utc,
             frame_id=raw.frame_id,
-            tensor=selected.value,
+            tensor=selected.value[np.newaxis, ...],
             quality_flags=quality_flags,
         )
 

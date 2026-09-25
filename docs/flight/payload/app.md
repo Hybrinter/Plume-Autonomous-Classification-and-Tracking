@@ -84,11 +84,11 @@ command.
 
 | Fault / error | Trigger |
 | --- | --- |
-| Preprocessing faults | Calibration, demosaic, or band-select failure |
+| Preprocessing faults | Stack, calibration, or band-select failure |
 | Detection faults | Detector returns `Err` |
 | Encoder fault | Feedback read error, stale timing, invalid sample, or clock reset |
 | Gimbal actuation fault | HAL error, stale feedback, or unconfirmed inhibition |
-| `ValueError` at startup | Invalid sensor mosaic or inference geometry |
+| `ValueError` at startup | Invalid channel layout or inference geometry |
 | Camera stall | `acquire_frame` returns `Err` |
 | Catch-up fault | Catch-up exceeds `catchup_max_s` |
 

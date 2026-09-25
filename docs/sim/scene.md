@@ -5,14 +5,14 @@
 
 ## Purpose
 
-The scene package renders synthetic imagery for SIL. It produces raw mosaic frames and a
+The scene package renders synthetic imagery for SIL. It produces prism camera buffers and a
 scripted detector that yield stable plume blobs for closed-loop tests.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`plume`](scene/plume.md) | module | Gaussian plume mosaic frames and `plume_detector` |
+| [`plume`](scene/plume.md) | module | Gaussian plume prism frames and `plume_detector` |
 
 ## Package interface
 
@@ -25,15 +25,15 @@ scripted detector that yield stable plume blobs for closed-loop tests.
 
 ## Interactions
 
-Scene code imports `flight.libs.types`, `flight.payload.inference`, and
-`flight.payload.preprocess.interleave_bands`. It does not use the message bus.
+Scene code imports `flight.libs.types` and `flight.payload.inference`. It does not use
+the message bus.
 
 GSE and tools analysis call `build_frames` and `plume_detector` when they wire a SIL run.
 
 ## Constraints
 
 - Frames are deterministic for a given seed.
-- The plume sits off-center at band-plane (340, 340) to drive TRACKING commands.
+- The plume keeps the same fractional offset from boresight (1032, 772).
 - `ScriptedDetector` reads a fixed probability mask. It does not inspect tensor content.
 
 ## Related documents

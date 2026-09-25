@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from flight.libs.config import InferenceConfig
 from flight.libs.messages import ProcessedFrameMsg
 from flight.libs.types import MessageType, Ok
 from flight.payload.inference import OnnxDetector, compute_sha256
@@ -33,8 +34,16 @@ def _manifest(artifact: Path) -> dict[str, object]:
 @pytest.mark.skipif(
     not _CLASSIFIER.is_file() or not _SEGMENTOR.is_file(), reason="factory ONNX absent"
 )
-def test_factory_pair_matches_flight_contract() -> None:
-    """Active classifier and segmentor load, hash-check, and score an empty frame."""
+def test_factory_pair_loads_at_on_disk_shape() -> None:
+    """Active ONNX files load at their graph shape. That shape is not the flight contract."""
+    inference = InferenceConfig()
+    assert inference.input_bands == ("BLUE", "GREEN", "RED")
+    assert (1, len(inference.input_bands), inference.input_height_px, inference.input_width_px) == (
+        1,
+        3,
+        1544,
+        2064,
+    )
     cls_manifest = _manifest(_CLASSIFIER)
     seg_manifest = _manifest(_SEGMENTOR)
     assert cls_manifest["input_shape"] == [1, 4, 1024, 1224]
@@ -61,7 +70,7 @@ def test_factory_pair_matches_flight_contract() -> None:
         msg_type=MessageType.PROCESSED_FRAME,
         timestamp_utc="2026-08-30T00:00:00.000Z",
         frame_id=0,
-        tensor=np.zeros((4, 1024, 1224), dtype=np.float32),
+        tensor=np.zeros((1, 4, 1024, 1224), dtype=np.float32),
         quality_flags=frozenset(),
     )
     result = detector.detect(frame)

@@ -93,14 +93,14 @@ class BlobMeta:
 class ProcessedFrameMsg:
     """Preprocessed, band-selected, calibrated tensor from preprocessing to inference.
 
-    tensor shape: (4, H, W) float32, bands per InferenceConfig.input_bands
+    tensor shape: (1, C, H, W) float32 NCHW, bands per InferenceConfig.input_bands
     (BLUE/GREEN/RED/NIR), H/W = sensor size / 2.
     """
 
     msg_type: MessageType  # must be MessageType.PROCESSED_FRAME
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # uint32 monotonic frame counter
-    tensor: object  # np.ndarray[float32, (4, H, W)]
+    tensor: object  # np.ndarray[float32, (1, C, H, W)]
     quality_flags: frozenset[FrameUsabilityTag]
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
@@ -257,14 +257,14 @@ class StorageWriteMsg:
     """Bundle of a full frame's data for the storage writer process.
 
     raw_frame shape: (C, H, W) float32.
-    processed_tensor shape: (4, H, W) float32.
+    processed_tensor shape: (1, C, H, W) float32.
     """
 
     msg_type: MessageType  # must be MessageType.STORAGE_WRITE
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # uint32 monotonic frame counter
     raw_frame: object  # np.ndarray[float32, (C, H, W)]
-    processed_tensor: object  # np.ndarray[float32, (4, H, W)]
+    processed_tensor: object  # np.ndarray[float32, (1, C, H, W)]
     inference_result: InferenceResultMsg  # full inference output for this frame
     usability: FrameUsabilityTag  # computed usability classification
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version

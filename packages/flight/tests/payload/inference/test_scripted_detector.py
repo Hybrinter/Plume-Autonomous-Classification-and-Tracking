@@ -11,7 +11,7 @@ from flight.payload.inference import DetectorBackend, OnnxDetector, ScriptedDete
 
 def _processed_frame(height: int = 20, width: int = 20) -> ProcessedFrameMsg:
     """Build a minimal ProcessedFrameMsg (tensor content is unused by ScriptedDetector)."""
-    tensor = np.zeros((4, height, width), dtype=np.float32)  # np.ndarray[float32, (C, H, W)]
+    tensor = np.zeros((1, 3, height, width), dtype=np.float32)
     return ProcessedFrameMsg(
         msg_type=MessageType.PROCESSED_FRAME,
         timestamp_utc="2026-05-31T00:00:00.000Z",

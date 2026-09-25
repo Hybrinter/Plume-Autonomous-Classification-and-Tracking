@@ -108,7 +108,9 @@ class TileCache:
         return np.array(view, dtype=np.float32, copy=True)
 
 
-def build_mask_cache(tiles: Sequence[TileRef], path: Path) -> np.ndarray:
+def build_mask_cache(
+    tiles: Sequence[TileRef], path: Path, side_px: int = NATIVE_SIDE
+) -> np.ndarray:
     """Rasterize each annotated tile once and store a uint8 mask plane.
 
     Args:
@@ -121,11 +123,11 @@ def build_mask_cache(tiles: Sequence[TileRef], path: Path) -> np.ndarray:
     from tools.original_dataset_analysis.grid import rasterize_mask
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    masks = np.memmap(path, dtype=np.uint8, mode="w+", shape=(len(tiles), NATIVE_SIDE, NATIVE_SIDE))
+    masks = np.memmap(path, dtype=np.uint8, mode="w+", shape=(len(tiles), side_px, side_px))
     masks[:] = 0
     for row, tile in enumerate(tiles):
         if tile.polygons:
-            masks[row] = rasterize_mask(tile.polygons, NATIVE_SIDE, rule="half")[0]
+            masks[row] = rasterize_mask(tile.polygons, side_px, rule="half")[0]
     masks.flush()
     return masks
 

@@ -55,7 +55,9 @@ def _trapz(y: np.ndarray, x: np.ndarray) -> float:
     return float(area)
 
 
-def _ranking_areas(scores: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
+def _ranking_areas(
+    scores: np.ndarray, labels: np.ndarray
+) -> tuple[float, float, np.ndarray, np.ndarray]:
     """Return PR-AUC and ROC-AUC from ranking scores.
 
     Equal scores form one threshold. The curve steps once for that group.
@@ -66,7 +68,7 @@ def _ranking_areas(scores: np.ndarray, labels: np.ndarray) -> tuple[float, float
     positives = float(ranked_labels.sum())
     negatives = float(len(ranked_labels) - positives)
     if positives == 0.0 or negatives == 0.0:
-        return 0.0, 0.0
+        return 0.0, 0.0, np.array([0.0, 1.0]), np.array([1.0, 0.0])
     group_end = np.empty(len(ranked_scores), dtype=bool)
     group_end[:-1] = ranked_scores[:-1] != ranked_scores[1:]
     group_end[-1] = True
@@ -80,7 +82,7 @@ def _ranking_areas(scores: np.ndarray, labels: np.ndarray) -> tuple[float, float
     precision = np.concatenate([[1.0], precision])
     fpr = np.concatenate([[0.0], fpr])
     tpr = np.concatenate([[0.0], tpr])
-    return _trapz(precision, recall), _trapz(tpr, fpr)
+    return _trapz(precision, recall), _trapz(tpr, fpr), recall, precision
 
 
 def score_classifier(logits: torch.Tensor, labels: torch.Tensor) -> ClassificationScores:
@@ -108,7 +110,9 @@ def score_classifier(logits: torch.Tensor, labels: torch.Tensor) -> Classificati
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2.0 * precision * recall / (precision + recall) if precision + recall else 0.0
-    pr_auc, roc_auc = _ranking_areas(raw, truth_bool.astype(np.float64))
+    pr_auc, roc_auc, _recall_curve, _precision_curve = _ranking_areas(
+        raw, truth_bool.astype(np.float64)
+    )
     return ClassificationScores(precision, recall, f1, pr_auc, roc_auc)
 
 

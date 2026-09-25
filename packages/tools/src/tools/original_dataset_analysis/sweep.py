@@ -37,18 +37,18 @@ from tools.original_dataset_analysis.cache import (
 from tools.original_dataset_analysis.dataset import StudyDataset
 from tools.original_dataset_analysis.grid import rasterize_mask
 from tools.original_dataset_analysis.index import TileIndex, TileRef, build_index
-from tools.original_dataset_analysis.matrix import Cell, native_cells
+from tools.original_dataset_analysis.matrix import Cell, gsd_cells, native_cells
 from tools.original_dataset_analysis.metrics import score_classifier, score_segmentor
 from tools.original_dataset_analysis.models import DilateNet, ShuffleNetClassifier
 from tools.original_dataset_analysis.normalize import BandStats, MomentAccumulator
-from tools.original_dataset_analysis.plots import write_loss_curve, write_metric_bars
+from tools.original_dataset_analysis.plots import write_delta_bars, write_loss_curve, write_pr_curve
 from tools.original_dataset_analysis.results import write_filled_tables
 from tools.original_dataset_analysis.split import SplitRecipe, assign_location_splits
 from tools.original_dataset_analysis.train import EpochLoss, TrainConfig, run_training
 
 _BATCH = 64
 _CLASSIFY_METRICS = ("precision", "recall", "f1", "pr_auc", "roc_auc")
-_SEGMENT_METRICS = ("mean_iou", "dice", "accuracy")
+_SEGMENT_FIGURES = ("mean_iou", "dice")
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +70,8 @@ class CellResult:
     best_epoch: int
     metrics: Mapping[str, float]
     history: tuple[EpochLoss, ...]
+    pr_recall: tuple[float, ...] = ()
+    pr_precision: tuple[float, ...] = ()
 
     @property
     def score(self) -> float:
@@ -143,7 +145,7 @@ def _metrics(
     loader: DataLoader[tuple[torch.Tensor, ...]],
     device: torch.device,
     target: str,
-) -> dict[str, float]:
+) -> tuple[dict[str, float], tuple[float, ...], tuple[float, ...]]:
     """Score the test loader with the weights already loaded in ``model``."""
     model.eval()
     logit_parts: list[torch.Tensor] = []
@@ -170,19 +172,33 @@ def _metrics(
     truth = torch.cat(target_parts, dim=0)
     if target == "label":
         scored = score_classifier(logits, truth)
-        return {
-            "precision": scored.precision,
-            "recall": scored.recall,
-            "f1": scored.f1,
-            "pr_auc": scored.pr_auc,
-            "roc_auc": scored.roc_auc,
-        }
+        raw = logits.detach().double().reshape(-1).cpu().numpy()
+        truth_np = truth.detach().double().reshape(-1).cpu().numpy() >= 0.5
+        from tools.original_dataset_analysis.metrics import _ranking_areas
+
+        _pr, _roc, recall_curve, precision_curve = _ranking_areas(raw, truth_np.astype(float))
+        del _pr, _roc
+        return (
+            {
+                "precision": scored.precision,
+                "recall": scored.recall,
+                "f1": scored.f1,
+                "pr_auc": scored.pr_auc,
+                "roc_auc": scored.roc_auc,
+            },
+            tuple(float(value) for value in recall_curve),
+            tuple(float(value) for value in precision_curve),
+        )
     scored_mask = score_segmentor(logits, truth)
-    return {
-        "mean_iou": scored_mask.mean_iou,
-        "dice": scored_mask.dice,
-        "accuracy": scored_mask.accuracy,
-    }
+    return (
+        {
+            "mean_iou": scored_mask.mean_iou,
+            "dice": scored_mask.dice,
+            "accuracy": scored_mask.accuracy,
+        },
+        (),
+        (),
+    )
 
 
 def _model(task: str, channels: int) -> tuple[nn.Module, str]:
@@ -204,6 +220,7 @@ def run_native(
     *,
     cached_masks: np.ndarray | None = None,
     mask_rows: Mapping[str, int] | None = None,
+    mask_by_side: Mapping[int, np.ndarray] | None = None,
     on_result: Callable[[tuple[CellResult, ...]], None] | None = None,
 ) -> tuple[CellResult, ...]:
     """Train each native cell and score its best validation weights.
@@ -228,9 +245,12 @@ def run_native(
     grouped = {name: _tiles(index, stems) for name, stems in split.stems.items()}
     results: list[CellResult] = []
     for cell in cells:
-        if cell.side_px != 120:
-            raise ValueError(f"native sweep side must be 120; got {cell.side_px}")
-        print(f"training {cell.task} {cell.subset}", flush=True)
+        if cell.side_px not in {120, 80, 60, 40, 30}:
+            raise ValueError(f"side must be a legal side; got {cell.side_px}")
+        print(f"training {cell.task} {cell.subset} {cell.side_px}", flush=True)
+        side_masks = cached_masks
+        if mask_by_side is not None and cell.side_px in mask_by_side:
+            side_masks = mask_by_side[cell.side_px]
         subset = _subset(order, cell.subset)
         stats = _stats(grouped["train"], cache, subset)
         model, target = _model(cell.task, len(subset.indices))
@@ -245,7 +265,7 @@ def run_native(
                 shuffle=True,
                 seed=config.seed,
                 device=device,
-                cached_masks=cached_masks,
+                cached_masks=side_masks,
                 mask_rows=mask_rows,
             ),
             _loader(
@@ -257,7 +277,7 @@ def run_native(
                 shuffle=False,
                 seed=config.seed,
                 device=device,
-                cached_masks=cached_masks,
+                cached_masks=side_masks,
                 mask_rows=mask_rows,
             ),
             config,
@@ -272,12 +292,12 @@ def run_native(
                 shuffle=False,
                 seed=config.seed,
                 device=device,
-                cached_masks=cached_masks,
+                cached_masks=side_masks,
                 mask_rows=mask_rows,
             ),
         )
         model.load_state_dict(trained.state_dict)
-        metrics = _metrics(
+        metrics, pr_recall, pr_precision = _metrics(
             model,
             _loader(
                 grouped["test"],
@@ -288,7 +308,7 @@ def run_native(
                 shuffle=False,
                 seed=config.seed,
                 device=device,
-                cached_masks=cached_masks,
+                cached_masks=side_masks,
                 mask_rows=mask_rows,
             ),
             device,
@@ -302,6 +322,8 @@ def run_native(
                 best_epoch=trained.best_epoch,
                 metrics=metrics,
                 history=trained.history,
+                pr_recall=pr_recall,
+                pr_precision=pr_precision,
             )
         )
         if on_result is not None:
@@ -346,7 +368,13 @@ def write_mask_previews(cache: TileCache, tiles: Sequence[TileRef], path: Path, 
         plt.close(figure)
 
 
-def write_review(order: BandOrder, results: Sequence[CellResult], path: Path) -> None:
+def write_review(
+    order: BandOrder,
+    results: Sequence[CellResult],
+    path: Path,
+    *,
+    prevalence: Mapping[str, float] | None = None,
+) -> None:
     """Write the score table, one chart per metric, and one loss curve per cell.
 
     Args:
@@ -357,7 +385,7 @@ def write_review(order: BandOrder, results: Sequence[CellResult], path: Path) ->
     """
     path.mkdir(parents=True, exist_ok=True)
     scores = {(item.task, item.subset, item.side_px): item.score for item in results}
-    write_filled_tables(order, scores, path / "RESULTS.md")
+    write_filled_tables(order, scores, path / "RESULTS.md", prevalence=prevalence)
     payload = [
         {
             "task": item.task,
@@ -380,16 +408,27 @@ def write_review(order: BandOrder, results: Sequence[CellResult], path: Path) ->
     ]
     (path / "results.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     figures = path / "figures"
-    for task, metric_names in (("classify", _CLASSIFY_METRICS), ("segment", _SEGMENT_METRICS)):
-        rows = [item for item in results if item.task == task]
+    for task, metric_names in (("classify", _CLASSIFY_METRICS), ("segment", _SEGMENT_FIGURES)):
+        rows = [item for item in results if item.task == task and item.side_px == 120]
         if not rows:
             continue
+        baseline = next((item for item in rows if item.subset == "s2_12"), None)
+        if baseline is None:
+            continue
         for metric in metric_names:
-            write_metric_bars(
-                f"{task} {metric}",
+            write_delta_bars(
+                f"{task} {metric} minus s2_12",
                 [item.subset for item in rows],
-                [float(item.metrics[metric]) for item in rows],
-                figures / f"{task}_{metric}.png",
+                [float(item.metrics[metric]) - float(baseline.metrics[metric]) for item in rows],
+                figures / f"{task}_{metric}_delta.png",
+            )
+    for item in results:
+        if item.pr_recall and item.pr_precision:
+            write_pr_curve(
+                item.pr_recall,
+                item.pr_precision,
+                figures / "pr" / f"{item.task}_{item.subset}_{item.side_px}.png",
+                title=f"{item.task} {item.subset} {item.side_px}px",
             )
     for item in results:
         epochs = [row.epoch for row in item.history]
@@ -402,9 +441,45 @@ def write_review(order: BandOrder, results: Sequence[CellResult], path: Path) ->
             [float(value) for value in train_loss if value is not None],
             [row.val_loss for row in item.history],
             [float(value) for value in test_loss if value is not None],
-            figures / "losses" / f"{item.task}_{item.subset}.png",
+            figures / "losses" / f"{item.task}_{item.subset}_{item.side_px}.png",
             selected_epoch=item.best_epoch + 1,
         )
+
+
+def _load_saved(path: Path) -> tuple[CellResult, ...]:
+    """Read a review JSON file into cell results.
+
+    Args:
+        path: ``results.json`` path. A missing file yields no cells.
+
+    Returns:
+        tuple[CellResult, ...]: Saved cells. Precision-recall curves are empty.
+    """
+    if not path.is_file():
+        return ()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    loaded: list[CellResult] = []
+    for item in payload:
+        history = tuple(
+            EpochLoss(
+                epoch=int(row["epoch"]),
+                train_loss=None if row["train_loss"] is None else float(row["train_loss"]),
+                val_loss=float(row["val_loss"]),
+                test_loss=None if row["test_loss"] is None else float(row["test_loss"]),
+            )
+            for row in item["history"]
+        )
+        loaded.append(
+            CellResult(
+                task=str(item["task"]),
+                subset=str(item["subset"]),
+                side_px=int(item["side_px"]),
+                best_epoch=int(item["best_epoch"]),
+                metrics={str(key): float(value) for key, value in item["metrics"].items()},
+                history=history,
+            )
+        )
+    return tuple(loaded)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -418,6 +493,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--only", action="append", default=[], help="task:subset to train")
     parser.add_argument("--preview", type=int, default=4)
     parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--axis", choices=("native", "gsd"), default="native")
     return parser
 
 
@@ -454,7 +530,21 @@ def train_native(argv: Sequence[str]) -> int:
         print("rasterizing masks", flush=True)
         cached_masks = build_mask_cache(index.tiles, mask_path)
     mask_rows = {tile.stem: row for row, tile in enumerate(index.tiles)}
-    planned = native_cells(order)
+    mask_by_side: dict[int, np.ndarray] = {120: cached_masks}
+    if args.axis == "gsd":
+        for side in (80, 60, 40, 30):
+            side_path = args.cache / f"masks_{side}.dat"
+            expected = len(index.tiles) * side * side
+            if side_path.is_file() and side_path.stat().st_size == expected:
+                mask_by_side[side] = np.memmap(
+                    side_path, dtype=np.uint8, mode="r", shape=(len(index.tiles), side, side)
+                )
+            else:
+                print(f"rasterizing masks at {side}", flush=True)
+                mask_by_side[side] = build_mask_cache(index.tiles, side_path, side)
+    planned = gsd_cells(order) if args.axis == "gsd" else native_cells(order)
+    if args.axis == "gsd":
+        planned = tuple(cell for cell in planned if cell.side_px != 120)
     if args.only:
         wanted = {tuple(item.split(":", 1)) for item in args.only}
         planned = tuple(cell for cell in planned if (cell.task, cell.subset) in wanted)
@@ -463,10 +553,21 @@ def train_native(argv: Sequence[str]) -> int:
     if args.preview:
         write_mask_previews(cache, index.tiles, args.out / "previews", args.preview)
     config = TrainConfig(epochs=args.epochs, seed=0)
+    split = assign_location_splits(index, SplitRecipe(seed=config.seed))
+    prevalence = {
+        name: sum(tile.positive for tile in _tiles(index, stems)) / float(len(stems))
+        for name, stems in split.stems.items()
+        if stems
+    }
+    prior = _load_saved(args.out / "results.json")
+    done = {(item.task, item.subset, item.side_px) for item in prior}
+    planned = tuple(cell for cell in planned if (cell.task, cell.subset, cell.side_px) not in done)
+    if prior:
+        write_review(order, prior, args.out, prevalence=prevalence)
 
     def _publish(partial: tuple[CellResult, ...]) -> None:
-        write_review(order, partial, args.out)
-        print(f"saved {len(partial)} cells", flush=True)
+        write_review(order, prior + partial, args.out, prevalence=prevalence)
+        print(f"saved {len(prior) + len(partial)} cells", flush=True)
 
     results = run_native(
         index,
@@ -477,8 +578,9 @@ def train_native(argv: Sequence[str]) -> int:
         device,
         cached_masks=cached_masks,
         mask_rows=mask_rows,
+        mask_by_side=mask_by_side,
         on_result=_publish,
     )
-    write_review(order, results, args.out)
+    write_review(order, prior + results, args.out, prevalence=prevalence)
     print(f"wrote {len(results)} cells to {args.out}")
     return 0

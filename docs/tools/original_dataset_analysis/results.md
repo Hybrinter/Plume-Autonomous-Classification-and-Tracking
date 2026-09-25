@@ -26,7 +26,8 @@ score column.
 1. The native section has one row per native cell.
 2. The ground-sample section has one row per 12-band and RGB cell at each legal side.
 3. ``write_stub_tables`` leaves every score empty. ``write_filled_tables`` writes
-   the native score when the key is present and leaves ground-sample scores empty.
+   a score when the key is present, including a 120 px score on the matching
+   ground-sample row.
 
 ## Errors and faults
 

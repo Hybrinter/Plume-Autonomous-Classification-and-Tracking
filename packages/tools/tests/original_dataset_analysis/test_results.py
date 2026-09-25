@@ -36,17 +36,23 @@ def test_stub_rows_have_blank_scores(tmp_path: Path) -> None:
     assert "| 0." not in text
 
 
-def test_filled_native_score_leaves_ground_sample_blank(tmp_path: Path) -> None:
-    """A native score is written and the ground-sample score stays empty."""
+def test_filled_score_copies_onto_the_matching_ground_sample_row(tmp_path: Path) -> None:
+    """A 120 px score fills the native row and the 10 m row, and 15 m stays blank."""
     path = tmp_path / "RESULTS.md"
-    write_filled_tables(verify_band_order(_DESC), {("classify", "s2_12", 120): 0.5}, path)
+    write_filled_tables(
+        verify_band_order(_DESC),
+        {("classify", "s2_12", 120): 0.5},
+        path,
+        prevalence={"train": 0.2, "val": 0.1, "test": 0.3},
+    )
     text = path.read_text(encoding="utf-8")
-    assert "| classify | s2_12 | 120 | 10 | 0.5000 |" in text
+    assert text.count("| classify | s2_12 | 120 | 10 | 0.5000 |") == 2
     assert "| segment | s2_12 | 80 | 15 | |" in text
+    assert "| test | 0.3000 |" in text
 
 
 def test_loss_curve_marks_the_selected_epoch(tmp_path: Path) -> None:
-    """A log-log chart is written for positive train, validation, and test losses."""
+    """A loss chart is written for positive train, validation, and test losses."""
     path = tmp_path / "loss.png"
     write_loss_curve([1, 2], [0.4, 0.2], [0.5, 0.3], [0.6, 0.35], path, selected_epoch=2)
     assert path.is_file()

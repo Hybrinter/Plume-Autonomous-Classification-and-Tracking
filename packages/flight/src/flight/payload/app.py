@@ -1189,6 +1189,9 @@ class PayloadApp:
                     acq = self.sensor.acquire_frame()
                 else:
                     acq = None
+                    drained = self.sensor.drain_frame()
+                    if isinstance(drained, Err):
+                        self._publish_fault(drained.error, "imaging sensor buffer drain")
                     skipped = self._read_position()
                     if isinstance(skipped, Ok):
                         self.note_gimbal_feedback(skipped.value)

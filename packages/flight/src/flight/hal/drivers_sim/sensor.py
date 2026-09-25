@@ -8,6 +8,7 @@ processing (acquire-only contract).
 load_next is a sim-only single-slot mutator (not on ImagingSensor). A closed-loop
 bind may overwrite the unread slot each step. Empty constructor plus no slot stalls.
 unread_scripted_count reports remaining constructor frames after the live slot.
+drain_frame is a no-op: replay has no SDK buffer pool.
 
 Contains:
   - SimSensor: replays pre-loaded MosaicFrame frames one per acquire_frame() call.
@@ -77,6 +78,21 @@ class SimSensor:
         frame = self._frames[self._index]
         self._index += 1
         return Ok(frame)
+
+    def drain_frame(self) -> Result[None, FaultCode]:
+        """Return success without consuming a replay frame.
+
+        Inputs:
+            None.
+
+        Returns:
+            Result[None, FaultCode]: Ok(None) always.
+
+        Notes:
+            SimSensor has no SDK buffer pool. The live slot and constructor
+            frames stay available for a later acquire_frame call.
+        """
+        return Ok(None)
 
     def set_exposure_us(self, exposure: float) -> Result[None, FaultCode]:
         """No-op for the simulated sensor.

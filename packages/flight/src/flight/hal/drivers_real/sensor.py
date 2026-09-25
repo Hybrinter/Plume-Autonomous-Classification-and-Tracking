@@ -3,16 +3,18 @@
 PySpin (the FLIR Spinnaker SDK) imports lazily in __init__: importing this module never
 needs the SDK, only constructing RealSensor does. The driver ACQUIRES ONLY -- a raw
 uint16 mosaic plane out, no demosaic/calibration/normalization (raw-mosaic ingest
-contract ADR). acquire_frame and the control plane (exposure/gain/start/stop) are
-serialized with a single lock so the capture loop and tuning commands can run from
-different threads. A failed or incomplete transfer maps to Err(CAMERA_STALL); the
-payload loop degrades gracefully rather than raising.
+contract ADR). acquire_frame, drain_frame, and the control plane
+(exposure/gain/start/stop) are serialized with a single lock so the capture loop
+and tuning commands can run from different threads. A failed or incomplete
+transfer maps to Err(CAMERA_STALL); the payload loop degrades gracefully rather
+than raising. drain_frame releases waiting SDK images without copying them.
 
 Contains:
   - RealSensor: lazy-PySpin FLIR Blackfly S camera driver satisfying the ImagingSensor
-    Protocol structurally. Captures one raw mosaic per acquire_frame, exposes the
-    ExposureTime/Gain node-map control plane, and brackets acquisition with
-    Begin/EndAcquisition. All node access is lock-serialized.
+    Protocol structurally. Captures one raw mosaic per acquire_frame, releases
+    unread SDK images in drain_frame, exposes the ExposureTime/Gain node-map
+    control plane, and brackets acquisition with Begin/EndAcquisition. All node
+    access is lock-serialized.
 
 Satisfies: REQ-AIML-IMAG-001.
 """
@@ -28,6 +30,11 @@ import numpy as np
 # internal
 from flight.libs.time import Clock
 from flight.libs.types import Err, FaultCode, MosaicFrame, Ok, Result
+
+# Non-blocking poll. A zero timeout is infinite on some Spinnaker builds.
+_DRAIN_POLL_MS = 1
+# Bound a drain so a camera that never goes empty cannot spin the caller.
+_DRAIN_LIMIT = 32
 
 
 class RealSensor:
@@ -127,6 +134,34 @@ class RealSensor:
                     gain_db=float(self._cam.Gain.GetValue()),
                 )
             )
+
+    def drain_frame(self) -> Result[None, FaultCode]:
+        """Release images already waiting in the SDK buffer pool.
+
+        Inputs:
+            None.
+
+        Returns:
+            Result[None, FaultCode]: Ok(None) when no image is waiting or each
+            waiting image was released. Err(FaultCode.CAMERA_STALL) when Release
+            fails after GetNextImage has returned an image.
+
+        Notes:
+            GetNextImage uses a 1 ms poll and stops at the first timeout. The
+            mosaic is not copied and frame_id does not advance. Off-duty ticks
+            use this path while BeginAcquisition stays active.
+        """
+        with self._lock:
+            for _ in range(_DRAIN_LIMIT):
+                try:
+                    image = self._cam.GetNextImage(_DRAIN_POLL_MS)
+                except self._pyspin.SpinnakerException:
+                    return Ok(None)
+                try:
+                    image.Release()
+                except self._pyspin.SpinnakerException:
+                    return Err(FaultCode.CAMERA_STALL)
+            return Ok(None)
 
     def set_exposure_us(self, exposure: float) -> Result[None, FaultCode]:
         """Write the camera ExposureTime node.

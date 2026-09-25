@@ -351,6 +351,108 @@ def test_mode_change_safe_issues_stow_actuation() -> None:
     assert health.value.inhibit_confirmed is True
 
 
+class _DutySensor:
+    """ImagingSensor double that counts acquire and drain calls, then stops the loop."""
+
+    def __init__(self, stop: threading.Event, opportunities: int) -> None:
+        self._stop = stop
+        self._opportunities = opportunities
+        self.acquires = 0
+        self.drains = 0
+        self.starts = 0
+        self.stops = 0
+        self.drain_error: FaultCode | None = None
+
+    def _finish_opportunity(self) -> None:
+        if self.acquires + self.drains >= self._opportunities:
+            self._stop.set()
+
+    def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
+        """Count a capture opportunity and stall before any mosaic is built."""
+        self.acquires += 1
+        self._finish_opportunity()
+        return Err(FaultCode.CAMERA_STALL)
+
+    def drain_frame(self) -> Result[None, FaultCode]:
+        """Count an off-duty opportunity and optionally fail the release."""
+        self.drains += 1
+        self._finish_opportunity()
+        if self.drain_error is not None:
+            return Err(self.drain_error)
+        return Ok(None)
+
+    def set_exposure_us(self, exposure: float) -> Result[None, FaultCode]:
+        """Accept exposure writes without a camera."""
+        del exposure
+        return Ok(None)
+
+    def set_gain_db(self, gain: float) -> Result[None, FaultCode]:
+        """Accept gain writes without a camera."""
+        del gain
+        return Ok(None)
+
+    def start_acquisition(self) -> Result[None, FaultCode]:
+        """Record that the payload loop started the stream."""
+        self.starts += 1
+        return Ok(None)
+
+    def stop_acquisition(self) -> Result[None, FaultCode]:
+        """Record that the payload loop stopped the stream."""
+        self.stops += 1
+        return Ok(None)
+
+
+def test_run_drains_camera_on_skipped_opportunities() -> None:
+    """Off-duty loop ticks release a waiting image and do not acquire it."""
+    cfg = PactConfig()
+    bus = MessageBus()
+    clock = ManualClock()
+    stop = threading.Event()
+    sensor = _DutySensor(stop, opportunities=4)
+    gimbal = _RateGimbal(cfg.controller.outer.dt_s)
+    eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    app.lock_gate.engaged = False
+    app.run(stop)
+    assert sensor.starts == 1
+    assert sensor.stops == 1
+    assert app.imaging_duty.opportunities == 4
+    assert sensor.drains == 2
+    assert sensor.acquires == 2
+
+
+def test_run_publishes_fault_when_camera_drain_fails() -> None:
+    """A failed off-duty release publishes CAMERA_STALL and keeps the outer loop moving."""
+    cfg = PactConfig()
+    bus = MessageBus()
+    clock = ManualClock()
+    stop = threading.Event()
+    sensor = _DutySensor(stop, opportunities=1)
+    sensor.drain_error = FaultCode.CAMERA_STALL
+    fault_sub = bus.subscribe(FaultEventMsg)
+    gimbal = _RateGimbal(cfg.controller.outer.dt_s)
+    eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    app.lock_gate.engaged = False
+    app.run(stop)
+    assert sensor.drains == 1
+    assert sensor.acquires == 0
+    assert gimbal.reads >= 1
+    faults = []
+    while not fault_sub.empty():
+        faults.append(fault_sub.get_nowait())
+    assert any(
+        fault.fault_code is FaultCode.CAMERA_STALL and fault.detail == "imaging sensor buffer drain"
+        for fault in faults
+    )
+
+
 def test_run_loop_starts_and_stops_cleanly() -> None:
     """run() returns promptly when stop_event is pre-set, exercising acquisition glue."""
     app, bus, _gimbal, _clock = _build_app(_plume_detector())

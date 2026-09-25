@@ -85,6 +85,20 @@ def test_unread_scripted_count_tracks_constructor_list() -> None:
     assert sensor.unread_scripted_count() == 0
 
 
+def test_drain_frame_keeps_scripted_frames() -> None:
+    """drain_frame leaves the live slot and constructor frames for acquire_frame."""
+    sensor = SimSensor([_frame(1)])
+    sensor.load_next(_frame(9))
+    assert isinstance(sensor.drain_frame(), Ok)
+    assert sensor.unread_scripted_count() == 1
+    first = sensor.acquire_frame()
+    second = sensor.acquire_frame()
+    assert isinstance(first, Ok)
+    assert first.value.frame_id == 9
+    assert isinstance(second, Ok)
+    assert second.value.frame_id == 1
+
+
 def test_load_next_prefers_slot_over_scripted_list() -> None:
     """The live slot is returned before remaining constructor frames."""
     sensor = SimSensor([_frame(1), _frame(2)])

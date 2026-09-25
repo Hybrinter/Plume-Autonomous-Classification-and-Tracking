@@ -77,9 +77,10 @@ command.
    sample and does not write torque.
 8. SAFE and launch-lock states inhibit motion. SAFE operation commands the stow
    position loop. A pending SAFE STOW is retried after lock release.
-9. `sensor.capture.duty_cycle` gates `acquire_frame`. Duty 0.5 captures even
-   opportunities. The outer gimbal step still runs on the skipped opportunities.
-   This duty is not `gimbal.xeryon.hv_duty_fraction`.
+9. `sensor.capture.duty_cycle` gates imaging. Duty 0.5 captures even
+   opportunities. A skipped opportunity calls `drain_frame` and still steps the
+   outer gimbal loop. `drain_frame` releases images already waiting on a
+   free-running camera. This duty is not `gimbal.xeryon.hv_duty_fraction`.
 10. Shutdown stops acquisition and joins the detailed-plant thread when one is
    running. The Xeryon adapter shutdown path remains fail-closed.
 
@@ -93,6 +94,7 @@ command.
 | Gimbal actuation fault | HAL error, stale feedback, or unconfirmed inhibition |
 | `ValueError` at startup | Invalid channel layout or inference geometry |
 | Camera stall | `acquire_frame` returns `Err` |
+| Camera buffer drain | `drain_frame` returns `Err` |
 | Catch-up fault | Catch-up exceeds `catchup_max_s` |
 
 Encoder, controller, thermal, watchdog, and timing faults request local stop

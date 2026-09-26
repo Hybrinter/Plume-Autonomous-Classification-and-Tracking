@@ -43,8 +43,8 @@ The third value is `(row, column)`.
    random phase. Each tile copies one background chip. The chip is not scaled.
 2. A positive chip whose split differs from the background split raises.
 3. With probability `1 - empty_fraction`, and when `max_plumes` is at least 1,
-   the scene pastes that many annotated chips. The offset is uniform on
-   `[-chip_h + 1, frame_h)` and `[-chip_w + 1, frame_w)`.
+   the scene pastes that many annotated chips. The offset is uniform among
+   placements that keep a positive mask pixel inside the frame.
 4. The image blend uses `feather_paste`. The mask receives the polygon values
    that land in the frame. The mask is not feathered and is not the chip
    rectangle unless the polygon fills the chip.

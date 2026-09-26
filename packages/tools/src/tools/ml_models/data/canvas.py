@@ -272,6 +272,39 @@ def _paste_mask(canvas_mask: np.ndarray, chip_mask: np.ndarray, top: int, left: 
     np.maximum(dst, src, out=dst)
 
 
+def _offset_keeps_positive(
+    chip_mask: np.ndarray,
+    frame_h: int,
+    frame_w: int,
+    rng: np.random.Generator,
+) -> tuple[int, int]:
+    """Return a clipped offset that keeps one positive mask pixel in frame.
+
+    Args:
+        chip_mask: Polygon mask ``(1, h, w)`` with at least one value above 0.
+        frame_h: Frame height.
+        frame_w: Frame width.
+        rng: Generator for candidate offsets.
+
+    Returns:
+        tuple[int, int]: ``(top, left)`` of the chip origin. Candidates are
+        uniform on offsets where the chip rectangle meets the frame. The
+        result is the first candidate whose overlap contains a positive pixel.
+    """
+    chip_h = int(chip_mask.shape[1])
+    chip_w = int(chip_mask.shape[2])
+    while True:
+        top = int(rng.integers(-chip_h + 1, frame_h))
+        left = int(rng.integers(-chip_w + 1, frame_w))
+        window = overlap_window((frame_h, frame_w), (chip_h, chip_w), top, left)
+        if window is None:
+            continue
+        src_y, src_x, _dst_y, _dst_x, height, width = window
+        overlap = chip_mask[0, src_y : src_y + height, src_x : src_x + width]
+        if bool(np.any(overlap > 0.0)):
+            return top, left
+
+
 def _paste_annotated(
     canvas: np.ndarray,
     canvas_mask: np.ndarray,
@@ -279,7 +312,7 @@ def _paste_annotated(
     rng: np.random.Generator,
     feather_px: int,
 ) -> None:
-    """Paste one annotated chip at a random clipped offset.
+    """Paste one annotated chip so a polygon pixel stays inside the frame.
 
     Args:
         canvas: Scene image.
@@ -304,8 +337,7 @@ def _paste_annotated(
         raise ValueError("annotated chip mask has no polygon pixel")
     frame_h = int(canvas.shape[1])
     frame_w = int(canvas.shape[2])
-    top = int(rng.integers(-chip_h + 1, frame_h))
-    left = int(rng.integers(-chip_w + 1, frame_w))
+    top, left = _offset_keeps_positive(chip.mask, frame_h, frame_w, rng)
     feather_paste(canvas, chip.image, top, left, feather_px)
     _paste_mask(canvas_mask, chip.mask, top, left)
 

@@ -117,6 +117,34 @@ def test_feather_does_not_change_mask_support() -> None:
     assert saw_feather
 
 
+def test_interior_polygon_stays_in_a_nonempty_scene() -> None:
+    """A plume inset from the chip border still marks a non-empty scene."""
+    config = _config(empty_fraction=0.0, feather_px=0)
+    background = _chip(label=0.0, split="train", annotated=False)
+    positive = _chip(label=1.0, split="train", annotated=True, fill=1.0, mask_fill=0.0)
+    positive.mask[0, 3:5, 3:5] = 1.0
+    assert float(positive.mask[0, 0, :].max()) == 0.0
+    assert float(positive.mask[0, -1, :].max()) == 0.0
+    assert float(positive.mask[0, :, 0].max()) == 0.0
+    assert float(positive.mask[0, :, -1].max()) == 0.0
+    for seed in range(32):
+        _image, mask, label = build_scene(
+            (background, positive),
+            config,
+            np.random.default_rng(seed),
+        )
+        assert label == 1.0
+        assert int(np.count_nonzero(mask > 0.0)) >= 1
+    empty = _config(empty_fraction=1.0, feather_px=0)
+    _image, mask, label = build_scene(
+        (background, positive),
+        empty,
+        np.random.default_rng(0),
+    )
+    assert label == 0.0
+    assert np.all(mask == 0.0)
+
+
 def test_positive_split_must_match_background() -> None:
     """A positive chip from another split is refused."""
     config = _config(empty_fraction=1.0)

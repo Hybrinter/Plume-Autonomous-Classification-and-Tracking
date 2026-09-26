@@ -38,6 +38,7 @@ from tools.inference.data import write_processed_pack as write_inference_pack
 from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
 from tools.ml_models.arch.registry import build, resolve_arch
 from tools.ml_models.data.canvas import CanvasConfig, Chip, sample_view
+from tools.ml_models.data.meta import DatasetMeta as MlDatasetMeta
 from tools.ml_models.data.pack import ProcessedPack as MlPack
 from tools.ml_models.data.pack import load_processed_pack as load_canvas_pack
 from tools.ml_models.train.config import (
@@ -116,6 +117,13 @@ def _band_names(meta: object, channels: int) -> tuple[str, ...]:
     return tuple(f"b{index}" for index in range(channels))
 
 
+def _provenance(meta: object) -> tuple[str, str]:
+    """Return ingest path and radiometry when ``meta`` records them."""
+    if isinstance(meta, MlDatasetMeta):
+        return meta.ingest_path, meta.radiometry
+    return "", ""
+
+
 def _write_checkpoint(
     path: Path,
     model: nn.Module,
@@ -126,6 +134,8 @@ def _write_checkpoint(
     *,
     band_names: tuple[str, ...],
     in_channels: int,
+    ingest_path: str = "",
+    radiometry: str = "",
 ) -> None:
     """Write a checkpoint dict with weights and train identity."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,6 +151,10 @@ def _write_checkpoint(
         "band_names": list(band_names),
         "config": asdict(cfg),
     }
+    if ingest_path:
+        payload["ingest_path"] = ingest_path
+    if radiometry:
+        payload["radiometry"] = radiometry
     canvas = cfg.canvas
     if canvas is not None:
         payload["frame_hw"] = (int(canvas.frame_hw[0]), int(canvas.frame_hw[1]))
@@ -463,6 +477,7 @@ def _train_chips(cfg: TrainConfig, arch: str) -> Path:
     if disk_pack is None:
         resolve_train_channels(cfg, pack)
     names = _band_names(pack.meta, cfg.in_channels)
+    ingest_path, radiometry = _provenance(pack.meta)
     cost_model = build(cfg.kind, arch, cfg.in_channels)
     n_params = count_params(cost_model)
     flops = count_flops(cost_model, (1, cfg.in_channels, cfg.input_height_px, cfg.input_width_px))
@@ -576,6 +591,8 @@ def _train_chips(cfg: TrainConfig, arch: str) -> Path:
             epoch,
             band_names=names,
             in_channels=cfg.in_channels,
+            ingest_path=ingest_path,
+            radiometry=radiometry,
         )
         if best_score is None or _is_better(val_metric, score, best_score):
             best_score = score
@@ -590,6 +607,8 @@ def _train_chips(cfg: TrainConfig, arch: str) -> Path:
                 epoch,
                 band_names=names,
                 in_channels=cfg.in_channels,
+                ingest_path=ingest_path,
+                radiometry=radiometry,
             )
         else:
             stale_epochs += 1
@@ -625,7 +644,15 @@ def _train_chips(cfg: TrainConfig, arch: str) -> Path:
         "batch_size": batch,
         "stopped_early": stopped_early,
         "train_seconds": round(train_seconds, 3),
+        "in_channels": cfg.in_channels,
+        "band_names": list(names),
+        "input_height_px": int(cfg.input_height_px),
+        "input_width_px": int(cfg.input_width_px),
     }
+    if ingest_path:
+        summary["ingest_path"] = ingest_path
+    if radiometry:
+        summary["radiometry"] = radiometry
     (run_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return run_root
 
@@ -872,6 +899,7 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
     run_id, run_root = _prepare_run(cfg, arch)
     ckpt_dir = run_root / "checkpoints"
     names = _band_names(pack.meta, channels)
+    ingest_path, radiometry = _provenance(pack.meta)
 
     torch.manual_seed(cfg.seed)
     rng = np.random.default_rng(canvas.seed)
@@ -1058,6 +1086,8 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
             epoch,
             band_names=names,
             in_channels=channels,
+            ingest_path=ingest_path,
+            radiometry=radiometry,
         )
         if best_score is None or _is_better(val_metric, score, best_score):
             best_score = score
@@ -1072,6 +1102,8 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
                 epoch,
                 band_names=names,
                 in_channels=channels,
+                ingest_path=ingest_path,
+                radiometry=radiometry,
             )
         else:
             stale_epochs += 1
@@ -1111,6 +1143,10 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
         "train_seconds": round(train_seconds, 3),
         "frame_hw": [int(frame_h), int(frame_w)],
         "window_px": int(canvas.window_px),
+        "in_channels": channels,
+        "band_names": list(names),
+        "ingest_path": ingest_path,
+        "radiometry": radiometry,
     }
     (run_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return run_root

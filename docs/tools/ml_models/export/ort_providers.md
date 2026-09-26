@@ -1,12 +1,11 @@
-# tools.inference.ort_providers
+# tools.ml_models.export.ort_providers
 
-**Source:** `packages/tools/src/tools/inference/ort_providers.py`
+**Source:** `packages/tools/src/tools/ml_models/export/ort_providers.py`
 **Kind:** module
 
 ## Purpose
 
-This module re-exports `tools.ml_models.export.ort_providers`. It selects
-onnxruntime execution providers for accept and bench runs.
+This module selects onnxruntime execution providers for accept and bench runs.
 The preference order is TensorRT, then CUDA, then CPU. The returned list is the
 intersection with providers this runtime has.
 
@@ -42,10 +41,11 @@ None. The preference list is a module constant.
 
 ## Constraints
 
-Flight session load does not call this helper. CI installs CPU onnxruntime, so
-the returned list is `CPUExecutionProvider` alone.
+Flight session load does not call this helper. `tools.inference.ort_providers`
+re-exports these names.
 
 ## Related documents
 
-- [`tools.inference.accept`](accept.md)
-- [`tools.inference`](../inference.md)
+- [`tools.ml_models.export`](../export.md)
+- [`tools.ml_models.export.accept`](accept.md)
+- [`tools.inference.ort_providers`](../../inference/ort_providers.md)

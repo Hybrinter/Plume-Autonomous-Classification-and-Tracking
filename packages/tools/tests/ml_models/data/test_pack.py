@@ -228,7 +228,7 @@ def test_concat_same_ingest_sums_n_and_remaps_splits(ingest: IngestPath) -> None
     right_splits = SplitIndex(train=(1,), val=(0,), test=(2,))
     left = _memory_pack(ingest, fill=1.0, splits=left_splits, n=3)
     right = _memory_pack(ingest, fill=2.0, splits=right_splits, n=3)
-    assert assert_same_ingest([left, right]) is None
+    assert_same_ingest([left, right])
     combined = concat_packs([left, right])
     assert combined.meta.n == 6
     assert combined.meta.dataset_hash == ""

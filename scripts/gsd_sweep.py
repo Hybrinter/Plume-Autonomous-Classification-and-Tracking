@@ -4,7 +4,8 @@
 Each cell calls ``tools.ml_models.train.loop.train`` once and then
 ``evaluate(..., split="test")`` once. The sweep does not export. Classifier
 cells use ``shufflenetv2_x0_5``. Segmentor cells use ``dilatenet``. The loss
-is ``bce``. Images are rewritten with ``band_z`` before training.
+is ``bce``. Each cell selects its band subset and resamples images and masks
+to its side before ``band_z``.
 
 With no ``--pack`` and no Zenodo cache, the process prints a message and
 exits 2. It does not download a corpus.
@@ -21,7 +22,8 @@ from typing import Literal
 import numpy as np
 from tools.inference.split import DatasetMeta, compute_dataset_hash, write_dataset_meta
 from tools.ml_models.analysis.eval import evaluate
-from tools.ml_models.data.bands import ZENODO_BAND_IDS, verify_band_order
+from tools.ml_models.data.bands import ZENODO_BAND_IDS, BandSpec, resolve_subset, verify_band_order
+from tools.ml_models.data.grid import resample_area
 from tools.ml_models.data.matrix import Cell, gsd_cells, native_cells
 from tools.ml_models.data.norm import apply_band_z, fit_band_stats
 from tools.ml_models.train.config import TrainConfig
@@ -96,24 +98,141 @@ def find_cache(explicit: Path | None = None) -> Path | None:
     return None
 
 
-def prepare_band_z_pack(src: Path, dest: Path) -> Path:
+def _band_spec(subset: str) -> BandSpec:
+    """Map a matrix subset name onto a band request.
+
+    Args:
+        subset: ``rgb``, ``s2_12``, or ``loo_{bandId}``.
+
+    Returns:
+        BandSpec: The named subset.
+
+    Raises:
+        ValueError: If ``subset`` is not one of those names.
+    """
+    if subset.startswith("loo_"):
+        return BandSpec("loo", dropped_band=subset.removeprefix("loo_"))
+    if subset in {"rgb", "s2_12"}:
+        return BandSpec(subset)
+    raise ValueError(f"unknown subset {subset!r}")
+
+
+def _select_channels(images: np.ndarray, subset: str | None) -> np.ndarray:
+    """Keep the channels named by ``subset``.
+
+    A pack with 13 channels is ``ZENODO_BAND_IDS`` order. A pack with 12
+    channels is that order with B10 removed. A pack whose channel count already
+    equals the subset length is kept in order.
+
+    Args:
+        images: Float array ``(N, C, H, W)``.
+        subset: ``rgb``, ``s2_12``, ``loo_{bandId}``, or None for every channel.
+
+    Returns:
+        np.ndarray: ``(N, C', H, W)`` float32.
+
+    Raises:
+        ValueError: If ``subset`` is unknown, or ``C`` is not 13, 12, or the
+        subset length.
+    """
+    if subset is None:
+        return images
+    resolved = resolve_subset(verify_band_order(ZENODO_BAND_IDS), _band_spec(subset))
+    channels = int(images.shape[1])
+    if channels == len(resolved.ids):
+        return images
+    if channels == len(ZENODO_BAND_IDS):
+        picked = images[:, list(resolved.indices)]  # np.ndarray[float32, (N, C, H, W)]
+        return np.asarray(picked, dtype=np.float32)
+    s2_12 = tuple(band_id for band_id in ZENODO_BAND_IDS if band_id != "B10")
+    if channels == len(s2_12):
+        position = {band_id: index for index, band_id in enumerate(s2_12)}
+        missing = [band_id for band_id in resolved.ids if band_id not in position]
+        if missing:
+            raise ValueError(f"pack has {channels} channels; cannot apply subset {subset!r}")
+        mapped = [position[band_id] for band_id in resolved.ids]
+        picked = images[:, mapped]  # np.ndarray[float32, (N, C, H, W)]
+        return np.asarray(picked, dtype=np.float32)
+    raise ValueError(f"pack has {channels} channels; cannot apply subset {subset!r}")
+
+
+def _resample_stack(planes: np.ndarray, side_px: int) -> np.ndarray:
+    """Area-resample each sample to a square side.
+
+    Args:
+        planes: Float array ``(N, C, H, W)``.
+        side_px: Output side in pixels.
+
+    Returns:
+        np.ndarray: Float32 array ``(N, C, side_px, side_px)``.
+    """
+    count = int(planes.shape[0])
+    channels = int(planes.shape[1])
+    out = np.empty((count, channels, side_px, side_px), dtype=np.float32)
+    for index in range(count):
+        sample = planes[index]  # np.ndarray[float32, (C, H, W)]
+        out[index] = resample_area(sample, side_px)
+    return out
+
+
+def _resample_masks(masks: np.ndarray, side_px: int) -> np.ndarray:
+    """Area-resample masks to one square channel.
+
+    Args:
+        masks: Float array ``(N, 1, H, W)`` or ``(N, H, W)``.
+        side_px: Output side in pixels.
+
+    Returns:
+        np.ndarray: Float32 array ``(N, 1, side_px, side_px)``.
+
+    Raises:
+        ValueError: If ``masks`` is not one of those shapes.
+    """
+    array = np.asarray(masks, dtype=np.float32)
+    if array.ndim == 3:
+        planes = array[:, np.newaxis, :, :]  # np.ndarray[float32, (N, 1, H, W)]
+    elif array.ndim == 4 and int(array.shape[1]) == 1:
+        planes = array
+    else:
+        raise ValueError(f"expected masks (N, 1, H, W) or (N, H, W); got {array.shape}")
+    return _resample_stack(planes, side_px)
+
+
+def prepare_band_z_pack(
+    src: Path,
+    dest: Path,
+    *,
+    subset: str | None = None,
+    side_px: int | None = None,
+) -> Path:
     """Write a copy of ``src`` whose images are train-split ``band_z``.
+
+    Channels are selected and the spatial size is resampled before the train
+    split moments are fit. ``subset`` None keeps every channel. ``side_px``
+    None keeps the current height and width. Labels and splits stay as they are.
 
     Args:
         src: Processed pack with ``images.npy``, ``masks.npy``, ``labels.npy``,
             and ``splits.json``.
         dest: Destination directory.
+        subset: ``rgb``, ``s2_12``, or ``loo_{bandId}``. None keeps every channel.
+        side_px: Output side in pixels. None keeps the current spatial size.
 
     Returns:
         Path: ``dest``.
 
     Raises:
-        ValueError: If the train split is empty.
+        ValueError: If the train split is empty, ``subset`` is unknown, or the
+        pack channel count cannot supply ``subset``.
     """
     images = np.asarray(np.load(src / "images.npy"), dtype=np.float32)
     masks = np.asarray(np.load(src / "masks.npy"), dtype=np.float32)
     labels = np.asarray(np.load(src / "labels.npy"), dtype=np.float32)
     splits = json.loads((src / "splits.json").read_text(encoding="utf-8"))
+    images = _select_channels(images, subset)
+    if side_px is not None:
+        images = _resample_stack(images, side_px)
+        masks = _resample_masks(masks, side_px)
     train_rows = [int(index) for index in splits["train"]]
     if not train_rows:
         raise ValueError("train split is empty")
@@ -154,7 +273,8 @@ def run_cell(
     Args:
         cell: Matrix cell. ``classify`` maps to ``classifier`` and
             ``segment`` maps to ``segmentor``.
-        pack_dir: Processed pack. A ``band_z`` copy is written under ``out_dir``.
+        pack_dir: Processed pack. A ``band_z`` copy of this cell's subset and
+            side is written under ``out_dir``.
         out_dir: Parent directory for the pack copy and the run.
         epochs: Training epochs.
         max_steps: Optimizer-step cap. ``None`` runs every step in ``epochs``.
@@ -171,6 +291,8 @@ def run_cell(
     prepared = prepare_band_z_pack(
         Path(pack_dir),
         root / "band_z" / f"{cell.task}-{cell.subset}-{cell.side_px}",
+        subset=cell.subset,
+        side_px=cell.side_px,
     )
     image_shape = np.load(prepared / "images.npy", mmap_mode="r").shape
     cfg = TrainConfig(

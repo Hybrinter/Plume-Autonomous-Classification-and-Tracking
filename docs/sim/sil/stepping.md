@@ -37,9 +37,11 @@ catch-up and before acquire.
 3. When a bind is present, call `bind.pre_step(now)`. Catch-up has already integrated
    the plant through shutter. `advance_plant` then sees a frozen clock and leaves
    catch-up debt in place.
-4. Acquire one frame from the sensor. On success, read gimbal position and call
-   `process_frame` with that position. Encoder samples from catch-up and this read
-   share shutter time `now` with the frame stamp.
+4. When the imaging duty gate is due, acquire one frame from the sensor. On
+   success, read gimbal position and call `process_frame` with that position. On
+   an off-duty cycle, call `drain_frame`. A successful drain records gimbal
+   feedback. Encoder samples from catch-up and this read share shutter time `now`
+   with the due frame stamp.
 5. Apply payload pose commands from the prior cycle (`handle_commands`).
 6. Run iss_iface, command_router, and mechanical ticks.
 7. Run thermal and electrical handle-commands and sample.
@@ -54,9 +56,11 @@ this cycle apply on a later cycle's catch-up.
 
 ## Errors and faults
 
-Sensor acquire or gimbal read failures skip `process_frame` for that cycle. Fault routing
-happens inside the fault app tick. `bind.pre_step` may raise `ValueError` when a live mosaic
-would mix with unread constructor frames.
+An off-duty cycle calls `drain_frame`. Gimbal feedback is recorded when the drain
+and the position read both succeed. Sensor acquire or gimbal read failures skip
+`process_frame` for that cycle. Fault routing happens inside the fault app tick.
+`bind.pre_step` may raise `ValueError` when a live mosaic would mix with unread
+constructor frames.
 
 ## Messages
 

@@ -108,7 +108,8 @@ staged segmentor and classifier paths, and per-pass downlink byte budget.
 `channel_layout` RED/GREEN/BLUE, and pixel pitch. `SensorOpticsConfig` holds the
 Edmund 16-849 focal length, f-number, stored distortion, one-pixel IFOV, active-area
 FOV, and the 1/1.8 in datasheet HFOV. `SensorCaptureConfig` holds the 35 Hz cap,
-8-bit exposure range, and ALC gain range. `calibration_dir` selects artifact loading.
+8-bit exposure range, ALC gain range, and `duty_cycle`. `calibration_dir` selects
+artifact loading. Duty 0.5 is the imaging gate, not the Xeryon vacuum duty.
 
 ### FaultConfig
 

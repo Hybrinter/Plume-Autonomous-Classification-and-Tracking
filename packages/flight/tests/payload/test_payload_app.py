@@ -224,6 +224,38 @@ def test_process_frame_passes_nchw_tensor() -> None:
     assert captured == [(1, 3, 1544, 2064)]
 
 
+def test_imaging_duty_limits_tensors_and_keeps_gimbal_steps() -> None:
+    """N acquire opportunities publish floor(N * duty) tensors and still step the gimbal."""
+    app, bus, gimbal, clock = _build_app(_plume_detector())
+    inf_sub = bus.subscribe(InferenceResultMsg)
+    state = app.controller.initial_state()
+    n = 8
+    now = 0.0
+    for frame_id in range(1, n + 1):
+        now += 1.0
+        position = gimbal.read_position()
+        assert isinstance(position, Ok)
+        shutter = replace(position.value, timestamp_s=now)
+        if app.capture_this_opportunity():
+            state, outcome = app.process_frame(
+                _mosaic_frame(frame_id), state, now, gimbal_pos=shutter
+            )
+            assert outcome.fault is None
+        else:
+            app.note_gimbal_feedback(shutter)
+        state, _outer = app.advance_outer(state, now)
+        state = app.advance_inner(state, now)
+        clock.advance(1.0)
+    duty = app.sensor_cfg.capture.duty_cycle
+    inference_count = 0
+    while not inf_sub.empty():
+        inf_sub.get_nowait()
+        inference_count += 1
+    assert duty == 0.5
+    assert inference_count == math.floor(n * duty)
+    assert state.last_outer_s == pytest.approx(now)
+
+
 def test_persistent_plume_drives_gimbal_through_app() -> None:
     """A stable plume drives TRACKING and moves elevation through the catch-up loops."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
@@ -317,6 +349,108 @@ def test_mode_change_safe_issues_stow_actuation() -> None:
     health = gimbal.read_health()
     assert isinstance(health, Ok)
     assert health.value.inhibit_confirmed is True
+
+
+class _DutySensor:
+    """ImagingSensor double that counts acquire and drain calls, then stops the loop."""
+
+    def __init__(self, stop: threading.Event, opportunities: int) -> None:
+        self._stop = stop
+        self._opportunities = opportunities
+        self.acquires = 0
+        self.drains = 0
+        self.starts = 0
+        self.stops = 0
+        self.drain_error: FaultCode | None = None
+
+    def _finish_opportunity(self) -> None:
+        if self.acquires + self.drains >= self._opportunities:
+            self._stop.set()
+
+    def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
+        """Count a capture opportunity and stall before any mosaic is built."""
+        self.acquires += 1
+        self._finish_opportunity()
+        return Err(FaultCode.CAMERA_STALL)
+
+    def drain_frame(self) -> Result[None, FaultCode]:
+        """Count an off-duty opportunity and optionally fail the release."""
+        self.drains += 1
+        self._finish_opportunity()
+        if self.drain_error is not None:
+            return Err(self.drain_error)
+        return Ok(None)
+
+    def set_exposure_us(self, exposure: float) -> Result[None, FaultCode]:
+        """Accept exposure writes without a camera."""
+        del exposure
+        return Ok(None)
+
+    def set_gain_db(self, gain: float) -> Result[None, FaultCode]:
+        """Accept gain writes without a camera."""
+        del gain
+        return Ok(None)
+
+    def start_acquisition(self) -> Result[None, FaultCode]:
+        """Record that the payload loop started the stream."""
+        self.starts += 1
+        return Ok(None)
+
+    def stop_acquisition(self) -> Result[None, FaultCode]:
+        """Record that the payload loop stopped the stream."""
+        self.stops += 1
+        return Ok(None)
+
+
+def test_run_drains_camera_on_skipped_opportunities() -> None:
+    """Off-duty loop ticks release a waiting image and do not acquire it."""
+    cfg = PactConfig()
+    bus = MessageBus()
+    clock = ManualClock()
+    stop = threading.Event()
+    sensor = _DutySensor(stop, opportunities=4)
+    gimbal = _RateGimbal(cfg.controller.outer.dt_s)
+    eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    app.lock_gate.engaged = False
+    app.run(stop)
+    assert sensor.starts == 1
+    assert sensor.stops == 1
+    assert app.imaging_duty.opportunities == 4
+    assert sensor.drains == 2
+    assert sensor.acquires == 2
+
+
+def test_run_publishes_fault_when_camera_drain_fails() -> None:
+    """A failed off-duty release publishes CAMERA_STALL and keeps the outer loop moving."""
+    cfg = PactConfig()
+    bus = MessageBus()
+    clock = ManualClock()
+    stop = threading.Event()
+    sensor = _DutySensor(stop, opportunities=1)
+    sensor.drain_error = FaultCode.CAMERA_STALL
+    fault_sub = bus.subscribe(FaultEventMsg)
+    gimbal = _RateGimbal(cfg.controller.outer.dt_s)
+    eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    app.lock_gate.engaged = False
+    app.run(stop)
+    assert sensor.drains == 1
+    assert sensor.acquires == 0
+    assert gimbal.reads >= 1
+    faults = []
+    while not fault_sub.empty():
+        faults.append(fault_sub.get_nowait())
+    assert any(
+        fault.fault_code is FaultCode.CAMERA_STALL and fault.detail == "imaging sensor buffer drain"
+        for fault in faults
+    )
 
 
 def test_run_loop_starts_and_stops_cleanly() -> None:

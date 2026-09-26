@@ -9,7 +9,7 @@ def _scored_scenario() -> Scenario:
     return Scenario(
         name="orchestrator-smoke",
         profile="profiles/sil.toml",
-        scene=SceneSpec(num_frames=6, seed=0),
+        scene=SceneSpec(num_frames=12, seed=0),
         commands=(),
         assertions=(
             Assertion(id="GIMBAL-MOVED", kind="gimbal_moved", value=True, tag="frame-portable"),
@@ -21,7 +21,7 @@ def _scored_scenario() -> Scenario:
                 tag="realtime-only",
             ),
         ),
-        steps=6,
+        steps=12,
         dt=1.0,
     )
 

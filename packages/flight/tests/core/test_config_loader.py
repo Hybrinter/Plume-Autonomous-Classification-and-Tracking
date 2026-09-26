@@ -75,6 +75,7 @@ def test_sensor_section_loads() -> None:
     assert sensor.capture.gain_min_db == 0.0
     assert sensor.capture.gain_max_db == 12.0
     assert sensor.capture.initial_gain_db == 0.0
+    assert sensor.capture.duty_cycle == 0.5
     assert sensor.calibration_dir == ""
 
 

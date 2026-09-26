@@ -26,8 +26,8 @@ def test_inprocess_backend_builds_steps_and_collects() -> None:
     capture = backend.collect()
     backend.shutdown()
 
-    # One inference per stepped frame; no SAFE mode change in the nominal scene.
-    assert capture.inference_count == 4
+    # Duty 0.5 captures even steps: floor(4 * 0.5) == 2. No SAFE in the nominal scene.
+    assert capture.inference_count == 2
     assert capture.mode_changes == ()
     # The closed loop tracked the off-center plume and moved the gimbal off the origin
     # (off-origin past the 0.1 deg encoder-noise tolerance).

@@ -385,11 +385,21 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
     outer_dt_s: float,
     clock0: float,
 ) -> None:
-    """Catch-up before bind aligns shutter, encoder, and frame time for the predictor."""
+    """Catch-up before bind aligns shutter, encoder, and frame time for the predictor.
+
+    Imaging duty is held at 1 so every step captures. The duty gate has its own test.
+    """
     live = build_frames(1)[0].mosaic
     assert isinstance(live, np.ndarray)
     _inject_live_mosaic(monkeypatch, live)
-    config = _with_outer_dt(PactConfig(), outer_dt_s)
+    base = _with_outer_dt(PactConfig(), outer_dt_s)
+    config = dataclasses.replace(
+        base,
+        sensor=dataclasses.replace(
+            base.sensor,
+            capture=dataclasses.replace(base.sensor.capture, duty_cycle=1.0),
+        ),
+    )
     clock = ManualClock(monotonic_s=clock0)
     detector = plume_detector()
     camera = camera_from_sensor(config.sensor)

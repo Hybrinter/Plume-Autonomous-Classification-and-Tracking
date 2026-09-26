@@ -227,6 +227,8 @@ class SensorCaptureConfig:
 
     max_frame_rate_hz is the operational cap. The datasheet 8-bit maximum is 38.3 Hz.
     Exposure limits are the printed 8-bit timed range. Gain is the ALC span.
+    duty_cycle gates imaging captures. 0.5 captures on even opportunities and stretches
+    storage fill from about 2-4 months to about 6 months. It is not the Xeryon vacuum duty.
     """
 
     max_frame_rate_hz: float = Field(default=35.0, gt=0.0)
@@ -236,6 +238,7 @@ class SensorCaptureConfig:
     gain_min_db: float = Field(default=0.0, ge=0.0)
     gain_max_db: float = Field(default=12.0, ge=0.0)
     initial_gain_db: float = Field(default=0.0, ge=0.0)
+    duty_cycle: float = Field(default=0.5, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _exposure_gain_range(self) -> Self:

@@ -16,7 +16,7 @@ and it builds canvas scenes from a pack test split.
 | `score_full_frame` | function | Gate plus `extract_blobs` overlap |
 | `placement_of` | function | Center, corner, edge, or empty |
 | `EvalScene` | class | One full-frame canvas view |
-| `build_eval_scenes` | function | Test-split scenes from `sample_view` |
+| `build_eval_scenes` | function | Test-split plume scenes and empty scenes, or draws from a canvas |
 | `default_canvas` | function | Canvas with a 1544 by 2064 default frame |
 | `FrameEval` | class | Score plus chip and frame logits |
 | `score_dry_run` | function | Fixed logits for one scene |
@@ -27,6 +27,8 @@ and it builds canvas scenes from a pack test split.
 `score_full_frame(logits_classifier, prob_mask, gt_mask, *, logit_threshold=0.0, prob_threshold=0.55, min_area=15, placement=None) -> FullFrameScore`.
 
 `build_eval_scenes(pack_dir, canvas=None, *, limit=1, seed=0, frame_h=None, frame_w=None) -> tuple[EvalScene, ...]`.
+An omitted canvas yields `limit` plume scenes and `limit` empty scenes.
+An explicit canvas yields `limit` draws from that canvas.
 
 `summarize_frames(records) -> dict`. Keys include `full_frame_hit_rate`,
 `hit_rate_by_placement`, `empty_frame_false_positive_rate`,
@@ -43,7 +45,9 @@ and it builds canvas scenes from a pack test split.
 5. A logit below 0 is a miss even when the mask matches the ground truth.
 6. `build_eval_scenes` loads the test split and calls `sample_view` with
    `full_frame` true.
-7. `summarize_frames` reports `chip_iou` as a side value. It is not a pass
+7. An omitted canvas yields `limit` plume scenes and `limit` empty scenes.
+8. An explicit canvas yields `limit` draws from that canvas.
+9. `summarize_frames` reports `chip_iou` as a side value. It is not a pass
    or fail field.
 
 ## Errors and faults

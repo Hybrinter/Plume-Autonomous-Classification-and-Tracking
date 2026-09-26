@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -282,17 +282,22 @@ def build_eval_scenes(
     Args:
         pack_dir: Directory with ``images.npy``, ``masks.npy``, ``labels.npy``,
             and ``splits.json``.
-        canvas: Scene settings. ``None`` uses :func:`default_canvas` and the
-            pack chip side. ``frame_h`` and ``frame_w`` override the frame
-            when ``canvas`` is omitted.
-        limit: Number of ``sample_view`` draws. Must be at least 1.
-        seed: Generator seed.
+        canvas: Scene settings. ``None`` builds :func:`default_canvas` from
+            the pack chip side. ``frame_h`` and ``frame_w`` set the frame when
+            ``canvas`` is omitted. An omitted canvas returns ``limit`` plume
+            scenes and ``limit`` empty scenes. An explicit canvas returns
+            ``limit`` draws from that canvas.
+        limit: Draws per default cohort, or draws from an explicit canvas.
+            Must be at least 1.
+        seed: Generator seed. The default cohorts share one generator.
         frame_h: Frame height used when ``canvas`` is omitted.
         frame_w: Frame width used when ``canvas`` is omitted.
 
     Returns:
-        tuple[EvalScene, ...]: Full-frame views. Each scene's placement comes
-        from the mask centroid.
+        tuple[EvalScene, ...]: Full-frame views. An omitted canvas returns
+        ``limit`` plume scenes and ``limit`` empty scenes. An explicit canvas
+        returns ``limit`` scenes. Each scene's placement comes from the mask
+        centroid.
 
     Raises:
         ValueError: If the test split is empty, the pack has no background
@@ -315,29 +320,36 @@ def build_eval_scenes(
             raise ValueError("pack chips must be square")
         height = 1544 if frame_h is None else int(frame_h)
         width = 2064 if frame_w is None else int(frame_w)
-        canvas = default_canvas(side, height, width)
+        base = default_canvas(side, height, width)
+        canvases: tuple[CanvasConfig, ...] = (
+            replace(base, empty_fraction=0.0),
+            replace(base, empty_fraction=1.0),
+        )
+    else:
+        canvases = (canvas,)
     annotated = [chip for chip in chips if chip.annotated and chip.label > 0.0]
     chip_ref = annotated[0] if annotated else None
     rng = np.random.default_rng(seed)
     scenes: list[EvalScene] = []
-    for _ in range(limit):
-        sample = sample_view(chips, canvas, rng, full_frame=True)
-        label = float(sample.label)
-        chip_image = None
-        chip_mask = None
-        if chip_ref is not None and label > 0.0:
-            chip_image = chip_ref.image
-            chip_mask = chip_ref.mask
-        scenes.append(
-            EvalScene(
-                image=sample.image,
-                mask=sample.mask,
-                label=label,
-                placement=placement_of(sample.mask),
-                chip_image=chip_image,
-                chip_mask=chip_mask,
+    for view in canvases:
+        for _ in range(limit):
+            sample = sample_view(chips, view, rng, full_frame=True)
+            label = float(sample.label)
+            chip_image = None
+            chip_mask = None
+            if chip_ref is not None and label > 0.0:
+                chip_image = chip_ref.image
+                chip_mask = chip_ref.mask
+            scenes.append(
+                EvalScene(
+                    image=sample.image,
+                    mask=sample.mask,
+                    label=label,
+                    placement=placement_of(sample.mask),
+                    chip_image=chip_image,
+                    chip_mask=chip_mask,
+                )
             )
-        )
     return tuple(scenes)
 
 

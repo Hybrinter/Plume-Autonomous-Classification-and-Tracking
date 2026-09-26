@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This module scores a trained checkpoint on a named split and writes `eval.json`.
+This module re-exports `evaluate` from `tools.ml_models.analysis.eval`.
 Forward and metrics stay on torch tensors.
 
 ## Public interface

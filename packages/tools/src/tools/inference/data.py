@@ -23,6 +23,7 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -486,6 +487,18 @@ def load_disk_batch(
             raise ValueError(f"unknown train kind {kind!r}")
 
 
+def _provenance_norm(root: Path) -> str:
+    """Return ``norm`` from ``provenance.json``, or an empty string."""
+    path = root / "provenance.json"
+    if not path.is_file():
+        return ""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return ""
+    norm = payload.get("norm", "")
+    return norm if isinstance(norm, str) else ""
+
+
 def load_processed_pack(
     data_dir: str | Path,
     bit_depth: int = 12,
@@ -511,7 +524,9 @@ def load_processed_pack(
         Probe one sample to choose the DN versus unit-interval branch. A pack
         already in ``[0, 1]`` whose ``images.npy`` exceeds
         ``_MATERIALIZE_BYTES`` stays a read-only memmap. Copy-on-write of a
-        multi-gigabyte file exhausts the Windows page file.
+        multi-gigabyte file exhausts the Windows page file. A pack whose
+        ``provenance.json`` sets ``norm`` to ``band_z`` keeps the stored planes,
+        including values outside ``[0, 1]``.
     """
     root = Path(data_dir)
     raw_images = np.load(root / "images.npy", mmap_mode="r")
@@ -519,10 +534,11 @@ def load_processed_pack(
         raise ValueError(f"images.npy must have shape (N, C, H, W); got {raw_images.shape}")
     probe = np.asarray(raw_images[0], dtype=np.float32)
     unit_interval = float(np.nanmax(probe)) <= 1.0
+    keep_stored = unit_interval or _provenance_norm(root) == "band_z"
     images: torch.Tensor | np.ndarray
-    if unit_interval and int(raw_images.nbytes) > _MATERIALIZE_BYTES:
+    if keep_stored and int(raw_images.nbytes) > _MATERIALIZE_BYTES:
         images = raw_images
-    elif unit_interval:
+    elif keep_stored:
         images = _as_tensor(raw_images)
     else:
         images = _as_tensor(_maybe_normalize(np.asarray(raw_images), bit_depth))

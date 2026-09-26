@@ -26,9 +26,9 @@ def test_classifier_emits_one_logit() -> None:
         y = net(x)
     assert y.shape == (2, 1)
     assert isinstance(net.features, torch.nn.Sequential)
-    assert isinstance(net.head, torch.nn.Linear)
-    assert net.head.out_features == 1
-    assert net.head.weight.ndim == 2
-    assert isinstance(net.pool, torch.nn.AdaptiveAvgPool2d)
+    assert isinstance(net.head, torch.nn.Conv2d)
+    assert net.head.out_channels == 1
+    assert net.head.kernel_size == (1, 1)
     assert not hasattr(net, "conv1")
     assert not hasattr(net, "fc")
+    assert not hasattr(net, "pool")

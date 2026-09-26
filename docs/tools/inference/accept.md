@@ -5,9 +5,11 @@
 
 ## Purpose
 
-The acceptance gate checks a frozen ONNX artifact before it enters `data/models/`.
-It runs manifest, hash, I/O contract, golden-scene IoU, and latency checks.
-The manifest records `quantization` (`fp32` or `int8`).
+This module re-exports `tools.ml_models.export.accept`. The acceptance gate
+checks a frozen ONNX artifact before it enters `data/models/`. It runs
+manifest, hash, I/O contract, golden-scene IoU, and latency checks. The
+manifest records `quantization` (`fp32`, `fp16`, or `int8`). It also records
+`ingest_path` and `radiometry` when the sidecar has those keys.
 
 ## Public interface
 
@@ -46,8 +48,10 @@ not installed. The onnxruntime session consumes numpy arrays.
 `accept_classifier_artifact(...) -> ClassifierAcceptanceReport`. A frame is
 positive when logit >= `logit_threshold` (default 0.0).
 
-`accept_kind(kind, ...) -> AcceptanceReport | ClassifierAcceptanceReport`.
-Raises `ValueError` on an unknown kind.
+`accept_kind(kind, ..., flight=False) -> AcceptanceReport | ClassifierAcceptanceReport`.
+Raises `ValueError` on an unknown kind. When `flight` is true, expected shapes
+come from `InferenceConfig`. When `flight` is false, the caller passes
+`expected_input`, `height`, and `width`.
 
 `onnx_classifier_inference_fn(artifact_path) -> ClassifierInferenceFn` maps
 `(C, H, W)` to a scalar logit.

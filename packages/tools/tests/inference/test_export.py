@@ -74,6 +74,32 @@ def test_write_manifest_includes_quantization(tmp_path: Path) -> None:
     assert load_manifest(str(path)).quantization == "int8"
 
 
+def test_write_manifest_records_ingest_and_radiometry(tmp_path: Path) -> None:
+    """Sidecars gain ingest_path and radiometry when those fields are set."""
+    path = tmp_path / "seg.json"
+    write_manifest(
+        str(path),
+        Manifest(
+            version="v1",
+            model_repo_sha="abc",
+            dataset_hash="ds",
+            input_shape=(1, 3, 8, 8),
+            output_shape=(1, 1, 8, 8),
+            sha256="0" * 64,
+            ingest_path="sentinel2_4250706_prism_proxy",
+            radiometry="s2_l2a_reflectance",
+        ),
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["ingest_path"] == "sentinel2_4250706_prism_proxy"
+    assert payload["radiometry"] == "s2_l2a_reflectance"
+    loaded = load_manifest(str(path))
+    assert loaded.ingest_path == "sentinel2_4250706_prism_proxy"
+    assert loaded.radiometry == "s2_l2a_reflectance"
+    assert payload["version"] == "v1"
+    assert payload["sha256"] == "0" * 64
+
+
 def test_write_manifest_defaults_fp32(tmp_path: Path) -> None:
     """Manifest without an explicit field serializes as fp32."""
     path = tmp_path / "seg.json"

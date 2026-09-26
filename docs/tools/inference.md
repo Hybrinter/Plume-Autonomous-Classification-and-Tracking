@@ -46,7 +46,8 @@ or `python -m tools.inference <train|eval|report|list|compare|rank|pareto|sweep|
 
 ## Interactions
 
-`tools.inference.accept` imports `flight.payload.inference.verify`. `tools.inference.data`
+`tools.inference.accept` re-exports `tools.ml_models.export.accept`, which
+imports `flight.payload.inference.verify`. `tools.inference.data`
 imports `flight.payload.preprocess.normalize_dn`. The package does not drive
 the SIL and does not publish on the bus.
 

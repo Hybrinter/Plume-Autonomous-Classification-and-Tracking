@@ -164,3 +164,12 @@ forbidden_modules =
     flight
     tools.analysis
 
+[importlinter:contract:ml-models-export-isolation]
+name = ml_models export must not import flight core or tools analysis
+type = forbidden
+source_modules =
+    tools.ml_models.export
+forbidden_modules =
+    flight.core
+    tools.analysis
+

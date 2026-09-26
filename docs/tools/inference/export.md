@@ -5,8 +5,9 @@
 
 ## Purpose
 
-This module exports a train checkpoint to a frozen ONNX graph and a JSON
-manifest. Optional INT8 and FP16 conversion write sibling artifacts.
+This module re-exports `tools.ml_models.export.onnx`. It exports a train
+checkpoint to a frozen ONNX graph and a JSON manifest. Optional INT8 and FP16
+conversion write sibling artifacts.
 `quantize_knee` overwrites factory paths with classifier FP16 and segmentor
 INT8. `promote` copies a passed artifact into `data/models/`.
 
@@ -24,6 +25,7 @@ INT8. `promote` copies a passed artifact into `data/models/`.
 | `int8_artifact_path` | function | Sibling ``*.int8.onnx`` path for an FP32 file |
 | `fp16_artifact_path` | function | Sibling ``*.fp16.onnx`` path for an FP32 file |
 | `promote` | function | Copy a passed artifact to a destination path |
+| `resolve_export_hw` | function | Choose the traced height and width |
 | `GateReport` | protocol | `accepted` and `detail` fields used by promote |
 
 ## Inputs and outputs
@@ -55,9 +57,12 @@ seg_manifest))`.
 
 1. Load the checkpoint and rebuild the matching network.
 2. Export an ONNX graph named `input` to `logits`. The graph does not include
-   sigmoid. When `override_spatial` is true, export uses `ExportConfig` height
-   and width even if the checkpoint recorded a different size.
-3. Hash the file, write a Manifest sidecar with `quantization` `fp32`.
+   sigmoid. A flight-promotable run traces the `InferenceConfig` frame. A
+   research run traces the checkpoint height and width. `override_spatial`
+   uses `ExportConfig` height and width.
+3. Hash the file and write a Manifest sidecar with `quantization` `fp32`.
+   The sidecar adds `ingest_path` and `radiometry` when the checkpoint stores
+   them.
 4. When `int8` is true, run static QDQ PTQ on the FP32 graph. Calibration uses
    the train split of `calib_dir`, or synthetic `[0, 1]` NCHW tensors. Write
    `<stem>.int8.onnx` and `<stem>.int8.json` with `quantization` `int8`. QDQ

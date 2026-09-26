@@ -1,0 +1,15 @@
+# Curve-height readings of the AP-3200T solid IR-cut figure.
+# These weights are not a laboratory integral.
+# B5 and longer bands are omitted because their weight is 0.
+
+id = "ap3200t_s2_figure"
+
+[blue]
+B1 = 0.59
+B2 = 0.41
+
+[green]
+B3 = 1.0
+
+[red]
+B4 = 1.0

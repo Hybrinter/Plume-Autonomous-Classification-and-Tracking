@@ -5,8 +5,9 @@
 
 ## Purpose
 
-This module stores native GeoTIFF stacks in one memmap so later epochs do not
-reread the archive.
+This module stores native GeoTIFF stacks in one memmap. Later epochs read the
+memmap. Public names are re-exported from
+[`tools.ml_models.data.zenodo`](../ml_models/data/zenodo.md).
 
 ## Public interface
 

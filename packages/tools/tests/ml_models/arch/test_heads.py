@@ -50,7 +50,7 @@ def test_default_heads_on_flight_frame() -> None:
 
 def test_pactnet_block_logit_exceeds_single_pixel() -> None:
     """A 16x16 support scores higher than one pixel with positive weights."""
-    net = PactNet(spatial=True).eval()
+    net = PactNet().eval()
     with torch.no_grad():
         for module in net.modules():
             if isinstance(module, nn.Conv2d):
@@ -79,7 +79,7 @@ def test_pactnet_block_logit_exceeds_single_pixel() -> None:
 
 def test_forward_equals_spatial_amax() -> None:
     """forward returns the max of spatial logits over strided cells."""
-    net = PactNet(spatial=True).eval()
+    net = PactNet().eval()
     x = torch.randn(2, 3, 32, 32)
     with torch.inference_mode():
         spatial = net.spatial(x)

@@ -9,10 +9,8 @@ Classifier names come from two families:
   - A torchvision backbone with an optional ``_pt`` suffix for ImageNet weights,
     for example ``resnet18``, ``mobilenetv3_small_pt``.
   - ``pactnet``, the compact stack built for this corpus. ``w<N>`` sets the stem
-    width (default 16), ``d<N>`` the stage count (default 4), ``full`` selects
-    dense convolutions over separable ones, and ``max`` selects a 1x1
-    convolution plus a max over the strided cells. Without ``max`` the head is
-    adaptive average pooling and a linear layer.
+    width (default 16), ``d<N>`` the stage count (default 4), and ``full``
+    selects dense convolutions over separable ones.
 
 Segmentor names come from three families:
 
@@ -101,7 +99,6 @@ _CATALOG: frozenset[tuple[str, str]] = frozenset(
         ("classifier", "shufflenetv2_x0_5"),
         ("classifier", "shufflenetv2_x0_5_pt"),
         ("classifier", "pactnet"),
-        ("classifier", "pactnet_max"),
         ("classifier", "pactnet_w8"),
         ("classifier", "pactnet_w32"),
         ("classifier", "pactnet_w16_d5"),

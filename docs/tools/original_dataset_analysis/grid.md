@@ -6,7 +6,8 @@
 ## Purpose
 
 This module coarsens a 120 by 120 reflectance stack on a 1.2 km tile and
-rasterizes percentage-space polygons onto the same grid.
+rasterizes percentage-space polygons onto the same grid. Public names are
+re-exported from [`tools.ml_models.data.grid`](../ml_models/data/grid.md).
 
 ## Public interface
 

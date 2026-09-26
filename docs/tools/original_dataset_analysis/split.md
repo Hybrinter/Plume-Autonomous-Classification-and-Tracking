@@ -6,6 +6,9 @@
 ## Purpose
 
 This module assigns every location id to one of train, validation, or test.
+Public names are re-exported from
+[`tools.ml_models.data.zenodo`](../ml_models/data/zenodo.md). The shuffle is
+`assign_group_splits` in `tools.ml_models.data.split`.
 
 ## Public interface
 

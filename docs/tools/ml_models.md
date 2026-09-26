@@ -12,7 +12,7 @@ workflows.
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`data`](ml_models/data.md) | package | Pack metadata, group splits, and normalization |
+| [`data`](ml_models/data.md) | package | Packs, Zenodo reads, prism proxy, and flight canvas |
 | [`arch`](ml_models/arch.md) | package | Segmentor and classifier network builders |
 
 ## Package interface

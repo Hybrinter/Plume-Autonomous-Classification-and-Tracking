@@ -36,7 +36,9 @@ re-export them.
 ## Interactions
 
 The package reads local tar archives. It does not import ``flight`` or
-``tools.inference``.
+``tools.inference``. Band order, the tile grid, the run matrix, the archive
+index, the tile cache, and location splits are re-exported from
+``tools.ml_models.data``.
 
 ## Constraints
 

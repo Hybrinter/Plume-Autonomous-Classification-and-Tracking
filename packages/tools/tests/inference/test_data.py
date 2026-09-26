@@ -1,5 +1,6 @@
 """Synthetic and disk-adapter batch tests."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -137,6 +138,20 @@ def test_apply_train_augment_is_deterministic() -> None:
     label = torch.tensor([1.0], dtype=torch.float32)
     _, out_label = apply_train_augment(image, label, "classifier", seed=0, index=3)
     assert torch.equal(out_label, label)
+
+
+def test_band_z_provenance_keeps_values_above_one(tmp_path: Path) -> None:
+    """A band_z pack keeps stored planes, including values above 1."""
+    images, masks, labels = make_synthetic_pack(4, 1, 4, 4, seed=0)
+    images = images.clone()
+    images[0, 0, 0, 0] = 4.0
+    write_processed_pack(tmp_path, images, masks, labels, SplitRecipe(seed=0))
+    (tmp_path / "provenance.json").write_text(
+        json.dumps({"norm": "band_z"}) + "\n",
+        encoding="utf-8",
+    )
+    pack = load_processed_pack(tmp_path)
+    assert float(pack.images[0, 0, 0, 0]) == pytest.approx(4.0)
 
 
 def test_load_split_rejects_unknown_kind(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@
 ## Purpose
 
 The ml_models package holds processed-pack data, network builders, the
-plain-torch train loop, and ONNX export.
+plain-torch train loop, ONNX export, and run analysis.
 
 ## Contents
 
@@ -16,14 +16,15 @@ plain-torch train loop, and ONNX export.
 | [`arch`](ml_models/arch.md) | package | Segmentor and classifier network builders |
 | [`train`](ml_models/train.md) | package | Train loop, losses, metrics, cost, and sweeps |
 | [`export`](ml_models/export.md) | package | ONNX logits, acceptance, and the flight pair blob |
+| [`analysis`](ml_models/analysis.md) | package | Figures, catalogs, full-frame scores, and held-out eval |
 | [`cli`](ml_models/cli.md) | module | Typer commands for train, eval, export, accept, and pair |
 | [`__main__`](ml_models/__main__.md) | module | `python -m tools.ml_models` entry shim |
 
 ## Package interface
 
 `tools.ml_models.__init__` carries a module docstring only. Callers import
-`tools.ml_models.data`, `tools.ml_models.arch`, `tools.ml_models.train`, and
-`tools.ml_models.export`. Run
+`tools.ml_models.data`, `tools.ml_models.arch`, `tools.ml_models.train`,
+`tools.ml_models.export`, and `tools.ml_models.analysis`. Run
 `pact-tools ml-models <train|eval|export|accept|pair>`
 or `python -m tools.ml_models`.
 
@@ -36,6 +37,9 @@ on the bus. `tools.ml_models.data`, `tools.ml_models.arch`, and
 `flight.core`, or `tools.analysis`. `tools.ml_models.arch` does not import
 `flight`. `tools.ml_models.export` calls `flight.payload.inference.verify` and
 reads `InferenceConfig`. It does not import `flight.core` or `tools.analysis`.
+`tools.ml_models.analysis` calls `flight.payload.blobs.extract_blobs` and reads
+vision gates from `flight.libs.config`. It does not import
+`flight.payload.inference`, `flight.core`, or `tools.analysis`.
 `tools.ml_models.train.loop` calls `arch.registry.build`. A canvas
 run calls `data.canvas.sample_view`.
 
@@ -45,6 +49,7 @@ run calls `data.canvas.sample_view`.
 - `tools.ml_models.arch` does not import `flight`.
 - `tools.ml_models.train` imports torch.
 - `tools.ml_models.export` imports torch.
+- `tools.ml_models.analysis.eval` and `tools.ml_models.analysis.native` import torch.
 - Pack files are local directories. This package does not fetch a corpus.
 - The package `__init__` does not re-export names.
 
@@ -55,5 +60,6 @@ run calls `data.canvas.sample_view`.
 - [`tools.ml_models.arch`](ml_models/arch.md)
 - [`tools.ml_models.train`](ml_models/train.md)
 - [`tools.ml_models.export`](ml_models/export.md)
+- [`tools.ml_models.analysis`](ml_models/analysis.md)
 - [`tools.ml_models.cli`](ml_models/cli.md)
 - [`flight.payload.preprocess.normalize`](../flight/payload/preprocess/normalize.md)

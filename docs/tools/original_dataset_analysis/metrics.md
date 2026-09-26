@@ -6,7 +6,7 @@
 ## Purpose
 
 This module scores classifier logits and segmentor logit planes on a held-out
-batch.
+batch. `score_on_native_grid` is re-exported from `tools.ml_models.analysis.native`.
 
 ## Public interface
 

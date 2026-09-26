@@ -80,9 +80,8 @@ averages extra seeds of the same architecture. `--baseline` prints the cheapest
 frontier point that holds that published score, plus `--neighbors` (default 1)
 on each side. `--spread` (default 0) is the allowed drop below the baseline.
 `--auto-spread` raises that drop to the seed range of the first-pass knee
-architecture. `--write-space` replaces `PLACEHOLDER_SET_FROM_STAGE_2` in that
-space TOML. The flag may be passed more than once. `--write-space` requires
-`--baseline`. The `accept` command adds
+architecture. `--write-space` raises `ValueError` and does not rewrite a
+sweep file. The `accept` command adds
 `--scenes-dir`, `--scenes-split`, and `--scenes-limit` for golden scene
 loading.
 

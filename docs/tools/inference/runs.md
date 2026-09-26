@@ -5,8 +5,7 @@
 
 ## Purpose
 
-This module discovers local training run directories and formats list and
-compare tables.
+This module re-exports catalog tables from `tools.ml_models.analysis.runs`.
 
 ## Public interface
 

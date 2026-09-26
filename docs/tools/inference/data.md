@@ -49,7 +49,8 @@ sample: image `(C, H, W)` and a matching target.
 2. Synthetic segmentor samples get the same rectangle as a mask.
 3. `make_synthetic_pack` plants blobs on even indices and derives labels from masks.
 4. Disk loader reads `images.npy` and `labels.npy` or `masks.npy`.
-5. Values above 1.0 pass through `normalize_dn` with `bit_depth`.
+5. Values above 1.0 pass through `normalize_dn` with `bit_depth`. A pack whose
+   `provenance.json` sets `norm` to `band_z` keeps the stored planes.
 6. `load_split` indexes `train`, `val`, or `test` from `splits.json`.
 7. `load_processed_pack` rejects a `dataset.json` hash that does not match the files.
    Image files larger than 512 MiB stay a read-only memmap. `load_masks=false`

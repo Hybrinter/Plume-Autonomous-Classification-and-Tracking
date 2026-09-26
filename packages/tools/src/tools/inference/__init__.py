@@ -14,7 +14,6 @@ Contains:
   - eval / plots / report / runs: held-out scoring, figures, and compare tables.
   - sweep: cartesian search space over the local run catalog.
   - export: ONNX export, manifest write, and promote.
-  - arch: pactnet classifier and dilatenet segmentor defaults.
   - __main__: `python -m tools.inference` subcommands.
 
 Satisfies: REQ-AIML-HIGH-004.

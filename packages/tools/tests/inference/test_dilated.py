@@ -2,7 +2,8 @@
 
 import pytest
 import torch
-from tools.inference.arch.dilated import (
+from tools.inference.cost import count_params
+from tools.ml_models.arch.dilated import (
     DEFAULT_DILATED_BLOCKS,
     DEFAULT_DILATED_WIDTH,
     DEFAULT_OUTPUT_STRIDE,
@@ -12,7 +13,7 @@ from tools.inference.arch.dilated import (
     dilation_rates,
     parse_dilated,
 )
-from tools.inference.arch.registry import (
+from tools.ml_models.arch.registry import (
     EncoderUNetSpec,
     UNetSpec,
     build,
@@ -20,7 +21,6 @@ from tools.inference.arch.registry import (
     parse_segmentor,
     resolve_arch,
 )
-from tools.inference.cost import count_params
 
 
 def test_parse_dilated_defaults() -> None:
@@ -134,7 +134,7 @@ def test_dilated_segmentor_forward_non_square() -> None:
 
 
 def test_dilated_segmentor_accepts_non_default_in_channels() -> None:
-    """A band count other than four is accepted."""
+    """A band count other than the default of three is accepted."""
     net = DilatedSegmentor(in_channels=6).eval()
     x = torch.zeros(1, 6, 64, 64)
     with torch.no_grad():
@@ -145,7 +145,7 @@ def test_dilated_segmentor_accepts_non_default_in_channels() -> None:
 def test_dilated_segmentor_output_stride_eight_preserves_spatial_size() -> None:
     """Output stride 8 still returns a full-resolution logit map."""
     net = DilatedSegmentor(output_stride=8).eval()
-    x = torch.zeros(1, 4, 128, 128)
+    x = torch.zeros(1, 3, 128, 128)
     with torch.no_grad():
         y = net(x)
     assert y.shape == (1, 1, 128, 128)

@@ -1,6 +1,6 @@
-# tools.inference.arch.registry
+# tools.ml_models.arch.registry
 
-**Source:** `packages/tools/src/tools/inference/arch/registry.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/registry.py`
 **Kind:** module
 
 ## Purpose
@@ -89,16 +89,16 @@ search points. Names outside the catalog remain valid when they parse.
 Adding a backbone is one torchvision constructor plus a registry row in the
 catalog. Adding a classifier or segmentor family needs a parser branch and a
 builder call. Modifier tokens share
-[`tools.inference.arch.grammar`](grammar.md).
+[`tools.ml_models.arch.grammar`](grammar.md).
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.grammar`](grammar.md)
-- [`tools.inference.arch.classifier`](classifier.md)
-- [`tools.inference.arch.compact`](compact.md)
-- [`tools.inference.arch.unet`](unet.md)
-- [`tools.inference.arch.encoder_unet`](encoder_unet.md)
-- [`tools.inference.arch.dilated`](dilated.md)
-- [`tools.inference.train`](../train.md)
-- [`tools.inference.export`](../export.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.grammar`](grammar.md)
+- [`tools.ml_models.arch.classifier`](classifier.md)
+- [`tools.ml_models.arch.compact`](compact.md)
+- [`tools.ml_models.arch.unet`](unet.md)
+- [`tools.ml_models.arch.encoder_unet`](encoder_unet.md)
+- [`tools.ml_models.arch.dilated`](dilated.md)
+- [`tools.inference.train`](../../inference/train.md)
+- [`tools.inference.export`](../../inference/export.md)

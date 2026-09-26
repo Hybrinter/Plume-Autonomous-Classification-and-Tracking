@@ -120,5 +120,5 @@ Unknown `optimizer`, `scheduler`, or `loss` values raise `ValueError`.
 - [`tools.inference.data`](data.md)
 - [`tools.inference.metrics`](metrics.md)
 - [`tools.inference.export`](export.md)
-- [`tools.inference.arch.registry`](arch/registry.md)
+- [`tools.ml_models.arch.registry`](../ml_models/arch/registry.md)
 - [`tools.inference.sweep`](sweep.md)

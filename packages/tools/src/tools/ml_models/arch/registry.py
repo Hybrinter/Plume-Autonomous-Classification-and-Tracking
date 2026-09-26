@@ -48,22 +48,22 @@ from dataclasses import dataclass
 
 from torch import nn
 
-from tools.inference.arch.classifier import BackboneSpec, build_backbone_spec, parse_backbone
-from tools.inference.arch.compact import (
+from tools.ml_models.arch.classifier import BackboneSpec, build_backbone_spec, parse_backbone
+from tools.ml_models.arch.compact import (
     COMPACT_PREFIX,
     CompactSpec,
     build_compact_classifier,
     parse_compact,
 )
-from tools.inference.arch.dilated import (
+from tools.ml_models.arch.dilated import (
     DILATED_PREFIX,
     DilatedSpec,
     build_dilated_segmentor,
     parse_dilated,
 )
-from tools.inference.arch.encoder_unet import RESNET_ENCODERS, build_encoder_segmentor
-from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
-from tools.inference.arch.unet import build_segmentor
+from tools.ml_models.arch.encoder_unet import RESNET_ENCODERS, build_encoder_segmentor
+from tools.ml_models.arch.grammar import ModifierFlags, parse_modifiers
+from tools.ml_models.arch.unet import build_segmentor
 
 DEFAULT_ARCH: dict[str, str] = {
     "classifier": "pactnet",

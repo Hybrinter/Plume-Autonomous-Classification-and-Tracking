@@ -73,5 +73,5 @@ same output.
 - [`tools.inference.train`](train.md)
 - [`tools.inference.eval`](eval.md)
 - [`tools.inference.runs`](runs.md)
-- [`tools.inference.arch.registry`](arch/registry.md)
+- [`tools.ml_models.arch.registry`](../ml_models/arch/registry.md)
 - [`tools.inference.cli`](cli.md)

@@ -46,7 +46,6 @@ from pydantic.dataclasses import dataclass
 from torch import nn
 from torch.utils.data import DataLoader
 
-from tools.inference.arch.registry import build, resolve_arch
 from tools.inference.cost import count_flops, count_params
 from tools.inference.data import (
     ProcessedPack,
@@ -65,6 +64,7 @@ from tools.inference.losses import (
 )
 from tools.inference.metrics import classifier_metrics, segmentor_metrics
 from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
+from tools.ml_models.arch.registry import build, resolve_arch
 
 TrainKind = Literal["classifier", "segmentor"]
 OptimizerName = Literal["sgd", "adamw"]

@@ -591,7 +591,7 @@ def sweep_command(
 @app.command("arches")
 def arches_command() -> None:
     """Print registered kind and architecture name pairs."""
-    from tools.inference.arch.registry import known
+    from tools.ml_models.arch.registry import known
 
     for kind, name in sorted(known()):
         typer.echo(f"{kind}\t{name}")

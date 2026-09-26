@@ -61,6 +61,13 @@ def _write_hash_inputs(root: Path, meta: DatasetMeta) -> None:
     write_provenance(root / "provenance.json", provenance_from_meta(meta))
 
 
+def _rewrite_json(path: Path, updates: dict[str, object]) -> None:
+    """Replace keys in a sidecar file."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.update(updates)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def _manual_hash(root: Path) -> str:
     """Hash ``name:file_sha256`` lines the same way the pack codec does."""
     outer = hashlib.sha256()
@@ -173,6 +180,56 @@ def test_dataset_hash_covers_band_moments(tmp_path: Path) -> None:
     shifted = replace(meta, band_mean=(0.0, 1.0))
     write_provenance(root / "provenance.json", provenance_from_meta(shifted))
     assert compute_dataset_hash(root) != first
+
+
+def test_loaders_reject_bool_bit_depth(tmp_path: Path) -> None:
+    """JSON true for bit_depth is rejected rather than coerced to 1."""
+    meta = _sample_meta()
+    dataset_path = tmp_path / "dataset.json"
+    provenance_path = tmp_path / "provenance.json"
+    write_dataset_meta(dataset_path, meta)
+    write_provenance(provenance_path, provenance_from_meta(meta))
+    _rewrite_json(dataset_path, {"bit_depth": True})
+    _rewrite_json(provenance_path, {"bit_depth": True})
+    with pytest.raises(ValueError, match="bit_depth"):
+        load_dataset_meta(dataset_path)
+    with pytest.raises(ValueError, match="bit_depth"):
+        load_provenance(provenance_path)
+
+
+def test_loaders_reject_numeric_strings(tmp_path: Path) -> None:
+    """A numeric string does not become an int or a float."""
+    meta = _sample_meta()
+    dataset_path = tmp_path / "dataset.json"
+    provenance_path = tmp_path / "provenance.json"
+    write_dataset_meta(dataset_path, meta)
+    write_provenance(provenance_path, provenance_from_meta(meta))
+    _rewrite_json(dataset_path, {"bit_depth": "12"})
+    _rewrite_json(provenance_path, {"gsd_m": "10.5"})
+    with pytest.raises(ValueError, match="bit_depth"):
+        load_dataset_meta(dataset_path)
+    with pytest.raises(ValueError, match="gsd_m"):
+        load_provenance(provenance_path)
+
+
+def test_loaders_keep_json_numbers_and_arrays(tmp_path: Path) -> None:
+    """A normal sidecar loads, including a JSON integer for a float field."""
+    meta = _sample_meta()
+    dataset_path = tmp_path / "dataset.json"
+    provenance_path = tmp_path / "provenance.json"
+    write_dataset_meta(dataset_path, meta)
+    write_provenance(provenance_path, provenance_from_meta(meta))
+    _rewrite_json(dataset_path, {"gsd_m": 10, "band_mean": [10, 20]})
+    _rewrite_json(provenance_path, {"extent_m": 120, "band_std": [1, 2]})
+    loaded_meta = load_dataset_meta(dataset_path)
+    loaded_provenance = load_provenance(provenance_path)
+    assert loaded_meta.gsd_m == 10.0
+    assert loaded_meta.band_mean == (10.0, 20.0)
+    assert loaded_meta.band_names == ("B04", "B08")
+    assert loaded_meta.bit_depth == 12
+    assert loaded_provenance.extent_m == 120.0
+    assert loaded_provenance.band_std == (1.0, 2.0)
+    assert loaded_provenance.band_names == ("B04", "B08")
 
 
 def test_load_dataset_meta_rejects_unknown_key(tmp_path: Path) -> None:

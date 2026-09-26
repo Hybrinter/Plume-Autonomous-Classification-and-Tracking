@@ -157,17 +157,16 @@ def test_verify_file_md5(tmp_path: Path) -> None:
     assert not verify_file(tmp_path / "missing.bin", digest, expected_size=4)
 
 
-def test_select_pact_bands_takes_b2_b3_b4_b8() -> None:
-    """B2/B3/B4/B8 are indices 1, 2, 3, 7 of a 13-band stack."""
+def test_select_pact_bands_takes_b2_b3_b4() -> None:
+    """B2/B3/B4 are indices 1, 2, 3 of a 13-band stack, in BAND_ORDER."""
     planes = np.zeros((13, 4, 4), dtype=np.float32)
     planes[1] = 0.1
     planes[2] = 0.2
     planes[3] = 0.3
-    planes[7] = 0.8
     out = select_pact_bands(planes)
-    assert out.shape == (4, 4, 4)
+    assert out.shape == (3, 4, 4)
     assert float(out[0].mean()) == pytest.approx(0.1)
-    assert float(out[3].mean()) == pytest.approx(0.8)
+    assert float(out[2].mean()) == pytest.approx(0.3)
 
 
 def test_to_model_domain_resizes_and_scales() -> None:
@@ -175,7 +174,7 @@ def test_to_model_domain_resizes_and_scales() -> None:
     planes = np.zeros((13, 4, 4), dtype=np.float32)
     planes[1] = 10000.0
     out = to_model_domain(planes, height=8, width=8, dn_scale=10000.0)
-    assert out.shape == (4, 8, 8)
+    assert out.shape == (3, 8, 8)
     assert float(out[0].mean()) == pytest.approx(1.0)
     assert float(out[1].mean()) == pytest.approx(0.0)
 

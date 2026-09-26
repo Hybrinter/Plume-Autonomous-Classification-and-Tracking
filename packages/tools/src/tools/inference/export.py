@@ -44,6 +44,7 @@ from torch import Tensor, nn
 
 from tools.inference.accept import Manifest, load_manifest
 from tools.inference.arch.registry import build
+from tools.inference.arch.stem import PACT_IN_CHANNELS
 from tools.inference.data import _row_image, load_processed_pack
 
 _EXPORT_KINDS = frozenset({"classifier", "segmentor"})
@@ -89,7 +90,7 @@ class ExportConfig:
     kind: str
     checkpoint_path: str
     output_path: str
-    in_channels: int = 4
+    in_channels: int = PACT_IN_CHANNELS
     input_height_px: int = 256
     input_width_px: int = 256
     version: str = "v1"
@@ -541,7 +542,7 @@ def reexport_spatial(
     arch: str,
     height: int,
     width: int,
-    in_channels: int = 4,
+    in_channels: int = PACT_IN_CHANNELS,
     opset: int = 17,
     version: str | None = None,
     model_repo_sha: str | None = None,

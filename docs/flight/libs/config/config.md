@@ -13,10 +13,10 @@ object is constructed.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ArbiterConfig` | class | TRACKING / REWIND / SAFE persistence and limb arrival |
+| `ArbiterConfig` | class | TRACKING / REWIND / FAST_REWIND / SAFE persistence and limb arrival |
 | `VisionConfig` | class | Blob gates and in-process vision queue depth |
 | `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
-| `OuterLoopConfig` | class | Outer period, Kp, and REWIND sharp-window duration |
+| `OuterLoopConfig` | class | Outer period, Kp, and REWIND window before FAST_REWIND |
 | `PredictorConfig` | class | CoG/boresight intersect tracking proxy height |
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |

@@ -25,6 +25,7 @@ is the dependency root for most flight code.
 | `AckStatus`, `Band`, `CommandId`, `DownlinkPriority`, `FaultCode`, `FrameUsabilityTag` | enum |
 | `GimbalCommandMode`, `GimbalState`, `LinkState`, `MessageType` | enum |
 | `ModelDeployState`, `ParamKind`, `SystemMode` | enum |
+| `is_rewind_hunt` | function |
 | `Err`, `Ok`, `Result` | type |
 | `MosaicFrame` | class |
 

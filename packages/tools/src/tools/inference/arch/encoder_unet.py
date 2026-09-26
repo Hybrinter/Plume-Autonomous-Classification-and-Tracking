@@ -35,7 +35,7 @@ from tools.inference.arch.classifier import (
     BackboneSpec,
     construct_backbone,
 )
-from tools.inference.arch.stem import retarget_first_conv
+from tools.inference.arch.stem import PACT_IN_CHANNELS, retarget_first_conv
 from tools.inference.arch.unet import ConvBlock
 
 RESNET_ENCODERS: frozenset[str] = frozenset(member.value for member in RESNET_BACKBONES)
@@ -122,7 +122,7 @@ class ResNetUNet(nn.Module):
     def __init__(
         self,
         encoder: str = "resnet18",
-        in_channels: int = 4,
+        in_channels: int = PACT_IN_CHANNELS,
         out_channels: int = 1,
         pretrained: bool = False,
         decoder_width: int = 16,
@@ -196,7 +196,7 @@ class ResNetUNet(nn.Module):
 
 def build_encoder_segmentor(
     encoder: str,
-    in_channels: int = 4,
+    in_channels: int = PACT_IN_CHANNELS,
     out_channels: int = 1,
     pretrained: bool = False,
     decoder_width: int = 16,

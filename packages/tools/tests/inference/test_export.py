@@ -63,7 +63,7 @@ def test_write_manifest_includes_quantization(tmp_path: Path) -> None:
             version="v1",
             model_repo_sha="abc",
             dataset_hash="ds",
-            input_shape=(1, 4, 32, 32),
+            input_shape=(1, 3, 32, 32),
             output_shape=(1, 1, 32, 32),
             sha256="0" * 64,
             quantization="int8",
@@ -83,7 +83,7 @@ def test_write_manifest_defaults_fp32(tmp_path: Path) -> None:
             version="v1",
             model_repo_sha="abc",
             dataset_hash="ds",
-            input_shape=(1, 4, 32, 32),
+            input_shape=(1, 3, 32, 32),
             output_shape=(1, 1),
             sha256="0" * 64,
         ),
@@ -95,9 +95,9 @@ def test_calibration_batches_random() -> None:
     """Empty calib_dir yields synthetic [0, 1] NCHW tensors."""
     from tools.inference.export import _calibration_batches
 
-    batches = _calibration_batches((1, 4, 8, 8), "", 3)
+    batches = _calibration_batches((1, 3, 8, 8), "", 3)
     assert len(batches) == 3
-    assert batches[0].shape == (1, 4, 8, 8)
+    assert batches[0].shape == (1, 3, 8, 8)
     assert batches[0].dtype == torch.float32
     assert float(batches[0].min().item()) >= 0.0
     assert float(batches[0].max().item()) <= 1.0
@@ -109,9 +109,9 @@ def test_calibration_batches_from_pack(tmp_path: Path) -> None:
 
     images, masks, labels = make_synthetic_pack(6, 4, 8, 8, seed=0)
     write_processed_pack(tmp_path, images, masks, labels, SplitRecipe())
-    batches = _calibration_batches((1, 4, 8, 8), str(tmp_path), 2)
+    batches = _calibration_batches((1, 3, 8, 8), str(tmp_path), 2)
     assert len(batches) == 2
-    assert batches[0].shape == (1, 4, 8, 8)
+    assert batches[0].shape == (1, 3, 8, 8)
     assert batches[0].dtype == torch.float32
 
 
@@ -140,12 +140,12 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
     )
     assert onnx_path.is_file()
     assert manifest_path.is_file()
-    assert manifest.input_shape == (1, 4, 256, 256)
+    assert manifest.input_shape == (1, 3, 256, 256)
     assert manifest.output_shape == (1, 1, 256, 256)
     assert manifest.quantization == "fp32"
     assert json.loads(manifest_path.read_text(encoding="utf-8"))["quantization"] == "fp32"
 
-    tensor = torch.zeros((4, 256, 256), dtype=torch.float32)
+    tensor = torch.zeros((3, 256, 256), dtype=torch.float32)
     gold = torch.zeros((256, 256), dtype=torch.float32)
     gold[64:192, 64:192] = 1.0
     scenes = [GoldenScene(input_tensor=tensor, gold_mask=gold)]
@@ -154,7 +154,7 @@ def test_export_segmentor_then_accept(tmp_path: Path) -> None:
         manifest,
         scenes,
         run_inference=lambda t: _gold_mask_for(t, scenes),
-        expected_input=(1, 4, 256, 256),
+        expected_input=(1, 3, 256, 256),
         expected_output=(1, 1, 256, 256),
         min_iou=0.9,
         max_latency_ms=10_000.0,
@@ -191,7 +191,7 @@ def test_export_dilatenet_resizes_logits_to_input_hw(
     if importlib.util.find_spec("onnxruntime") is not None:
         from tools.inference.accept import onnx_inference_fn
 
-        tensor = torch.zeros((4, 32, 32), dtype=torch.float32)
+        tensor = torch.zeros((3, 32, 32), dtype=torch.float32)
         pred = onnx_inference_fn(str(onnx_path))(tensor)
         assert pred.shape == (32, 32)
 
@@ -211,7 +211,7 @@ def test_export_override_spatial_uses_config_hw(tmp_path: Path, tiny_dilatenet_c
             override_spatial=True,
         )
     )
-    assert manifest.input_shape == (1, 4, 48, 64)
+    assert manifest.input_shape == (1, 3, 48, 64)
     assert manifest.output_shape == (1, 1, 48, 64)
 
 
@@ -241,14 +241,14 @@ def test_reexport_spatial_copies_weights_and_changes_hw(
     )
     assert dest.is_file()
     assert dest_manifest_path.is_file()
-    assert dest_manifest.input_shape == (1, 4, 32, 32)
+    assert dest_manifest.input_shape == (1, 3, 32, 32)
     assert dest_manifest.output_shape == (1, 1, 32, 32)
     assert dest_manifest.dataset_hash == src_manifest.dataset_hash
     assert dest_manifest.sha256 != src_manifest.sha256
     if importlib.util.find_spec("onnxruntime") is not None:
         from tools.inference.accept import onnx_inference_fn
 
-        tensor = torch.zeros((4, 32, 32), dtype=torch.float32)
+        tensor = torch.zeros((3, 32, 32), dtype=torch.float32)
         pred = onnx_inference_fn(str(dest))(tensor)
         assert pred.shape == (32, 32)
 
@@ -278,14 +278,14 @@ def test_export_classifier_then_accept(tmp_path: Path) -> None:
     )
     assert manifest.output_shape == (1, 1)
     assert manifest.quantization == "fp32"
-    tensor = torch.zeros((4, 256, 256), dtype=torch.float32)
+    tensor = torch.zeros((3, 256, 256), dtype=torch.float32)
     scenes = [GoldenClassifierScene(input_tensor=tensor, label_positive=True)]
     report = accept_classifier_artifact(
         str(onnx_path),
         manifest,
         scenes,
         run_inference=lambda t: 1.0,
-        expected_input=(1, 4, 256, 256),
+        expected_input=(1, 3, 256, 256),
         expected_output=(1, 1),
         min_accuracy=0.9,
         max_latency_ms=10_000.0,
@@ -338,14 +338,14 @@ def test_export_int8_writes_qdq_sibling(tmp_path: Path, tiny_segmentor_ckpt: Pat
     assert int8_manifest_path.is_file()
     int8_manifest = load_manifest(str(int8_manifest_path))
     assert int8_manifest.quantization == "int8"
-    assert int8_manifest.input_shape == (1, 4, 32, 32)
+    assert int8_manifest.input_shape == (1, 3, 32, 32)
     assert int8_manifest.output_shape == (1, 1, 32, 32)
     import onnxruntime as ort
 
     session = ort.InferenceSession(str(int8_path), providers=["CPUExecutionProvider"])
     assert session.get_inputs()[0].type == "tensor(float)"
     assert session.get_outputs()[0].type == "tensor(float)"
-    dummy = np.zeros((1, 4, 32, 32), dtype=np.float32)
+    dummy = np.zeros((1, 3, 32, 32), dtype=np.float32)
     outputs = session.run(None, {session.get_inputs()[0].name: dummy})
     assert outputs[0].shape == (1, 1, 32, 32)
 
@@ -369,14 +369,14 @@ def test_convert_fp16_keeps_float_io(tmp_path: Path, tiny_classifier_ckpt: Path)
     assert out_path == dest
     assert out_json == dest.with_suffix(".json")
     assert fp16_manifest.quantization == "fp16"
-    assert fp16_manifest.input_shape == (1, 4, 32, 32)
+    assert fp16_manifest.input_shape == (1, 3, 32, 32)
     assert fp16_manifest.output_shape == (1, 1)
     import onnxruntime as ort
 
     session = ort.InferenceSession(str(dest), providers=["CPUExecutionProvider"])
     assert session.get_inputs()[0].type == "tensor(float)"
     assert session.get_outputs()[0].type == "tensor(float)"
-    dummy = np.zeros((1, 4, 32, 32), dtype=np.float32)
+    dummy = np.zeros((1, 3, 32, 32), dtype=np.float32)
     outputs = session.run(None, {session.get_inputs()[0].name: dummy})
     assert outputs[0].shape == (1, 1)
 
@@ -419,7 +419,7 @@ def test_quantize_knee_overwrites_with_mixed_precision(
     assert load_manifest(str(seg_onnx.with_suffix(".json"))).quantization == "int8"
     import onnxruntime as ort
 
-    dummy = np.zeros((1, 4, 32, 32), dtype=np.float32)
+    dummy = np.zeros((1, 3, 32, 32), dtype=np.float32)
     cls_session = ort.InferenceSession(str(cls_onnx), providers=["CPUExecutionProvider"])
     seg_session = ort.InferenceSession(str(seg_onnx), providers=["CPUExecutionProvider"])
     assert cls_session.get_inputs()[0].type == "tensor(float)"

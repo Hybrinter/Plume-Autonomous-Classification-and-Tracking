@@ -43,7 +43,7 @@ class VisionConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class ArbiterConfig:
-    """TRACKING / REWIND / SAFE mode-machine thresholds.
+    """TRACKING / REWIND / FAST_REWIND / SAFE mode-machine thresholds.
 
     ``max_observation_age_s`` is an independent ceiling on prediction-only
     coasting.  It protects against a vision pipeline that stops producing
@@ -76,7 +76,7 @@ class InnerLoopConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class OuterLoopConfig:
-    """Outer rate law period, Kp, and REWIND sharp-window duration before hardware-slew escape."""
+    """Outer rate law period, Kp, and REWIND window before FAST_REWIND promotion."""
 
     dt_s: float = Field(default=0.020, gt=0.0)
     Kp: float = Field(default=8.0, gt=0.0)  # noqa: N815
@@ -300,7 +300,7 @@ class SensorConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class PreprocessingConfig:
-    """Configuration for the preprocessing quality-flag subsystem."""
+    """Quality-flag thresholds plus the outer-rate smear cap (`max_motion_smear_px`)."""
 
     saturation_fraction_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
     max_motion_smear_px: float = Field(default=1.0, gt=0.0)

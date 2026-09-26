@@ -10,17 +10,17 @@ vs. invalid).
 Flag conditions:
     SATURATED           -- any channel has > saturation_fraction_threshold of pixels above
                            SATURATION_PIXEL_LEVEL (post-normalisation).
-    MOTION_SMEAR        -- physical: elevation-relative smear length in pixels,
-                           smear_px = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
-                           * (exposure_us * 1e-6) / IFOV, exceeds cfg.max_motion_smear_px.
-                           Azimuth motion does not contribute.
     INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
+
+MOTION_SMEAR is not raised. Along-track smear is a control cap in outer_rate
+(max_motion_smear_px). FAST_REWIND smears on purpose; exclude those frames by
+gimbal mode, not a second smear inequality.
 
 Bands are a (C, H, W) array after select_bands. Channel order follows
 InferenceConfig.input_bands. Saturation checks every channel.
 
 Contains:
-  - SmearRateSource: provenance of the elevation rate used for MOTION_SMEAR.
+  - SmearRateSource: provenance of the elevation rate the payload app selected.
   - compute_quality_flags: evaluate the heuristics and return the raised-flag frozenset.
 """
 
@@ -42,11 +42,12 @@ SATURATION_PIXEL_LEVEL: Final[float] = 0.95  # normalised DN units
 
 
 class SmearRateSource(Enum):
-    """Provenance of the elevation rate used for MOTION_SMEAR.
+    """Provenance of the elevation rate selected by the payload app.
 
     String values mirror member names. ``0.0`` is a valid measured, encoder, or
     commanded rate. Unknown measured plus a failed encoder bracket falls back
-    to the commanded rate and labels it COMMANDED.
+    to the commanded rate and labels it COMMANDED. Quality flags do not use
+    this rate to raise MOTION_SMEAR.
     """
 
     MEASURED = "MEASURED"
@@ -72,23 +73,22 @@ def compute_quality_flags(
         bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised channel array.
         exposure_us (float): Camera exposure time in microseconds.
         slew_rate_deg_per_s (float): Gimbal elevation rate in degrees per second
-            over the exposure. ``0.0`` is a stationary gimbal.
+            over the exposure. ``0.0`` is a stationary gimbal. Unused for flags.
         ifov_band_deg_per_px (float): Instantaneous field of view per pixel,
-            degrees per pixel (SensorOpticsConfig.ifov_band_deg_per_px).
+            degrees per pixel (SensorOpticsConfig.ifov_band_deg_per_px). Unused for flags.
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
         omega_scene_el_deg_per_s (float): Nominal scene elevation rate in degrees per
-            second (co-rotation / tracking feedforward). Defaults to 0.0 when unknown.
+            second. Unused for flags.
 
     Outputs:
         frozenset[FrameUsabilityTag]: The flags raised for this frame; empty if clean.
 
     Notes:
-        MOTION_SMEAR uses elevation-relative blur: the mismatch between gimbal and scene
-        elevation rates during the exposure, converted to band-plane pixels via the IFOV.
-        Matching rates, including both zero, do not flag. Azimuth motion is not modeled
-        and cannot raise MOTION_SMEAR.
+        MOTION_SMEAR is not raised. Dataset exclusion for hardware-slew hunt frames
+        is gimbal_state FAST_REWIND.
     """
+    del slew_rate_deg_per_s, ifov_band_deg_per_px, omega_scene_el_deg_per_s
     flags: set[FrameUsabilityTag] = set()
 
     # --- INCOMPLETE_METADATA ---
@@ -104,11 +104,5 @@ def compute_quality_flags(
         if saturated_count / n_pixels > cfg.saturation_fraction_threshold:
             flags.add(FrameUsabilityTag.SATURATED)
             break
-
-    # --- MOTION_SMEAR: elevation-relative smear length in band-plane pixels ---
-    rel_rate_deg_per_s = abs(slew_rate_deg_per_s - omega_scene_el_deg_per_s)
-    smear_px = rel_rate_deg_per_s * (exposure_us * 1e-6) / ifov_band_deg_per_px
-    if smear_px > cfg.max_motion_smear_px:
-        flags.add(FrameUsabilityTag.MOTION_SMEAR)
 
     return frozenset(flags)

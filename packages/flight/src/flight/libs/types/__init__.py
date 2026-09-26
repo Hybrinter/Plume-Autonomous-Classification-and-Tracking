@@ -4,9 +4,10 @@ Other flight modules import these from `flight.libs.types`, never from the
 submodules, so the internal split stays refactorable.
 
 Exports:
-- Enumerations: AckStatus, Band, CommandId, DownlinkPriority, FaultCode, FrameUsabilityTag,
-  GimbalCommandMode, GimbalState, LinkState, MessageType, ModelDeployState, ParamKind,
-  SystemMode.
+- Enumerations: AckStatus, Band, CommandId, DownlinkPriority, FaultCode,
+  FrameUsabilityTag, GimbalCommandMode, GimbalState, LinkState, MessageType,
+  ModelDeployState, ParamKind, SystemMode.
+- Helpers: is_rewind_hunt.
 - Result types: Err, Ok, Result.
 - Frame types: MosaicFrame.
 """
@@ -25,6 +26,7 @@ from flight.libs.types.enums import (
     ModelDeployState,
     ParamKind,
     SystemMode,
+    is_rewind_hunt,
 )
 from flight.libs.types.frames import MosaicFrame
 from flight.libs.types.result import Err, Ok, Result
@@ -47,4 +49,5 @@ __all__ = [
     "ParamKind",
     "Result",
     "SystemMode",
+    "is_rewind_hunt",
 ]

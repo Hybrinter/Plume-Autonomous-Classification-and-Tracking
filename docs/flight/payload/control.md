@@ -58,15 +58,16 @@ TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
 3. `outer_step` updates CoG from vision while TRACKING. It cold-starts the
    residual on TRACKING acquire. An identity reset drops the stored CoG unless
    this frame wrote a new intersect. It then calls `select_scene`. Residual
-   encoder, nominal, and vision events run only in TRACKING. REWIND freezes the
-   residual and sets `TargetState.r_cog_ecef_m` to `None`.
+   encoder, nominal, and vision events run only in TRACKING. REWIND and
+   FAST_REWIND freeze the residual and set `TargetState.r_cog_ecef_m` to `None`.
 4. Residual replay uses encoder angle displacement, encoder uncertainty, and
    reversal uncertainty. A vision event is accepted only when its shutter time
    has an exact encoder sample or a valid bracket. TRACKING acquire seeds the
    checkpoint at shutter when the sample carries a shutter encoder angle. A
    missing shutter angle leaves the checkpoint angle unset.
 5. `select_scene` supplies nominal elevation rate of a frozen ECEF CoG in
-   TRACKING, or of the boresight height-proxy hit in REWIND. Missing ISS is
+   TRACKING, or of the boresight height-proxy hit in REWIND and FAST_REWIND.
+   Missing ISS is
    unknown navigation. It is not a zero-rate scene. An IoU-matched CoG
    replacement rebases residual rate with the old CoG at the current ISS time.
    ISS motion between ticks is not a reference jump.
@@ -75,14 +76,16 @@ TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
    It also stores the `RateDecision` on `last_rate_decision`. The pose path
    leaves `last_rate_decision` empty. TRACKING matches
    `omega_t_nom + omega_t_res` and smear-caps only `Kp * e`. REWIND matches
-   boresight-ground `omega_el` and hunts at `+omega_sharp` for
-   `rewind_sharp_max_s`. After that window it escapes at `+omega_hw`. Residual
+   boresight-ground `omega_el` and hunts at `+omega_sharp`. FAST_REWIND hunts at
+   `+omega_hw`. Residual
    is ignored and is not fed boresight rates. Visual tracking can run without
    navigation. The pose path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND does
+   SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND and
+   FAST_REWIND do
    not drop the inner encoder samples. A single TRACKING miss keeps the residual
-   and CoG. Acquire from cold, from REWIND, or from unmatched blob IDs resets the
+   and CoG. Acquire from cold, from REWIND or FAST_REWIND, or from unmatched blob
+   IDs resets the
    residual. That reset also drops the prior CoG unless this frame produced a new
    intersect.
 8. The state starts with `inner.last_inner_s` and `last_outer_s` set to `None`.
@@ -102,7 +105,8 @@ app shell publishes them.
 
 The controller reads nested vision, arbiter, inner, outer, residual, position,
 integrity, and predictor config. `predictor.cog_height_m` is the tracking-proxy
-intersect height. `outer.rewind_sharp_max_s` is the sharp REWIND window. The
+intersect height. `outer.rewind_sharp_max_s` is the REWIND window before FAST_REWIND.
+The
 residual config supplies continuous acceleration density, encoder and reversal
 uncertainty, interpolation and timing limits, and history horizon. Gimbal
 geometry, plant values, WGS-84 values, and smear budget remain injected typed

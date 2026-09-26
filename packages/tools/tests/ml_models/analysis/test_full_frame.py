@@ -83,3 +83,13 @@ def test_build_eval_scenes_uses_a_tiny_frame(tmp_path: Path) -> None:
     assert "full_frame_hit_rate" in summary
     assert "chip_iou" in summary
     assert "passed" not in summary
+
+
+def test_omitted_canvas_includes_plume_and_empty_scenes(tmp_path: Path) -> None:
+    """An omitted canvas returns a plume scene and an empty scene."""
+    pack = _tiny_pack(tmp_path / "pack")
+    scenes = build_eval_scenes(pack, frame_h=24, frame_w=24, limit=1, seed=0)
+    assert any(scene.label == 0.0 and scene.placement == "empty" for scene in scenes)
+    assert any(scene.label > 0.0 for scene in scenes)
+    summary = summarize_frames(tuple(score_dry_run(scene) for scene in scenes))
+    assert summary["empty_frame_false_positive_rate"] is not None

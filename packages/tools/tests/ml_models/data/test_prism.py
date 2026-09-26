@@ -179,7 +179,10 @@ def test_near_native_stack_is_fitted_before_proxy(
 ) -> None:
     """A 119 or 121 side is padded or cropped to 120 before the 76 px resample."""
     stack = np.zeros((len(ZENODO_BAND_IDS), height, width), dtype=np.float32)
-    stack[0] = np.arange(width, dtype=np.float32)[None, :]
+    rows = np.arange(height, dtype=np.float32)[:, None]
+    cols = np.arange(width, dtype=np.float32)[None, :]
+    stack[0] = rows + cols
+    stack[0, -1, :] = 9000.0
     stack[0, :, -1] = 9000.0
     tiles = (
         _tile("10", _POLYGON),

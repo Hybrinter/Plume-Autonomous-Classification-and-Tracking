@@ -28,7 +28,7 @@ from tools.ml_models.data.grid import EXTENT_M, rasterize_percent_mask, resample
 from tools.ml_models.data.meta import DatasetMeta, Provenance
 from tools.ml_models.data.pack import write_processed_pack
 from tools.ml_models.data.split import SplitRecipe
-from tools.ml_models.data.zenodo import TileRef, build_index, iter_stacks
+from tools.ml_models.data.zenodo import TileRef, build_index, iter_stacks, to_native_stack
 
 PROXY_SIDE_PX = 76
 PROXY_GSD_M = EXTENT_M / float(PROXY_SIDE_PX)
@@ -215,13 +215,15 @@ def write_prism_pack(
 
     Raises:
         FileNotFoundError: If the weight table or an archive is missing.
-        ValueError: If no tile is annotated, or fewer than three location
-            ids are present.
+        ValueError: If no tile is annotated, fewer than three location ids
+            are present, or a stack side is more than 2 pixels from 120.
 
     Notes:
         Rows are tiles whose ``polygons`` value is not ``None``. An empty
         tuple is an annotated negative and stays in the pack. A missing
-        annotation is omitted. The label is 1 when the 76 px mask has a
+        annotation is omitted. Each stack is fitted to 120 by 120 before
+        ``to_proxy_chip``. A short side is edge-padded. A long side is
+        cropped from the origin. The label is 1 when the 76 px mask has a
         positive pixel, otherwise 0. ``group_ids`` are location ids. There is
         no second presence-only pack.
     """
@@ -263,7 +265,8 @@ def _read_proxy_rows(
     Args:
         images_tar: Image archive.
         tiles: Annotated tiles. ``polygons`` is a tuple. An empty tuple is a
-            negative.
+            negative. Each stack is fitted to ``(C, 120, 120)`` before the
+            proxy chip.
         table: Prism weights.
 
     Returns:
@@ -271,7 +274,8 @@ def _read_proxy_rows(
         ``(N, 1)``, and location ids in archive order.
 
     Raises:
-        ValueError: If a later tile changes the band order.
+        ValueError: If a later tile changes the band order, or a stack side
+            is more than 2 pixels from 120.
         FileNotFoundError: If a requested member is missing.
     """
     image_rows: list[np.ndarray] = []
@@ -286,7 +290,8 @@ def _read_proxy_rows(
         elif ids != band_ids:
             raise ValueError(f"band order changed at {tile.stem}")
         polygons = () if tile.polygons is None else tile.polygons
-        image, mask = to_proxy_chip(stack, ids, table, polygons)
+        native = to_native_stack(stack)
+        image, mask = to_proxy_chip(native, ids, table, polygons)
         image_rows.append(np.clip(image, 0.0, 1.0).astype(np.float32))
         mask_rows.append(mask)
         label_rows.append(1.0 if bool(np.any(mask > 0.0)) else 0.0)

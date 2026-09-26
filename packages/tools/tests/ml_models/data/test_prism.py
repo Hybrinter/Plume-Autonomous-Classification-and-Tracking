@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import numpy as np
 import pytest
 from tools.ml_models.data.bands import ZENODO_BAND_IDS
+from tools.ml_models.data.pack import load_processed_pack
 from tools.ml_models.data.prism import (
     PROXY_SIDE_PX,
     WeightTable,
     load_weight_table,
     mix_prism,
     to_proxy_chip,
+    write_prism_pack,
 )
+from tools.ml_models.data.zenodo import TileIndex, TileRef
 
 _ROOT = Path(__file__).resolve().parents[5]
 _WEIGHTS = _ROOT / "data" / "manifests" / "ap3200t_s2_weights.toml"
@@ -112,3 +116,55 @@ def test_script_refuses_a_missing_weight_table(tmp_path: Path) -> None:
             ]
         )
     assert not (tmp_path / "images.tar").exists()
+
+
+def _tile(location: str, polygons: tuple[np.ndarray, ...] | None) -> TileRef:
+    """Return one tile whose stem starts with ``location``."""
+    stem = f"{location}_2019-01-01T00:00:00.000Z_0"
+    return TileRef(
+        stem=stem,
+        location_id=location,
+        positive=True,
+        member_name=f"positive/{stem}.tif",
+        polygons=polygons,
+    )
+
+
+def test_write_prism_pack_keeps_annotated_negatives(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty polygon tuple stays in the pack. A missing annotation does not."""
+    polygon = (
+        np.array([[20.0, 20.0], [80.0, 20.0], [80.0, 80.0], [20.0, 80.0]], dtype=np.float32),
+    )
+    tiles = (
+        _tile("10", polygon),
+        _tile("20", ()),
+        _tile("30", polygon),
+        _tile("40", polygon),
+        _tile("50", None),
+    )
+
+    def _index(_images: Path, _labels: Path) -> TileIndex:
+        return TileIndex(tiles=tiles)
+
+    def _stacks(
+        _images: Path,
+        selected: Sequence[TileRef],
+    ) -> Iterator[tuple[TileRef, np.ndarray, tuple[str, ...]]]:
+        stack = np.zeros((len(ZENODO_BAND_IDS), 8, 8), dtype=np.float32)
+        stack[0] = 10000.0
+        descriptions = tuple("" for _band in ZENODO_BAND_IDS)
+        for tile in selected:
+            yield tile, stack, descriptions
+
+    monkeypatch.setattr("tools.ml_models.data.prism.build_index", _index)
+    monkeypatch.setattr("tools.ml_models.data.prism.iter_stacks", _stacks)
+    dest = tmp_path / "pack"
+    write_prism_pack(tmp_path / "images.tar", tmp_path / "labels.tar", _WEIGHTS, dest)
+    pack = load_processed_pack(dest)
+    assert pack.labels.shape == (4, 1)
+    assert pack.labels.ravel().tolist() == [1.0, 0.0, 1.0, 1.0]
+    assert float(pack.masks[1].max()) == 0.0
+    assert float(pack.masks[0].max()) == 1.0

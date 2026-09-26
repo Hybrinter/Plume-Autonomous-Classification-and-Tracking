@@ -215,20 +215,21 @@ def write_prism_pack(
 
     Raises:
         FileNotFoundError: If the weight table or an archive is missing.
-        ValueError: If no tile has a polygon, or fewer than three location
+        ValueError: If no tile is annotated, or fewer than three location
             ids are present.
 
     Notes:
-        Rows are tiles whose annotation has at least one polygon. Tiles with
-        no polygons are omitted. The label is 1 when the 76 px mask has a
+        Rows are tiles whose ``polygons`` value is not ``None``. An empty
+        tuple is an annotated negative and stays in the pack. A missing
+        annotation is omitted. The label is 1 when the 76 px mask has a
         positive pixel, otherwise 0. ``group_ids`` are location ids. There is
         no second presence-only pack.
     """
     table = load_weight_table(weights_path)
     index = build_index(Path(images_tar), Path(labels_tar))
-    selected = tuple(tile for tile in index.tiles if tile.polygons)
+    selected = tuple(tile for tile in index.tiles if tile.polygons is not None)
     if not selected:
-        raise ValueError("prism pack needs at least one tile with a polygon")
+        raise ValueError("prism pack needs at least one annotated tile")
     images, masks, labels, group_ids = _read_proxy_rows(Path(images_tar), selected, table)
     provenance = Provenance(
         ingest_path="sentinel2_4250706_prism_proxy",
@@ -261,7 +262,8 @@ def _read_proxy_rows(
 
     Args:
         images_tar: Image archive.
-        tiles: Annotated tiles. Each ``polygons`` value is non-empty.
+        tiles: Annotated tiles. ``polygons`` is a tuple. An empty tuple is a
+            negative.
         table: Prism weights.
 
     Returns:

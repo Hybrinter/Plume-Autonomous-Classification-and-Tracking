@@ -41,10 +41,10 @@ The image is `(3, 76, 76)`. The mask is `(1, 76, 76)`.
    contributes 0.
 3. `to_proxy_chip` mixes at the stack's native resolution, area-resamples the
    image to 76, and rasterizes percent polygons at 76.
-4. `write_prism_pack` loads the weight table before it opens an archive. Rows
-   are tiles that have at least one polygon. Tiles with no polygons are
-   omitted. The label is 1 when the mask has a positive pixel, otherwise 0.
-   Group ids are location ids.
+4. `write_prism_pack` loads the weight table before it opens an archive. A
+   row is a tile whose `polygons` value is not `None`. An empty tuple stays
+   in the pack. A missing annotation is omitted. The label is 1 when the
+   mask has a positive pixel, otherwise 0. Group ids are location ids.
 5. The pack provenance is ingest path `sentinel2_4250706_prism_proxy`,
    radiometry `s2_l2a_reflectance`, ground sample distance `1200 / 76`,
    extent 1200 m, the table id, band names `BLUE`, `GREEN`, `RED`, norm
@@ -55,7 +55,7 @@ The image is `(3, 76, 76)`. The mask is `(1, 76, 76)`.
 
 `FileNotFoundError` when the weight table or an archive is missing.
 `ValueError` when a color's weights do not sum to 1, when the table names a
-band id missing from `band_ids`, when no tile has a polygon, or when fewer
+band id missing from `band_ids`, when no tile is annotated, or when fewer
 than three location ids are present. `tomllib.TOMLDecodeError` on malformed
 TOML.
 

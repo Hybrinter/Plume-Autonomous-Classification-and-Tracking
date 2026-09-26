@@ -6,7 +6,8 @@
 ## Purpose
 
 This module indexes the image and label tar archives and reads GeoTIFF members
-in one forward pass.
+in one forward pass. Public names are re-exported from
+[`tools.ml_models.data.zenodo`](../ml_models/data/zenodo.md).
 
 ## Public interface
 

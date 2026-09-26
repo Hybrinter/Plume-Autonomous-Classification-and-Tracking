@@ -104,7 +104,6 @@ class FaultCode(enum.Enum):
     COMMAND_SEQ_ERROR = "COMMAND_SEQ_ERROR"
     COMMAND_INVALID = "COMMAND_INVALID"
     COMMAND_UNROUTABLE = "COMMAND_UNROUTABLE"
-    LAUNCH_LOCK_FAULT = "LAUNCH_LOCK_FAULT"
 
 
 class Band(enum.Enum):
@@ -150,7 +149,6 @@ class MessageType(enum.Enum):
     UPLINK_CHUNK = "UPLINK_CHUNK"
     COMMAND_ACK = "COMMAND_ACK"
     LINK_STATE = "LINK_STATE"
-    LAUNCH_LOCK_STATE = "LAUNCH_LOCK_STATE"
     MODEL_STAGED = "MODEL_STAGED"
     MODEL_DEPLOY = "MODEL_DEPLOY"
 
@@ -187,19 +185,6 @@ class LinkState(enum.Enum):
     LOS = "LOS"  # loss of signal: no contact, hold downlink
 
 
-class LaunchLockState(enum.Enum):
-    """Launch-lock mechanism state (motorized pin with engaged/released microswitches).
-
-    String values mirror member names (log readability convention). The lock starts ENGAGED
-    (flight configuration); release is a hazardous ground-commanded operation. UNKNOWN is
-    reported when the microswitches disagree or a read fails. Satisfies: REQ-MECH-HIGH-001.
-    """
-
-    ENGAGED = "ENGAGED"  # pin engaged: gimbal motion inhibited
-    RELEASED = "RELEASED"  # pin released: gimbal free to move
-    UNKNOWN = "UNKNOWN"  # indeterminate (switch disagreement / read failure)
-
-
 class AckStatus(enum.Enum):
     """Outcome of a single inbound command at ingress.
 
@@ -220,7 +205,6 @@ class CommandId(enum.Enum):
     SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; target thermal; param limit_c: float
     NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
     EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target fault; param phase: str
-    RELEASE_LAUNCH_LOCK = "RELEASE_LAUNCH_LOCK"  # hazardous; target mechanical; param phase: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
     GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop

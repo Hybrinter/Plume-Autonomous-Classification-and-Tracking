@@ -21,8 +21,7 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 **`build_sil_system(config, clock, frames, detector, ...) -> SilSystem`**
 
 - Inputs: `PactConfig`, `ManualClock`, mosaic frame list, `ScriptedDetector`, optional
-  inbound CCSDS packets, thermal and power reading scripts, uplink HMAC key, launch-lock
-  engaged flag.
+  inbound CCSDS packets, thermal and power reading scripts, uplink HMAC key.
 - Output: frozen `SilSystem` with concrete `SimSensor`, `SimGimbal`, `SimStationLink`, and
   scalar sensors.
 

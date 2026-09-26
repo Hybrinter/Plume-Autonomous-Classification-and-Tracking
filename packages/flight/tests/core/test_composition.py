@@ -7,7 +7,6 @@ from flight.fault.app import FaultApp
 from flight.hal.drivers_sim import (
     SimGimbal,
     SimIssEphemeris,
-    SimLaunchLock,
     SimScalarSensor,
     SimSensor,
     SimStationLink,
@@ -34,7 +33,6 @@ def _drivers() -> Drivers:
         station=SimStationLink([]),
         thermal_sensor=SimScalarSensor([20.0]),
         power_sensor=SimScalarSensor([10.0]),
-        launch_lock=SimLaunchLock(),
     )
 
 
@@ -72,7 +70,6 @@ def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
         "command_router",
         "storage",
         "downlink",
-        "mechanical",
         "model_deploy",
     }
 

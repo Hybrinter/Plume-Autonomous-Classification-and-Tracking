@@ -44,7 +44,7 @@ the station TLE HTTP API. Do not run a formal gain or plant-identification study
 | Outer estimator | Two-state residual Kalman filter on boresight elevation error and residual rate. |
 | Vision to outer | In-process shell queue of \((t_s, z_v, \mathbf{p}_{\mathrm{cog}})\). Not the MessageBus. |
 | Smear cap | Live `exposure_us` in (19) caps elevation-relative rate only (`K_p e` and sharp REWIND hunt). Azimuth smear is independent and unactuated. |
-| Runaway monitor | Light detector: NaN, encoder freeze, lock-fight → `GIMBAL_RUNAWAY`. Plus envelope clips and SAFE stow. |
+| Runaway monitor | Light detector: NaN, encoder freeze → `GIMBAL_RUNAWAY`. Plus envelope clips and SAFE stow. |
 | Hardware | Production Xeryon rate servo via `GimbalRateActuator.set_rate`. SIL keeps the torque plant. |
 | Validation | Analysis-package block tests with simulated I/O. SIL harness architecture is out of this pass. |
 | Placeholders | Numeric \(J,B,\tau_{\max},k_p,k_i,K_p,Q,R_v\) in config until later studies retune them. |
@@ -92,7 +92,7 @@ same inner PI. That loop is not smear-capped.
 - Estimating process noise \(w\). \(w\) exists only in the filter covariance \(Q\).
 - An inner-loop Kalman filter or any inner state besides the PI integrator and the
   encoder-rate ring.
-- Coulomb friction, ISS jitter, and a gain campaign. Light integrity (NaN / freeze / lock-fight) is in scope.
+- Coulomb friction, ISS jitter, and a gain campaign. Light integrity (NaN / freeze) is in scope.
 - Changing FDIR SAFE latching: SAFE still stows and latches until ground clears it.
 - Mount misalignment relative to ISS. Identity mount until a later placement map.
 - \(K_t\) current mapping in the real driver.
@@ -299,10 +299,6 @@ SIL `step_once` is per-\(T_{\mathrm{out}}\) slice: `advance_inner` to tick \(t\)
 then one outer tick at \(t\), then trailing inner to `now`. Tick UTC is
 `clock.utc_s() + (t - clock.monotonic_s())` while ManualClock is frozen. It does
 not become a 1 kHz harness.
-
-**Lock (fail-closed):** `LockGate.engaged` defaults True. `UNKNOWN` is engaged.
-While engaged: `set_torque(0)`, freeze \(I\), `r=0`. Re-issue STOW after RELEASE
-if still SAFE.
 
 **Encoder / eph:** encoder `Err` holds last \(\theta\); if none, \(r=0\), \(\tau=0\),
 `GIMBAL_FAULT`. Eph `Err` sets \(\omega_{t,\mathrm{nom}}=0\), `live=False`, and
@@ -690,6 +686,10 @@ TRACKING. Orbit and Earth-rotation feedforward must continue even when \(e\) is 
 SAFE replaces tracking with the stow position loop while actuator integrity is
 healthy. An actuator-integrity SAFE inhibits drive.
 
+The launch restraint is a strap. The crew removes it before commissioning. The
+crew installs it for return. Flight software does not sense or command the strap.
+SAFE stow is a gimbal pose command.
+
 ---
 
 ## 13. Modes
@@ -802,8 +802,6 @@ Defaults must match `config/default.toml`. Do not hide numbers in source.
 | `controller.integrity.freeze_strikes` | 50 | |
 | `controller.integrity.r_min_rad_s` | 0.01745 | |
 | `controller.integrity.encoder_rate_ratio` | 0.2 | |
-| `controller.integrity.lock_fight_rad_s` | 0.05 | |
-| `controller.integrity.lock_fight_strikes` | 50 | |
 | WGS-84 `a_m`, `f` | 6378137, 1/298.257223563 | |
 | `omega_earth_rad_s` | 7.2921159e-5 | |
 

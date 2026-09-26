@@ -27,7 +27,7 @@ from flight.core.composition import MONITORED_SUBSYSTEMS, SystemApps
 from flight.fault.watchdog import WatchdogEntry
 from flight.hal.interfaces import GimbalActuator, ImagingSensor
 from flight.libs.bus import MessageBus
-from flight.libs.messages import HeartbeatMsg, LaunchLockStateMsg
+from flight.libs.messages import HeartbeatMsg
 from flight.libs.time import ManualClock
 from flight.libs.types import MessageType, Ok
 from flight.payload.control import ControlState
@@ -90,16 +90,13 @@ def step_once(
 ) -> tuple[ControlState, dict[str, WatchdogEntry]]:
     """Advance every subsystem one deterministic cycle over the shared bus.
 
-    Order: publish current launch-lock snapshot -> poll mode/lock -> per-T_out
-    inner-then-outer catch-up to ``now`` -> optional bind.pre_step -> acquire and
-    process one payload frame when the imaging duty gate is due, otherwise drain one
-    unread frame -> apply payload pose commands from the prior cycle -> ISS bridge pump
-    -> command router -> mechanical tick ->
-    housekeeping handle-commands + sample -> storage/downlink ticks -> heartbeats
-    -> FDIR tick. A lock snapshot at the start of the cycle lets fail-closed
-    payload see the driver state on step 1. Catch-up before acquire leaves
-    encoder samples through shutter time. Ground pose commands routed this cycle
-    apply on a later cycle's catch-up.
+    Order: poll mode changes -> per-T_out inner-then-outer catch-up to ``now`` ->
+    optional bind.pre_step -> acquire and process one payload frame when the imaging
+    duty gate is due, otherwise drain one unread frame -> apply payload pose commands
+    from the prior cycle -> ISS bridge pump -> command router -> housekeeping
+    handle-commands + sample -> storage/downlink ticks -> heartbeats -> FDIR tick.
+    Catch-up before acquire leaves encoder samples through shutter time. Ground pose
+    commands routed this cycle apply on a later cycle's catch-up.
 
     Args:
         apps: The wired SystemApps (payload / fault / iss_iface / thermal / electrical).
@@ -120,17 +117,7 @@ def step_once(
         concrete driver, so the GSE in-process backend reuses it verbatim. The body is the
         single source of truth for one SIL cycle; SilHarness.step delegates here.
     """
-    lock_read = apps.mechanical.lock.read_state()
-    if isinstance(lock_read, Ok):
-        bus.publish(
-            LaunchLockStateMsg(
-                msg_type=MessageType.LAUNCH_LOCK_STATE,
-                timestamp_utc=clock.wall_clock_iso(),
-                state=lock_read.value,
-            )
-        )
     safe_commanded, safe_cleared = apps.payload.poll_mode_changes()
-    apps.payload.poll_lock_state()
     payload_state = _catch_up_loops(apps, now, payload_state, safe_commanded, safe_cleared)
     if bind is not None:
         bind.pre_step(now)
@@ -156,7 +143,6 @@ def step_once(
 
     apps.iss_iface.tick()
     apps.command_router.tick()
-    apps.mechanical.tick()
 
     apps.thermal.handle_commands()
     apps.thermal.sample()

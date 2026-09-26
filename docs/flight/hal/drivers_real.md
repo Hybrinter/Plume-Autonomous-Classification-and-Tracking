@@ -23,8 +23,6 @@ constructs these drivers when the driver config selects a real axis.
 Re-exports: `RealGimbal`, `RealIssEphemeris`, `RealScalarSensor`, `RealSensor`,
 `RealStationLink`.
 
-There is no `RealLaunchLock`. Launch-lock hardware is not integrated yet.
-
 ## Interactions
 
 Only `flight.core.main` and `flight.core.select_drivers` import this package. Apps receive

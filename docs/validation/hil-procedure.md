@@ -36,7 +36,7 @@ highest-fidelity venue short of flight.
 
 ## Notes
 
-- The `lock` (LaunchLock) axis remains a permanent VCRM gap: no device, no config field, no HIL
-  coverage. It is documented, never tested.
+- HIL has no launch restraint device. The launch restraint is a crew strap. Flight
+  software does not sense or command it.
 - Orin Nano Super HIL compute uses MAXN SUPER (`nvpmodel`) and `jetson_clocks`. Module TDP is
   25 W. Payload-bus `power_limit_w` stays 55 W. The camera is USB3 Blackfly, not CSI.

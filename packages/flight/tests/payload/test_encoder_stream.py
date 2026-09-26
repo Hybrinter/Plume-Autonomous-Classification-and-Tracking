@@ -38,7 +38,6 @@ def _build_app(detector: DetectorBackend) -> PayloadApp:
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     return app
 
 

@@ -121,7 +121,7 @@ injection and keeps the app core free of I/O.
 ## Deferred to later phases
 
 - **Phase 6B -- command router + hazardous commands:** layered authority, ARM/EXECUTE two-step
-  for hazardous commands, inhibit-at-actuation, `EXIT_SAFE` / manual-gimbal / lock-release.
+  for hazardous commands, inhibit-at-actuation, `EXIT_SAFE` / manual-gimbal.
 - **Phase 6C -- data system:** core storage service, prioritized downlink manager,
   `StorageWriter`/`StorageReader` Protocols.
 - **Phase 6D -- model upload:** chunked reassembly, stage/activate/rollback, `ModelDeployState`.

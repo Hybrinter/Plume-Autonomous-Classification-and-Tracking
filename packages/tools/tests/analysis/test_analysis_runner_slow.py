@@ -86,13 +86,6 @@ def test_downlink_backs_up_during_los(builtin_runs: dict[str, ScenarioRun]) -> N
     assert _ever_positive(run, "downlink", "downlink.pending_items")
 
 
-def test_launch_lock_interlock_inhibits_motion(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """With the lock engaged the payload inhibits gimbal motion and the lock stays engaged."""
-    run = builtin_runs["launch_lock_interlock"]
-    assert _ever_positive(run, "payload", "payload.motion_inhibited")
-    assert _final(run, "mechanical", "mechanical.launch_lock_state") == "ENGAGED"
-
-
 def test_command_ingress_routes_and_acks(builtin_runs: dict[str, ScenarioRun]) -> None:
     """A signed command is published by ingress, routed, and acked."""
     run = builtin_runs["command_ingress_auth"]

@@ -182,7 +182,6 @@ def main(config_path: str = "config/default.toml") -> None:
             ("command_router", apps.command_router),
             ("storage", apps.storage),
             ("downlink", apps.downlink),
-            ("mechanical", apps.mechanical),
             ("model_deploy", apps.model_deploy),
         ],
         bus=bus,

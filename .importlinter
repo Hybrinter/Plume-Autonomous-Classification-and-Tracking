@@ -28,7 +28,7 @@ name = Flight layered architecture
 type = layers
 layers =
     flight.core
-    flight.payload | flight.thermal | flight.electrical | flight.mechanical | flight.iss_iface | flight.fault
+    flight.payload | flight.thermal | flight.electrical | flight.iss_iface | flight.fault
     flight.hal.interfaces
     flight.libs
 
@@ -39,7 +39,6 @@ source_modules =
     flight.payload
     flight.thermal
     flight.electrical
-    flight.mechanical
     flight.iss_iface
     flight.fault
     flight.libs

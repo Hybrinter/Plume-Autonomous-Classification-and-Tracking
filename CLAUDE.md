@@ -56,7 +56,7 @@ its own.
 Each subsystem under `packages/flight/src/flight/` is an isolated **app**: a thin imperative shell
 around a pure core, talking to other apps **only** over the typed `MessageBus`
 (`flight.libs.bus`). No app imports or references another app. Peer apps
-(`payload`/`fault`/`iss_iface`/`thermal`/`electrical`/`mechanical`) must never cross-import -- this
+(`payload`/`fault`/`iss_iface`/`thermal`/`electrical`) must never cross-import -- this
 is enforced by the `flight-layers` import-linter contract (layer order: `core` > apps >
 `hal.interfaces` > `libs`).
 

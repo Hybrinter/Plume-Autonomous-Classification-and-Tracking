@@ -134,19 +134,13 @@ class InnerControlState:
 
 @dataclass(frozen=True, slots=True)
 class IntegrityState:
-    """Light integrity detector strikes and lock-hold latch.
+    """Light integrity detector strike counter.
 
     Attributes:
         freeze_strikes: Consecutive encoder-freeze inner ticks.
-        lock_strikes: Consecutive lock-fight inner ticks.
-        lock_theta_ref_rad: Encoder elevation latched at lock engage, or None.
-        lock_ref_s: Monotonic seconds of that latch, or None.
     """
 
     freeze_strikes: int
-    lock_strikes: int
-    lock_theta_ref_rad: float | None
-    lock_ref_s: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,7 +190,7 @@ class ControlState:
         residual_history: Timestamped residual events and stable posterior anchor.
         encoder: Inner encoder ring and measured rate.
         inner: Inner PI integrator, time, and torque.
-        integrity: Freeze and lock-fight strikes with lock-hold latch.
+        integrity: Encoder-freeze strike counter.
         target: Stored CoG and last scene-rate terms.
         pose: Position-loop mode and target elevation.
         last_outer_s: Monotonic time of the last outer step, or None.
@@ -334,12 +328,7 @@ class PayloadController:
                 measured_rate_rad_s=0.0,
             ),
             inner=InnerControlState(integrator=0.0, last_inner_s=None, last_tau_nm=0.0),
-            integrity=IntegrityState(
-                freeze_strikes=0,
-                lock_strikes=0,
-                lock_theta_ref_rad=None,
-                lock_ref_s=None,
-            ),
+            integrity=IntegrityState(freeze_strikes=0),
             target=TargetState(
                 r_cog_ecef_m=None,
                 last_exposure_us=0.0,
@@ -422,7 +411,6 @@ class PayloadController:
         theta_enc_rad: float,
         dt_s: float | None = None,
         encoder_timestamp_s: float | None = None,
-        locked: bool = False,
         safe_latched: bool = False,
     ) -> InnerTick:
         """One inner tick: push encoder, fit y_m, PI + computed torque.
@@ -432,7 +420,6 @@ class PayloadController:
             now: Monotonic seconds of this tick.
             theta_enc_rad: Encoder elevation, radians.
             dt_s: Inner period; defaults to cfg.inner.dt_s.
-            locked: Launch lock engaged (freeze I; caller writes τ=0).
             safe_latched: Use the stow position loop instead of tracking r.
 
         Outputs:
@@ -507,8 +494,6 @@ class PayloadController:
                     -math.sqrt(2.0 * max_decel * remaining),
                     -self.cfg.inner.kp * remaining,
                 )
-        if locked:
-            r = 0.0
         # One encoder count differentiated at the inner rate looks like several deg/s.
         # Against a hard stop that phantom rate commands torque into the stop, and
         # the stage cannot move the other way to bleed it. Drop the inbound estimate
@@ -529,7 +514,6 @@ class PayloadController:
             self.cfg.inner.ki,
             self.gimbal.tau_max_nm,
             stopped or at_bound,
-            locked=locked,
         )
         new_state = replace(
             state,
@@ -545,7 +529,7 @@ class PayloadController:
             ),
             commanded_rate_rad_s=r,
         )
-        return InnerTick(state=new_state, tau_nm=0.0 if locked else result.tau_nm)
+        return InnerTick(state=new_state, tau_nm=result.tau_nm)
 
     def outer_step(
         self,

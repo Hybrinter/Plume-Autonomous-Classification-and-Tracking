@@ -20,15 +20,12 @@ torque loop.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `TickOutcome` | dataclass | Per-cycle frame, fault, command, and gimbal summary |
-| `LockGate` | dataclass | Fail-closed launch-lock gate |
 | `SafeLatch` | dataclass | SAFE flag shared with the inner path |
-| `StowGate` | dataclass | Pending SAFE STOW request |
 | `PoseIntent` | dataclass | Ground STOW / HOME / GOTO request |
 | `EncoderStream` | dataclass | Timestamped samples shared across app paths |
 | `PayloadApp` | dataclass | Frozen holder of injected services and config |
 | `PayloadApp.from_config` | static method | Builds the app from typed config and drivers |
 | `PayloadApp.poll_mode_changes` | method | Drains mode messages |
-| `PayloadApp.poll_lock_state` | method | Drains launch-lock messages |
 | `PayloadApp.handle_commands` | method | Applies routed pose commands |
 | `PayloadApp.process_frame` | method | Preprocesses, detects, and queues vision |
 | `PayloadApp.advance_outer` | method | Consumes timestamped outer samples |
@@ -52,7 +49,7 @@ command.
 ## Behavior
 
 1. `from_config` validates mosaic dimensions, band layout, and inference input
-   geometry. The lock gate starts engaged.
+   geometry.
 2. Each valid `GimbalPosition` becomes an `EncoderSample` with device timestamp,
    unwrapped angle, variance, and stable sample ID. The sample is stored in the
    shared encoder stream. The stream retains at most 4096 samples. Consumption
@@ -75,8 +72,7 @@ command.
    command. Its torque thread is not started when the injected actuator exposes
    the production rate interface. Rate-mode `advance_inner` records one encoder
    sample and does not write torque.
-8. SAFE and launch-lock states inhibit motion. SAFE operation commands the stow
-   position loop. A pending SAFE STOW is retried after lock release.
+8. SAFE inhibits motion and commands the stow position loop.
 9. `sensor.capture.duty_cycle` gates imaging. Duty 0.5 captures even
    opportunities. A skipped opportunity calls `drain_frame` and still steps the
    outer gimbal loop. `drain_frame` releases images already waiting on a
@@ -105,7 +101,7 @@ inhibition without independent watchdog evidence.
 
 | Direction | Message types |
 | --- | --- |
-| Subscribe | `ModeChangeMsg`, `LaunchLockStateMsg`, `RoutedCommandMsg` |
+| Subscribe | `ModeChangeMsg`, `RoutedCommandMsg` |
 | Publish | `HeartbeatMsg`, `InferenceResultMsg`, `GimbalCommandMsg`, `FaultEventMsg`, `TelemetryEventMsg`, `ProductRefMsg`, `CommandAckMsg` |
 
 Vision samples stay in the app queue. Residual event records stay in pure
@@ -125,6 +121,10 @@ controller state and do not travel on the bus.
 | `EphemerisConfig` | WGS-84 and circular-orbit elements |
 
 ## Constraints
+
+The launch restraint is a strap. The crew removes it before commissioning. The
+crew installs it for return. Flight software does not sense or command the strap.
+SAFE stow is a gimbal pose command.
 
 Preprocessing runs inside `process_frame`; it does not publish
 `ProcessedFrameMsg`. The app uses `Clock.monotonic_s()` for loop control and

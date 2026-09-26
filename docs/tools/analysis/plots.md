@@ -23,7 +23,6 @@ builder per group against that group's wide frame.
 | [`command_router`](plots/command_router.md) | module | Hazardous gate and routing |
 | [`storage`](plots/storage.md) | module | Quota usage and eviction |
 | [`downlink`](plots/downlink.md) | module | Queue, AOS, priority backlog |
-| [`mechanical`](plots/mechanical.md) | module | Launch-lock state and activity |
 | [`model_deploy`](plots/model_deploy.md) | module | Model lifecycle state |
 
 ## Package interface

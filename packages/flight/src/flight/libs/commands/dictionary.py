@@ -79,12 +79,6 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("phase", ParamKind.STR),),
         hazardous=True,
     ),
-    CommandId.RELEASE_LAUNCH_LOCK: CommandSpec(
-        CommandId.RELEASE_LAUNCH_LOCK,
-        "mechanical",
-        (ParamSpec("phase", ParamKind.STR),),
-        hazardous=True,
-    ),
     CommandId.UPLOAD_MODEL_CHUNK: CommandSpec(
         CommandId.UPLOAD_MODEL_CHUNK,
         "iss_iface",

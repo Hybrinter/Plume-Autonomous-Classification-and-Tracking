@@ -26,8 +26,7 @@ catch-up and before acquire.
 
 ## Behavior
 
-1. Publish the current launch-lock driver state so fail-closed payload sees it
-   on step 1. Poll mode changes and lock.
+1. Poll mode changes.
 2. Catch up inner and outer loops to `now`. For each `T_out` slice: `advance_inner`
    up to tick `t`, then one `outer_step` at `t`. Then trailing inner to `now`. A first
    step with `last_outer_s is None` stamps origins, runs inner through `now`,
@@ -43,7 +42,7 @@ catch-up and before acquire.
    feedback. Encoder samples from catch-up and this read share shutter time `now`
    with the due frame stamp.
 5. Apply payload pose commands from the prior cycle (`handle_commands`).
-6. Run iss_iface, command_router, and mechanical ticks.
+6. Run iss_iface and command_router ticks.
 7. Run thermal and electrical handle-commands and sample.
 8. Run model_deploy, storage, and downlink ticks.
 9. Publish one `HeartbeatMsg` per name in `MONITORED_SUBSYSTEMS`.

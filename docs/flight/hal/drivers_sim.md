@@ -17,14 +17,11 @@ composition roots. Each driver satisfies the matching HAL Protocol structurally.
 | [`ephemeris`](drivers_sim/ephemeris.md) | driver | `SimIssEphemeris` circular ECI orbit |
 | [`station`](drivers_sim/station.md) | driver | `SimStationLink` replays inbound CCSDS packets |
 | [`scalar`](drivers_sim/scalar.md) | driver | `SimScalarSensor` replays scalar readings |
-| [`launch_lock`](drivers_sim/launch_lock.md) | driver | `SimLaunchLock` in-memory launch lock |
 
 ## Package interface
 
-Re-exports: `SimGimbal`, `SimIssEphemeris`, `SimLaunchLock`, `SimScalarSensor`,
+Re-exports: `SimGimbal`, `SimIssEphemeris`, `SimScalarSensor`,
 `SimSensor`, `SimStationLink`.
-
-`SimLaunchLock` is the only launch-lock implementation. No real driver exists yet.
 
 ## Interactions
 

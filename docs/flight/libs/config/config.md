@@ -86,8 +86,7 @@ Nested tables under `[controller]`:
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`
 - `integrity`: `catchup_max_s`, `freeze_strikes`, `r_min_rad_s`,
-  `encoder_rate_ratio`, `lock_fight_rad_s`, `lock_fight_strikes`,
-  `command_authority_s`, `feedback_max_age_s`, `recovery_max_attempts`,
+  `encoder_rate_ratio`, `command_authority_s`, `feedback_max_age_s`, `recovery_max_attempts`,
   `recovery_window_s`, `science_boundary_guard_deg`
 
 ### InferenceConfig
@@ -151,7 +150,6 @@ ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
 - Default field values must match `config/default.toml` exactly.
 - No subsystem reads TOML directly.
 - `calibration_dir=""` selects identity calibration (SIL only).
-- Launch-lock axis is not in `DriverConfig`.
 - Science elevation must lie inside hardware travel. Stow and home must lie inside
   hardware travel. Plant `J_kg_m2` must be at most `xeryon.payload_inertia_limit_kg_m2`.
 - `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have

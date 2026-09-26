@@ -1,13 +1,14 @@
-# tools.inference.arch.stem
+# tools.ml_models.arch.stem
 
-**Source:** `packages/tools/src/tools/inference/arch/stem.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/stem.py`
 **Kind:** module
 
 ## Purpose
 
-This module retargets ImageNet-pretrained convolution stems to the PACT band
-count. Torchvision backbones expect three RGB planes. PACT feeds four bands in
-BLUE, GREEN, RED, NIR order.
+This module retargets ImageNet-pretrained convolution stems to a chosen band
+count. Torchvision backbones expect three RGB planes. The flight stem is three
+channels in BLUE, GREEN, RED order. `remap_stem_weight` copies an RGB kernel
+onto that prefix.
 
 ## Public interface
 
@@ -54,7 +55,8 @@ None.
 
 ## Configuration
 
-PACT band order is BLUE, GREEN, RED, NIR. Flight default `in_channels` is 4.
+Flight band order is BLUE, GREEN, RED. Flight default `in_channels` is 3.
+Bands past the third take the mean RGB column.
 
 ## Constraints
 
@@ -63,6 +65,6 @@ helpers when a `_pt` or `pt` suffix requests ImageNet weights.
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.classifier`](classifier.md)
-- [`tools.inference.arch.encoder_unet`](encoder_unet.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.classifier`](classifier.md)
+- [`tools.ml_models.arch.encoder_unet`](encoder_unet.md)

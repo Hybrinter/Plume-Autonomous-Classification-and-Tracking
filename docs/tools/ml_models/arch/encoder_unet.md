@@ -1,6 +1,6 @@
-# tools.inference.arch.encoder_unet
+# tools.ml_models.arch.encoder_unet
 
-**Source:** `packages/tools/src/tools/inference/arch/encoder_unet.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/encoder_unet.py`
 **Kind:** module
 
 ## Purpose
@@ -29,7 +29,7 @@ logit mask at the input spatial size.
 
 `ResNetUNet.forward(x)` maps `(N, C, H, W)` to `(N, 1, H, W)` logits.
 
-`build_encoder_segmentor(encoder, in_channels=4, out_channels=1, pretrained=False,
+`build_encoder_segmentor(encoder, in_channels=3, out_channels=1, pretrained=False,
 decoder_width=16, separable=False) -> ResNetUNet`.
 
 ## Behavior
@@ -52,19 +52,19 @@ None.
 
 ## Configuration
 
-`in_channels` defaults to 4. `out_channels` defaults to 1. `decoder_width`
+`in_channels` defaults to 3. `out_channels` defaults to 1. `decoder_width`
 defaults to 16. `pretrained` loads ImageNet encoder weights and remaps the stem.
 
 ## Constraints
 
 This module imports torch and torchvision. Registry names use the `runet18`,
 `runet34`, and `runet50` families. See
-[`tools.inference.arch.registry`](registry.md).
+[`tools.ml_models.arch.registry`](registry.md).
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.classifier`](classifier.md)
-- [`tools.inference.arch.stem`](stem.md)
-- [`tools.inference.arch.unet`](unet.md)
-- [`tools.inference.arch.registry`](registry.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.classifier`](classifier.md)
+- [`tools.ml_models.arch.stem`](stem.md)
+- [`tools.ml_models.arch.unet`](unet.md)
+- [`tools.ml_models.arch.registry`](registry.md)

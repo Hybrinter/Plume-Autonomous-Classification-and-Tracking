@@ -1,7 +1,7 @@
 """Shared architecture-name grammar tests."""
 
 import pytest
-from tools.inference.arch.grammar import (
+from tools.ml_models.arch.grammar import (
     ModifierFlags,
     NameModifiers,
     parse_modifiers,

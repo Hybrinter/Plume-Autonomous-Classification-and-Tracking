@@ -1,14 +1,14 @@
-# tools.inference.arch.classifier
+# tools.ml_models.arch.classifier
 
-**Source:** `packages/tools/src/tools/inference/arch/classifier.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/classifier.py`
 **Kind:** module
 
 ## Purpose
 
 This module builds binary plume classifiers on torchvision backbones. The stem
-accepts four input bands. The head emits one logit. A trailing `_pt` suffix
-loads ImageNet weights and remaps the stem. The empty-arch default classifier
-is compact `pactnet`.
+accepts the flight default of three bands, BLUE, GREEN, and RED. The head emits
+one logit. A trailing `_pt` suffix loads ImageNet weights and remaps the stem.
+The empty-arch default classifier is compact `pactnet`.
 
 ## Public interface
 
@@ -33,13 +33,13 @@ backbone.
 `construct_backbone(spec) -> nn.Module`. Returns the unmodified torchvision
 network, still RGB and 1000-way.
 
-`build_backbone_spec(spec, in_channels=4) -> nn.Module`. Forward maps
+`build_backbone_spec(spec, in_channels=3) -> nn.Module`. Forward maps
 `(N, C, H, W)` to `(N, 1)` logits.
 
-`build_backbone(name, in_channels=4) -> nn.Module`. Parses `name` then calls
+`build_backbone(name, in_channels=3) -> nn.Module`. Parses `name` then calls
 `build_backbone_spec`.
 
-`build_classifier(in_channels=4) -> nn.Module`. Returns an untrained PactNet.
+`build_classifier(in_channels=3) -> nn.Module`. Returns an untrained PactNet.
 
 ## Behavior
 
@@ -49,7 +49,9 @@ network, still RGB and 1000-way.
 3. `construct_backbone` matches on `BackboneName` and calls the torchvision
    constructor.
 4. `build_backbone_spec` retargets the first convolution to `in_channels` and
-   replaces the final linear layer with one output.
+   replaces the final linear layer with one output. ShuffleNet V2 then replaces
+   each `BatchNorm2d` with a subclass that accepts one value per channel and
+   loads that layer's original state. Other backbones keep stock batch norm.
 5. `build_classifier` builds default-width compact `pactnet` with random
    weights.
 
@@ -63,20 +65,20 @@ None.
 
 ## Configuration
 
-`in_channels` defaults to 4. Pretrained stem remapping uses
-[`tools.inference.arch.stem`](stem.md).
+`in_channels` defaults to 3. Pretrained stem remapping uses
+[`tools.ml_models.arch.stem`](stem.md).
 
 ## Constraints
 
 This module imports torch and torchvision at import time. The graph does not
 apply sigmoid. Registry names use the classifier grammar in
-[`tools.inference.arch.registry`](registry.md). Family builders stay family
+[`tools.ml_models.arch.registry`](registry.md). Family builders stay family
 specific: `build_backbone` constructs torchvision graphs.
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.compact`](compact.md)
-- [`tools.inference.arch.stem`](stem.md)
-- [`tools.inference.arch.registry`](registry.md)
-- [`tools.inference.train`](../train.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.compact`](compact.md)
+- [`tools.ml_models.arch.stem`](stem.md)
+- [`tools.ml_models.arch.registry`](registry.md)
+- [`tools.inference.train`](../../inference/train.md)

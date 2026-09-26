@@ -1,6 +1,6 @@
 """Shared convolution primitive tests."""
 
-from tools.inference.arch.blocks import conv3x3_layers, conv_norm_relu
+from tools.ml_models.arch.blocks import conv3x3_layers, conv_norm_relu
 from torch import nn
 
 

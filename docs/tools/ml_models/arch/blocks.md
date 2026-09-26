@@ -1,6 +1,6 @@
-# tools.inference.arch.blocks
+# tools.ml_models.arch.blocks
 
-**Source:** `packages/tools/src/tools/inference/arch/blocks.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/blocks.py`
 **Kind:** module
 
 ## Purpose
@@ -52,7 +52,7 @@ the shift.
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.compact`](compact.md)
-- [`tools.inference.arch.dilated`](dilated.md)
-- [`tools.inference.arch.unet`](unet.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.compact`](compact.md)
+- [`tools.ml_models.arch.dilated`](dilated.md)
+- [`tools.ml_models.arch.unet`](unet.md)

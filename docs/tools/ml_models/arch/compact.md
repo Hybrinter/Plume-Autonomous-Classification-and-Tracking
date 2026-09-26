@@ -1,13 +1,13 @@
-# tools.inference.arch.compact
+# tools.ml_models.arch.compact
 
-**Source:** `packages/tools/src/tools/inference/arch/compact.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/compact.py`
 **Kind:** module
 
 ## Purpose
 
 This module defines a compact binary classifier family named `pactnet`. The stack
-uses depthwise-separable convolutions, aggressive early downsampling, and global
-average pooling into a single linear head. Output is one logit per tile.
+uses depthwise-separable convolutions and early downsampling. A 1x1 convolution
+emits one logit per strided cell. `forward` returns the maximum of those logits.
 
 ## Public interface
 
@@ -30,10 +30,12 @@ widths. Each stage doubles the channel count up to a ceiling of 256.
 `parse_compact(name) -> CompactSpec`. Raises `ValueError` on an unknown family
 or modifier token.
 
-`PactNet.forward(x)` maps `(N, C, H, W)` to `(N, 1)` logits. No sigmoid is
-applied.
+`PactNet.spatial(x)` maps `(N, C, H, W)` to `(N, 1, h, w)` logits.
 
-`build_compact_classifier(spec, in_channels=4) -> PactNet`.
+`PactNet.forward(x)` returns `spatial(x).amax(dim=(2, 3))` with shape `(N, 1)`.
+No sigmoid is applied.
+
+`build_compact_classifier(spec, in_channels=3) -> PactNet`.
 
 ## Behavior
 
@@ -45,7 +47,8 @@ applied.
 5. The stem convolution is always dense. Later stages honour the `separable`
    flag.
 6. Each stage after the stem applies a strided block and a 1x1-stride block.
-7. Adaptive average pooling feeds a dropout layer and a single linear head.
+7. Dropout applies on the feature map. A 1x1 convolution emits one logit per
+   cell. `forward` returns the maximum over those cells.
 8. Modifiers combine in any order. Example: `pactnet_w32_d5_full`.
 
 ## Errors and faults
@@ -58,20 +61,20 @@ None.
 
 ## Configuration
 
-`in_channels` defaults to 4. Head dropout is fixed at 0.2. The maximum stage
-width is 256.
+`in_channels` defaults to 3 (BLUE, GREEN, RED). Head dropout is fixed at 0.2
+and applies on the feature map. The maximum stage width is 256.
 
 ## Constraints
 
 This module imports torch at import time. The graph does not apply sigmoid.
 Registry names use the compact classifier grammar in
-[`tools.inference.arch.registry`](registry.md).
+[`tools.ml_models.arch.registry`](registry.md).
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.grammar`](grammar.md)
-- [`tools.inference.arch.blocks`](blocks.md)
-- [`tools.inference.arch.classifier`](classifier.md)
-- [`tools.inference.arch.registry`](registry.md)
-- [`tools.inference.train`](../train.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.grammar`](grammar.md)
+- [`tools.ml_models.arch.blocks`](blocks.md)
+- [`tools.ml_models.arch.classifier`](classifier.md)
+- [`tools.ml_models.arch.registry`](registry.md)
+- [`tools.inference.train`](../../inference/train.md)

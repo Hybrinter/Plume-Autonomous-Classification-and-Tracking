@@ -1,6 +1,6 @@
-# tools.inference.arch.unet
+# tools.ml_models.arch.unet
 
-**Source:** `packages/tools/src/tools/inference/arch/unet.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/unet.py`
 **Kind:** module
 
 ## Purpose
@@ -29,7 +29,7 @@ original 64-128-256-512 bilinear U-Net. Output is a logit map.
 `UNet.forward(x)` maps `(N, C, H, W)` to `(N, 1, H, W)` logits. Height and width
 come from the input tensor.
 
-`build_segmentor(in_channels=4, out_channels=1, base_width=64, depth=4,
+`build_segmentor(in_channels=3, out_channels=1, base_width=64, depth=4,
 separable=False) -> UNet`.
 
 ## Behavior
@@ -52,19 +52,19 @@ None.
 
 ## Configuration
 
-`in_channels` and `out_channels` are constructor arguments. `base_width`
+`in_channels` defaults to 3. `out_channels` defaults to 1. `base_width`
 defaults to 64. `depth` defaults to 4. Spatial size is not a constructor field.
 
 ## Constraints
 
 This module imports torch at import time. The implementation does not copy
 third-party U-Net sources. Registry names use the `unet` family in
-[`tools.inference.arch.registry`](registry.md).
+[`tools.ml_models.arch.registry`](registry.md).
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.grammar`](grammar.md)
-- [`tools.inference.arch.blocks`](blocks.md)
-- [`tools.inference.arch.registry`](registry.md)
-- [`tools.inference.train`](../train.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.grammar`](grammar.md)
+- [`tools.ml_models.arch.blocks`](blocks.md)
+- [`tools.ml_models.arch.registry`](registry.md)
+- [`tools.inference.train`](../../inference/train.md)

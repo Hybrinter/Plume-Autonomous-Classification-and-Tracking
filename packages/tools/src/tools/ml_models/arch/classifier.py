@@ -1,12 +1,16 @@
 """Binary plume classifiers built on torchvision backbones.
 
-Every backbone is retargeted the same way: the stem takes `in_channels` bands
-(flight default 4) instead of three RGB planes, and the head emits one logit.
-The graph does not apply sigmoid; flight thresholds the logit directly.
+Every backbone is retargeted the same way: the stem takes ``in_channels`` bands
+and the head emits one logit. The flight default is 3 channels, BLUE, GREEN,
+and RED. The graph does not apply sigmoid; flight thresholds the logit directly.
 
 A trailing ``_pt`` on a backbone name loads ImageNet weights and remaps the stem
-kernel onto the PACT band order (see :mod:`tools.inference.arch.stem`). Without
+kernel onto the flight band order (see :mod:`tools.ml_models.arch.stem`). Without
 the suffix the network starts from a random initialisation.
+
+ShuffleNet V2 replaces each ``BatchNorm2d`` with a subclass that stays defined
+when a channel holds one value. The replacement loads the original batch-norm
+state. Other backbones keep stock batch norm.
 
 Contains:
   - BackboneName: registered torchvision backbone names.
@@ -26,6 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+import torch
 from torch import nn
 from torchvision.models import (
     EfficientNet_B0_Weights,
@@ -44,7 +49,7 @@ from torchvision.models import (
     shufflenet_v2_x0_5,
 )
 
-from tools.inference.arch.stem import retarget_final_linear, retarget_first_conv
+from tools.ml_models.arch.stem import retarget_final_linear, retarget_first_conv
 
 PRETRAINED_SUFFIX = "_pt"
 
@@ -138,12 +143,67 @@ def construct_backbone(spec: BackboneSpec) -> nn.Module:
     return model
 
 
-def build_backbone_spec(spec: BackboneSpec, in_channels: int = 4) -> nn.Module:
+class _SingletonSafeBatchNorm2d(nn.BatchNorm2d):
+    """Batch norm that stays defined for one value per channel.
+
+    A 30-pixel tile and a batch of one sample reach a 1x1 map inside
+    ShuffleNet. Training batch norm rejects that shape. This layer uses the
+    running mean and variance for that input.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalize one activation map.
+
+        Args:
+            x: Input ``(N, C, H, W)``.
+
+        Returns:
+            torch.Tensor: Normalized activations with the same shape as ``x``.
+        """
+        values_per_channel = x.shape[0] * x.shape[2] * x.shape[3]
+        if self.training and self.track_running_stats and values_per_channel <= 1:
+            normalized: torch.Tensor = nn.functional.batch_norm(
+                x,
+                self.running_mean,
+                self.running_var,
+                self.weight,
+                self.bias,
+                training=False,
+                momentum=0.0,
+                eps=self.eps,
+            )
+            return normalized
+        output: torch.Tensor = super().forward(x)
+        return output
+
+
+def _use_singleton_safe_batchnorm(module: nn.Module) -> None:
+    """Replace each ``BatchNorm2d`` with :class:`_SingletonSafeBatchNorm2d`.
+
+    Args:
+        module: Network edited in place.
+    """
+    for name, child in list(module.named_children()):
+        if isinstance(child, nn.BatchNorm2d) and type(child) is nn.BatchNorm2d:
+            safe = _SingletonSafeBatchNorm2d(
+                child.num_features,
+                eps=child.eps,
+                momentum=child.momentum,
+                affine=child.affine,
+                track_running_stats=child.track_running_stats,
+            )
+            safe.load_state_dict(child.state_dict())
+            setattr(module, name, safe)
+        else:
+            _use_singleton_safe_batchnorm(child)
+
+
+def build_backbone_spec(spec: BackboneSpec, in_channels: int = 3) -> nn.Module:
     """Return a retargeted torchvision classifier for a parsed spec.
 
     Args:
         spec: Parsed backbone name and pretrained flag.
-        in_channels: Input band count (flight default 4).
+        in_channels: Input band count (flight default 3, BLUE/GREEN/RED).
 
     Returns:
         nn.Module: Network mapping (N, C, H, W) to (N, 1) logits.
@@ -151,15 +211,17 @@ def build_backbone_spec(spec: BackboneSpec, in_channels: int = 4) -> nn.Module:
     model = construct_backbone(spec)
     retarget_first_conv(model, in_channels, spec.pretrained)
     retarget_final_linear(model, 1)
+    if spec.backbone is BackboneName.shufflenetv2_x0_5:
+        _use_singleton_safe_batchnorm(model)
     return model
 
 
-def build_backbone(name: str, in_channels: int = 4) -> nn.Module:
+def build_backbone(name: str, in_channels: int = 3) -> nn.Module:
     """Return a retargeted torchvision classifier for a registry name.
 
     Args:
         name: Registry name such as ``mobilenetv3_small_pt``.
-        in_channels: Input band count (flight default 4).
+        in_channels: Input band count (flight default 3, BLUE/GREEN/RED).
 
     Returns:
         nn.Module: Network mapping (N, C, H, W) to (N, 1) logits.
@@ -170,11 +232,11 @@ def build_backbone(name: str, in_channels: int = 4) -> nn.Module:
     return build_backbone_spec(parse_backbone(name), in_channels=in_channels)
 
 
-def build_classifier(in_channels: int = 4) -> nn.Module:
+def build_classifier(in_channels: int = 3) -> nn.Module:
     """Return the default compact pactnet classifier.
 
     Args:
-        in_channels: Input band count (flight default 4).
+        in_channels: Input band count (flight default 3, BLUE/GREEN/RED).
 
     Returns:
         nn.Module: Untrained PactNet. Forward maps (N, C, H, W) to (N, 1).
@@ -183,7 +245,7 @@ def build_classifier(in_channels: int = 4) -> nn.Module:
         The compact family is the empty-arch default. Torchvision backbones
         remain available through :func:`build_backbone`.
     """
-    from tools.inference.arch.compact import (
+    from tools.ml_models.arch.compact import (
         DEFAULT_COMPACT_DEPTH,
         DEFAULT_COMPACT_WIDTH,
         CompactSpec,

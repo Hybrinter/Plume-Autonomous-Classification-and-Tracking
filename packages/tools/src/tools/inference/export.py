@@ -43,8 +43,8 @@ from flight.payload.inference.verify import compute_sha256
 from torch import Tensor, nn
 
 from tools.inference.accept import Manifest, load_manifest
-from tools.inference.arch.registry import build
 from tools.inference.data import _row_image, load_processed_pack
+from tools.ml_models.arch.registry import build
 
 _EXPORT_KINDS = frozenset({"classifier", "segmentor"})
 

@@ -26,7 +26,7 @@ Contains:
   - EncoderStage: 2x2 max-pool then ConvBlock.
   - DecoderStage: bilinear upsample, skip concat, ConvBlock.
   - UNet: parameterised encoder-decoder with a 1x1 logit head.
-  - build_segmentor: construct a 4-channel, 1-logit U-Net.
+  - build_segmentor: construct a 3-channel, 1-logit U-Net.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
@@ -38,7 +38,7 @@ from typing import cast
 import torch
 from torch import nn
 
-from tools.inference.arch.blocks import conv3x3_layers
+from tools.ml_models.arch.blocks import conv3x3_layers
 
 ENCODER_CHANNELS: tuple[int, int, int, int] = (64, 128, 256, 512)
 
@@ -189,7 +189,7 @@ class UNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 4,
+        in_channels: int = 3,
         out_channels: int = 1,
         base_width: int = 64,
         depth: int = 4,
@@ -198,7 +198,7 @@ class UNet(nn.Module):
         """Construct the encoder, bottleneck, decoder, and logit head.
 
         Args:
-            in_channels: Input band count (flight default 4).
+            in_channels: Input band count (flight default 3, BLUE/GREEN/RED).
             out_channels: Logit maps (flight default 1).
             base_width: Stem channel count. Stages double from here.
             depth: Stage count including the stem.
@@ -242,7 +242,7 @@ class UNet(nn.Module):
 
 
 def build_segmentor(
-    in_channels: int = 4,
+    in_channels: int = 3,
     out_channels: int = 1,
     base_width: int = 64,
     depth: int = 4,

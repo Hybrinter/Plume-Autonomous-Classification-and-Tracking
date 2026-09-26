@@ -2,7 +2,7 @@
 
 Every other classifier in the registry is a torchvision backbone built to
 separate a thousand object categories in natural photographs. This one answers a
-single yes-or-no question about a 4-band satellite tile, and it is sized for the
+single yes-or-no question about a BLUE/GREEN/RED tile, and it is sized for the
 21,350 tiles that are available rather than for the million images those
 backbones were designed around. The ResNet-50 baseline reaches a perfect train
 score while giving up several points on the held-out split, which is the
@@ -17,9 +17,10 @@ Three choices follow from that:
   - Aggressive early downsampling. The stem strides immediately. Plume presence
     is a question about a region, not about a pixel, so the fine resolution that
     a segmentation decoder needs is wasted work here.
-  - Global average pooling into a single linear layer. A flattened fully
-    connected head would hold more parameters than the entire convolution stack
-    and is where a small network of this shape usually overfits first.
+  - A 1x1 convolution on the feature map, then a max over the strided cells.
+    Dropout applies on the feature map ``(N, C, h, w)``. ``forward`` returns
+    one logit per tile. Default depth 4 strides four times, so each cell covers
+    about 16 input pixels.
 
 Names follow the same grammar as the rest of the registry: ``pactnet`` with an
 optional ``w<N>`` stem width (default 16), ``d<N>`` stage count (default 4), and
@@ -43,16 +44,15 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from tools.inference.arch.blocks import conv_norm_relu
-from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
+from tools.ml_models.arch.blocks import conv_norm_relu
+from tools.ml_models.arch.grammar import ModifierFlags, parse_modifiers
 
 COMPACT_PREFIX = "pactnet"
 
 DEFAULT_COMPACT_WIDTH = 16
 DEFAULT_COMPACT_DEPTH = 4
 
-# Enough to regularise the single linear head without starving a network this
-# small of signal.
+# Dropout on the feature map before the 1x1 head.
 _HEAD_DROPOUT = 0.2
 
 # Widths double each stage until this ceiling, which keeps the deepest stage of
@@ -115,7 +115,7 @@ class PactNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 4,
+        in_channels: int = 3,
         base_width: int = DEFAULT_COMPACT_WIDTH,
         depth: int = DEFAULT_COMPACT_DEPTH,
         separable: bool = True,
@@ -137,17 +137,28 @@ class PactNet(nn.Module):
         if base_width < 1:
             raise ValueError(f"base_width must be at least 1, got {base_width}")
         widths = compact_stage_widths(base_width, depth)
-        # The stem is always dense: separating four input bands saves almost
-        # nothing and discards the cross-band mixing that the NIR plane exists
-        # to provide.
+        # The stem is always dense so it mixes the input channels. The flight
+        # stem is three channels: BLUE, GREEN, and RED.
         stages: list[nn.Module] = [_conv_block(in_channels, widths[0], 2, separable=False)]
         for index in range(1, depth):
             stages.append(_conv_block(widths[index - 1], widths[index], 2, separable=separable))
             stages.append(_conv_block(widths[index], widths[index], 1, separable=separable))
         self.features = nn.Sequential(*stages)
-        self.pool = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(_HEAD_DROPOUT)
-        self.head = nn.Linear(widths[-1], 1)
+        self.head = nn.Conv2d(widths[-1], 1, kernel_size=1)
+
+    def spatial(self, x: torch.Tensor) -> torch.Tensor:
+        """Map a band stack to one logit per strided cell.
+
+        Args:
+            x: Input of shape ``(N, C, H, W)``.
+
+        Returns:
+            torch.Tensor: Logits of shape ``(N, 1, h, w)``.
+        """
+        features = self.features(x)
+        logits: torch.Tensor = self.head(self.dropout(features))
+        return logits
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Map a band stack to one logit per sample.
@@ -156,11 +167,10 @@ class PactNet(nn.Module):
             x: Input of shape ``(N, C, H, W)``.
 
         Returns:
-            torch.Tensor: Logits of shape ``(N, 1)``.
+            torch.Tensor: Logits of shape ``(N, 1)``. The value is the maximum
+            of :meth:`spatial` over the strided feature cells.
         """
-        features = self.features(x)
-        pooled = self.pool(features).flatten(1)
-        logits: torch.Tensor = self.head(self.dropout(pooled))
+        logits: torch.Tensor = self.spatial(x).amax(dim=(2, 3))
         return logits
 
 
@@ -191,12 +201,12 @@ def parse_compact(name: str) -> CompactSpec:
     )
 
 
-def build_compact_classifier(spec: CompactSpec, in_channels: int = 4) -> nn.Module:
+def build_compact_classifier(spec: CompactSpec, in_channels: int = 3) -> nn.Module:
     """Return an untrained :class:`PactNet` for a parsed spec.
 
     Args:
         spec: Parsed compact specification.
-        in_channels: Input band count (flight default 4).
+        in_channels: Input band count (flight default 3, BLUE/GREEN/RED).
 
     Returns:
         nn.Module: Network mapping ``(N, C, H, W)`` to ``(N, 1)`` logits.

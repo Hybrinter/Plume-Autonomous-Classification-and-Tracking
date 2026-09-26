@@ -33,9 +33,9 @@ def test_tools_inference_eval_imports() -> None:
     assert importlib.import_module("tools.inference.eval") is not None
 
 
-def test_tools_inference_arch_registry_imports() -> None:
-    """tools.inference.arch.registry imports successfully."""
-    assert importlib.import_module("tools.inference.arch.registry") is not None
+def test_tools_ml_models_arch_registry_imports() -> None:
+    """tools.ml_models.arch.registry imports successfully."""
+    assert importlib.import_module("tools.ml_models.arch.registry") is not None
 
 
 def test_tools_inference_plots_report_runs_import() -> None:

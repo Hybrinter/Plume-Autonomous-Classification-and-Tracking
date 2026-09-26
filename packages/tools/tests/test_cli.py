@@ -16,3 +16,8 @@ def test_root_registers_inference_commands() -> None:
 def test_root_registers_analysis_commands() -> None:
     """The root command dispatches to the analysis application."""
     assert main(["analysis", "list"]) == 0
+
+
+def test_root_registers_ml_models_commands() -> None:
+    """The root command dispatches to the ml-models application."""
+    assert main(["ml-models", "--help"]) == 0

@@ -7,15 +7,15 @@
 
 The tools package holds engineering utilities outside the flight image. It
 includes inference training, export, and acceptance under `tools.inference`,
-processed-pack data, network builders, and training under `tools.ml_models`, and SIL
-telemetry analysis under `tools.analysis`.
+processed-pack data, network builders, training, and ONNX export under
+`tools.ml_models`, and SIL telemetry analysis under `tools.analysis`.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
 | [`inference`](tools/inference.md) | package | Train, export, accept, and score inference artifacts |
-| [`ml_models`](tools/ml_models.md) | package | Processed packs, network builders, and training |
+| [`ml_models`](tools/ml_models.md) | package | Packs, builders, training, and ONNX export |
 | [`analysis`](tools/analysis.md) | package | Deterministic SIL capture, stats, plots, and reports |
 | [`original_dataset_analysis`](tools/original_dataset_analysis.md) | package | Zenodo band and ground-sample-distance study |
 | [`cli`](tools/cli.md) | module | Root `pact-tools` Typer application |
@@ -29,16 +29,19 @@ telemetry analysis under `tools.analysis`.
 Run inference workflows with
 `pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`.
 
+Run ml_models workflows with
+`pact-tools ml-models <train|eval|export|accept|pair>`.
+
 Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.
 
-`python -m tools`, `python -m tools.inference`, and
-`python -m tools.analysis` provide module aliases.
+`python -m tools`, `python -m tools.inference`, `python -m tools.ml_models`,
+and `python -m tools.analysis` provide module aliases.
 
 ## Interactions
 
-`tools.inference.accept` imports `flight.payload.inference.verify` for hash and I/O
-contract checks.
+`tools.ml_models.export.accept` imports `flight.payload.inference.verify` for
+hash and I/O contract checks. `tools.inference.accept` re-exports that gate.
 
 `tools.analysis` drives `sim.sil.build_sil_system` and `step_once`, subscribes
 passively to bus message types, and writes static report bundles. It never

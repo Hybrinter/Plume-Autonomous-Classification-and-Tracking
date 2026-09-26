@@ -105,6 +105,8 @@ def test_canvas_loop_writes_frame_checkpoint(tmp_path: Path) -> None:
     assert payload["in_channels"] == 3
     assert payload["arch"] == "dilatenet"
     assert payload["band_names"] == ["b0", "b1", "b2"]
+    assert payload["ingest_path"] == "flight_camera"
+    assert payload["radiometry"] == "normalize_dn"
     assert payload["dataset_hash"]
     assert "state_dict" in payload
     assert payload["epoch"] == 1
@@ -117,6 +119,9 @@ def test_canvas_loop_writes_frame_checkpoint(tmp_path: Path) -> None:
     assert summary["best_val_metric"] is not None
     assert "test_mean_dice" not in summary
     assert summary["n_test"] == 0
+    assert summary["band_names"] == ["b0", "b1", "b2"]
+    assert summary["ingest_path"] == "flight_camera"
+    assert summary["radiometry"] == "normalize_dn"
     loaded = load_train_config(str(root / "config.toml"))
     assert loaded.canvas is not None
     assert loaded.canvas.frame_hw == (20, 24)

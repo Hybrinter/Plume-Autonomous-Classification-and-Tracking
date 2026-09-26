@@ -72,9 +72,12 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 14. Validation uses full-frame samples from the val split. Checkpoint
     selection uses classifier F1 of the max logit, or segmentor Dice.
 15. `best.pt` and `last.pt` store model state, epoch, `dataset_hash`, arch,
-    `in_channels`, and `band_names`. A canvas checkpoint also stores `frame_hw`
-    and `window_px`. `summary.json` stores the dataset hash and the val metric.
-    `history.csv` stores the scored rows. `train` does not take a test loader.
+    `in_channels`, and `band_names`. A canvas checkpoint also stores `frame_hw`,
+    `window_px`, `ingest_path`, and `radiometry`. `summary.json` stores the
+    dataset hash, the val metric, `in_channels`, and `band_names`. A canvas
+    summary also stores `frame_hw`, `window_px`, `ingest_path`, and
+    `radiometry`. `history.csv` stores the scored rows. `train` does not take
+    a test loader.
 
 ## Errors and faults
 

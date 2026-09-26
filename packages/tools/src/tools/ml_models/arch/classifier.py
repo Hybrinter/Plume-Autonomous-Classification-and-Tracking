@@ -242,8 +242,9 @@ def build_classifier(in_channels: int = 3) -> nn.Module:
         nn.Module: Untrained PactNet. Forward maps (N, C, H, W) to (N, 1).
 
     Notes:
-        The compact family is the empty-arch default. Torchvision backbones
-        remain available through :func:`build_backbone`.
+        The compact family is the empty-arch default. ``spatial`` stays false,
+        so the head is adaptive average pooling and a linear layer. Torchvision
+        backbones remain available through :func:`build_backbone`.
     """
     from tools.ml_models.arch.compact import (
         DEFAULT_COMPACT_DEPTH,
@@ -257,6 +258,7 @@ def build_classifier(in_channels: int = 3) -> nn.Module:
             base_width=DEFAULT_COMPACT_WIDTH,
             depth=DEFAULT_COMPACT_DEPTH,
             separable=True,
+            spatial=False,
         ),
         in_channels=in_channels,
     )

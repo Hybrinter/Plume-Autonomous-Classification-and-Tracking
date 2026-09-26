@@ -115,6 +115,36 @@ def test_calibration_batches_from_pack(tmp_path: Path) -> None:
     assert batches[0].dtype == torch.float32
 
 
+def _write_named_initializer(path: Path, name: str, shape: tuple[int, ...]) -> None:
+    """Write a one-node ONNX graph whose only initializer is ``name``."""
+    import onnx
+    from onnx import TensorProto, helper, numpy_helper
+
+    tensor = numpy_helper.from_array(np.zeros(shape, dtype=np.float32), name=name)
+    value = helper.make_tensor_value_info(name, TensorProto.FLOAT, list(shape))
+    out = helper.make_tensor_value_info("logits", TensorProto.FLOAT, list(shape))
+    node = helper.make_node("Identity", [name], ["logits"])
+    graph = helper.make_graph([node], "init", [value], [out], [tensor])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    onnx.save(model, str(path))
+
+
+@_skip_no_onnx
+def test_copy_matching_initializers_rejects_shape_mismatch(tmp_path: Path) -> None:
+    """A same-name initializer with a different shape raises ValueError."""
+    from tools.inference.export import _copy_matching_initializers
+
+    source = tmp_path / "source.onnx"
+    dest = tmp_path / "dest.onnx"
+    _write_named_initializer(source, "head.weight", (1, 8))
+    _write_named_initializer(dest, "head.weight", (1, 8, 1, 1))
+    with pytest.raises(
+        ValueError,
+        match=r"head\.weight.*source \(1, 8\) destination \(1, 8, 1, 1\)",
+    ):
+        _copy_matching_initializers(str(source), str(dest))
+
+
 @_skip_no_onnx
 @pytest.mark.slow
 def test_export_segmentor_then_accept(tmp_path: Path) -> None:

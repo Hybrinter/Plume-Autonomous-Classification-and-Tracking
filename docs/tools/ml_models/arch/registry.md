@@ -54,7 +54,9 @@ kind or unparsable name.
    `shufflenetv2_x0_5`. Examples: `resnet18`, `mobilenetv3_small_pt`.
 3. **Compact classifier family.** Name `pactnet` with underscore-separated
    modifiers: `w<N>` stem width (default 16), `d<N>` stage count (default 4),
-   `full` for dense convolutions. Examples: `pactnet`, `pactnet_w32_d5_full`.
+   `full` for dense convolutions, and `max` for a 1x1 convolution plus a max
+   over the strided cells. The default head is adaptive average pooling and a
+   linear layer. Examples: `pactnet`, `pactnet_max`, `pactnet_w32_d5_full`.
 4. **Scratch U-Net family.** Name `unet` with underscore-separated modifiers:
    `w<N>` stem width (default 64), `d<N>` stage count (default 4), `sep` for
    depthwise-separable convolutions. Examples: `unet`, `unet_w16_d3_sep`.

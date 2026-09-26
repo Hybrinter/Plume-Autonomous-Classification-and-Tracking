@@ -10,7 +10,8 @@ Contains:
 
 The hash covers ``images.npy``, ``masks.npy``, ``labels.npy``, ``splits.json``,
 and ``provenance.json``. ``dataset.json`` is not an input. ``band_z`` provenance
-stores the fitted per-band mean and population std. Other recipes store empty
+stores the fitted per-band mean and population std. Each stored mean is finite.
+Each stored std is finite and greater than 0. Other recipes store empty
 moment lists.
 
 Numeric fields use strict validation. A JSON boolean or numeric string is
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -95,8 +97,9 @@ class Provenance:
         norm: Normalization recipe applied before the pack was written.
         bit_depth: ADC bit depth used by ``normalize_dn``.
         band_mean: Fitted per-band means. Empty unless ``norm`` is ``band_z``.
+            Each value is finite when ``norm`` is ``band_z``.
         band_std: Fitted per-band population standard deviations. Empty unless
-            ``norm`` is ``band_z``. Each value is greater than 0.
+            ``norm`` is ``band_z``. Each value is finite and greater than 0.
     """
 
     ingest_path: IngestPath
@@ -141,8 +144,9 @@ class DatasetMeta:
         extent_m: Tile extent in meters.
         weight_table_id: Class-weight table identifier.
         band_mean: Fitted per-band means. Empty unless ``norm`` is ``band_z``.
+            Each value is finite when ``norm`` is ``band_z``.
         band_std: Fitted per-band population standard deviations. Empty unless
-            ``norm`` is ``band_z``. Each value is greater than 0.
+            ``norm`` is ``band_z``. Each value is finite and greater than 0.
     """
 
     dataset_hash: str
@@ -485,7 +489,8 @@ def _require_band_moments(
 
     Raises:
         ValueError: If ``band_z`` moments do not have length ``band_count``, a
-            std is not positive, or another recipe stores moments.
+            mean is non-finite, a std is non-finite or not positive, or another
+            recipe stores moments.
     """
     if norm == "band_z":
         if len(band_mean) != band_count or len(band_std) != band_count:
@@ -493,8 +498,10 @@ def _require_band_moments(
                 f"band_z band_mean length {len(band_mean)} and band_std length {len(band_std)} "
                 f"must both equal band count {band_count}"
             )
-        if any(value <= 0.0 for value in band_std):
-            raise ValueError("band_std values must be > 0")
+        if any(not math.isfinite(value) for value in band_mean):
+            raise ValueError("band_mean values must be finite")
+        if any(not math.isfinite(value) or value <= 0.0 for value in band_std):
+            raise ValueError("band_std values must be finite and > 0")
         return
     if len(band_mean) != 0 or len(band_std) != 0:
         raise ValueError(f"norm {norm!r} records empty band_mean and band_std")

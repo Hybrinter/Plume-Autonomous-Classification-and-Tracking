@@ -8,11 +8,13 @@ Contains:
 
 ``fit_band_stats`` accepts ``(C, H, W)`` or ``(N, C, H, W)``. Population standard
 deviation uses divisor P (pixel count). Values below ``1e-6`` are raised to
-``1e-6``.
+``1e-6``. Non-finite pixels are rejected. ``apply_band_z`` requires a finite
+mean and a finite std greater than 0 on every channel.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -74,19 +76,26 @@ def fit_band_stats(stack: np.ndarray) -> BandStats:
 
     Returns:
         BandStats: Mean and population standard deviation across pixels
-        (and samples, for rank 4). Each std is at least ``1e-6``.
+        (and samples, for rank 4). Each mean is finite. Each std is finite
+        and at least ``1e-6``.
 
     Raises:
-        ValueError: If the rank is not 3 or 4, or an axis is empty.
+        ValueError: If the rank is not 3 or 4, an axis is empty, a pixel is
+            non-finite, or a fitted moment is non-finite.
 
     Notes:
         Population standard deviation is ``sqrt(mean((x - mean)^2))`` with
-        divisor P, the number of pixels in the channel.
+        divisor P, the number of pixels in the channel. The std floor applies
+        only after the raw moment is finite.
     """
     matrix = _channel_matrix(stack)  # np.ndarray[float64, (C, P)]
+    if not bool(np.isfinite(matrix).all()):
+        raise ValueError("stack values must be finite")
     means = tuple(float(value) for value in np.mean(matrix, axis=1))
     stds = tuple(max(float(value), _STD_FLOOR) for value in np.std(matrix, axis=1, ddof=0))
-    return BandStats(mean=means, std=stds)
+    stats = BandStats(mean=means, std=stds)
+    _require_finite_moments(stats)
+    return stats
 
 
 def apply_band_z(planes: np.ndarray, stats: BandStats) -> np.ndarray:
@@ -100,8 +109,9 @@ def apply_band_z(planes: np.ndarray, stats: BandStats) -> np.ndarray:
         np.ndarray[float32]: ``(planes - mean) / std`` with the same rank.
 
     Raises:
-        ValueError: If the rank is not 3 or 4, or the moment length disagrees
-            with the channel count.
+        ValueError: If the rank is not 3 or 4, the moment length disagrees
+            with the channel count, a mean is non-finite, or a std is not a
+            finite value greater than 0.
     """
     array = np.asarray(planes, dtype=np.float32)
     if array.ndim == 3:
@@ -172,7 +182,7 @@ def _require_bit_depth(bit_depth: int) -> None:
 
 
 def _require_stats_length(stats: BandStats, channels: int) -> None:
-    """Raise when moment tuples do not have length ``channels``.
+    """Raise when moment length is wrong or a moment cannot scale a channel.
 
     Args:
         stats: Frozen moments.
@@ -182,15 +192,38 @@ def _require_stats_length(stats: BandStats, channels: int) -> None:
         None.
 
     Raises:
-        ValueError: If ``mean`` and ``std`` differ, or either length is not ``channels``.
+        ValueError: If ``mean`` and ``std`` differ, either length is not
+            ``channels``, a mean is non-finite, or a std is not finite and
+            greater than 0.
     """
     if len(stats.mean) != len(stats.std) or len(stats.mean) != channels:
         raise ValueError(
             f"mean length {len(stats.mean)} and std length {len(stats.std)} "
             f"must both equal channel count {channels}"
         )
-    if any(value <= 0.0 for value in stats.std):
-        raise ValueError("std values must be > 0")
+    _require_finite_moments(stats)
+
+
+def _require_finite_moments(stats: BandStats) -> None:
+    """Raise when a mean is non-finite or a std is not finite and positive.
+
+    ``math.isfinite`` rejects NaN and both infinities. ``value <= 0`` does not
+    reject NaN or positive infinity.
+
+    Args:
+        stats: Frozen per-channel moments.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If a mean is non-finite, or a std is non-finite or not
+            greater than 0.
+    """
+    if any(not math.isfinite(value) for value in stats.mean):
+        raise ValueError("mean values must be finite")
+    if any(not math.isfinite(value) or value <= 0.0 for value in stats.std):
+        raise ValueError("std values must be finite and > 0")
 
 
 def _channel_matrix(stack: np.ndarray) -> np.ndarray:

@@ -40,16 +40,19 @@ Output dtype is float32.
 2. `apply_unit` clips every element to `[0, 1]`.
 3. `fit_band_stats` accepts `(C, H, W)` or `(N, C, H, W)`. Mean and population
    standard deviation are per channel. Population std uses divisor P, the
-   pixel count. Std is floored at `1e-6`.
-4. `apply_band_z` returns `(planes - mean) / std`.
+   pixel count. Every pixel must be finite. Each returned mean is finite.
+   Std is floored at `1e-6` only when the raw std is finite.
+4. `apply_band_z` returns `(planes - mean) / std`. Each mean must be finite.
+   Each std must be finite and greater than 0.
 5. `apply_norm` selects `normalize_dn`, `unit`, or `band_z`. `band_z` without
    `stats` raises `ValueError`.
 
 ## Errors and faults
 
 `ValueError` when `bit_depth` is below 1, the stack rank is not 3 or 4, an
-axis is empty, moment length disagrees with the channel count, a std is not
-positive, or `band_z` is missing `stats`.
+axis is empty, a pixel is non-finite, moment length disagrees with the channel
+count, a mean is non-finite, a std is non-finite or not positive, or `band_z`
+is missing `stats`.
 
 ## Messages
 

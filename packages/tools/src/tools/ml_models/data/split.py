@@ -4,7 +4,8 @@ Contains:
   - SplitRecipe: seed plus train/val/test fractions.
   - SplitIndex: integer index tuples for each split.
   - assign_group_splits: one split per group id, rows follow the group.
-  - write_splits / load_splits: ``splits.json`` codec.
+  - write_splits / load_splits / load_group_ids: ``splits.json`` codec.
+    Optional ``group_ids`` ride in that file beside the indices.
 
 Fractions apply to unique groups. A numpy Generator shuffles the groups.
 Rows are not permuted on their own.
@@ -25,6 +26,7 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 _SCHEMA = ConfigDict(extra="forbid")
 _SPLIT_NAMES: tuple[str, ...] = ("train", "val", "test")
+_KNOWN_KEYS: frozenset[str] = frozenset((*_SPLIT_NAMES, "group_ids"))
 
 
 @pydantic_dataclass(frozen=True, slots=True, config=_SCHEMA)
@@ -154,19 +156,37 @@ def assign_group_splits(group_ids: Sequence[str], recipe: SplitRecipe) -> SplitI
     )
 
 
-def write_splits(path: str | Path, index: SplitIndex) -> None:
+def write_splits(
+    path: str | Path,
+    index: SplitIndex,
+    *,
+    group_ids: Sequence[str] | None = None,
+) -> None:
     """Write a SplitIndex as JSON.
 
     Args:
         path: Destination ``splits.json``.
         index: Split indices.
+        group_ids: Optional group id per row. Omitted from the file when None.
 
     Returns:
         None.
+
+    Raises:
+        ValueError: If a group id is not a string.
     """
     dest = Path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"train": list(index.train), "val": list(index.val), "test": list(index.test)}
+    payload: dict[str, list[int] | list[str]] = {
+        "train": list(index.train),
+        "val": list(index.val),
+        "test": list(index.test),
+    }
+    if group_ids is not None:
+        ids = tuple(group_ids)
+        if any(not isinstance(group_id, str) for group_id in ids):
+            raise ValueError("group ids must be strings")
+        payload["group_ids"] = list(ids)
     dest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
@@ -177,16 +197,55 @@ def load_splits(path: str | Path) -> SplitIndex:
         path: JSON path.
 
     Returns:
-        SplitIndex: Loaded indices.
+        SplitIndex: Loaded indices. ``group_ids`` is accepted and ignored.
 
     Raises:
         OSError / json.JSONDecodeError: On a missing or malformed file.
         ValueError: If a split name is missing, an index is not an integer,
-            an unknown key is present, or indices overlap.
+            an unknown key is present, ``group_ids`` is not a list of strings,
+            or indices overlap.
     """
-    dest = Path(path)
-    data = _read_json_object(dest)
-    extra = sorted(set(data) - set(_SPLIT_NAMES))
+    index, _group_ids = _load_split_record(path)
+    return index
+
+
+def load_group_ids(path: str | Path) -> tuple[str, ...] | None:
+    """Return the optional per-row group ids stored in ``splits.json``.
+
+    Args:
+        path: JSON path.
+
+    Returns:
+        tuple[str, ...] | None: One group id per row, or None when the key is
+        absent.
+
+    Raises:
+        OSError / json.JSONDecodeError: On a missing or malformed file.
+        ValueError: If a split name is missing, an index is not an integer,
+            an unknown key is present, ``group_ids`` is not a list of strings,
+            or indices overlap.
+    """
+    _index, group_ids = _load_split_record(path)
+    return group_ids
+
+
+def _load_split_record(path: str | Path) -> tuple[SplitIndex, tuple[str, ...] | None]:
+    """Parse indices and optional group ids from ``splits.json``.
+
+    Args:
+        path: JSON path.
+
+    Returns:
+        tuple[SplitIndex, tuple[str, ...] | None]: Indices and group ids.
+
+    Raises:
+        OSError / json.JSONDecodeError: On a missing or malformed file.
+        ValueError: If a split name is missing, an index is not an integer,
+            an unknown key is present, ``group_ids`` is not a list of strings,
+            or indices overlap.
+    """
+    data = _read_json_object(Path(path))
+    extra = sorted(set(data) - _KNOWN_KEYS)
     if extra:
         raise ValueError(f"unknown split keys {extra}")
     index = SplitIndex(
@@ -200,7 +259,7 @@ def load_splits(path: str | Path) -> SplitIndex:
             if item in seen:
                 raise ValueError(f"duplicate index {item} in splits")
             seen.add(item)
-    return index
+    return index, _group_id_tuple(data)
 
 
 def _read_json_object(path: Path) -> dict[str, object]:
@@ -225,6 +284,32 @@ def _read_json_object(path: Path) -> dict[str, object]:
             raise ValueError(f"{path.name} keys must be strings")
         decoded[key] = value
     return decoded
+
+
+def _group_id_tuple(data: Mapping[str, object]) -> tuple[str, ...] | None:
+    """Return optional per-row group ids.
+
+    Args:
+        data: Decoded ``splits.json``.
+
+    Returns:
+        tuple[str, ...] | None: Group ids in file order, or None when the key
+        is absent.
+
+    Raises:
+        ValueError: If ``group_ids`` is present and is not a list of strings.
+    """
+    if "group_ids" not in data:
+        return None
+    value = data["group_ids"]
+    if not isinstance(value, list):
+        raise ValueError("group_ids must be a list of strings")
+    ids: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("group_ids must be a list of strings")
+        ids.append(item)
+    return tuple(ids)
 
 
 def _index_tuple(data: Mapping[str, object], name: str) -> tuple[int, ...]:

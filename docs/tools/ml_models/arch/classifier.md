@@ -81,4 +81,4 @@ specific: `build_backbone` constructs torchvision graphs.
 - [`tools.ml_models.arch.compact`](compact.md)
 - [`tools.ml_models.arch.stem`](stem.md)
 - [`tools.ml_models.arch.registry`](registry.md)
-- [`tools.inference.train`](../../inference/train.md)
+- [`tools.ml_models.train`](../train.md)

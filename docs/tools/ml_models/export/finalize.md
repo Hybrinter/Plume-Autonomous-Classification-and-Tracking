@@ -64,5 +64,4 @@ on the gate.
 - [`tools.ml_models.export`](../export.md)
 - [`tools.ml_models.export.onnx`](onnx.md)
 - [`tools.ml_models.export.accept`](accept.md)
-- [`tools.inference.eval`](../../inference/eval.md)
-- [`tools.inference.finalize`](../../inference/finalize.md)
+- [`tools.ml_models.analysis.eval`](../analysis/eval.md)

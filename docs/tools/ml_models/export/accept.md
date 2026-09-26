@@ -82,13 +82,12 @@ Callers pass `min_iou`, `min_accuracy`, `max_latency_ms`, and expected shapes.
 ## Constraints
 
 Golden scenes carry torch tensors. `compute_iou` comes from
-`tools.inference.metrics`. The live path converts tensors to numpy for
+`tools.ml_models.train.metrics`. The live path converts tensors to numpy for
 onnxruntime.
 
 ## Related documents
 
 - [`tools.ml_models.export`](../export.md)
 - [`tools.ml_models.export.ort_providers`](ort_providers.md)
-- [`tools.inference.accept`](../../inference/accept.md)
-- [`tools.inference.metrics`](../../inference/metrics.md)
+- [`tools.ml_models.train.metrics`](../train/metrics.md)
 - [`flight.payload.inference.verify`](../../../flight/payload/inference/verify.md)

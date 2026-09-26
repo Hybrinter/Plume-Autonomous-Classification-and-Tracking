@@ -1,8 +1,8 @@
 # Model optimization experiments
 
-Sweep spaces for `pact-tools inference sweep`. Each file is a space TOML: scalar
-keys are fixed, list keys are search axes, and the runner expands the cartesian
-product. See [`docs/tools/inference/sweep.md`](../docs/tools/inference/sweep.md).
+Sweep spaces for `tools.ml_models.train.sweep.sweep`. Each file is a space TOML:
+scalar keys are fixed, list keys are search axes, and the runner expands the
+cartesian product. See [`docs/tools/ml_models/train/sweep.md`](../docs/tools/ml_models/train/sweep.md).
 
 ## Stages
 
@@ -48,8 +48,8 @@ The catalog mixes stages, so the frontier is drawn from one sweep JSONL, with
 seeds of the same architecture averaged:
 
 ```text
-uv run pact-tools inference pareto --run-dir artifacts/runs --kind segmentor --metric mean_iou --split val --from-jsonl artifacts/runs/20_arch_segmentor.jsonl --by-arch --baseline 0.5509 --write-space experiments/25_confirm_segmentor.toml
-uv run pact-tools inference pareto --run-dir artifacts/runs --kind classifier --metric f1 --split val --from-jsonl artifacts/runs/20_arch_classifier.jsonl --by-arch --baseline 0.9311 --write-space experiments/25_confirm_classifier.toml
+uv run python -c "from tools.ml_models.analysis.pareto import frontier_points, mean_by_arch, pareto_front; from tools.ml_models.analysis.runs import discover_runs; from tools.ml_models.train.sweep import completed_run_ids; ids=completed_run_ids('artifacts/runs/20_arch_segmentor.jsonl'); print(pareto_front(mean_by_arch(frontier_points(discover_runs('artifacts/runs'), 'mean_iou', kind='segmentor', split='val', run_ids=ids))))"
+uv run python -c "from tools.ml_models.analysis.pareto import frontier_points, mean_by_arch, pareto_front; from tools.ml_models.analysis.runs import discover_runs; from tools.ml_models.train.sweep import completed_run_ids; ids=completed_run_ids('artifacts/runs/20_arch_classifier.jsonl'); print(pareto_front(mean_by_arch(frontier_points(discover_runs('artifacts/runs'), 'f1', kind='classifier', split='val', run_ids=ids))))"
 ```
 
 Training boxes often keep the catalog outside the repo. Pass that path to
@@ -63,8 +63,8 @@ After stage 2.5, join the architecture JSONL with the extra-seed JSONL, take
 the single knee, and fill the refine and 256 px spaces:
 
 ```text
-uv run pact-tools inference pareto --run-dir artifacts/runs --kind segmentor --metric mean_iou --split val --from-jsonl artifacts/runs/20_arch_segmentor.jsonl --from-jsonl artifacts/runs/25_confirm_segmentor.jsonl --by-arch --baseline 0.5509 --auto-spread --neighbors 0 --write-space experiments/27_refine_segmentor.toml --write-space experiments/30_final_segmentor.toml
-uv run pact-tools inference pareto --run-dir artifacts/runs --kind classifier --metric f1 --split val --from-jsonl artifacts/runs/20_arch_classifier.jsonl --from-jsonl artifacts/runs/25_confirm_classifier.jsonl --by-arch --baseline 0.9311 --auto-spread --neighbors 0 --write-space experiments/27_refine_classifier.toml --write-space experiments/30_final_classifier.toml
+uv run python -c "from tools.ml_models.analysis.pareto import frontier_points, knee, mean_by_arch, pareto_front; from tools.ml_models.analysis.runs import discover_runs; from tools.ml_models.train.sweep import completed_run_ids; ids=completed_run_ids('artifacts/runs/20_arch_segmentor.jsonl')|completed_run_ids('artifacts/runs/25_confirm_segmentor.jsonl'); front=pareto_front(mean_by_arch(frontier_points(discover_runs('artifacts/runs'), 'mean_iou', kind='segmentor', split='val', run_ids=ids))); print(knee(front, 0.5509))"
+uv run python -c "from tools.ml_models.analysis.pareto import frontier_points, knee, mean_by_arch, pareto_front; from tools.ml_models.analysis.runs import discover_runs; from tools.ml_models.train.sweep import completed_run_ids; ids=completed_run_ids('artifacts/runs/20_arch_classifier.jsonl')|completed_run_ids('artifacts/runs/25_confirm_classifier.jsonl'); front=pareto_front(mean_by_arch(frontier_points(discover_runs('artifacts/runs'), 'f1', kind='classifier', split='val', run_ids=ids))); print(knee(front, 0.9311))"
 ```
 
 ImageNet-pretrained backbones are permitted in the shipped model. Every
@@ -126,10 +126,15 @@ that record would credit the candidate for the resolution and the objective as
 well as for the architecture. Retraining both is what makes the reported
 improvement attributable to the model.
 
-After each stage 3 run, `pact-tools inference finalize --run <dir>` scores the
-test split, exports FP32 and INT8 ONNX, and runs the golden-scene gate. That is
-the command that produces the artifacts the definition of done requires. The
-shipped graphs are FP32. INT8 stays beside them as a measured alternative.
+After each stage 3 run, `tools.ml_models.export.finalize.finalize` scores the
+test split, exports FP32 and INT8 ONNX, and runs the golden-scene gate:
+
+```text
+uv run python -c "from tools.ml_models.export.finalize import finalize; finalize('RUN_DIR')"
+```
+
+That call produces the artifacts the definition of done requires. The shipped
+graphs are FP32. INT8 stays beside them as a measured alternative.
 
 ## Data
 

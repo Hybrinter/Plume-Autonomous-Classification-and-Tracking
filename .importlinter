@@ -126,15 +126,6 @@ source_modules =
 forbidden_modules =
     analysis
 
-[importlinter:contract:original-dataset-isolation]
-name = Original dataset analysis must not import flight or inference
-type = forbidden
-source_modules =
-    tools.original_dataset_analysis
-forbidden_modules =
-    flight
-    tools.inference
-
 [importlinter:contract:tools-analysis-isolation]
 name = Tools must not import analysis
 type = forbidden

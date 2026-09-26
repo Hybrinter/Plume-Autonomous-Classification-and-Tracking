@@ -251,7 +251,7 @@ def sweep(
         directory with ``overwrite`` set, so a directory left behind by an
         interrupted trial is replaced rather than blocking the sweep.
     """
-    from tools.inference.eval import evaluate
+    from tools.ml_models.analysis.eval import evaluate
 
     trials = _relocate(load_sweep_space(space_path), data_dir, run_dir)
     if not trials:

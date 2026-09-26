@@ -16,7 +16,6 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from tools.inference.data import ProcessedPack, SplitDataset, load_processed_pack
 from tools.ml_models.arch.registry import build
 from tools.ml_models.train.config import TrainConfig, load_train_config
 from tools.ml_models.train.metrics import (
@@ -25,6 +24,7 @@ from tools.ml_models.train.metrics import (
     segmentor_metrics,
     sigmoid,
 )
+from tools.ml_models.train.samples import ProcessedPack, SplitDataset, load_processed_pack
 
 _PREVIEW_LIMIT = 8
 

@@ -34,11 +34,6 @@ from torch import nn
 from torch.nn import functional
 from torch.utils.data import DataLoader
 
-from tools.inference.data import ProcessedPack as InferencePack
-from tools.inference.data import SplitDataset, load_disk_batch, make_synthetic_pack
-from tools.inference.data import load_processed_pack as load_inference_pack
-from tools.inference.data import write_processed_pack as write_inference_pack
-from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
 from tools.ml_models.arch.registry import build, resolve_arch
 from tools.ml_models.data.pack import ProcessedPack as MlPack
 from tools.ml_models.data.pack import load_processed_pack
@@ -60,6 +55,11 @@ from tools.ml_models.train.losses import (
     weighted_batch_loss,
 )
 from tools.ml_models.train.metrics import classifier_metrics, segmentor_metrics
+from tools.ml_models.train.recipe import DatasetMeta, SplitIndex, SplitRecipe
+from tools.ml_models.train.samples import ProcessedPack as InferencePack
+from tools.ml_models.train.samples import SplitDataset, load_disk_batch, make_synthetic_pack
+from tools.ml_models.train.samples import load_processed_pack as load_inference_pack
+from tools.ml_models.train.samples import write_processed_pack as write_inference_pack
 
 _TRAIN_KINDS = frozenset({"classifier", "segmentor"})
 _VAL_METRICS = frozenset({"f1", "mean_iou", "bce"})

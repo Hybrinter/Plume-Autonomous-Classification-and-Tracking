@@ -87,4 +87,4 @@ Registry names use the dilated segmentor grammar in
 - [`tools.ml_models.arch.unet`](unet.md)
 - [`tools.ml_models.arch.encoder_unet`](encoder_unet.md)
 - [`tools.ml_models.arch.registry`](registry.md)
-- [`tools.inference.train`](../../inference/train.md)
+- [`tools.ml_models.train`](../train.md)

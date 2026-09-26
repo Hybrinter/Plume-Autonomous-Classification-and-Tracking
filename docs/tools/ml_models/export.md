@@ -26,7 +26,7 @@ import each module by name.
 ## Interactions
 
 `onnx` and `accept` call `flight.payload.inference.verify`. `pair` and
-`finalize` read `InferenceConfig`. `finalize` calls `tools.inference.eval`.
+`finalize` read `InferenceConfig`. `finalize` calls `tools.ml_models.analysis.eval`.
 No module imports `flight.core` or `tools.analysis`. No module publishes on
 the bus.
 

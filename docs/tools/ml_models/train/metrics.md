@@ -70,11 +70,9 @@ None.
 
 ## Constraints
 
-Pure torch reductions. No file I/O. `tools.inference.metrics` re-exports these
-names.
+Pure torch reductions. No file I/O.
 
 ## Related documents
 
 - [`tools.ml_models.train`](../train.md)
 - [`tools.ml_models.train.loop`](loop.md)
-- [`tools.inference.metrics`](../../inference/metrics.md)

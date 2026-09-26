@@ -1,7 +1,7 @@
 """Model workflows for training, export, analysis, and acceptance.
 
 Contains:
-  - data: processed packs, Zenodo reads, prism chips, and flight tiles.
+  - data: processed packs, Zenodo reads, fetch, prism chips, and flight tiles.
   - arch: segmentor and classifier network builders.
   - train: plain-torch loop, losses, metrics, cost, and sweeps.
   - export: ONNX logits, acceptance, and the flight pair blob.

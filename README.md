@@ -141,21 +141,22 @@ A CUDA-enabled install prints a `+cu130` version tag on both Windows and Linux. 
 `True` once an NVIDIA GPU and a matching driver are present. The train loop selects CUDA when it is
 available; pass `--device` to override.
 
-Run inference engineering workflows through the installed tools command:
+Run model workflows through the installed tools command:
 
 ```bash
-pact-tools inference fetch
-pact-tools inference train --kind segmentor --out artifacts/segmentor.pt
-pact-tools inference export \
-  --kind segmentor \
-  --checkpoint artifacts/segmentor.pt \
-  --out artifacts/segmentor.onnx
+uv run python scripts/fetch_smoke_plume_dataset.py
+pact-tools ml-models train --kind segmentor --out artifacts/segmentor.pt
+pact-tools ml-models export --run artifacts/runs/<run-id> --out artifacts/segmentor.onnx
 ```
 
-Factory flight graphs are `data/models/active_classifier.onnx` (ShuffleNetV2-x0.5)
-and `data/models/active_segmentor.onnx` (DilateNet-w32). `config/default.toml`
-`[inference]` points at those paths. `pact-tools inference finalize --promote`
-copies a passed artifact there.
+The fetch script prints checksum status and does not download unless
+`--download` is set. Factory flight graphs are
+`data/models/active_classifier.onnx` (ShuffleNetV2-x0.5) and
+`data/models/active_segmentor.onnx` (DilateNet-w32). `config/default.toml`
+`[inference]` points at those paths.
+`tools.ml_models.export.finalize.finalize` scores the test split, exports ONNX,
+and accepts the artifact. Pass `promote_path` to copy a passed artifact into
+`data/models/`.
 
 Use `python -m tools` as an alias for `pact-tools`.
 

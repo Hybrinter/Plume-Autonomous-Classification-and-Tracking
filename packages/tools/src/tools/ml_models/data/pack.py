@@ -96,8 +96,9 @@ def write_processed_pack(
         DatasetMeta: Written identity, including ``dataset_hash``.
 
     Raises:
-        ValueError: If shapes, dtypes, or the split source are invalid, or both
-            ``group_ids`` and ``splits`` are passed.
+        ValueError: If shapes, dtypes, or the split source are invalid, a split
+            index is a bool or not an int, or both ``group_ids`` and ``splits``
+            are passed.
 
     Notes:
         Files are written as arrays, ``splits.json``, then ``provenance.json``.
@@ -439,7 +440,7 @@ def _require_float32(name: str, array: np.ndarray) -> None:
 
 
 def _require_complete_split(index: SplitIndex, n: int) -> None:
-    """Raise when indices are out of range, overlap, or skip a row.
+    """Raise when indices are not integers, out of range, overlap, or skip a row.
 
     Args:
         index: Train, val, and test indices.
@@ -449,12 +450,18 @@ def _require_complete_split(index: SplitIndex, n: int) -> None:
         None.
 
     Raises:
-        ValueError: If an index is out of range, duplicated, or the union is
-            not ``0..n-1``.
+        ValueError: If an index is a bool or not an int, is out of range,
+            is duplicated, or the union is not ``0..n-1``.
+
+    Notes:
+        Each entry must be an ``int``. ``bool`` values are not accepted.
+        ``load_splits`` uses the same rule.
     """
     seen: set[int] = set()
     for name in ("train", "val", "test"):
         for item in index.for_name(name):
+            if isinstance(item, bool) or not isinstance(item, int):
+                raise ValueError(f"{name} indices must be integers")
             if item < 0 or item >= n:
                 raise ValueError(f"split index {item} out of range for n={n}")
             if item in seen:

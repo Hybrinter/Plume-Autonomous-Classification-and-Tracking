@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -181,6 +182,25 @@ def test_write_processed_pack_uses_precomputed_splits(tmp_path: Path) -> None:
     assert loaded.splits == index
     assert loaded.group_ids is None
     assert loaded.meta.n == 4
+
+
+def test_write_processed_pack_rejects_non_integer_split_entries(tmp_path: Path) -> None:
+    """False, True, and 0.0 are refused before a splits file is written."""
+    dest = tmp_path / "pack"
+    images, masks, labels = _arrays(3)
+    provenance = _provenance()
+    cases = (
+        SplitIndex(train=(False,), val=(1,), test=(2,)),
+        SplitIndex(train=(0,), val=(True,), test=(2,)),
+        SplitIndex(train=cast(tuple[int, ...], (0.0,)), val=(1,), test=(2,)),
+    )
+    for index in cases:
+        with pytest.raises(ValueError, match="integers"):
+            write_processed_pack(dest, images, masks, labels, provenance, "doi", splits=index)
+    assert not dest.exists()
+    kept = SplitIndex(train=(0,), val=(1,), test=(2,))
+    write_processed_pack(dest, images, masks, labels, provenance, "doi", splits=kept)
+    assert load_processed_pack(dest).splits == kept
 
 
 def test_write_processed_pack_rejects_bad_inputs(tmp_path: Path) -> None:

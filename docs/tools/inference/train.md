@@ -5,9 +5,10 @@
 
 ## Purpose
 
-This module runs a plain-torch train loop for the classifier or the segmentor.
-Batches come from a `DataLoader` over `SplitDataset`. Each job writes a run
-directory.
+This module re-exports the plain-torch train loop. The loop body lives in
+[`tools.ml_models.train.loop`](../ml_models/train/loop.md). Chip batches come
+from a `DataLoader` over `SplitDataset`. A set `canvas` builds flight frames.
+Each job writes a run directory.
 
 ## Public interface
 
@@ -18,7 +19,8 @@ directory.
 | `overlay_train_config` | function | Apply CLI field overlays |
 | `apply_train_mapping` | function | Overlay from a string-key mapping |
 | `config_digest` | function | 8-hex identity of experiment fields |
-| `resolve_train_channels` | function | Channel count from the pack or the config |
+| `resolve_train_channels` | function | Channel count shared by the config and the pack |
+| `write_train_config_toml` | function | Write a TrainConfig table |
 | `train` | function | Run the loop and write a run directory |
 | `is_cuda_oom` | function | Detect a CUDA allocator failure |
 | `next_batch_after_oom` | function | Halve a batch size, or raise at size 1 |
@@ -34,7 +36,7 @@ directory.
 
 `config_digest(cfg) -> str`.
 
-`resolve_train_channels(cfg, pack) -> int`. Raises `ValueError` when pack metadata disagrees with the image tensor, when a synthetic pack disagrees with `in_channels`, or when `data_dir` is set and a non-default `in_channels` disagrees with the pack.
+`resolve_train_channels(cfg, pack) -> int`. Raises `ValueError` when pack metadata disagrees with the image tensor, or when `in_channels` disagrees with the pack.
 
 `train(config=None) -> Path`. Returns the run directory.
 
@@ -55,37 +57,42 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
    used unchanged.
 2. Raise `FileExistsError` when the run directory already has `summary.json`
    and `overwrite` is false.
-3. Load a processed pack, an unsplit disk adapter, or a synthetic pack. When
-   ``data_dir`` is set, the input channel count comes from the processed pack.
-   The default ``in_channels`` of 3 is replaced by the pack count when they
-   differ. A non-default ``in_channels`` that disagrees with the pack raises
-   ``ValueError``. Synthetic training with no ``data_dir`` keeps
-   ``cfg.in_channels``.
+3. Load a processed pack, an unsplit disk adapter, or a synthetic pack.
+   `in_channels` must equal the pack channel count. A mismatch raises
+   `ValueError`. A synthetic pack is built with `cfg.in_channels`.
 4. Probe one training step at `batch_size`. A CUDA out-of-memory error halves
    the size and retries down to 1. The written `config.toml` stores the size
    that fitted.
 5. Build the objective from `tools.inference.losses`. Run the selected
    optimizer for `epochs`. Train shuffle is off by default. Train-split flip and
    rotation run when `augment` is true.
-6. CUDA mixed precision runs when `amp` is true and the device is CUDA. The
-   loop uses `torch.amp.autocast` and `GradScaler`. cuDNN benchmark is enabled
-   on CUDA.
+6. On a chip run, CUDA mixed precision runs when `amp` is true and the device
+   is CUDA. The chip loop uses `torch.amp.autocast` and `GradScaler`. cuDNN
+   benchmark is enabled on CUDA for a chip run. A canvas run keeps cuDNN
+   benchmark off. A canvas run on CUDA uses `torch.autocast` and `GradScaler`.
+   A CPU canvas run does not enter autocast.
 7. Score unaugmented train and val splits every `eval_interval` epochs. The
    final epoch is always scored. A cosine schedule steps once per epoch.
 8. Write `last.pt` every scored epoch. Write `best.pt` when the val metric
    improves. Stop early when `patience` scored epochs pass without improvement.
 9. Write `summary.json` with hashes, counts, `n_params`, `flops`, `loss`, `amp`,
    `batch_size`, `stopped_early`, `train_seconds`, and the best epoch.
+10. With `canvas` set, load the pack through `load_processed_pack`. Train steps
+    use one split. Step `i` is a full frame when `i % full_frame_every == 0`.
+    Other steps are windows. `frame_hw` is the frame size. Validation scores
+    full frames. The checkpoint metric is classifier F1 or segmentor Dice.
+    `max_steps` caps optimizer steps. `None` runs full epochs. The test split
+    is not scored. Checkpoints store model state, epoch, `dataset_hash`, arch,
+    `in_channels`, `band_names`, and, for a canvas run, `frame_hw` and
+    `window_px`. A canvas run also writes `batch_shapes.json`.
 
 ## Errors and faults
 
 `ValueError` on an unknown `kind`, architecture, optimizer, scheduler, loss
 name, or empty train split. Unknown `kind`, `optimizer`, and `scheduler` fail
 at schema construction. `ValueError` when pack metadata disagrees with image
-tensor channels, when a synthetic pack band count disagrees with
-``in_channels``, or when ``data_dir`` is set and a non-default ``in_channels``
-disagrees with the pack (Zenodo fetch packs are 4-band; pass ``in_channels =
-4`` or rely on the default 3 being replaced by the pack count).
+tensor channels, or when `in_channels` disagrees with the pack channel count.
+A 4-band pack needs `in_channels = 4`.
 `FileExistsError` when the run directory exists and `overwrite` is false.
 `RuntimeError` when a CUDA out-of-memory error persists at `batch_size` 1.
 
@@ -100,11 +107,13 @@ None.
 `learning_rate=0.01`, `momentum=0.9`, `weight_decay=0.0`, `optimizer=sgd`,
 `scheduler=none`, `shuffle=false`, `pos_weight=0.0`, `augment=false`,
 `loss=bce`, `focal_gamma=2.0`, `focal_alpha=0.25`, `amp=false`, `patience=0`,
-`eval_interval=1`, `run_dir=artifacts/runs`, `overwrite=false`. Classifier val
-metric defaults to F1. Segmentor val metric defaults to mean IoU. A TOML file
-may overlay these fields. `config_digest` omits `run_dir`, `run_id`,
-`checkpoint_path`, and `overwrite`. `patience` at or below zero disables early
-stop.
+`eval_interval=1`, `max_steps` unset, `canvas` unset,
+`run_dir=artifacts/runs`, `overwrite=false`. Classifier val metric defaults to
+F1. Segmentor val metric defaults to mean IoU. A canvas run selects classifier
+F1 or segmentor Dice on full frames. A TOML file may overlay these fields. A
+`[canvas]` table maps onto `CanvasConfig`. `config_digest` omits `run_dir`,
+`run_id`, `checkpoint_path`, and `overwrite`. `patience` at or below zero
+disables early stop. `max_steps` at or above 1 caps optimizer steps.
 
 ## Constraints
 
@@ -121,4 +130,7 @@ Unknown `optimizer`, `scheduler`, or `loss` values raise `ValueError`.
 - [`tools.inference.metrics`](metrics.md)
 - [`tools.inference.export`](export.md)
 - [`tools.ml_models.arch.registry`](../ml_models/arch/registry.md)
+- [`tools.ml_models.train`](../ml_models/train.md)
+- [`tools.ml_models.train.loop`](../ml_models/train/loop.md)
+- [`tools.ml_models.data.canvas`](../ml_models/data/canvas.md)
 - [`tools.inference.sweep`](sweep.md)

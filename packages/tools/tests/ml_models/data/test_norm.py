@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from flight.payload.preprocess.normalize import normalize_dn
 from tools.ml_models.data.norm import (
+    BandStats,
     apply_band_z,
     apply_norm,
     apply_normalize_dn,
@@ -55,6 +56,46 @@ def test_fit_band_stats_floors_std() -> None:
     stats = fit_band_stats(constant)
     assert stats.mean == pytest.approx((5.0,))
     assert stats.std == pytest.approx((1e-6,))
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+def test_fit_band_stats_rejects_non_finite_pixels(bad: float) -> None:
+    """Non-finite pixels raise ValueError and do not return moments."""
+    stack = np.ones((1, 2, 2), dtype=np.float64)
+    stack[0, 0, 0] = bad
+    with pytest.raises(ValueError, match="finite"):
+        fit_band_stats(stack)
+    batch = np.ones((2, 1, 2, 2), dtype=np.float32)
+    batch[1, 0, 1, 1] = bad
+    with pytest.raises(ValueError, match="finite"):
+        fit_band_stats(batch)
+
+
+@pytest.mark.parametrize(
+    ("mean", "std"),
+    [
+        ((math.nan,), (1.0,)),
+        ((math.inf,), (1.0,)),
+        ((-math.inf,), (1.0,)),
+        ((0.0,), (math.nan,)),
+        ((0.0,), (math.inf,)),
+        ((0.0,), (-math.inf,)),
+        ((0.0,), (0.0,)),
+        ((0.0,), (-1.0,)),
+    ],
+)
+def test_apply_band_z_rejects_non_finite_stats(
+    mean: tuple[float, ...],
+    std: tuple[float, ...],
+) -> None:
+    """NaN, infinity, and non-positive std raise ValueError before scaling."""
+    planes = np.ones((1, 2, 2), dtype=np.float32)
+    stats = BandStats(mean=mean, std=std)
+    with pytest.raises(ValueError, match="finite"):
+        apply_band_z(planes, stats)
+    batch = np.ones((2, 1, 2, 2), dtype=np.float32)
+    with pytest.raises(ValueError, match="finite"):
+        apply_band_z(batch, stats)
 
 
 def test_apply_norm_band_z_requires_stats() -> None:

@@ -55,9 +55,10 @@ files.
 7. `load_dataset_meta` recomputes the hash when `pack_dir` is set and `verify`
    is true. A mismatch raises `ValueError`.
 8. When `norm` is `band_z`, `band_mean` and `band_std` each have length
-   `len(band_names)`. Each `band_std` value is greater than 0. These are the
-   fitted moments. `BandStats(mean=band_mean, std=band_std)` rebuilds them for
-   `apply_band_z` on a new sample.
+   `len(band_names)`. Each `band_mean` value is finite. Each `band_std` value
+   is finite and greater than 0. These are the fitted moments.
+   `BandStats(mean=band_mean, std=band_std)` rebuilds them for `apply_band_z`
+   on a new sample.
 9. When `norm` is `normalize_dn` or `unit`, `band_mean` and `band_std` are
    empty.
 

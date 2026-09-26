@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 from dataclasses import replace
 from pathlib import Path
 
@@ -127,6 +128,38 @@ def test_band_z_provenance_requires_moments() -> None:
             band_names=("b0", "b1"),
             norm="band_z",
             bit_depth=12,
+        )
+
+
+@pytest.mark.parametrize(
+    ("band_mean", "band_std"),
+    [
+        ((math.nan,), (1.0,)),
+        ((math.inf,), (1.0,)),
+        ((-math.inf,), (1.0,)),
+        ((0.0,), (math.nan,)),
+        ((0.0,), (math.inf,)),
+        ((0.0,), (-math.inf,)),
+        ((0.0,), (0.0,)),
+    ],
+)
+def test_band_z_provenance_rejects_non_finite_moments(
+    band_mean: tuple[float, ...],
+    band_std: tuple[float, ...],
+) -> None:
+    """band_z rejects NaN and infinite means and standard deviations."""
+    with pytest.raises(ValueError, match="finite"):
+        Provenance(
+            ingest_path="flight_camera",
+            radiometry="normalize_dn",
+            gsd_m=10.0,
+            extent_m=20.0,
+            weight_table_id="table-a",
+            band_names=("b0",),
+            norm="band_z",
+            bit_depth=12,
+            band_mean=band_mean,
+            band_std=band_std,
         )
 
 

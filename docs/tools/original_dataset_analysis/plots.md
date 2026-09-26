@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This module writes a horizontal bar chart of one score per subset.
+This module re-exports study charts from `tools.ml_models.analysis.plots`.
 
 ## Public interface
 
@@ -16,15 +16,15 @@ This module writes a horizontal bar chart of one score per subset.
 | `write_delta_bars` | function | Difference from the 12-band score |
 | `write_loss_curve` | function | Train, validation, and test loss |
 | `write_pr_curve` | function | Precision-recall curve |
-| `write_gsd_lines` | function | PR-AUC and native-grid Dice versus ground-sample distance |
+| `write_gsd_lines` | function | `pr_auc` and `native_dice` versus ground-sample distance |
 
 ## Inputs and outputs
 
-`write_band_bars(names, scores, path) -> None`.
+`write_band_bars(names, scores, path) -> Path`.
 
-`write_metric_bars(title, names, scores, path) -> None`.
+`write_metric_bars(title, names, scores, path) -> Path`.
 
-`write_loss_curve(epochs, train_loss, val_loss, test_loss, path, selected_epoch) -> None`.
+`write_loss_curve(epochs, train_loss, val_loss, test_loss, path, selected_epoch) -> Path`.
 
 ## Behavior
 

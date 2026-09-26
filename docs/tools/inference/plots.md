@@ -5,8 +5,8 @@
 
 ## Purpose
 
-This module builds headless matplotlib figures from a run directory. It does not
-import `tools.analysis`.
+This module re-exports run-directory figures from `tools.ml_models.analysis.plots`.
+It does not import `tools.analysis`.
 
 ## Public interface
 

@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This module builds a size-versus-quality frontier over the local run catalog.
+This module re-exports the frontier helpers from `tools.ml_models.analysis.pareto`.
 A run is on the frontier when no other run is at least as good on the metric
 and no larger on the cost axis. Parameter count is the default cost. FLOPs are
 available for latency comparisons.
@@ -113,9 +113,10 @@ Default `split` is `val`, which is the split the search reads. Default knee
 
 ## Constraints
 
-Torch-free. Depends on `tools.inference.runs.load_summary`. Classifier and
-segmentor runs must be filtered by `kind` before comparison. A frontier must
-not mix validation and test scores.
+Torch-free. The implementation reads summaries through
+`tools.ml_models.analysis.runs`. Classifier and segmentor runs must be filtered
+by `kind` before comparison. A frontier must not mix validation and test
+scores. `--write-space` on the inference CLI does not rewrite a sweep file.
 
 ## Related documents
 

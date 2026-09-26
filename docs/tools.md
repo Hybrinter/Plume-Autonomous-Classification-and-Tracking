@@ -7,15 +7,16 @@
 
 The tools package holds engineering utilities outside the flight image. It
 includes inference training, export, and acceptance under `tools.inference`,
-processed-pack data, network builders, training, and ONNX export under
-`tools.ml_models`, and SIL telemetry analysis under `tools.analysis`.
+processed-pack data, network builders, training, ONNX export, and run
+analysis under `tools.ml_models`, and SIL telemetry analysis under
+`tools.analysis`.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
 | [`inference`](tools/inference.md) | package | Train, export, accept, and score inference artifacts |
-| [`ml_models`](tools/ml_models.md) | package | Packs, builders, training, and ONNX export |
+| [`ml_models`](tools/ml_models.md) | package | Packs, builders, training, export, and analysis |
 | [`analysis`](tools/analysis.md) | package | Deterministic SIL capture, stats, plots, and reports |
 | [`original_dataset_analysis`](tools/original_dataset_analysis.md) | package | Zenodo band and ground-sample-distance study |
 | [`cli`](tools/cli.md) | module | Root `pact-tools` Typer application |

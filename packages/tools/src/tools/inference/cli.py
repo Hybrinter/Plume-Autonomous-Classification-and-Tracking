@@ -488,7 +488,7 @@ def pareto_command(
         list[str] | None,
         typer.Option(
             "--write-space",
-            help="Replace the arch placeholder in this space TOML.",
+            help="Rejected. This flag does not rewrite a sweep file.",
         ),
     ] = None,
 ) -> None:
@@ -498,6 +498,7 @@ def pareto_command(
     ``--from-jsonl`` keeps one sweep; pass it more than once to join sweeps.
     ``--by-arch`` averages seeds. ``--baseline`` selects the cheapest holding
     point and its neighbours. ``--auto-spread`` uses the seed range at the knee.
+    ``--write-space`` raises ``ValueError`` and does not rewrite a file.
     """
     from tools.inference.pareto import (
         format_pareto,
@@ -508,16 +509,14 @@ def pareto_command(
         orient_score,
         pareto_front,
         score_spread,
-        substitute_arch_placeholder,
     )
     from tools.inference.runs import discover_runs
     from tools.inference.sweep import completed_run_ids
 
     spaces = write_space or []
-    if spaces and baseline is None:
-        typer.echo("--write-space requires --baseline", err=True)
-        raise typer.Exit(code=1)
     try:
+        if spaces:
+            raise ValueError("--write-space does not rewrite a sweep file")
         jsonl_paths = from_jsonl or []
         run_ids: frozenset[str] | None = None
         if jsonl_paths:
@@ -549,17 +548,6 @@ def pareto_command(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(format_pareto(front, metric, cost), nl=False)
-    if spaces:
-        arches = tuple(point.arch for point in front)
-        for dest in spaces:
-            space = Path(dest)
-            try:
-                updated = substitute_arch_placeholder(space.read_text(encoding="utf-8"), arches)
-            except (OSError, ValueError) as exc:
-                typer.echo(str(exc), err=True)
-                raise typer.Exit(code=1) from exc
-            space.write_text(updated, encoding="utf-8")
-            typer.echo(str(space))
 
 
 @app.command("sweep")

@@ -5,8 +5,7 @@
 
 ## Purpose
 
-This module writes the native and ground-sample result tables with a blank
-score column.
+This module re-exports table writers from `tools.ml_models.analysis.results`.
 
 ## Public interface
 

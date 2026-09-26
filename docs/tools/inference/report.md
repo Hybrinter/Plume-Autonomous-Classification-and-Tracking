@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This module writes figures and a markdown summary into a training run directory.
+This module re-exports `write_report` from `tools.ml_models.analysis.report`.
 
 ## Public interface
 

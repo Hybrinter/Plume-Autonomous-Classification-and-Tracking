@@ -173,3 +173,13 @@ forbidden_modules =
     flight.core
     tools.analysis
 
+[importlinter:contract:ml-models-analysis-isolation]
+name = ml_models analysis must not import flight inference, flight core, or tools analysis
+type = forbidden
+source_modules =
+    tools.ml_models.analysis
+forbidden_modules =
+    flight.payload.inference
+    flight.core
+    tools.analysis
+

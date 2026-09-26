@@ -12,6 +12,11 @@ The hash covers ``images.npy``, ``masks.npy``, ``labels.npy``, ``splits.json``,
 and ``provenance.json``. ``dataset.json`` is not an input. ``band_z`` provenance
 stores the fitted per-band mean and population std. Other recipes store empty
 moment lists.
+
+Numeric fields use strict validation. A JSON boolean or numeric string is
+rejected. A JSON integer is accepted for a float field. JSON arrays for
+``band_names``, ``band_mean``, and ``band_std`` become tuples. Dataclass-level
+``strict=True`` is not set: on a pydantic dataclass it rejects a JSON object.
 """
 
 from __future__ import annotations
@@ -20,9 +25,9 @@ import hashlib
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import ConfigDict, TypeAdapter, model_validator
+from pydantic import ConfigDict, Field, TypeAdapter, model_validator
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 NormName = Literal["normalize_dn", "band_z", "unit"]
@@ -34,6 +39,8 @@ IngestPath = Literal[
 Radiometry = Literal["s2_l2a_reflectance", "normalize_dn"]
 
 _SCHEMA = ConfigDict(extra="forbid")
+_JsonInt = Annotated[int, Field(strict=True)]
+_JsonFloat = Annotated[float, Field(strict=True)]
 _HASH_CHUNK_BYTES = 8 * 1024 * 1024
 _PACK_HASH_FILES: tuple[str, ...] = (
     "images.npy",
@@ -94,14 +101,14 @@ class Provenance:
 
     ingest_path: IngestPath
     radiometry: Radiometry
-    gsd_m: float
-    extent_m: float
+    gsd_m: _JsonFloat
+    extent_m: _JsonFloat
     weight_table_id: str
     band_names: tuple[str, ...]
     norm: NormName
-    bit_depth: int
-    band_mean: tuple[float, ...] = ()
-    band_std: tuple[float, ...] = ()
+    bit_depth: _JsonInt
+    band_mean: tuple[_JsonFloat, ...] = ()
+    band_std: tuple[_JsonFloat, ...] = ()
 
     @model_validator(mode="after")
     def _bounds(self) -> Self:
@@ -140,20 +147,20 @@ class DatasetMeta:
 
     dataset_hash: str
     source_doi: str
-    n: int
-    height: int
-    width: int
-    in_channels: int
+    n: _JsonInt
+    height: _JsonInt
+    width: _JsonInt
+    in_channels: _JsonInt
     band_names: tuple[str, ...]
     norm: NormName
-    bit_depth: int
+    bit_depth: _JsonInt
     ingest_path: IngestPath
     radiometry: Radiometry
-    gsd_m: float
-    extent_m: float
+    gsd_m: _JsonFloat
+    extent_m: _JsonFloat
     weight_table_id: str
-    band_mean: tuple[float, ...] = ()
-    band_std: tuple[float, ...] = ()
+    band_mean: tuple[_JsonFloat, ...] = ()
+    band_std: tuple[_JsonFloat, ...] = ()
 
     @model_validator(mode="after")
     def _bounds(self) -> Self:

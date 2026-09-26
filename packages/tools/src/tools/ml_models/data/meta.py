@@ -9,7 +9,9 @@ Contains:
   - write_provenance / load_provenance.
 
 The hash covers ``images.npy``, ``masks.npy``, ``labels.npy``, ``splits.json``,
-and ``provenance.json``. ``dataset.json`` is not an input.
+and ``provenance.json``. ``dataset.json`` is not an input. ``band_z`` provenance
+stores the fitted per-band mean and population std. Other recipes store empty
+moment lists.
 """
 
 from __future__ import annotations
@@ -49,6 +51,8 @@ _PROVENANCE_FIELDS: tuple[str, ...] = (
     "band_names",
     "norm",
     "bit_depth",
+    "band_mean",
+    "band_std",
 )
 _DATASET_META_FIELDS: tuple[str, ...] = (
     "dataset_hash",
@@ -65,6 +69,8 @@ _DATASET_META_FIELDS: tuple[str, ...] = (
     "gsd_m",
     "extent_m",
     "weight_table_id",
+    "band_mean",
+    "band_std",
 )
 
 
@@ -81,6 +87,9 @@ class Provenance:
         band_names: Channel names, length ``C``.
         norm: Normalization recipe applied before the pack was written.
         bit_depth: ADC bit depth used by ``normalize_dn``.
+        band_mean: Fitted per-band means. Empty unless ``norm`` is ``band_z``.
+        band_std: Fitted per-band population standard deviations. Empty unless
+            ``norm`` is ``band_z``. Each value is greater than 0.
     """
 
     ingest_path: IngestPath
@@ -91,14 +100,17 @@ class Provenance:
     band_names: tuple[str, ...]
     norm: NormName
     bit_depth: int
+    band_mean: tuple[float, ...] = ()
+    band_std: tuple[float, ...] = ()
 
     @model_validator(mode="after")
     def _bounds(self) -> Self:
-        """Reject an empty band list or a bit depth below 1."""
+        """Reject an empty band list, a bit depth below 1, or bad band moments."""
         if len(self.band_names) < 1:
             raise ValueError("band_names must be non-empty")
         if self.bit_depth < 1:
             raise ValueError(f"bit_depth must be >= 1; got {self.bit_depth}")
+        _require_band_moments(self.norm, len(self.band_names), self.band_mean, self.band_std)
         return self
 
 
@@ -121,6 +133,9 @@ class DatasetMeta:
         gsd_m: Ground sample distance in meters.
         extent_m: Tile extent in meters.
         weight_table_id: Class-weight table identifier.
+        band_mean: Fitted per-band means. Empty unless ``norm`` is ``band_z``.
+        band_std: Fitted per-band population standard deviations. Empty unless
+            ``norm`` is ``band_z``. Each value is greater than 0.
     """
 
     dataset_hash: str
@@ -137,10 +152,12 @@ class DatasetMeta:
     gsd_m: float
     extent_m: float
     weight_table_id: str
+    band_mean: tuple[float, ...] = ()
+    band_std: tuple[float, ...] = ()
 
     @model_validator(mode="after")
     def _bounds(self) -> Self:
-        """Reject non-positive geometry or a band count that disagrees with names."""
+        """Reject non-positive geometry, a band-count mismatch, or bad band moments."""
         if self.n < 1:
             raise ValueError(f"n must be >= 1; got {self.n}")
         if self.height < 1 or self.width < 1:
@@ -153,6 +170,7 @@ class DatasetMeta:
             )
         if self.bit_depth < 1:
             raise ValueError(f"bit_depth must be >= 1; got {self.bit_depth}")
+        _require_band_moments(self.norm, len(self.band_names), self.band_mean, self.band_std)
         return self
 
 
@@ -163,7 +181,8 @@ def provenance_from_meta(meta: DatasetMeta) -> Provenance:
         meta: Pack identity.
 
     Returns:
-        Provenance: Ingest, radiometry, geometry, bands, norm, and bit depth.
+        Provenance: Ingest, radiometry, geometry, bands, norm, bit depth, and
+        band moments.
     """
     return Provenance(
         ingest_path=meta.ingest_path,
@@ -174,6 +193,8 @@ def provenance_from_meta(meta: DatasetMeta) -> Provenance:
         band_names=meta.band_names,
         norm=meta.norm,
         bit_depth=meta.bit_depth,
+        band_mean=meta.band_mean,
+        band_std=meta.band_std,
     )
 
 
@@ -217,6 +238,8 @@ def dataset_meta_from_provenance(
         gsd_m=provenance.gsd_m,
         extent_m=provenance.extent_m,
         weight_table_id=provenance.weight_table_id,
+        band_mean=provenance.band_mean,
+        band_std=provenance.band_std,
     )
 
 
@@ -280,6 +303,8 @@ def write_dataset_meta(path: str | Path, meta: DatasetMeta) -> None:
         "gsd_m": meta.gsd_m,
         "extent_m": meta.extent_m,
         "weight_table_id": meta.weight_table_id,
+        "band_mean": list(meta.band_mean),
+        "band_std": list(meta.band_std),
     }
     _write_json(Path(path), payload)
 
@@ -311,6 +336,8 @@ def load_dataset_meta(
     data = _read_json_object(dest)
     _require_exact_keys(data, _DATASET_META_FIELDS, dest.name)
     _require_string_list(data, "band_names")
+    _require_number_list(data, "band_mean")
+    _require_number_list(data, "band_std")
     meta = TypeAdapter(DatasetMeta).validate_python(data)
     if verify and pack_dir is not None:
         digest = compute_dataset_hash(pack_dir)
@@ -340,6 +367,8 @@ def write_provenance(path: str | Path, provenance: Provenance) -> None:
         "band_names": list(provenance.band_names),
         "norm": provenance.norm,
         "bit_depth": provenance.bit_depth,
+        "band_mean": list(provenance.band_mean),
+        "band_std": list(provenance.band_std),
     }
     _write_json(Path(path), payload)
 
@@ -361,6 +390,8 @@ def load_provenance(path: str | Path) -> Provenance:
     data = _read_json_object(dest)
     _require_exact_keys(data, _PROVENANCE_FIELDS, dest.name)
     _require_string_list(data, "band_names")
+    _require_number_list(data, "band_mean")
+    _require_number_list(data, "band_std")
     return TypeAdapter(Provenance).validate_python(data)
 
 
@@ -427,6 +458,41 @@ def _require_exact_keys(data: Mapping[str, object], fields: tuple[str, ...], lab
         raise ValueError(f"{label} keys mismatch; missing={missing} extra={extra}")
 
 
+def _require_band_moments(
+    norm: NormName,
+    band_count: int,
+    band_mean: tuple[float, ...],
+    band_std: tuple[float, ...],
+) -> None:
+    """Reject band moments that do not match the normalization recipe.
+
+    Args:
+        norm: Normalization recipe name.
+        band_count: Number of bands.
+        band_mean: Per-band means. Empty unless ``norm`` is ``band_z``.
+        band_std: Per-band population standard deviations. Empty unless ``norm``
+            is ``band_z``.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If ``band_z`` moments do not have length ``band_count``, a
+            std is not positive, or another recipe stores moments.
+    """
+    if norm == "band_z":
+        if len(band_mean) != band_count or len(band_std) != band_count:
+            raise ValueError(
+                f"band_z band_mean length {len(band_mean)} and band_std length {len(band_std)} "
+                f"must both equal band count {band_count}"
+            )
+        if any(value <= 0.0 for value in band_std):
+            raise ValueError("band_std values must be > 0")
+        return
+    if len(band_mean) != 0 or len(band_std) != 0:
+        raise ValueError(f"norm {norm!r} records empty band_mean and band_std")
+
+
 def _require_string_list(data: Mapping[str, object], key: str) -> None:
     """Raise when ``data[key]`` is not a list of strings.
 
@@ -443,3 +509,24 @@ def _require_string_list(data: Mapping[str, object], key: str) -> None:
     value = data[key]
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError(f"{key} must be a list of strings")
+
+
+def _require_number_list(data: Mapping[str, object], key: str) -> None:
+    """Raise when ``data[key]`` is not a list of numbers.
+
+    Args:
+        data: Decoded JSON object. ``key`` is present.
+        key: Field name.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If the value is not a list of ints or floats. Booleans are
+            rejected.
+    """
+    value = data[key]
+    if not isinstance(value, list) or any(
+        isinstance(item, bool) or not isinstance(item, (int, float)) for item in value
+    ):
+        raise ValueError(f"{key} must be a list of numbers")

@@ -189,7 +189,7 @@ def assert_same_ingest(packs: Sequence[ProcessedPack]) -> None:
 
 
 def concat_packs(packs: Sequence[ProcessedPack]) -> ProcessedPack:
-    """Stack packs that share provenance, bands, norm, and spatial size.
+    """Stack packs that share provenance, bands, norm, band moments, and size.
 
     Args:
         packs: Packs in concatenation order. Each pack's arrays match its meta.
@@ -201,7 +201,7 @@ def concat_packs(packs: Sequence[ProcessedPack]) -> ProcessedPack:
 
     Raises:
         ValueError: If ``ingest_path`` differs, or band names, spatial size,
-            norm, or another provenance field differs.
+            norm, band moments, or another provenance field differs.
 
     Notes:
         This function does not write a directory. The empty hash is meaningful
@@ -254,8 +254,8 @@ def _require_same_layout(packs: Sequence[ProcessedPack]) -> None:
         None.
 
     Raises:
-        ValueError: If band names, spatial size, norm, source DOI, or another
-            provenance field differs.
+        ValueError: If band names, spatial size, norm, band moments, source DOI,
+            or another provenance field differs.
     """
     first_meta = packs[0].meta
     first = provenance_from_meta(first_meta)
@@ -270,6 +270,12 @@ def _require_same_layout(packs: Sequence[ProcessedPack]) -> None:
             )
         if other.norm != first.norm:
             raise ValueError(f"norm mismatch: {first.norm!r} != {other.norm!r}")
+        if other.band_mean != first.band_mean or other.band_std != first.band_std:
+            raise ValueError(
+                "band stats mismatch: "
+                f"mean {first.band_mean!r} std {first.band_std!r} != "
+                f"mean {other.band_mean!r} std {other.band_std!r}"
+            )
         if other != first:
             raise ValueError("provenance mismatch")
         if pack.meta.source_doi != first_meta.source_doi:

@@ -18,7 +18,7 @@ from tools.ml_models.data.prism import (
     to_proxy_chip,
     write_prism_pack,
 )
-from tools.ml_models.data.zenodo import TileIndex, TileRef
+from tools.ml_models.data.zenodo import TileIndex, TileRef, to_native_stack
 
 _ROOT = Path(__file__).resolve().parents[5]
 _WEIGHTS = _ROOT / "data" / "manifests" / "ap3200t_s2_weights.toml"
@@ -153,7 +153,7 @@ def test_write_prism_pack_keeps_annotated_negatives(
         _images: Path,
         selected: Sequence[TileRef],
     ) -> Iterator[tuple[TileRef, np.ndarray, tuple[str, ...]]]:
-        stack = np.zeros((len(ZENODO_BAND_IDS), 8, 8), dtype=np.float32)
+        stack = np.zeros((len(ZENODO_BAND_IDS), 120, 120), dtype=np.float32)
         stack[0] = 10000.0
         descriptions = tuple("" for _band in ZENODO_BAND_IDS)
         for tile in selected:
@@ -168,3 +168,47 @@ def test_write_prism_pack_keeps_annotated_negatives(
     assert pack.labels.ravel().tolist() == [1.0, 0.0, 1.0, 1.0]
     assert float(pack.masks[1].max()) == 0.0
     assert float(pack.masks[0].max()) == 1.0
+
+
+@pytest.mark.parametrize(("height", "width"), [(120, 119), (119, 120), (121, 120), (120, 121)])
+def test_near_native_stack_is_fitted_before_proxy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    height: int,
+    width: int,
+) -> None:
+    """A 119 or 121 side is padded or cropped to 120 before the 76 px resample."""
+    stack = np.zeros((len(ZENODO_BAND_IDS), height, width), dtype=np.float32)
+    stack[0] = np.arange(width, dtype=np.float32)[None, :]
+    stack[0, :, -1] = 9000.0
+    tiles = (
+        _tile("10", _POLYGON),
+        _tile("20", _POLYGON),
+        _tile("30", ()),
+    )
+
+    def _index(_images: Path, _labels: Path) -> TileIndex:
+        return TileIndex(tiles=tiles)
+
+    def _stacks(
+        _images: Path,
+        selected: Sequence[TileRef],
+    ) -> Iterator[tuple[TileRef, np.ndarray, tuple[str, ...]]]:
+        descriptions = tuple("" for _band in ZENODO_BAND_IDS)
+        for tile in selected:
+            yield tile, stack, descriptions
+
+    monkeypatch.setattr("tools.ml_models.data.prism.build_index", _index)
+    monkeypatch.setattr("tools.ml_models.data.prism.iter_stacks", _stacks)
+    dest = tmp_path / "pack"
+    write_prism_pack(tmp_path / "images.tar", tmp_path / "labels.tar", _WEIGHTS, dest)
+    pack = load_processed_pack(dest)
+    table = load_weight_table(_WEIGHTS)
+    fitted, _mask = to_proxy_chip(to_native_stack(stack), ZENODO_BAND_IDS, table, _POLYGON)
+    raw, _raw_mask = to_proxy_chip(stack, ZENODO_BAND_IDS, table, _POLYGON)
+    stored = np.clip(fitted, 0.0, 1.0).astype(np.float32)
+    stretched = np.clip(raw, 0.0, 1.0).astype(np.float32)
+    assert pack.images.shape == (3, 3, PROXY_SIDE_PX, PROXY_SIDE_PX)
+    assert np.allclose(pack.images[0], stored)
+    assert np.allclose(pack.images[1], stored)
+    assert not np.allclose(stored, stretched)

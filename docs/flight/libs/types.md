@@ -23,7 +23,7 @@ is the dependency root for most flight code.
 | Name | Kind |
 | --- | --- |
 | `AckStatus`, `Band`, `CommandId`, `DownlinkPriority`, `FaultCode`, `FrameUsabilityTag` | enum |
-| `GimbalCommandMode`, `GimbalState`, `LaunchLockState`, `LinkState`, `MessageType` | enum |
+| `GimbalCommandMode`, `GimbalState`, `LinkState`, `MessageType` | enum |
 | `ModelDeployState`, `ParamKind`, `SystemMode` | enum |
 | `Err`, `Ok`, `Result` | type |
 | `MosaicFrame` | class |

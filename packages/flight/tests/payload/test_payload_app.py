@@ -14,7 +14,6 @@ from flight.libs.messages import (
     FaultEventMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
-    LaunchLockStateMsg,
     ModeChangeMsg,
     ProcessedFrameMsg,
     RoutedCommandMsg,
@@ -28,7 +27,6 @@ from flight.libs.types import (
     FrameUsabilityTag,
     GimbalCommandMode,
     GimbalState,
-    LaunchLockState,
     MessageType,
     MosaicFrame,
     Ok,
@@ -104,7 +102,6 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     return app, bus, gimbal, clock
 
 
@@ -182,7 +179,6 @@ def test_rate_mode_inner_catchup_samples_encoder_before_outer() -> None:
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     state = app.controller.initial_state()
     now = 0.1
     state = app.advance_inner(state, now)
@@ -415,7 +411,6 @@ def test_run_drains_camera_on_skipped_opportunities() -> None:
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     app.run(stop)
     assert sensor.starts == 1
     assert sensor.stops == 1
@@ -439,7 +434,6 @@ def test_run_publishes_fault_when_camera_drain_fails() -> None:
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     app.run(stop)
     assert sensor.drains == 1
     assert sensor.acquires == 0
@@ -476,23 +470,6 @@ def test_clock_origin_does_not_replay_from_zero() -> None:
     while not fault_sub.empty():
         faults.append(fault_sub.get_nowait())
     assert not any("catch-up" in f.detail for f in faults)
-
-
-def test_lock_engaged_writes_zero_torque() -> None:
-    """Fail-closed lock writes tau=0 and freezes the commanded rate."""
-    app, bus, gimbal, _clock = _build_app(_plume_detector())
-    app.lock_gate.engaged = True
-    bus.publish(
-        LaunchLockStateMsg(
-            msg_type=MessageType.LAUNCH_LOCK_STATE,
-            timestamp_utc="t",
-            state=LaunchLockState.ENGAGED,
-        )
-    )
-    state = replace(app.controller.initial_state(), commanded_rate_rad_s=0.1)
-    state = app.advance_inner(state, now=1.0)
-    assert gimbal._tau_nm == 0.0
-    assert state.commanded_rate_rad_s == 0.0
 
 
 def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:

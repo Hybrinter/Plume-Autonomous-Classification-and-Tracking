@@ -24,7 +24,7 @@ subsystem app publishes and subscribes using these types.
 | `BlobMeta` | class |
 | `CommandAckMsg`, `CommandMsg`, `DownlinkItemMsg`, `FaultEventMsg` | class |
 | `GimbalCommandMsg`, `HeartbeatMsg`, `InferenceResultMsg` | class |
-| `LaunchLockStateMsg`, `LinkStateMsg`, `ModeChangeMsg` | class |
+| `LinkStateMsg`, `ModeChangeMsg` | class |
 | `ModelDeployStateMsg`, `ModelStagedMsg`, `ProcessedFrameMsg` | class |
 | `ProductRefMsg`, `RoutedCommandMsg`, `SafetyStateMsg` | class |
 | `StorageWriteMsg`, `TelemetryEventMsg`, `UploadChunkMsg` | class |

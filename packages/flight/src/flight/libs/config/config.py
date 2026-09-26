@@ -127,8 +127,6 @@ class IntegrityConfig:
     freeze_strikes: int = Field(default=50, ge=1)
     r_min_rad_s: float = Field(default=0.01745, gt=0.0)
     encoder_rate_ratio: float = Field(default=0.2, gt=0.0)
-    lock_fight_rad_s: float = Field(default=0.05, gt=0.0)
-    lock_fight_strikes: int = Field(default=50, ge=1)
     command_authority_s: float = Field(default=0.020, gt=0.0)
     feedback_max_age_s: float = Field(default=0.010, gt=0.0)
     recovery_max_attempts: int = Field(default=3, ge=0)
@@ -609,9 +607,7 @@ class DriverConfig:
     Each field names a deployment axis the composition root must resolve to a
     concrete driver: 'sim' selects an in-process stand-in, 'real' selects the
     flight driver/device. host is a free-form label for the target machine
-    (provenance only; not acted on). The 'lock' (LaunchLock) axis is intentionally
-    absent: there is no LaunchLock device, so it is a permanent VCRM gap, not a
-    config field. The clock axis is informational here -- the composition root
+    (provenance only; not acted on). The clock axis is informational here -- the composition root
     chooses RealClock vs ManualClock from it BEFORE building drivers.
 
     Satisfies: REQ-OPER-HIGH-002 (validated startup config selects the deployment axes).

@@ -34,7 +34,7 @@ each step.
 ## Behavior
 
 1. `build_registry` assembles signals from per-group builders: system, bus, payload, fault,
-   iss_iface, thermal, electrical, command_router, storage, downlink, mechanical,
+   iss_iface, thermal, electrical, command_router, storage, downlink,
    model_deploy, and enrichment.
 2. Bus signals emit publish count, queue depth, drops, and overflow per message type.
 3. Payload signals read control state, residual KF, pointing rates, elevation driver samples,

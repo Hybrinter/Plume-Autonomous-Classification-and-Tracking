@@ -104,7 +104,6 @@ class ScenarioSpec:
         seed: deterministic scene seed.
         thermal_readings: per-step thermal-sensor script (degC; holds last once exhausted).
         power_readings: per-step power-sensor script (W; holds last once exhausted).
-        launch_lock_engaged: whether the launch lock starts ENGAGED.
         inbound_packets: signed CCSDS telecommand packets the station link delivers.
         injections: timed bus-message injections.
         actions: timed system actions.
@@ -122,7 +121,6 @@ class ScenarioSpec:
     seed: int = 0
     thermal_readings: tuple[float, ...] = (25.0,)
     power_readings: tuple[float, ...] = (30.0,)
-    launch_lock_engaged: bool = False
     inbound_packets: tuple[bytes, ...] = ()
     injections: tuple[Injection, ...] = ()
     actions: tuple[Action, ...] = ()
@@ -153,7 +151,6 @@ def build_system(spec: ScenarioSpec) -> SilSystem:
         thermal_readings=list(spec.thermal_readings),
         power_readings=list(spec.power_readings),
         uplink_key=spec.uplink_key,
-        launch_lock_engaged=spec.launch_lock_engaged,
     )
 
 
@@ -385,40 +382,18 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="arm_execute_command",
             title="Hazardous ARM/EXECUTE gating",
             description=(
-                "Exercises the command router's two-step hazardous gate with "
-                "RELEASE_LAUNCH_LOCK: an EXECUTE without a prior ARM is rejected (step 3), "
-                "an ARM is accepted (step 5), then the matching EXECUTE routes to the "
-                "mechanical app and releases the lock (step 6)."
+                "Exercises the command router's two-step hazardous gate with EXIT_SAFE: an "
+                "EXECUTE without a prior ARM is rejected (step 3), an ARM is accepted "
+                "(step 5), then the matching EXECUTE routes to the fault app (step 6)."
             ),
             category="command",
             steps=10,
             num_frames=10,
-            launch_lock_engaged=True,
             injections=(
-                Injection(
-                    3, _command("RELEASE_LAUNCH_LOCK", "mechanical", {"phase": "EXECUTE"}, seq=1)
-                ),
-                Injection(
-                    5, _command("RELEASE_LAUNCH_LOCK", "mechanical", {"phase": "ARM"}, seq=2)
-                ),
-                Injection(
-                    6, _command("RELEASE_LAUNCH_LOCK", "mechanical", {"phase": "EXECUTE"}, seq=3)
-                ),
+                Injection(3, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=1)),
+                Injection(5, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=2)),
+                Injection(6, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=3)),
             ),
-        ),
-        ScenarioSpec(
-            name="launch_lock_interlock",
-            title="Launch-lock motion interlock",
-            description=(
-                "The launch lock starts ENGAGED; the mechanical app publishes the ENGAGED "
-                "state and the payload inhibits gimbal motion (motion_inhibited) while still "
-                "tracking the FSM, so the gimbal stays parked through the run -- the lock -> "
-                "payload interlock direction."
-            ),
-            category="mechanical",
-            steps=12,
-            num_frames=12,
-            launch_lock_engaged=True,
         ),
         ScenarioSpec(
             name="model_lifecycle",

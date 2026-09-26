@@ -31,7 +31,6 @@ from tools.analysis.plots import (
     electrical,
     fault,
     iss_iface,
-    mechanical,
     model_deploy,
     payload,
     storage,
@@ -62,7 +61,6 @@ PLOT_GROUPS: tuple[GroupPlots, ...] = (
     GroupPlots("command_router", command_router.build),
     GroupPlots("storage", storage.build),
     GroupPlots("downlink", downlink.build),
-    GroupPlots("mechanical", mechanical.build),
     GroupPlots("model_deploy", model_deploy.build),
 )
 

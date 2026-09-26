@@ -44,7 +44,6 @@ from flight.libs.messages import (
     GimbalCommandMsg,
     HeartbeatMsg,
     InferenceResultMsg,
-    LaunchLockStateMsg,
     ModeChangeMsg,
     ProcessedFrameMsg,
     ProductRefMsg,
@@ -60,7 +59,6 @@ from flight.libs.types import (
     FaultCode,
     GimbalCommandMode,
     GimbalState,
-    LaunchLockState,
     MessageType,
     MosaicFrame,
     Ok,
@@ -68,7 +66,7 @@ from flight.libs.types import (
     SystemMode,
 )
 from flight.payload.control import ControlState, IssSample, PayloadController, VisionSample
-from flight.payload.gimbal.integrity import check_integrity, lock_hold_rate
+from flight.payload.gimbal.integrity import check_integrity
 from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
@@ -101,28 +99,10 @@ class TickOutcome:
 
 
 @dataclass(slots=True)
-class LockGate:
-    """Mutable launch-lock view. Fail-closed: defaults engaged until RELEASED is seen.
-
-    UNKNOWN is treated as engaged. Tests without a mechanical app must publish RELEASED
-    or set engaged=False.
-    """
-
-    engaged: bool = True
-
-
-@dataclass(slots=True)
 class SafeLatch:
     """SAFE visible to the inner thread without waiting on detect."""
 
     commanded: bool = False
-
-
-@dataclass(slots=True)
-class StowGate:
-    """Re-issue STOW after lock release if SAFE entry was blocked."""
-
-    pending: bool = False
 
 
 @dataclass(slots=True)
@@ -178,10 +158,8 @@ class PayloadApp:
         calib: MosaicCalibration.
         storage: StorageWriter.
         sensor_cfg, inference_cfg, preprocessing_cfg, fault_cfg: Config slices.
-        mode_sub, lock_sub, cmd_sub: Bus subscriptions.
-        lock_gate: Launch-lock inhibit (fail-closed).
+        mode_sub, cmd_sub: Bus subscriptions.
         safe_latch: SAFE flag the inner thread reads every T_in.
-        stow_gate: Re-issue STOW after lock release if still SAFE.
         pose_intent: Ground STOW/HOME/GOTO waiting for the next outer tick.
         vision_queue: In-process vision samples (not the MessageBus).
         inner_lock: Short lock around ControlState copies only.
@@ -201,11 +179,8 @@ class PayloadApp:
     preprocessing_cfg: PreprocessingConfig
     fault_cfg: FaultConfig
     mode_sub: Subscription[ModeChangeMsg]
-    lock_sub: Subscription[LaunchLockStateMsg]
     cmd_sub: Subscription[RoutedCommandMsg]
-    lock_gate: LockGate = field(default_factory=LockGate)
     safe_latch: SafeLatch = field(default_factory=SafeLatch)
-    stow_gate: StowGate = field(default_factory=StowGate)
     pose_intent: PoseIntent = field(default_factory=PoseIntent)
     vision_queue: deque[VisionSample] = field(default_factory=lambda: deque(maxlen=4))
     inner_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -257,11 +232,8 @@ class PayloadApp:
             preprocessing_cfg=cfg.preprocessing,
             fault_cfg=cfg.fault,
             mode_sub=bus.subscribe(ModeChangeMsg),
-            lock_sub=bus.subscribe(LaunchLockStateMsg),
             cmd_sub=bus.subscribe(RoutedCommandMsg),
-            lock_gate=LockGate(),
             safe_latch=SafeLatch(),
-            stow_gate=StowGate(),
             pose_intent=PoseIntent(),
             vision_queue=deque(maxlen=cfg.controller.vision.queue_depth),
             inner_lock=threading.Lock(),
@@ -282,12 +254,6 @@ class PayloadApp:
                 safe_cleared = self._clear_actuator_fault_for_ground()
                 self.safe_latch.commanded = not safe_cleared
         return safe_commanded, safe_cleared
-
-    def poll_lock_state(self) -> None:
-        """Drain pending LaunchLockStateMsg. UNKNOWN and ENGAGED both inhibit."""
-        while not self.lock_sub.empty():
-            state = self.lock_sub.get_nowait().state
-            self.lock_gate.engaged = state is not LaunchLockState.RELEASED
 
     def handle_commands(self) -> None:
         """Apply routed STOW / HOME / GOTO into the pose intent and ack."""
@@ -637,28 +603,15 @@ class PayloadApp:
                 detailed_plant=not self._rate_mode(),
             )
             current = tick.state
-            if self.lock_gate.engaged:
-                current = replace(current, commanded_rate_rad_s=0.0)
             for event in tick.telemetry:
-                if (
-                    self.lock_gate.engaged
-                    and event.subsystem == "payload"
-                    and event.event_name == "pointing"
-                ):
-                    payload = dict(event.payload)
-                    payload["r"] = 0.0
-                    event = replace(event, payload=payload)
                 self.bus.publish(event)
             if tick.request is not None:
                 issued = self._actuate_pose(tick.request, current, frame_id=0)
                 command_issued = command_issued or issued
-                if not issued and self.lock_gate.engaged:
-                    self.stow_gate.pending = True
             if self._rate_mode():
                 assert isinstance(self.gimbal, GimbalRateActuator)
                 if (
-                    not self.lock_gate.engaged
-                    and current.arbiter.gimbal_state is GimbalState.SAFE
+                    current.arbiter.gimbal_state is GimbalState.SAFE
                     and current.pose.pose_mode is GimbalCommandMode.STOW
                 ):
                     with self.actuator_io_lock:
@@ -668,27 +621,9 @@ class PayloadApp:
                         self._publish_fault(stow_result.error, "bounded gimbal stow failed")
                         self._inhibit_motion("bounded stow failed")
                 else:
-                    self._write_rate(
-                        math.degrees(current.commanded_rate_rad_s), t, self.lock_gate.engaged
-                    )
+                    self._write_rate(math.degrees(current.commanded_rate_rad_s), t)
             safe_commanded = False
             safe_cleared = False
-        if (
-            self.stow_gate.pending
-            and not self.lock_gate.engaged
-            and current.arbiter.gimbal_state is GimbalState.SAFE
-        ):
-            issued = self._actuate_pose(
-                GimbalRequest(
-                    mode=GimbalCommandMode.STOW,
-                    el_deg=self.controller.gimbal.stow_el_deg,
-                    reason="safe_stow_after_lock_release",
-                ),
-                current,
-                frame_id=0,
-            )
-            command_issued = command_issued or issued
-            self.stow_gate.pending = not issued
         outcome = TickOutcome(
             frame_id=0,
             fault=None,
@@ -707,7 +642,6 @@ class PayloadApp:
             return state
         dt = self.controller.cfg.inner.dt_s
         current = state
-        self.poll_lock_state()
         if current.inner.last_inner_s is None:
             origin = min(self.clock.monotonic_s(), now)
             current = replace(current, inner=replace(current.inner, last_inner_s=origin))
@@ -737,18 +671,16 @@ class PayloadApp:
                 measured_dt_s = encoder_timestamp_s - prior_s
                 if measured_dt_s > 0.0:
                     enc_rate = (theta - current.encoder.last_theta_enc_rad) / measured_dt_s
-            locked = self.lock_gate.engaged
             tick = self.controller.inner_step(
                 current,
                 t,
                 theta,
                 dt,
                 encoder_timestamp_s=encoder_timestamp_s,
-                locked=locked,
                 safe_latched=self.safe_latch.commanded,
             )
             current, integrity_fault = self._apply_integrity(
-                current, tick.state, tick.tau_nm, theta, t, enc_rate, locked
+                current, tick.state, tick.tau_nm, enc_rate
             )
             if integrity_fault is not None:
                 self._publish_fault(integrity_fault, "pointing integrity trip")
@@ -756,7 +688,7 @@ class PayloadApp:
             if integrity_fault is not None:
                 self._inhibit_motion("pointing integrity trip")
             else:
-                self._write_torque(tick.tau_nm, t, locked)
+                self._write_torque(tick.tau_nm, t)
         return current
 
     def _apply_integrity(
@@ -764,34 +696,22 @@ class PayloadApp:
         prior: ControlState,
         tick_state: ControlState,
         tau_nm: float,
-        theta: float,
-        now: float,
         enc_rate: float,
-        locked: bool,
     ) -> tuple[ControlState, FaultCode | None]:
-        """Latch lock-hold pose, run the detector, and stamp strikes onto tick state."""
-        motion, ref_th, ref_t = lock_hold_rate(
-            locked, theta, now, prior.integrity.lock_theta_ref_rad, prior.integrity.lock_ref_s
-        )
+        """Run the integrity detector and stamp strikes onto tick state."""
         integrity = check_integrity(
             self.controller.cfg.integrity,
             tick_state.commanded_rate_rad_s,
             tick_state.encoder.measured_rate_rad_s,
             tau_nm,
             enc_rate,
-            locked,
             prior.integrity.freeze_strikes,
-            prior.integrity.lock_strikes,
-            motion,
         )
         updated = replace(
             tick_state,
             integrity=replace(
                 tick_state.integrity,
                 freeze_strikes=integrity.freeze_strikes,
-                lock_strikes=integrity.lock_fight_strikes,
-                lock_theta_ref_rad=ref_th,
-                lock_ref_s=ref_t,
             ),
         )
         return updated, integrity.fault
@@ -850,10 +770,10 @@ class PayloadApp:
         self._publish_actuator_health(result.value, force=True)
         return True
 
-    def _write_torque(self, tau_nm: float, now: float, locked: bool) -> bool:
+    def _write_torque(self, tau_nm: float, now: float) -> bool:
         """Write a leased torque command only while feedback and integrity are healthy."""
-        if locked or self.actuator_safety.latched_fault:
-            return self._inhibit_motion("motion inhibited by lock or actuator fault")
+        if self.actuator_safety.latched_fault:
+            return self._inhibit_motion("motion inhibited by actuator fault")
         with self.actuator_io_lock:
             health = self.gimbal.read_health()
         if isinstance(health, Err) or not health.value.feedback_valid:
@@ -890,12 +810,12 @@ class PayloadApp:
         self.actuator_safety.recovery_window_start_s = None
         return True
 
-    def _write_rate(self, rate_deg_per_s: float, now: float, locked: bool) -> bool:
+    def _write_rate(self, rate_deg_per_s: float, now: float) -> bool:
         """Write a leased production rate command after feedback/safety checks."""
         if not self._rate_mode():
             return False
-        if locked or self.actuator_safety.latched_fault:
-            return self._inhibit_motion("motion inhibited by lock or actuator fault")
+        if self.actuator_safety.latched_fault:
+            return self._inhibit_motion("motion inhibited by actuator fault")
         with self.actuator_io_lock:
             health = self.gimbal.read_health()
         if isinstance(health, Err) or not health.value.feedback_valid:
@@ -970,7 +890,7 @@ class PayloadApp:
                 measured_rate_rad_s=0.0,
             ),
             inner=replace(state.inner, integrator=0.0, last_tau_nm=0.0),
-            integrity=replace(state.integrity, freeze_strikes=0, lock_strikes=0),
+            integrity=replace(state.integrity, freeze_strikes=0),
         )
 
     def _publish_actuator_recovery(self, state: str) -> None:
@@ -1047,18 +967,6 @@ class PayloadApp:
 
     def _actuate_pose(self, request: GimbalRequest, state: ControlState, frame_id: int) -> bool:
         """Map a pose GimbalRequest onto HAL and publish GimbalCommandMsg."""
-        if self.lock_gate.engaged:
-            self._inhibit_motion("launch lock engaged")
-            self.bus.publish(
-                TelemetryEventMsg(
-                    msg_type=MessageType.TELEMETRY_EVENT,
-                    timestamp_utc=self.clock.wall_clock_iso(),
-                    subsystem="payload",
-                    event_name="gimbal_motion_inhibited",
-                    payload={"reason": "launch_lock_engaged", "mode": request.mode.value},
-                )
-            )
-            return False
         with self.actuator_io_lock:
             if request.mode is GimbalCommandMode.STOW:
                 send_result = self.gimbal.stow()
@@ -1094,10 +1002,8 @@ class PayloadApp:
             dt = self.controller.cfg.inner.dt_s
             while not stop_event.is_set():
                 now_inner = self.clock.monotonic_s()
-                self.poll_lock_state()
                 with self.inner_lock:
                     snap = holder["state"]
-                    locked = self.lock_gate.engaged
                     safe = self.safe_latch.commanded
                     if snap.inner.last_inner_s is None:
                         holder["state"] = replace(
@@ -1131,11 +1037,10 @@ class PayloadApp:
                     theta,
                     dt,
                     encoder_timestamp_s=encoder_timestamp_s,
-                    locked=locked,
                     safe_latched=safe,
                 )
                 stamped, integrity_fault = self._apply_integrity(
-                    snap, tick.state, tick.tau_nm, theta, now_inner, enc_rate, locked
+                    snap, tick.state, tick.tau_nm, enc_rate
                 )
                 if integrity_fault is not None:
                     self._publish_fault(integrity_fault, "pointing integrity trip")
@@ -1143,12 +1048,12 @@ class PayloadApp:
                 if integrity_fault is not None:
                     self._inhibit_motion("pointing integrity trip")
                 else:
-                    self._write_torque(tick.tau_nm, now_inner, locked)
+                    self._write_torque(tick.tau_nm, now_inner)
                 with self.inner_lock:
                     latest = holder["state"]
                     merged_r = (
                         stamped.commanded_rate_rad_s
-                        if (locked or safe or latest.pose.pose_mode is not None)
+                        if (safe or latest.pose.pose_mode is not None)
                         else latest.commanded_rate_rad_s
                     )
                     holder["state"] = replace(
@@ -1183,7 +1088,6 @@ class PayloadApp:
                     heartbeat_seq += 1
                     last_heartbeat = now
                 safe_commanded, safe_cleared = self.poll_mode_changes()
-                self.poll_lock_state()
                 self.handle_commands()
                 if self.capture_this_opportunity():
                     acq = self.sensor.acquire_frame()
@@ -1206,7 +1110,7 @@ class PayloadApp:
                         holder["state"] = replace(latest, last_e_az=current.last_e_az)
                 elif acq is not None:
                     self._publish_fault(acq.error, "imaging sensor stall")
-                    if safe_commanded and not self.lock_gate.engaged:
+                    if safe_commanded:
                         self._actuate_pose(
                             GimbalRequest(
                                 mode=GimbalCommandMode.STOW,

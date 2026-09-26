@@ -19,7 +19,7 @@ predictor events, vision replay, and the rate law.
 | `IssSample` | dataclass | ISS ECI state for the predictor |
 | `EncoderState` | dataclass | Timestamped encoder samples, last angle, and measured rate |
 | `InnerControlState` | dataclass | Inner PI integrator, last inner time, and last torque |
-| `IntegrityState` | dataclass | Freeze and lock-fight strikes with lock-hold latch |
+| `IntegrityState` | dataclass | Freeze strike counter |
 | `TargetState` | dataclass | Stored CoG and last scene-rate terms |
 | `PoseState` | dataclass | Position-loop mode and target elevation |
 | `ControlState` | dataclass | Nested records grouped by the loop that updates them |

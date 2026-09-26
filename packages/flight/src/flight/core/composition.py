@@ -28,7 +28,6 @@ from flight.hal.interfaces import (
     GimbalActuator,
     ImagingSensor,
     IssEphemeris,
-    LaunchLock,
     ScalarSensor,
     StationLink,
 )
@@ -43,7 +42,6 @@ from flight.libs.messages import (
     GimbalCommandMsg,
     HeartbeatMsg,
     InferenceResultMsg,
-    LaunchLockStateMsg,
     LinkStateMsg,
     ModeChangeMsg,
     ModelDeployStateMsg,
@@ -57,7 +55,6 @@ from flight.libs.messages import (
     UploadChunkMsg,
 )
 from flight.libs.time import Clock
-from flight.mechanical.app import MechanicalApp
 from flight.payload.app import PayloadApp
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import MosaicCalibration
@@ -73,7 +70,6 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "command_router",
     "storage",
     "downlink",
-    "mechanical",
     "model_deploy",
 )
 
@@ -112,7 +108,6 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
         ProcessedFrameMsg,
         InferenceResultMsg,
         LinkStateMsg,
-        LaunchLockStateMsg,
         GimbalCommandMsg,
         HeartbeatMsg,
         ProductRefMsg,
@@ -129,8 +124,7 @@ class Drivers:
     """Bundle of injected HAL drivers + the detector backend for one composition.
 
     The composition root (flight entry or SIL) constructs the concrete implementations;
-    build_apps consumes only the Protocol types. The launch_lock is always a SimLaunchLock
-    today (no real driver exists -- the device is hardware-deferred, a permanent VCRM gap).
+    build_apps consumes only the Protocol types.
     """
 
     sensor: ImagingSensor
@@ -140,7 +134,6 @@ class Drivers:
     station: StationLink
     thermal_sensor: ScalarSensor
     power_sensor: ScalarSensor
-    launch_lock: LaunchLock
 
 
 @dataclass(frozen=True)
@@ -160,7 +153,6 @@ class SystemApps:
     command_router: CommandRouter
     storage: StorageService
     downlink: DownlinkManager
-    mechanical: MechanicalApp
     model_deploy: ModelDeployService
 
 
@@ -213,6 +205,5 @@ def build_apps(
         command_router=CommandRouter.from_config(config, bus, clock),
         storage=storage,
         downlink=DownlinkManager.from_config(config, bus, clock),
-        mechanical=MechanicalApp.from_config(config, bus, clock, drivers.launch_lock),
         model_deploy=ModelDeployService.from_config(config, bus, clock, storage),
     )

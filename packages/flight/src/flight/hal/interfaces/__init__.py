@@ -12,7 +12,6 @@ from flight.hal.interfaces.gimbal import (
     GimbalRateCommand,
     SignedRateCommand,
 )
-from flight.hal.interfaces.launch_lock import LaunchLock
 from flight.hal.interfaces.scalar import ScalarSensor
 from flight.hal.interfaces.sensor import ImagingSensor
 from flight.hal.interfaces.station import StationLink
@@ -29,7 +28,6 @@ __all__ = [
     "ImagingSensor",
     "IssEphemeris",
     "IssState",
-    "LaunchLock",
     "ScalarSensor",
     "StationLink",
     "StorageReader",

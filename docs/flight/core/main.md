@@ -36,8 +36,8 @@ every app, and runs them under the thread scheduler until shutdown.
 4. Select `RealClock` or `ManualClock` from `drivers.clock`.
 5. Subscribe to `HeartbeatMsg` before the scheduler starts.
 6. Call `build_flight_system` to wire apps.
-7. Register ten apps on the scheduler in fixed order: payload, fault, iss_iface, thermal,
-   electrical, command_router, storage, downlink, mechanical, model_deploy.
+7. Register nine apps on the scheduler in fixed order: payload, fault, iss_iface, thermal,
+   electrical, command_router, storage, downlink, model_deploy.
 8. Start the scheduler.
 9. Run the startup health gate for `watchdog_interval_s * 3.0` seconds. Publish
    `ModeChangeMsg(SAFE)` when any monitored subsystem misses a first heartbeat.

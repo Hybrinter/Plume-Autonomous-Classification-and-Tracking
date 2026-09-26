@@ -16,7 +16,7 @@ safety -- confidence and area gates.
 
 from flight.payload.gimbal.arbiter import ArbiterState, GimbalArbiter
 from flight.payload.gimbal.inner import InnerResult, inner_step
-from flight.payload.gimbal.integrity import IntegrityResult, check_integrity, lock_hold_rate
+from flight.payload.gimbal.integrity import IntegrityResult, check_integrity
 from flight.payload.gimbal.intersect import (
     CameraGeometry,
     RayHit,
@@ -64,7 +64,6 @@ __all__ = [
     "inner_step",
     "intersect_boresight",
     "intersect_cog",
-    "lock_hold_rate",
     "outer_rate",
     "pinhole_error_rad",
     "position_rate",

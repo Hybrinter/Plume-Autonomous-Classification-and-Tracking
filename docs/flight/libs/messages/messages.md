@@ -39,7 +39,6 @@ and embedded structs.
 | `ModelDeployStateMsg` | `MODEL_DEPLOY` | Model deployment lifecycle telemetry |
 | `CommandAckMsg` | `COMMAND_ACK` | Ingress or execution acknowledgement |
 | `LinkStateMsg` | `LINK_STATE` | Station link AOS/LOS state |
-| `LaunchLockStateMsg` | `LAUNCH_LOCK_STATE` | Launch-lock mechanism state |
 
 ## Inputs and outputs
 
@@ -89,7 +88,7 @@ The module defines message shapes only. Producers emit `FaultEventMsg` with appr
 | --- | --- | --- |
 | `ProcessedFrameMsg` | payload (internal; not bus in current pipeline) | inference path in payload |
 | `InferenceResultMsg` | payload | payload controller, storage |
-| `GimbalCommandMsg` | payload (pose commands) | mechanical, downlink, logging |
+| `GimbalCommandMsg` | payload (pose commands) | downlink, logging |
 | `TelemetryEventMsg` | any subsystem | telemetry reporter |
 | `FaultEventMsg` | any subsystem | fault |
 | `HeartbeatMsg` | monitored subsystems | fault watchdog |
@@ -105,7 +104,6 @@ The module defines message shapes only. Producers emit `FaultEventMsg` with appr
 | `ModelDeployStateMsg` | core model deploy | downlink |
 | `CommandAckMsg` | iss_iface, target apps | downlink |
 | `LinkStateMsg` | iss_iface | downlink manager |
-| `LaunchLockStateMsg` | mechanical | payload, downlink |
 
 Note: `ProcessedFrameMsg` exists as a typed record. Preprocessing outputs currently stay as
 in-function values inside the payload app per the co-location invariant.

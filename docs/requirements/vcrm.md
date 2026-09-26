@@ -29,13 +29,12 @@ are deliberately absent rather than falsely marked verified.
 | REQ-COMM-HIGH-001 | Downlink gated by AOS visibility | SIL | sil-link-real | test_sil_closed_loop; scenario:ingress_auth_accept | verified |
 | REQ-AIML-GIMB-001 | Autonomous closed-loop pointing toward plume | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
 | REQ-GIMB-HIGH-001 | Closed-loop pointing keeps the plume in the full band-plane field of view | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
-| REQ-GIMB-HIGH-003 | Envelope clips and the light integrity detector force a stow | SIL | sil | test_integrity; test_sil_closed_loop | verified |
+| REQ-GIMB-HIGH-003 | Envelope clips and the light integrity detector (NaN, encoder freeze) force a stow | SIL | sil | test_integrity; test_sil_closed_loop | verified |
 | REQ-COMM-CMD-001 | Command routing + ARM/EXECUTE two-step + inhibit re-check | SIL | sil | test_routing; test_sil_command_router; scenario:command_route_exec | verified |
 | REQ-SAFE-EXIT-001 | Single latched SAFE; ground EXIT_SAFE gated on fault clear | SIL | sil | test_sil_command_router | verified |
 | REQ-DATA-STORE-001 | Checksummed, quota'd, retention-managed product storage | unit | unit | test_storage | verified |
 | REQ-DATA-LEDGER-001 | Reboot-surviving append-only fault ledger | unit | unit | test_storage | verified |
 | REQ-DATA-DOWNLINK-001 | Prioritized, AOS-gated, budgeted downlink of products | SIL | sil-link-real | test_downlink; test_sil_data_system; scenario:product_downlink | verified |
-| REQ-MECH-HIGH-001 | Launch-lock hazardous release + bidirectional gimbal interlock | SIL | sil | test_mechanical_app; test_sil_mechanical | verified |
 | REQ-COMM-MODEL-001 | A classifier and segmentor pair uploads as authenticated chunks, reassembles into one bundle, stages together, and activates with automatic rollback of the pair on a failed sanity check. | SIL | sil | test_model_deploy; test_sil_model_upload | verified |
 | REQ-AIML-HIGH-004 | Model acceptance gate + load hash/contract + latency budget | unit | unit | test_model_verify; test_accept | verified |
 | REQ-PLAT-QUEUE-001 | Bounded bus queues + per-type overflow policy | unit | unit | test_bus | verified |
@@ -47,5 +46,5 @@ are deliberately absent rather than falsely marked verified.
 
 | Gap | Statement | Status |
 | --- | --- | --- |
-| GAP-GROUND-SEGMENT | Real ground segment is never tested; the GSE station emulator stands in for it. The `lock` axis (LaunchLock) is likewise a permanent VCRM gap -- there is no device and no config field, only this record. | gap |
+| GAP-GROUND-SEGMENT | Real ground segment is never tested; the GSE station emulator stands in for it. | gap |
 | REQ-SAFE-HIGH-002 | Per-component thermal sensors compare datasheet limits and drive SAFE. Deferred until those sensors exist; housekeeping is telemetry-only. | gap |

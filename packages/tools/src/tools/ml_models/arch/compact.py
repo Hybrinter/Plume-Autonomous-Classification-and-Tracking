@@ -17,14 +17,17 @@ Three choices follow from that:
   - Aggressive early downsampling. The stem strides immediately. Plume presence
     is a question about a region, not about a pixel, so the fine resolution that
     a segmentation decoder needs is wasted work here.
-  - A 1x1 convolution on the feature map, then a max over the strided cells.
-    Dropout applies on the feature map ``(N, C, h, w)``. ``forward`` returns
-    one logit per tile. Default depth 4 strides four times, so each cell covers
-    about 16 input pixels.
+  - A linear head after adaptive average pooling. The ``max`` modifier uses a
+    1x1 convolution on the feature map and a max over the strided cells.
+    Dropout is 0.2, on the pooled vector or on the feature map for ``max``.
+    ``forward`` returns one logit per tile. Default depth 4 strides four times,
+    so each pooled vector, and each ``max`` cell, covers about 16 input pixels.
 
 Names follow the same grammar as the rest of the registry: ``pactnet`` with an
-optional ``w<N>`` stem width (default 16), ``d<N>`` stage count (default 4), and
-``full`` for dense convolutions. ``pactnet_w32_d5`` is a wider, deeper variant.
+optional ``w<N>`` stem width (default 16), ``d<N>`` stage count (default 4),
+``full`` for dense convolutions, and ``max`` for the spatial head.
+``pactnet_w32_d5`` is a wider, deeper variant. ``pactnet_max`` selects the
+spatial head at the default width and depth.
 
 Contains:
   - DEFAULT_COMPACT_WIDTH / DEFAULT_COMPACT_DEPTH: grammar defaults.
@@ -52,7 +55,7 @@ COMPACT_PREFIX = "pactnet"
 DEFAULT_COMPACT_WIDTH = 16
 DEFAULT_COMPACT_DEPTH = 4
 
-# Dropout on the feature map before the 1x1 head.
+# Dropout before the linear head, or on the feature map for the max head.
 _HEAD_DROPOUT = 0.2
 
 # Widths double each stage until this ceiling, which keeps the deepest stage of
@@ -68,11 +71,13 @@ class CompactSpec:
         base_width: Channel count emitted by the stem.
         depth: Number of strided stages, including the stem.
         separable: Depthwise-separable convolutions instead of dense ones.
+        spatial: ``max`` head (1x1 convolution and a max over cells).
     """
 
     base_width: int
     depth: int
     separable: bool
+    spatial: bool = False
 
 
 def compact_stage_widths(base_width: int, depth: int) -> tuple[int, ...]:
@@ -110,8 +115,13 @@ class PactNet(nn.Module):
 
     The forward pass maps ``(N, C, H, W)`` to ``(N, 1)``. No sigmoid is applied;
     flight thresholds the logit directly, matching every other classifier in the
-    registry.
+    registry. ``spatial=False`` keeps a linear head on adaptive average pooling,
+    so existing ``pactnet`` checkpoints still load. ``spatial=True`` keeps a 1x1
+    convolution and returns the max over strided cells.
     """
+
+    head: nn.Linear | nn.Conv2d
+    pool: nn.AdaptiveAvgPool2d
 
     def __init__(
         self,
@@ -119,6 +129,7 @@ class PactNet(nn.Module):
         base_width: int = DEFAULT_COMPACT_WIDTH,
         depth: int = DEFAULT_COMPACT_DEPTH,
         separable: bool = True,
+        spatial: bool = False,
     ) -> None:
         """Build the stack.
 
@@ -127,6 +138,8 @@ class PactNet(nn.Module):
             base_width: Stem width.
             depth: Strided stage count, including the stem.
             separable: Depthwise-separable convolutions instead of dense ones.
+            spatial: 1x1 convolution and a max over cells. False keeps the
+                linear head.
 
         Raises:
             ValueError: If ``depth`` or ``base_width`` is below one.
@@ -145,10 +158,16 @@ class PactNet(nn.Module):
             stages.append(_conv_block(widths[index], widths[index], 1, separable=separable))
         self.features = nn.Sequential(*stages)
         self.dropout = nn.Dropout(_HEAD_DROPOUT)
-        self.head = nn.Conv2d(widths[-1], 1, kernel_size=1)
+        if spatial:
+            self.head = nn.Conv2d(widths[-1], 1, kernel_size=1)
+        else:
+            self.pool = nn.AdaptiveAvgPool2d(1)
+            self.head = nn.Linear(widths[-1], 1)
 
     def spatial(self, x: torch.Tensor) -> torch.Tensor:
         """Map a band stack to one logit per strided cell.
+
+        This is the ``max`` head. ``head`` is a 1x1 convolution.
 
         Args:
             x: Input of shape ``(N, C, H, W)``.
@@ -167,11 +186,18 @@ class PactNet(nn.Module):
             x: Input of shape ``(N, C, H, W)``.
 
         Returns:
-            torch.Tensor: Logits of shape ``(N, 1)``. The value is the maximum
-            of :meth:`spatial` over the strided feature cells.
+            torch.Tensor: Logits of shape ``(N, 1)``. With the linear head the
+            value follows adaptive average pooling. With the ``max`` head the
+            value is the maximum of :meth:`spatial` over the strided cells.
         """
-        logits: torch.Tensor = self.spatial(x).amax(dim=(2, 3))
-        return logits
+        if isinstance(self.head, nn.Conv2d):
+            logits: torch.Tensor = self.spatial(x).amax(dim=(2, 3))
+            return logits
+        features = self.features(x)
+        pooled = self.pool(features)
+        flat = pooled.flatten(1)
+        out: torch.Tensor = self.head(self.dropout(flat))
+        return out
 
 
 _COMPACT_FLAGS = ModifierFlags(width=True, depth=True, full=True)
@@ -181,11 +207,11 @@ def parse_compact(name: str) -> CompactSpec:
     """Parse a ``pactnet`` architecture name.
 
     Args:
-        name: Grammar name such as ``pactnet``, ``pactnet_w32``, or
-            ``pactnet_w8_d5_full``.
+        name: Grammar name such as ``pactnet``, ``pactnet_w32``,
+            ``pactnet_w8_d5_full``, or ``pactnet_max``.
 
     Returns:
-        CompactSpec: Parsed width, depth, and convolution style.
+        CompactSpec: Parsed width, depth, convolution style, and spatial head.
 
     Raises:
         ValueError: If the family or any modifier token is unknown.
@@ -193,11 +219,15 @@ def parse_compact(name: str) -> CompactSpec:
     parts = name.split("_")
     if parts[0] != COMPACT_PREFIX:
         raise ValueError(f"unknown compact classifier {name!r}")
-    mods = parse_modifiers(tuple(parts[1:]), _COMPACT_FLAGS, "pactnet modifier")
+    raw_tokens = parts[1:]
+    spatial = "max" in raw_tokens
+    tokens = tuple(token for token in raw_tokens if token != "max")
+    mods = parse_modifiers(tokens, _COMPACT_FLAGS, "pactnet modifier")
     return CompactSpec(
         base_width=DEFAULT_COMPACT_WIDTH if mods.width is None else mods.width,
         depth=DEFAULT_COMPACT_DEPTH if mods.depth is None else mods.depth,
         separable=True if mods.separable is None else mods.separable,
+        spatial=spatial,
     )
 
 
@@ -216,4 +246,5 @@ def build_compact_classifier(spec: CompactSpec, in_channels: int = 3) -> nn.Modu
         base_width=spec.base_width,
         depth=spec.depth,
         separable=spec.separable,
+        spatial=spec.spatial,
     )

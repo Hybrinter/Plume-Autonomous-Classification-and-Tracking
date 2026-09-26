@@ -16,7 +16,7 @@ INT8. `promote` copies a passed artifact into `data/models/`.
 | --- | --- | --- |
 | `ExportConfig` | class | Frozen export hyperparameters |
 | `export` | function | Write ONNX logits plus a Manifest sidecar |
-| `reexport_spatial` | function | Rebuild a graph at a new H/W and copy matching weights |
+| `reexport_spatial` | function | Rebuild a graph at a new H/W; a same-name shape mismatch is an error |
 | `convert_fp16` | function | Rewrite an FP32 graph to FP16 with float32 I/O |
 | `quantize_int8` | function | Static QDQ INT8 with float32 I/O |
 | `quantize_knee` | function | Classifier FP16 and segmentor INT8 in place |
@@ -65,7 +65,9 @@ seg_manifest))`.
 5. When `fp16` is true, convert the FP32 graph to FP16 with float32 I/O and
    write `<stem>.fp16.onnx` plus sidecar `quantization` `fp16`.
 6. `reexport_spatial` exports an untrained graph at the new H/W, then copies
-   same-name, same-shape ONNX initializers from the source artifact.
+   same-name, same-shape ONNX initializers from the source artifact. A
+   same-name initializer with a different shape raises `ValueError`. A
+   destination name with no source counterpart is skipped.
 7. `quantize_knee` overwrites the classifier path with FP16 and the segmentor
    path with INT8 QDQ. That pair is the factory quality knee.
 8. `promote` copies the `.onnx` and sidecar only after a passing gate report.
@@ -73,7 +75,8 @@ seg_manifest))`.
 ## Errors and faults
 
 `ImportError` when INT8 or FP16 conversion runs without onnxruntime. `ValueError`
-on an unknown kind, a rejected promote, or a calibration geometry mismatch.
+on an unknown kind, a rejected promote, a calibration geometry mismatch, or a
+same-name ONNX initializer whose shapes differ.
 `FileNotFoundError` on a missing checkpoint, source ONNX, sidecar, or
 calibration pack.
 

@@ -40,6 +40,47 @@ def test_parse_compact_full_modifier() -> None:
     assert parse_compact("pactnet_full").separable is False
 
 
+def test_parse_compact_max_selects_spatial_head() -> None:
+    """The max token sets spatial; a bare pactnet name does not."""
+    assert parse_compact("pactnet").spatial is False
+    assert parse_compact("pactnet_max") == CompactSpec(
+        base_width=DEFAULT_COMPACT_WIDTH,
+        depth=DEFAULT_COMPACT_DEPTH,
+        separable=True,
+        spatial=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "spec"),
+    [
+        (
+            "pactnet_w32_max",
+            CompactSpec(base_width=32, depth=4, separable=True, spatial=True),
+        ),
+        (
+            "pactnet_max_w32",
+            CompactSpec(base_width=32, depth=4, separable=True, spatial=True),
+        ),
+        (
+            "pactnet_max_d5_full",
+            CompactSpec(base_width=16, depth=5, separable=False, spatial=True),
+        ),
+        (
+            "pactnet_full_d5_max",
+            CompactSpec(base_width=16, depth=5, separable=False, spatial=True),
+        ),
+        (
+            "pactnet_d5_max_w8_full",
+            CompactSpec(base_width=8, depth=5, separable=False, spatial=True),
+        ),
+    ],
+)
+def test_parse_compact_max_combines_in_any_order(name: str, spec: CompactSpec) -> None:
+    """max combines with width, depth, and full in any order."""
+    assert parse_compact(name) == spec
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -130,9 +171,10 @@ def test_build_compact_classifier_honours_spec() -> None:
     spec = CompactSpec(base_width=8, depth=3, separable=False)
     net = build_compact_classifier(spec, in_channels=5)
     assert isinstance(net, PactNet)
-    assert isinstance(net.head, torch.nn.Conv2d)
-    assert net.head.in_channels == compact_stage_widths(8, 3)[-1]
-    assert net.head.out_channels == 1
+    assert isinstance(net.head, torch.nn.Linear)
+    assert net.head.in_features == compact_stage_widths(8, 3)[-1]
+    assert net.head.out_features == 1
+    assert net.head.weight.ndim == 2
     x = torch.zeros(1, 5, 32, 32)
     with torch.no_grad():
         assert net(x).shape == (1, 1)
@@ -145,6 +187,23 @@ def test_build_compact_classifier_full_has_more_params_than_separable() -> None:
     sep_params = count_params(build_compact_classifier(spec_sep))
     full_params = count_params(build_compact_classifier(spec_full))
     assert full_params > sep_params
+
+
+def test_pactnet_strict_load_accepts_linear_head() -> None:
+    """A legacy rank-2 head loads into pactnet and not into pactnet_max."""
+    legacy = build("classifier", "pactnet", 3)
+    assert isinstance(legacy.head, torch.nn.Linear)
+    assert legacy.head.weight.ndim == 2
+    state = legacy.state_dict()
+    other = build("classifier", "pactnet", 3)
+    loaded = other.load_state_dict(state)
+    assert loaded.missing_keys == []
+    assert loaded.unexpected_keys == []
+    spatial = build("classifier", "pactnet_max", 3)
+    assert isinstance(spatial.head, torch.nn.Conv2d)
+    assert spatial.head.weight.ndim == 4
+    with pytest.raises(RuntimeError, match="size mismatch"):
+        spatial.load_state_dict(state)
 
 
 def test_registry_build_pactnet_w8() -> None:

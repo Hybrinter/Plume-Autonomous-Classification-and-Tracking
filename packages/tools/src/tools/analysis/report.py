@@ -101,7 +101,6 @@ def _outcomes(capture: CaptureResult) -> dict[str, object]:
         "downlink_pending_peak": _native(
             pd.to_numeric(capture.wide["downlink"]["downlink.pending_items"]).max()
         ),
-        "final_launch_lock_state": last("mechanical", "mechanical.launch_lock_state"),
     }
 
 

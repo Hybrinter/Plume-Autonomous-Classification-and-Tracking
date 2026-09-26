@@ -25,7 +25,7 @@ gates, and the light integrity detector.
 | [`pointing`](gimbal/pointing.md) | pure module | Pinhole boresight error |
 | [`request`](gimbal/request.md) | pure module | Typed pose command from the pure core |
 | [`safety`](gimbal/safety.md) | pure module | Confidence and area gates |
-| [`integrity`](gimbal/integrity.md) | pure module | NaN, encoder-freeze, and lock-fight detector |
+| [`integrity`](gimbal/integrity.md) | pure module | NaN and encoder-freeze detector |
 
 ## Package interface
 
@@ -34,7 +34,7 @@ Re-exports: `ArbiterState`, `CameraGeometry`, `GimbalArbiter`, `GimbalRequest`,
 `SceneEstimate`, `SceneSource`, `acquire_resets_residual`,
 `apply_confidence_gate`, `apply_min_area_gate`, `boresight_error_deg`,
 `check_integrity`, `clip_rate`, `fit_rate`, `inner_step`, `intersect_boresight`,
-`intersect_cog`, `lock_hold_rate`, `outer_rate`, `pinhole_error_rad`,
+`intersect_cog`, `outer_rate`, `pinhole_error_rad`,
 `position_rate`, `predict_los`, `select_scene`, `smear_cap_rad_s`,
 `target_displacement_px`.
 

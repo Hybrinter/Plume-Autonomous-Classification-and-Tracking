@@ -5,9 +5,10 @@
 
 ## Purpose
 
-This module loads mosaic calibration artifacts at startup. It reads checksummed `.npy`
-files from a calibration directory and returns a `MosaicCalibration`. It also builds an
-identity calibration for SIL and development when no artifact directory is configured.
+This module loads per-channel calibration artifacts at startup. It reads checksummed
+`.npy` files from a calibration directory and returns a `MosaicCalibration`. It also
+builds an identity calibration for SIL and development when no artifact directory is
+configured.
 
 ## Public interface
 
@@ -19,7 +20,7 @@ identity calibration for SIL and development when no artifact directory is confi
 ## Inputs and outputs
 
 `build_identity_calibration(height_px, width_px)` returns a `MosaicCalibration` with
-shape `(height_px, width_px)`.
+shape `(3, height_px, width_px)`.
 
 `load_calibration(calibration_dir, height_px, width_px)` returns
 `Result[MosaicCalibration, FaultCode]`.
@@ -32,7 +33,7 @@ shape `(height_px, width_px)`.
 3. For each required artifact (`dark_frame`, `flat_field`, `bad_pixel_mask`), it reads
    the named `.npy` file, verifies the SHA-256 digest against the manifest, and loads
    the array.
-4. It checks that each array shape matches `(height_px, width_px)`.
+4. It checks that each array shape matches `(3, height_px, width_px)`.
 5. On success it returns a `MosaicCalibration` with float32 dark and flat arrays and a
    bool bad-pixel mask.
 

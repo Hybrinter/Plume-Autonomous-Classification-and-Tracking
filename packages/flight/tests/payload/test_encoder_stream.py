@@ -38,7 +38,6 @@ def _build_app(detector: DetectorBackend) -> PayloadApp:
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     return app
 
 
@@ -57,7 +56,7 @@ def _assert_consumed_ids_bounded(stream: EncoderStream) -> None:
 
 def _plume_detector() -> ScriptedDetector:
     """Minimal scripted detector for PayloadApp construction."""
-    mask = np.zeros((1024, 1224), dtype=np.float32)
+    mask = np.zeros((1544, 2064), dtype=np.float32)
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 

@@ -8,7 +8,7 @@ Loading procedure:
     1. Parse manifest.json in calibration_dir.
     2. For each of the three required artifacts, read the .npy file and verify its
        sha256 digest against the manifest entry.
-    3. Verify that each artifact shape matches (height_px, width_px).
+    3. Verify that each artifact shape matches (3, height_px, width_px).
     4. Return a MosaicCalibration on success.
 
 Any missing file, checksum mismatch, wrong shape, malformed manifest, or missing
@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 
 # internal
-from flight.libs.types import BAND_ORDER, Err, FaultCode, Ok, Result
+from flight.libs.types import Err, FaultCode, Ok, Result
 from flight.payload.preprocess import MosaicCalibration
 
 _ARTIFACT_NAMES: tuple[str, ...] = ("dark_frame", "flat_field", "bad_pixel_mask")
@@ -43,26 +43,26 @@ def build_identity_calibration(height_px: int, width_px: int) -> MosaicCalibrati
     """Build an identity MosaicCalibration for SIL and development use only.
 
     Returns a calibration with zero dark signal, unit flat field, and no bad pixels,
-    which leaves the raw mosaic values completely unchanged after calibrate_mosaic.
+    which leaves the stacked channel values unchanged after calibrate_mosaic.
     This is NOT suitable for flight -- sensor-characterization artifacts are required.
 
     Args:
-        height_px: Sensor mosaic height in pixels (must match SensorConfig.height_px).
-        width_px: Sensor mosaic width in pixels (must match SensorConfig.width_px).
+        height_px: Sensor height in pixels (must match SensorConfig.height_px).
+        width_px: Sensor width in pixels (must match SensorConfig.width_px).
 
     Returns:
         MosaicCalibration with dark_frame all-zeros, flat_field all-ones, and
-        bad_pixel_mask all-False, each of shape (len(BAND_ORDER), height_px, width_px).
+        bad_pixel_mask all-False, each of shape (3, height_px, width_px).
 
     Notes:
         With identity calibration, calibrate_mosaic returns the raw DN values cast to
         float32, unchanged. Downstream normalization still clips and scales to [0, 1].
     """
-    shape = (len(BAND_ORDER), height_px, width_px)
+    shape = (3, height_px, width_px)
     return MosaicCalibration(
-        dark_frame=np.zeros(shape, dtype=np.float32),  # np.ndarray[float32, (C, H, W)]
-        flat_field=np.ones(shape, dtype=np.float32),  # np.ndarray[float32, (C, H, W)]
-        bad_pixel_mask=np.zeros(shape, dtype=bool),  # np.ndarray[bool, (C, H, W)]
+        dark_frame=np.zeros(shape, dtype=np.float32),  # np.ndarray[float32, (3, H, W)]
+        flat_field=np.ones(shape, dtype=np.float32),  # np.ndarray[float32, (3, H, W)]
+        bad_pixel_mask=np.zeros(shape, dtype=bool),  # np.ndarray[bool, (3, H, W)]
     )
 
 
@@ -75,15 +75,15 @@ def load_calibration(
 
     Reads manifest.json to discover each artifact file and its expected sha256 digest.
     Each .npy file is read, its digest is computed and compared against the manifest,
-    and its shape is verified against (len(BAND_ORDER), height_px, width_px). All three
-    steps must pass for all three artifacts before a MosaicCalibration is returned.
+    and its shape is verified against (3, height_px, width_px). All three steps must pass
+    for all three artifacts before a MosaicCalibration is returned.
 
     Args:
         calibration_dir: Path to the directory containing manifest.json and the .npy
             artifact files. An empty string or nonexistent path yields
             Err(CALIBRATION_INVALID).
-        height_px: Expected mosaic height in pixels (from SensorConfig.height_px).
-        width_px: Expected mosaic width in pixels (from SensorConfig.width_px).
+        height_px: Expected frame height in pixels (from SensorConfig.height_px).
+        width_px: Expected frame width in pixels (from SensorConfig.width_px).
 
     Returns:
         Ok(MosaicCalibration) -- all artifacts pass integrity and shape checks.
@@ -123,8 +123,7 @@ def load_calibration(
         except OSError, ValueError:
             return Err(FaultCode.CALIBRATION_INVALID)
 
-    expected = (len(BAND_ORDER), height_px, width_px)
-    if any(arrays[n].shape != expected for n in _ARTIFACT_NAMES):
+    if any(arrays[n].shape != (3, height_px, width_px) for n in _ARTIFACT_NAMES):
         return Err(FaultCode.CALIBRATION_INVALID)
 
     return Ok(

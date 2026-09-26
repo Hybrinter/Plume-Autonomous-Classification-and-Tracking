@@ -13,8 +13,9 @@ from flight.payload.gimbal.intersect import CameraGeometry, intersect_cog
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.tracking import EncoderSample
 
-_BORESIGHT_X = 612.0
-_BORESIGHT_Y = 512.0
+_SENSOR = SensorConfig()
+_BORESIGHT_X = _SENSOR.width_px / 2.0
+_BORESIGHT_Y = _SENSOR.height_px / 2.0
 
 
 def _encoder(t_s: float, angle_rad: float = 0.0) -> EncoderSample:
@@ -249,7 +250,19 @@ def test_safe_entry_produces_stow_request() -> None:
     assert tick.request.mode is GimbalCommandMode.STOW
     assert tick.state.arbiter.gimbal_state is GimbalState.SAFE
     assert tick.state.pose.pose_mode is GimbalCommandMode.STOW
-    assert tick.state.commanded_rate_rad_s < 0.0
+    assert tick.state.commanded_rate_rad_s > 0.0
+
+
+def test_lower_stop_ignores_phantom_inbound_rate() -> None:
+    """A rising encoder count on the nadir stop still drives off the stop."""
+    controller = _controller()
+    state = replace(controller.initial_state(), commanded_rate_rad_s=0.05)
+    tick = None
+    for i in range(1, 8):
+        tick = controller.inner_step(state, i * 0.001, 1.0e-5 * i)
+        state = tick.state
+    assert tick is not None
+    assert tick.tau_nm > 0.0
 
 
 def test_inner_step_writes_torque() -> None:

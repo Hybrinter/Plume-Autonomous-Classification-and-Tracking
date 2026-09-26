@@ -5,42 +5,43 @@
 
 ## Purpose
 
-The plume scene module renders radiometrically plausible raw mosaic frames. It also builds a
-`ScriptedDetector` whose fixed mask yields one stable off-boresight blob each frame.
+The plume scene module renders three registered planes at the AP-3200T frame size.
+It also builds a `ScriptedDetector` whose fixed mask yields one stable off-boresight
+blob each frame.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `PLANE_HEIGHT_PX` | constant | Native along-track size (1544 px) |
-| `PLANE_WIDTH_PX` | constant | Native lateral size (2064 px) |
-| `DETECTOR_HEIGHT_PX` | constant | Upsampled inference height (3088 px) |
-| `DETECTOR_WIDTH_PX` | constant | Upsampled inference width (4128 px) |
-| `build_frames` | function | Render N uint16 mosaic frames with monotonic `frame_id` |
-| `plume_detector` | function | Return a `ScriptedDetector` with a 50x50 unit mask |
+| `FRAME_HEIGHT_PX` | constant | Along-track size (1544 px) |
+| `FRAME_WIDTH_PX` | constant | Lateral size (2064 px) |
+| `build_frames` | function | Render N uint16 `(3, H, W)` frames with monotonic `frame_id` |
+| `plume_detector` | function | Return a `ScriptedDetector` with one unit-probability rectangle |
 
 ## Inputs and outputs
 
 **`build_frames(num_frames, seed=0) -> list[MosaicFrame]`**
 
 - Inputs: frame count, NumPy random seed.
-- Output: list of `(3, 1544, 2064)` uint16 RGB planes with exposure and gain metadata.
+- Output: list of `(3, 1544, 2064)` uint16 buffers in RED, GREEN, BLUE order, with
+  exposure and gain metadata.
 
 **`plume_detector() -> ScriptedDetector`**
 
-- Output: detector with mask region `[55:105, 2039:2089]` at the upsampled tensor
-  size, confidence gate 0.55, minimum blob area 15 px.
+- Output: detector whose mask is the full frame. The unit rectangle is the old 50 px
+  box scaled onto this frame and centered on the plume. Confidence gate 0.55, minimum
+  blob area 15 px.
 
 ## Behavior
 
-1. `build_frames` builds a Gaussian plume on the native 1544x2064 grid at (x=1032, y=40)
-   with sigma 40 px, above boresight.
+1. `build_frames` places a Gaussian at the same fraction off boresight as pixel
+   (612, 124) on a 1224 x 1024 plane. Boresight on this frame is (1032, 772).
 2. It composites background and per-channel plume amplitudes, adds Gaussian read noise
    (sigma 2 DN), and quantizes to 12-bit.
-3. It stores the three planes in `BAND_ORDER`.
+3. It stores the three planes as a channel-major buffer. Wire order is RED, GREEN, BLUE.
 4. It assigns `frame_id` values 1 through `num_frames` with fixed timestamp metadata.
-5. `plume_detector` fills the upsampled mask with a square at unit probability above
-   boresight.
+5. `plume_detector` fills a 1544 x 2064 float mask with one rectangle at unit probability
+   above boresight.
 
 ## Errors and faults
 
@@ -52,15 +53,15 @@ None.
 
 ## Configuration
 
-None.
+None. Frame size matches `SensorConfig` width and height.
 
 ## Constraints
 
-- The red plane is brightest inside the plume region.
-- The plume sits above the native-frame boresight.
+- The red channel carries the strongest plume amplitude.
+- The centroid keeps the old fractional offset from boresight.
 - TRACKING commands positive elevation inside the science window.
 
 ## Related documents
 
-- [`sim.scene`](scene.md)
-- [`sim.sil`](sil.md)
+- [`sim.scene`](../scene.md)
+- [`sim.sil`](../sil.md)

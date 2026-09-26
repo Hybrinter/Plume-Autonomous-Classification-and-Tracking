@@ -33,7 +33,6 @@ from flight.libs.types import (
     FrameUsabilityTag,
     GimbalCommandMode,
     GimbalState,
-    LaunchLockState,
     LinkState,
     MessageType,
     ModelDeployState,
@@ -93,14 +92,14 @@ class BlobMeta:
 class ProcessedFrameMsg:
     """Preprocessed, band-selected, calibrated tensor from preprocessing to inference.
 
-    tensor shape: (3, H, W) float32 in BAND_ORDER (BLUE, GREEN, RED).
-    H and W are the sensor size times the upsample factor.
+    tensor shape: (1, C, H, W) float32 NCHW, bands per InferenceConfig.input_bands
+    (BLUE/GREEN/RED/NIR), H/W = sensor size / 2.
     """
 
     msg_type: MessageType  # must be MessageType.PROCESSED_FRAME
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # uint32 monotonic frame counter
-    tensor: object  # np.ndarray[float32, (4, H, W)]
+    tensor: object  # np.ndarray[float32, (1, C, H, W)]
     quality_flags: frozenset[FrameUsabilityTag]
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
@@ -257,14 +256,14 @@ class StorageWriteMsg:
     """Bundle of a full frame's data for the storage writer process.
 
     raw_frame shape: (C, H, W) float32.
-    processed_tensor shape: (4, H, W) float32.
+    processed_tensor shape: (1, C, H, W) float32.
     """
 
     msg_type: MessageType  # must be MessageType.STORAGE_WRITE
     timestamp_utc: str  # ISO 8601, millisecond precision
     frame_id: int  # uint32 monotonic frame counter
     raw_frame: object  # np.ndarray[float32, (C, H, W)]
-    processed_tensor: object  # np.ndarray[float32, (4, H, W)]
+    processed_tensor: object  # np.ndarray[float32, (1, C, H, W)]
     inference_result: InferenceResultMsg  # full inference output for this frame
     usability: FrameUsabilityTag  # computed usability classification
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
@@ -389,20 +388,4 @@ class LinkStateMsg:
     msg_type: MessageType  # must be MessageType.LINK_STATE
     timestamp_utc: str  # ISO 8601, millisecond precision
     state: LinkState  # AOS (link up) or LOS (link down)
-    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
-
-
-@dataclass(frozen=True)
-class LaunchLockStateMsg:
-    """Current launch-lock mechanism state, published by the mechanical app each tick.
-
-    The bus-visible truth of the launch-lock interlock: the payload reads it to inhibit gimbal
-    motion while the lock is ENGAGED (one direction of the bidirectional interlock); the other
-    direction (the mechanical app refusing release while the gimbal is moving) lives in the
-    mechanical app. Telemetered to the ground alongside this bus publication.
-    """
-
-    msg_type: MessageType  # must be MessageType.LAUNCH_LOCK_STATE
-    timestamp_utc: str  # ISO 8601, millisecond precision
-    state: LaunchLockState  # ENGAGED / RELEASED / UNKNOWN
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version

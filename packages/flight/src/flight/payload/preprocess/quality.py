@@ -8,20 +8,16 @@ run inference and how to classify the frame for dataset curation (training vs. t
 vs. invalid).
 
 Flag conditions:
-    SATURATED           -- any band has > saturation_fraction_threshold of pixels above
+    SATURATED           -- any channel has > saturation_fraction_threshold of pixels above
                            SATURATION_PIXEL_LEVEL (post-normalisation).
-    CLOUD_CONTAMINATED  -- fraction of bright, near-white pixels exceeds
-                           cfg.cloud_fraction_threshold.
-    SUNGLINT            -- fraction of near-white pixels above
-                           cfg.sunglint_luminance_min exceeds
-                           cfg.sunglint_fraction_threshold.
     INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
 
 MOTION_SMEAR is not raised. Along-track smear is a control cap in outer_rate
 (max_motion_smear_px). FAST_REWIND smears on purpose; exclude those frames by
 gimbal mode, not a second smear inequality.
 
-Band order is ``BAND_ORDER``: index 0 BLUE, 1 GREEN, 2 RED. There is no NIR plane.
+Bands are a (C, H, W) array after select_bands. Channel order follows
+InferenceConfig.input_bands. Saturation checks every channel.
 
 Contains:
   - SmearRateSource: provenance of the elevation rate the payload app selected.
@@ -60,7 +56,7 @@ class SmearRateSource(Enum):
 
 
 def compute_quality_flags(
-    bands: object,  # np.ndarray[float32, (3, H, W)] in BAND_ORDER
+    bands: object,  # np.ndarray[float32, (C, H, W)]
     exposure_us: float,
     slew_rate_deg_per_s: float,
     ifov_band_deg_per_px: float,
@@ -74,14 +70,12 @@ def compute_quality_flags(
     empty frozenset means the frame is clean and inference-ready.
 
     Inputs:
-        bands (np.ndarray[float32, (3, H, W)]): Calibrated and normalised RGB array
-            in ``BAND_ORDER``.
+        bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised channel array.
         exposure_us (float): Camera exposure time in microseconds.
         slew_rate_deg_per_s (float): Gimbal elevation rate in degrees per second
-            over the exposure. ``0.0`` is a stationary gimbal. Unused for flags;
-            smear is a control cap, not a keep/drop.
-        ifov_band_deg_per_px (float): Instantaneous field of view per band-plane pixel,
-            degrees per pixel (SensorConfig.ifov_band_deg_per_px). Unused for flags.
+            over the exposure. ``0.0`` is a stationary gimbal. Unused for flags.
+        ifov_band_deg_per_px (float): Instantaneous field of view per pixel,
+            degrees per pixel (SensorOpticsConfig.ifov_band_deg_per_px). Unused for flags.
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
         omega_scene_el_deg_per_s (float): Nominal scene elevation rate in degrees per
@@ -110,17 +104,5 @@ def compute_quality_flags(
         if saturated_count / n_pixels > cfg.saturation_fraction_threshold:
             flags.add(FrameUsabilityTag.SATURATED)
             break
-
-    # Bright and nearly equal RGB is cloud or sunglint. There is no NIR plane.
-    luma = bands_arr.mean(axis=0)
-    max_rgb = bands_arr.max(axis=0)
-    min_rgb = bands_arr.min(axis=0)
-    white = (min_rgb / (max_rgb + 1.0e-6)) >= cfg.cloud_whiteness_min
-    cloud_fraction = float((white & (luma >= cfg.cloud_luminance_min)).mean())
-    if cloud_fraction > cfg.cloud_fraction_threshold:
-        flags.add(FrameUsabilityTag.CLOUD_CONTAMINATED)
-    glint_fraction = float((white & (luma >= cfg.sunglint_luminance_min)).mean())
-    if glint_fraction > cfg.sunglint_fraction_threshold:
-        flags.add(FrameUsabilityTag.SUNGLINT)
 
     return frozenset(flags)

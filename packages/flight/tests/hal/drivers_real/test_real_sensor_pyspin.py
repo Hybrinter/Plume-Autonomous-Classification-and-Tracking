@@ -10,17 +10,23 @@ from flight.libs.types import Err, FaultCode, Ok
 
 
 class _FakeImage:
-    def __init__(self, incomplete: bool = False) -> None:
+    def __init__(self, incomplete: bool = False, fail_release: bool = False) -> None:
         self._incomplete = incomplete
+        self._fail_release = fail_release
+        self.released = False
+        self.ndarray_reads = 0
 
     def IsIncomplete(self) -> bool:  # noqa: N802 - PySpin API casing
         return self._incomplete
 
     def GetNDArray(self) -> np.ndarray:  # noqa: N802
+        self.ndarray_reads += 1
         return np.full((4, 4), 100, dtype=np.uint16)
 
     def Release(self) -> None:  # noqa: N802
-        pass
+        self.released = True
+        if self._fail_release:
+            raise sys.modules["PySpin"].SpinnakerException("release failed")
 
 
 class _FakeFloatNode:
@@ -38,7 +44,9 @@ class _FakeCamera:
     def __init__(self) -> None:
         self.ExposureTime = _FakeFloatNode(1000.0)
         self.Gain = _FakeFloatNode(0.0)
-        self.next_image: _FakeImage | Exception = _FakeImage()
+        self.next_image: _FakeImage | Exception | None = _FakeImage()
+        self.queued: list[_FakeImage | Exception] = []
+        self.timeouts: list[int] = []
 
     def Init(self) -> None:  # noqa: N802
         pass
@@ -50,9 +58,18 @@ class _FakeCamera:
         pass
 
     def GetNextImage(self, timeout_ms: int) -> _FakeImage:  # noqa: N802
-        if isinstance(self.next_image, Exception):
-            raise self.next_image
-        return self.next_image
+        self.timeouts.append(timeout_ms)
+        if self.queued:
+            source: _FakeImage | Exception | None = self.queued.pop(0)
+        else:
+            source = self.next_image
+            if not isinstance(self.next_image, Exception):
+                self.next_image = None
+        if isinstance(source, Exception):
+            raise source
+        if source is None:
+            raise sys.modules["PySpin"].SpinnakerException("no image")
+        return source
 
 
 def _install_fake_pyspin(monkeypatch: pytest.MonkeyPatch, camera: _FakeCamera) -> None:
@@ -122,6 +139,65 @@ def test_sdk_timeout_is_camera_stall(monkeypatch: pytest.MonkeyPatch) -> None:
     result = sensor.acquire_frame()
     assert isinstance(result, Err)
     assert result.error == FaultCode.CAMERA_STALL
+
+
+def test_drain_frame_releases_queued_buffers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Off-duty drain releases waiting images and leaves frame_id unchanged."""
+    from flight.hal.drivers_real import RealSensor
+    from flight.hal.drivers_real.sensor import _DRAIN_POLL_MS
+
+    first = _FakeImage()
+    second = _FakeImage(incomplete=True)
+    camera = _FakeCamera()
+    camera.queued = [first, second]
+    camera.next_image = None
+    _install_fake_pyspin(monkeypatch, camera)
+    sensor = RealSensor(clock=ManualClock())
+    drained = sensor.drain_frame()
+    assert isinstance(drained, Ok)
+    assert first.released is True
+    assert second.released is True
+    assert first.ndarray_reads == 0
+    assert second.ndarray_reads == 0
+    assert camera.timeouts == [_DRAIN_POLL_MS, _DRAIN_POLL_MS, _DRAIN_POLL_MS]
+    assert sensor._frame_id == 0
+
+    camera.next_image = _FakeImage()
+    acquired = sensor.acquire_frame()
+    assert isinstance(acquired, Ok)
+    assert acquired.value.frame_id == 1
+    assert camera.timeouts[-1] == sensor._timeout_ms
+
+
+def test_drain_frame_empty_stream_is_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stream with no waiting image is not a camera stall."""
+    from flight.hal.drivers_real import RealSensor
+
+    camera = _FakeCamera()
+    camera.next_image = None
+    _install_fake_pyspin(monkeypatch, camera)
+    sensor = RealSensor(clock=ManualClock())
+    result = sensor.drain_frame()
+    assert isinstance(result, Ok)
+    assert sensor._frame_id == 0
+
+
+def test_drain_frame_release_failure_is_camera_stall(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Release error after GetNextImage returns Err(CAMERA_STALL)."""
+    from flight.hal.drivers_real import RealSensor
+
+    failed = _FakeImage(fail_release=True)
+    pending = _FakeImage()
+    camera = _FakeCamera()
+    camera.queued = [failed, pending]
+    camera.next_image = None
+    _install_fake_pyspin(monkeypatch, camera)
+    sensor = RealSensor(clock=ManualClock())
+    result = sensor.drain_frame()
+    assert isinstance(result, Err)
+    assert result.error is FaultCode.CAMERA_STALL
+    assert failed.released is True
+    assert pending.released is False
 
 
 def test_set_exposure_writes_node(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -31,7 +31,7 @@ directly (`flight.payload.app`, `flight.payload.control`, and the child packages
 
 ## Interactions
 
-The payload app subscribes to `ModeChangeMsg` and `LaunchLockStateMsg`. It publishes
+The payload app subscribes to `ModeChangeMsg`. It publishes
 `HeartbeatMsg`, `InferenceResultMsg`, `GimbalCommandMsg`, `FaultEventMsg`,
 `TelemetryEventMsg`, and `ProductRefMsg`. It uses the `ImagingSensor`, `GimbalActuator`,
 `IssEphemeris`, and `StorageWriter` HAL protocols. Preprocessing runs inside

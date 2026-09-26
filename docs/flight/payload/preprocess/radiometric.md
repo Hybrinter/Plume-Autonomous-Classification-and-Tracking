@@ -5,44 +5,39 @@
 
 ## Purpose
 
-This module applies radiometric calibration on a raw RGB stack. Each color is its
-own CMOS. Dark, flat, and bad pixels are `(3, H, W)` arrays in `BAND_ORDER`.
+This module applies radiometric calibration on stacked prism channels. It repairs bad
+pixels, subtracts dark signal, and divides by the flat field. Each artifact is
+`(3, H, W)`.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `MosaicCalibration` | dataclass | Per-channel dark, flat, bad-pixel mask, and dark exposure and gain |
-| `dark_matches_frame` | function | True when recorded dark exposure and gain match the frame |
-| `correct_bad_pixels` | function | Replaces masked pixels with same-channel neighbor means |
-| `calibrate_mosaic` | function | Dark and flat, then bad-pixel repair |
+| `MosaicCalibration` | dataclass | Per-channel dark, flat, and bad-pixel mask, shape `(3, H, W)` |
+| `correct_bad_pixels` | function | Replaces masked pixels with the one-pixel neighbor mean |
+| `calibrate_mosaic` | function | Bad-pixel repair then dark subtraction and flat correction |
 
 ## Inputs and outputs
 
-`correct_bad_pixels(planes, bad_pixel_mask)` returns float32 `(3, H, W)`.
+`correct_bad_pixels(planes, bad_pixel_mask)` returns a float32 `(3, H, W)` array.
 
-`calibrate_mosaic(planes, cal, exposure_us=None, gain_db=None)` returns
-`Result[np.ndarray, FaultCode]` with a float32 `(3, H, W)` stack.
-
-A float exposure or gain applies to every channel. A triple follows `BAND_ORDER`.
+`calibrate_mosaic(planes, cal)` returns `Result[np.ndarray, FaultCode]` with a float32
+`(3, H, W)` calibrated stack.
 
 ## Behavior
 
-1. Reject a rank other than 3, a channel count other than `len(BAND_ORDER)`, or a
-   shape that misses the calibration arrays.
-2. Reject the frame when a recorded dark exposure or gain is outside tolerance.
-3. Compute `(planes - dark) / flat` on each channel.
-4. Reject the result when any value is non-finite.
-5. Replace each bad pixel with the mean of good neighbors at +/-1. Axial neighbors
-   are used first. Diagonal neighbors are used when no axial neighbor is good.
+1. `correct_bad_pixels` pads each channel by one pixel, averages the four neighbors,
+   and replaces pixels where the mask is true.
+2. `calibrate_mosaic` checks that the stack shape matches the calibration artifacts.
+3. It runs bad-pixel repair, then computes `(repaired - dark) / flat` elementwise.
+4. It rejects the result when any value is non-finite.
 
 ## Errors and faults
 
 | Result | Trigger |
 | --- | --- |
-| `Err(FRAME_MALFORMED)` | Rank, channel count, or shape does not match the calibration |
-| `Err(CALIBRATION_INVALID)` | Dark exposure or gain does not match the frame |
-| `Err(INFERENCE_NAN)` | Any output pixel is NaN or Inf, including a zero flat field |
+| `Err(FRAME_MALFORMED)` | Stack shape differs from calibration shape |
+| `Err(INFERENCE_NAN)` | Any output pixel is NaN or Inf (includes zero flat field) |
 
 ## Messages
 
@@ -55,10 +50,10 @@ from `SensorConfig` geometry via `calibration_io`.
 
 ## Constraints
 
-Dark and flat run before bad-pixel repair. A neighbor step of 1 stays on that
-channel. Clipping to [0, 1] happens in `normalize_dn`, not here.
+Calibration runs on the stacked channels. Neighbors stay inside one channel.
+Clipping to [0, full scale] happens in `normalize_dn`, not here.
 
 ## Related documents
 
-- [`flight.payload.preprocess`](../preprocess.md)
+- [`flight.payload.preprocess`](preprocess.md)
 - [`flight.payload.calibration_io`](../calibration_io.md)

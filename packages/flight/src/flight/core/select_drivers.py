@@ -13,7 +13,7 @@ type: ignore at the Drivers(...) construction.
 
 The clock axis is NOT acted on here: the composition root selects RealClock vs
 ManualClock from config.drivers.clock BEFORE calling this function and passes
-the chosen Clock in. The 'lock' (LaunchLock) axis does not exist (permanent VCRM gap).
+the chosen Clock in.
 
 Contains:
   - SimDriverInputs: the sim-only construction inputs (frames, detector, packets, readings).
@@ -32,7 +32,6 @@ from flight.core.composition import Drivers
 from flight.hal.drivers_sim import (
     SimGimbal,
     SimIssEphemeris,
-    SimLaunchLock,
     SimScalarSensor,
     SimSensor,
     SimStationLink,
@@ -46,7 +45,7 @@ from flight.hal.interfaces import (
 )
 from flight.libs.config import PactConfig
 from flight.libs.time import Clock
-from flight.libs.types import BAND_ORDER, LaunchLockState, MosaicFrame, Ok
+from flight.libs.types import MosaicFrame, Ok
 from flight.payload.inference import DetectorBackend, ScriptedDetector
 
 
@@ -64,9 +63,6 @@ class SimDriverInputs:
     inbound_packets: list[bytes]  # CCSDS TC packets the SimStationLink delivers
     thermal_readings: list[float]  # temperature readings (Celsius) for the thermal sensor
     power_readings: list[float]  # power readings (Watts) for the electrical sensor
-    launch_lock_engaged: bool = (
-        False  # SimLaunchLock initial state; False -> RELEASED (ops default)
-    )
 
 
 def select_drivers(
@@ -129,10 +125,10 @@ def select_drivers(
         from flight.hal.drivers_real import RealScalarSensor, RealSensor
 
         real_sensor = RealSensor(clock=clock)
-        exposure_result = real_sensor.set_exposure_us(config.sensor.initial_exposure_us)
+        exposure_result = real_sensor.set_exposure_us(config.sensor.capture.initial_exposure_us)
         if not isinstance(exposure_result, Ok):
             raise SystemExit(f"camera exposure setup failed: {exposure_result.error}")
-        gain_result = real_sensor.set_gain_db(config.sensor.initial_gain_db)
+        gain_result = real_sensor.set_gain_db(config.sensor.capture.initial_gain_db)
         if not isinstance(gain_result, Ok):
             raise SystemExit(f"camera gain setup failed: {gain_result.error}")
         sensor = real_sensor
@@ -171,7 +167,7 @@ def select_drivers(
         from flight.payload.inference.artifact_path import resolve_quantized_path
 
         inf = config.inference
-        bands = len(BAND_ORDER)
+        bands = len(inf.input_bands)
         height = inf.input_height_px
         width = inf.input_width_px
         detector = OnnxDetector(
@@ -195,14 +191,6 @@ def select_drivers(
 
         station = RealStationLink(cfg=config.link, clock=clock)
 
-    # The launch lock has no real driver yet (hardware-deferred, a permanent VCRM gap), so
-    # every profile -- including all-"real" flight -- wires the SimLaunchLock stand-in. Flight
-    # (sim_inputs=None) starts ENGAGED (launch configuration); a SIL run starts from its
-    # sim_inputs flag (RELEASED by default, the operational config, so pointing SIL runs move).
-    lock_engaged = sim_inputs.launch_lock_engaged if sim_inputs is not None else True
-    launch_lock = SimLaunchLock(
-        LaunchLockState.ENGAGED if lock_engaged else LaunchLockState.RELEASED
-    )
     return Drivers(
         sensor=sensor,
         gimbal=gimbal,
@@ -211,5 +199,4 @@ def select_drivers(
         station=station,
         thermal_sensor=thermal_sensor,
         power_sensor=power_sensor,
-        launch_lock=launch_lock,
     )

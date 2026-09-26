@@ -84,7 +84,7 @@ def sample_devices(system: SilSystem) -> DeviceSample:
     """Take a non-mutating snapshot of sim HAL drivers for the current step.
 
     Args:
-        system: The wired SilSystem whose sim drivers + mechanical app state to read.
+        system: The wired SilSystem whose sim drivers to read.
 
     Returns:
         A DeviceSample. ``gimbal_el_meas_deg`` is the last encoder elevation
@@ -105,7 +105,6 @@ def sample_devices(system: SilSystem) -> DeviceSample:
         gimbal_tau_nm=snap.tau_nm,
         gimbal_mode=pose_mode,
         stow_switch=snap.stow_switch,
-        launch_lock_state=system.apps.mechanical.state.last_state.value,
         link_state=system.station.link_state().value,
         station_sent_total=len(system.station.sent),
         sensor_index=system.sensor._index,

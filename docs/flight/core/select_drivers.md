@@ -24,7 +24,6 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
 - `inbound_packets`: CCSDS TC packets for `SimStationLink`
 - `thermal_readings`: Celsius readings for the thermal scalar sensor
 - `power_readings`: watt readings for the electrical scalar sensor
-- `launch_lock_engaged`: initial launch-lock state (default false)
 
 **`select_drivers(config, clock, sim_inputs=None) -> Drivers`**
 
@@ -51,9 +50,7 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
    `fault.inference_timeout_ms` (20 ms) feed the detect-time fault threshold.
    The I/O contract is `(1, C, H, W)` from `len(BAND_ORDER)` and `input_*_px`.
 6. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
-7. **Launch lock:** always `SimLaunchLock`. Flight with `sim_inputs=None` starts ENGAGED.
-   SIL uses `sim_inputs.launch_lock_engaged` (default RELEASED).
-8. Return the assembled `Drivers` dataclass.
+7. Return the assembled `Drivers` dataclass.
 
 Real driver SDK modules import lazily inside the `real` branches only.
 
@@ -78,7 +75,6 @@ uses `resolve_quantized_path` when `inference.use_int8` is true.
 
 - This module imports both `drivers_sim` and lazy `drivers_real` branches.
 - SDK modules (PySpin, onnxruntime, socket) load only inside `real` branches.
-- No real launch-lock driver exists. Every profile uses `SimLaunchLock`.
 - Each branch local is typed with its HAL protocol. No casts are used at construction.
 
 ## Related documents

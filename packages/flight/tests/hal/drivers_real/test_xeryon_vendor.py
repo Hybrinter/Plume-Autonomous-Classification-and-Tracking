@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -27,9 +28,13 @@ def test_vendor_source_and_archive_provenance_are_pinned() -> None:
 
 
 def test_selected_stage_and_pyserial_dependency() -> None:
-    stage = Xeryon.Stage.XRTU_40_109
-    assert stage.name == "XRTU_40_109"
-    assert XeryonConfig().controller_counts_per_rev == 86400
+    configured = XeryonConfig()
+    stage = getattr(Xeryon.Stage, configured.vendor_stage)
+    assert stage.name == "XRTU_60_109"
+    assert configured.model == "XRT-U-60-109-HV"
+    assert configured.controller_counts_per_rev == 64800
+    assert stage.value[2] == (2.0 * math.pi * 1.0e6) / 64800
+    assert Xeryon.Stage.XRTU_40_109.name == "XRTU_40_109"
     assert serial.VERSION.startswith("3.")
 
 

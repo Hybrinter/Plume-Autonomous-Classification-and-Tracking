@@ -57,7 +57,7 @@ None.
 - No wall-clock timestamps in manifests. Bundles are byte-reproducible.
 - Headline outcomes include: `safe_latched_end`, `safe_ever`, `final_gimbal_state`,
   `final_system_mode`, `stow_engaged_ever`, `total_faults`, `final_model_deploy_state`,
-  `storage_entries_evicted`, `downlink_pending_peak`, `final_launch_lock_state`.
+  `storage_entries_evicted`, `downlink_pending_peak`.
 
 ## Related documents
 

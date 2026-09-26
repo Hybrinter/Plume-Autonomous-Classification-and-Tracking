@@ -141,19 +141,13 @@ class InnerControlState:
 
 @dataclass(frozen=True, slots=True)
 class IntegrityState:
-    """Light integrity detector strikes and lock-hold latch.
+    """Light integrity detector strike counter.
 
     Attributes:
         freeze_strikes: Consecutive encoder-freeze inner ticks.
-        lock_strikes: Consecutive lock-fight inner ticks.
-        lock_theta_ref_rad: Encoder elevation latched at lock engage, or None.
-        lock_ref_s: Monotonic seconds of that latch, or None.
     """
 
     freeze_strikes: int
-    lock_strikes: int
-    lock_theta_ref_rad: float | None
-    lock_ref_s: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,7 +197,7 @@ class ControlState:
         residual_history: Timestamped residual events and stable posterior anchor.
         encoder: Inner encoder ring and measured rate.
         inner: Inner PI integrator, time, and torque.
-        integrity: Freeze and lock-fight strikes with lock-hold latch.
+        integrity: Encoder-freeze strike counter.
         target: Stored CoG and last scene-rate terms.
         pose: Position-loop mode and target elevation.
         last_outer_s: Monotonic time of the last outer step, or None.
@@ -313,11 +307,11 @@ class PayloadController:
             preprocessing=prep,
             arbiter=GimbalArbiter(cfg.arbiter, gimbal),
             residual_filt=ResidualFilter.from_config(cfg.residual, cfg.outer.dt_s),
-            plane_width_px=sensor.width_px * prep.upsample_factor,
-            plane_height_px=sensor.height_px * prep.upsample_factor,
-            pixel_pitch_m=(sensor.pixel_um * 1.0e-6) / prep.upsample_factor,
-            focal_m=sensor.focal_length_mm * 1.0e-3,
-            ifov_band_deg_per_px=sensor.ifov_band_deg_per_px / prep.upsample_factor,
+            plane_width_px=sensor.width_px,
+            plane_height_px=sensor.height_px,
+            pixel_pitch_m=sensor.pixel_um * 1.0e-6,
+            focal_m=sensor.optics.focal_length_mm * 1.0e-3,
+            ifov_band_deg_per_px=sensor.optics.ifov_band_deg_per_px,
         )
 
     def initial_state(self) -> ControlState:
@@ -341,12 +335,7 @@ class PayloadController:
                 measured_rate_rad_s=0.0,
             ),
             inner=InnerControlState(integrator=0.0, last_inner_s=None, last_tau_nm=0.0),
-            integrity=IntegrityState(
-                freeze_strikes=0,
-                lock_strikes=0,
-                lock_theta_ref_rad=None,
-                lock_ref_s=None,
-            ),
+            integrity=IntegrityState(freeze_strikes=0),
             target=TargetState(
                 r_cog_ecef_m=None,
                 last_exposure_us=0.0,
@@ -429,7 +418,6 @@ class PayloadController:
         theta_enc_rad: float,
         dt_s: float | None = None,
         encoder_timestamp_s: float | None = None,
-        locked: bool = False,
         safe_latched: bool = False,
     ) -> InnerTick:
         """One inner tick: push encoder, fit y_m, PI + computed torque.
@@ -439,7 +427,6 @@ class PayloadController:
             now: Monotonic seconds of this tick.
             theta_enc_rad: Encoder elevation, radians.
             dt_s: Inner period; defaults to cfg.inner.dt_s.
-            locked: Launch lock engaged (freeze I; caller writes τ=0).
             safe_latched: Use the stow position loop instead of tracking r.
 
         Outputs:
@@ -467,6 +454,9 @@ class PayloadController:
         at_sci_max = el_deg >= self.gimbal.el_science_max_deg - 1e-9
         stopped = (
             el_deg <= self.gimbal.el_hw_min_deg + 1e-9 or el_deg >= self.gimbal.el_hw_max_deg - 1e-9
+        )
+        quantum_deg = (
+            self.gimbal.xeryon.effective_encoder_resolution_urad * 1.0e-6 * (180.0 / math.pi)
         )
         if safe_latched or state.pose.pose_mode is not None:
             pose_el = (
@@ -511,8 +501,14 @@ class PayloadController:
                     -math.sqrt(2.0 * max_decel * remaining),
                     -self.cfg.inner.kp * remaining,
                 )
-        if locked:
-            r = 0.0
+        # One encoder count differentiated at the inner rate looks like several deg/s.
+        # Against a hard stop that phantom rate commands torque into the stop, and
+        # the stage cannot move the other way to bleed it. Drop the inbound estimate
+        # while the rate command points off the stop.
+        if el_deg <= self.gimbal.el_hw_min_deg + 3.0 * quantum_deg and r > 0.0:
+            y_m = min(y_m, 0.0)
+        elif el_deg >= self.gimbal.el_hw_max_deg - 3.0 * quantum_deg and r < 0.0:
+            y_m = max(y_m, 0.0)
         at_bound = (at_sci_min and r < 0.0) or (at_sci_max and r > 0.0)
         result = inner_step(
             r,
@@ -525,7 +521,6 @@ class PayloadController:
             self.cfg.inner.ki,
             self.gimbal.tau_max_nm,
             stopped or at_bound,
-            locked=locked,
         )
         new_state = replace(
             state,
@@ -541,7 +536,7 @@ class PayloadController:
             ),
             commanded_rate_rad_s=r,
         )
-        return InnerTick(state=new_state, tau_nm=0.0 if locked else result.tau_nm)
+        return InnerTick(state=new_state, tau_nm=result.tau_nm)
 
     def outer_step(
         self,

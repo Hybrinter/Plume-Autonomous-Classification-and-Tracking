@@ -5,28 +5,32 @@
 
 ## Purpose
 
-Band order lives in `flight.libs.types.BAND_ORDER`. This module exposes that
-order as strings. Preprocess does not reorder channels.
+This module reorders stacked channels from wire order into the channel order the
+inference model expects.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `canonical_band_names` | function | Returns `("BLUE", "GREEN", "RED")` |
+| `select_bands` | function | Gathers planes by band name into model input order |
 
 ## Inputs and outputs
 
-`canonical_band_names()` takes no arguments. It returns one string per
-`BAND_ORDER` entry.
+`select_bands(planes, layout, band_names)` takes `(len(layout), H, W)` planes in
+`channel_layout` order. It returns `Result[np.ndarray, FaultCode]` with shape
+`(len(band_names), H, W)`.
 
 ## Behavior
 
-1. Read `BAND_ORDER`.
-2. Return each member's value, in that order.
+1. Verify the plane count matches `layout` length and the array is 3-D.
+2. Resolve each name in `band_names` to an index in `layout`.
+3. Return the gathered stack in `band_names` order.
 
 ## Errors and faults
 
-None.
+| Result | Trigger |
+| --- | --- |
+| `Err(FRAME_MALFORMED)` | Planes not 3-D, count mismatch, or unknown band name |
 
 ## Messages
 
@@ -34,14 +38,14 @@ None.
 
 ## Configuration
 
-None.
+Uses `SensorConfig.channel_layout` and `InferenceConfig.input_bands`.
 
 ## Constraints
 
-The driver stacks planes in `BAND_ORDER`. The model reads the same tuple.
-This module does not gather or permute arrays.
+The module matches names only; it does not assume fixed band indices. `input_bands` must
+be a subset of `channel_layout`.
 
 ## Related documents
 
 - [`flight.payload.preprocess`](../preprocess.md)
-- [`flight.libs.types.enums`](../../libs/types/enums.md)
+- [`flight.payload.preprocess.stack`](stack.md)

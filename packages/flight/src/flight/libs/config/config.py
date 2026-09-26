@@ -14,6 +14,7 @@ No other flight module is imported here.
 from __future__ import annotations
 
 # stdlib
+import math
 from dataclasses import field
 from typing import Literal, Self
 
@@ -22,6 +23,8 @@ from pydantic import ConfigDict, Field, model_validator
 from pydantic.dataclasses import dataclass
 
 _SCHEMA = ConfigDict(extra="forbid")
+_RGB_BANDS: frozenset[str] = frozenset({"BLUE", "GREEN", "RED"})
+_IFOV_TOLERANCE_DEG: float = 1.0e-6
 
 # ---------------------------------------------------------------------------
 # Per-subsystem config dataclasses
@@ -124,8 +127,6 @@ class IntegrityConfig:
     freeze_strikes: int = Field(default=50, ge=1)
     r_min_rad_s: float = Field(default=0.01745, gt=0.0)
     encoder_rate_ratio: float = Field(default=0.2, gt=0.0)
-    lock_fight_rad_s: float = Field(default=0.05, gt=0.0)
-    lock_fight_strikes: int = Field(default=50, ge=1)
     command_authority_s: float = Field(default=0.020, gt=0.0)
     feedback_max_age_s: float = Field(default=0.010, gt=0.0)
     recovery_max_attempts: int = Field(default=3, ge=0)
@@ -166,8 +167,9 @@ class InferenceConfig:
     segmentor_rollback_model_path: str = "data/models/rollback_segmentor.onnx"
     classifier_rollback_model_path: str = "data/models/rollback_classifier.onnx"
     classifier_logit_threshold: float = 0.0
-    input_height_px: int = Field(default=3088, gt=0)
-    input_width_px: int = Field(default=4128, gt=0)
+    input_bands: tuple[str, ...] = Field(default=("BLUE", "GREEN", "RED"), min_length=1)
+    input_height_px: int = Field(default=1544, gt=0)
+    input_width_px: int = Field(default=2064, gt=0)
     use_int8: bool = False
     latency_budget_ms: float = Field(default=4.0, gt=0.0)
 
@@ -197,41 +199,44 @@ class StorageConfig:
 
 
 @dataclass(frozen=True, config=_SCHEMA)
-class SensorConfig:
-    """Configuration for the JAI AP-3200T-USB prism RGB camera.
+class SensorOpticsConfig:
+    """Edmund Optics 16-849 lens constants for the AP-3200T-USB.
 
-    Three Sony IMX265 sensors, 2064 x 1544, 3.45 um, no mosaic filter and no NIR.
-    width_px is lateral. height_px is along-track. ifov_band_deg_per_px is the
-    native pixel. The controller divides it by the upsample factor.
+    Pointing stays an ideal pinhole. lens_distortion_pct is stored and not applied.
+    ifov_band_deg_per_px is one pixel at focal_length_mm. datasheet_hfov_deg is the
+    Edmund 1/1.8 in row (4.12 deg), not a computed active-area FOV.
 
     Satisfies: REQ-AIML-IMAG-001.
     """
 
-    part_number: str = "AP-3200T-USB"
-    sensor_name: str = "Sony IMX265"
-    width_px: int = Field(default=2064, gt=0)
-    height_px: int = Field(default=1544, gt=0)
-    bit_depth: int = Field(default=12, ge=1, le=16)
-    pixel_um: float = Field(default=3.45, gt=0.0)
-    focal_length_mm: float = Field(default=150.0, gt=0.0)
+    part_number: str = "16-849"
+    focal_length_mm: float = Field(default=100.0, gt=0.0)
     f_number: float = Field(default=4.0, gt=0.0)
-    lens_distortion_pct: float = Field(default=0.66, ge=0.0)
-    ifov_band_deg_per_px: float = Field(default=0.001318, gt=0.0)
-    fov_lateral_deg: float = Field(default=2.720, gt=0.0)
-    fov_along_deg: float = Field(default=2.035, gt=0.0)
-    datasheet_hfov_2_3_deg: float = Field(default=3.36, gt=0.0)
-    qe_530_pct: float = Field(default=62.51, gt=0.0)
-    saturation_capacity_e: float = Field(default=10824.0, gt=0.0)
-    temporal_dark_noise_e: float = Field(default=2.27, ge=0.0)
-    dynamic_range_db: float = Field(default=71.83, gt=0.0)
+    lens_distortion_pct: float = Field(default=1.21, ge=0.0)
+    ifov_band_deg_per_px: float = Field(default=0.001977, gt=0.0)
+    fov_lateral_deg: float = Field(default=4.077, gt=0.0)
+    fov_along_deg: float = Field(default=3.051, gt=0.0)
+    datasheet_hfov_deg: float = Field(default=4.12, gt=0.0)
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class SensorCaptureConfig:
+    """Exposure, gain, and frame-rate limits for the AP-3200T-USB.
+
+    max_frame_rate_hz is the operational cap. The datasheet 8-bit maximum is 38.3 Hz.
+    Exposure limits are the printed 8-bit timed range. Gain is the ALC span.
+    duty_cycle gates imaging captures. 0.5 captures on even opportunities and stretches
+    storage fill from about 2-4 months to about 6 months. It is not the Xeryon vacuum duty.
+    """
+
     max_frame_rate_hz: float = Field(default=35.0, gt=0.0)
-    exposure_min_us: float = Field(default=13.0, gt=0.0)
-    exposure_max_us: float = Field(default=30_000_000.0, gt=0.0)
-    initial_exposure_us: float = Field(default=13.0, gt=0.0)
+    exposure_min_us: float = Field(default=30.73, gt=0.0)
+    exposure_max_us: float = Field(default=8_000_000.0, gt=0.0)
+    initial_exposure_us: float = Field(default=30.73, gt=0.0)
     gain_min_db: float = Field(default=0.0, ge=0.0)
-    gain_max_db: float = Field(default=47.0, ge=0.0)
+    gain_max_db: float = Field(default=12.0, ge=0.0)
     initial_gain_db: float = Field(default=0.0, ge=0.0)
-    calibration_dir: str = ""
+    duty_cycle: float = Field(default=0.5, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _exposure_gain_range(self) -> Self:
@@ -250,22 +255,55 @@ class SensorConfig:
 
 
 @dataclass(frozen=True, config=_SCHEMA)
-class PreprocessingConfig:
-    """Quality thresholds, smear cap, and the cubic upscale after plane confirm.
+class SensorConfig:
+    """Configuration for the JAI AP-3200T-USB prism camera and 16-849 lens.
 
-    ``max_motion_smear_px`` is the along-track budget in upsampled band-plane
-    pixels. The default 4 is 0.002636 deg at the default upsampled IFOV.
+    Three registered CMOS planes (Sony IMX265), one per color. width_px is lateral;
+    height_px is along-track. channel_layout is wire order. Inference reorders bands
+    through select_bands. Paraxial nadir GSD at 460 km is 15.87 m.
+
+    Satisfies: REQ-AIML-IMAG-001.
     """
 
+    part_number: str = "AP-3200T-USB"
+    sensor_name: str = "Sony IMX265"
+    width_px: int = Field(default=2064, gt=0)
+    height_px: int = Field(default=1544, gt=0)
+    bit_depth: int = Field(default=12, ge=1, le=16)
+    channel_layout: tuple[str, ...] = ("RED", "GREEN", "BLUE")
+    pixel_um: float = Field(default=3.45, gt=0.0)
+    optics: SensorOpticsConfig = field(default_factory=SensorOpticsConfig)
+    capture: SensorCaptureConfig = field(default_factory=SensorCaptureConfig)
+    calibration_dir: str = ""
+
+    @model_validator(mode="after")
+    def _channel_layout_permutation(self) -> Self:
+        """Reject a channel_layout that is not a permutation of RED/GREEN/BLUE."""
+        if frozenset(self.channel_layout) != _RGB_BANDS or len(self.channel_layout) != len(
+            _RGB_BANDS
+        ):
+            raise ValueError(
+                "sensor.channel_layout must name each Band (RED/GREEN/BLUE) exactly once"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ifov_matches_pitch_and_focal_length(self) -> Self:
+        """Reject a stored IFOV that disagrees with pixel pitch and focal length."""
+        expected = math.degrees(self.pixel_um * 1.0e-6 / (self.optics.focal_length_mm * 1.0e-3))
+        if abs(self.optics.ifov_band_deg_per_px - expected) > _IFOV_TOLERANCE_DEG:
+            raise ValueError(
+                "sensor.optics.ifov_band_deg_per_px must match pixel_um and focal_length_mm"
+            )
+        return self
+
+
+@dataclass(frozen=True, config=_SCHEMA)
+class PreprocessingConfig:
+    """Quality-flag thresholds plus the outer-rate smear cap (`max_motion_smear_px`)."""
+
     saturation_fraction_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
-    cloud_whiteness_min: float = Field(default=0.85, ge=0.0, le=1.0)
-    cloud_luminance_min: float = Field(default=0.45, ge=0.0, le=1.0)
-    cloud_fraction_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
-    sunglint_luminance_min: float = Field(default=0.85, ge=0.0, le=1.0)
-    sunglint_fraction_threshold: float = Field(default=0.02, ge=0.0, le=1.0)
-    max_motion_smear_px: float = Field(default=4.0, gt=0.0)
-    upsample_factor: int = Field(default=2, ge=1)
-    upsample_order: int = Field(default=3, ge=1, le=3)
+    max_motion_smear_px: float = Field(default=1.0, gt=0.0)
 
 
 @dataclass(frozen=True, config=_SCHEMA)
@@ -286,11 +324,11 @@ class ThermalConfig:
     limits until per-component sensors exist.
     """
 
-    camera_min_c: float = 0.0
-    camera_max_c: float = 50.0
+    camera_min_c: float = -5.0
+    camera_max_c: float = 45.0
     lens_min_c: float = -10.0
     lens_max_c: float = 50.0
-    gimbal_min_c: float = -20.0
+    gimbal_min_c: float = -30.0
     gimbal_max_c: float = 70.0
     compute_min_c: float = 0.0
     compute_max_c: float = 80.0
@@ -319,38 +357,43 @@ class GimbalSimulationConfig:
     so a SIL run cannot accidentally be mistaken for hardware characterization.
     encoder_counts_per_rev and encoder_noise_deg match the real XD-C controller
     resolution (GimbalConfig.xeryon.controller_counts_per_rev /
-    effective_encoder_resolution_urad); J, B, tau_max, and tau_coulomb remain
-    unmeasured plant placeholders pending a bench identification study.
+    effective_encoder_resolution_urad). J is the XRT-U-60 payload-inertia cap
+    until the camera, lens, fixture, and thermal straps are measured. tau_max is
+    the stage minimum driving torque. tau_coulomb stays at 5% of tau_max so the
+    unmeasured friction term does not exceed the drive the inner law produces.
+    B remains unmeasured.
     """
 
-    J_kg_m2: float = Field(default=0.008, gt=0.0)  # noqa: N815
+    J_kg_m2: float = Field(default=0.0025, gt=0.0)  # noqa: N815
     B_nms_per_rad: float = Field(default=0.04, ge=0.0)  # noqa: N815
-    tau_max_nm: float = Field(default=1.0, gt=0.0)
-    tau_coulomb_nm: float = Field(default=0.05, ge=0.0)
-    encoder_counts_per_rev: int = Field(default=86_400, ge=2)
+    tau_max_nm: float = Field(default=0.09, gt=0.0)
+    tau_coulomb_nm: float = Field(default=0.0045, ge=0.0)
+    encoder_counts_per_rev: int = Field(default=64_800, ge=2)
     encoder_noise_deg: float = Field(default=0.00625, ge=0.0)
     seed: int = 0
 
 
 @dataclass(frozen=True, config=_SCHEMA)
 class XeryonConfig:
-    """Typed, fail-closed configuration for the XRT-U-40-109-HV/XD-C path.
+    """Typed, fail-closed configuration for the XRT-U-60-109-HV/XD-C path.
 
     Values describing the controller protocol are intentionally explicit.  The
     adapter remains motion-disabled until the audit and bench-validation flags
-    are all true; defaults are therefore safe for development and CI.
+    are all true; defaults are therefore safe for development and CI. The
+    vendored SDK defines XRTU_60_109 at 64800 counts/rev.
     """
 
-    model: Literal["XRT-U-40-109-HV"] = "XRT-U-40-109-HV"
+    model: Literal["XRT-U-60-109-HV"] = "XRT-U-60-109-HV"
     controller: Literal["XD-C"] = "XD-C"
-    controller_counts_per_rev: int = Field(default=86_400, ge=2)
+    controller_counts_per_rev: int = Field(default=64_800, ge=2)
     effective_encoder_resolution_urad: float = Field(default=109.0, gt=0.0)
-    min_incremental_motion_urad: float = Field(default=109.0, gt=0.0)
-    repeatability_uni_urad: float = Field(default=109.0, ge=0.0)
-    repeatability_bi_urad: float = Field(default=109.0, ge=0.0)
-    wobble_urad: float = Field(default=0.0, ge=0.0)
+    min_incremental_motion_urad: float = Field(default=125.0, gt=0.0)
+    repeatability_uni_urad: float = Field(default=125.0, ge=0.0)
+    repeatability_bi_urad: float = Field(default=250.0, ge=0.0)
+    wobble_urad: float = Field(default=250.0, ge=0.0)
+    payload_inertia_limit_kg_m2: float = Field(default=0.0025, gt=0.0)
     command_quantum_deg_per_s: float = Field(default=0.01, gt=0.0)
-    rated_speed_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
+    rated_speed_limit_deg_per_s: float = Field(default=360.0, gt=0.0)
     software_tracking_limit_deg_per_s: float = Field(default=10.0, gt=0.0)
     encoder_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
     reversal_variance_rad2: float = Field(default=1.0e-10, ge=0.0)
@@ -369,7 +412,7 @@ class XeryonConfig:
     feedback_info_level: int = Field(default=4, ge=0)
     feedback_poll_interval_ms: float = Field(default=2.0, gt=0.0)
     vendor_module: str = "Xeryon"
-    vendor_stage: str = "XRTU_40_109"
+    vendor_stage: str = "XRTU_60_109"
     axis_letter: str = Field(default="X", min_length=1, max_length=1)
     motion_enabled: bool = False
     vendor_license_audited: bool = False
@@ -410,18 +453,19 @@ class GimbalConfig:
     """Configuration for the single-axis gimbal envelope, plant, and encoder.
 
     Elevation is signed off-nadir degrees: 0 at geocentric nadir, positive along-track
-    (velocity), negative look-back. Hardware travel, science imaging window, and stow/home
-    poses are distinct. Plant scalars J, B, tau_max are placeholders until hardware exists.
+    (velocity). Hardware travel is nadir to the flat pose, with no look-back. The science
+    window and stow/home poses are distinct. Plant J is the motor inertia cap until the
+    assembly is measured.
 
     Satisfies: REQ-AIML-GIMB-001, REQ-GIMB-HIGH-001.
     """
 
-    el_hw_min_deg: float = -45.0
+    el_hw_min_deg: float = 0.0
     el_hw_max_deg: float = 90.0
-    el_science_min_deg: float = 0.0
+    el_science_min_deg: float = 5.0
     el_science_max_deg: float = 45.0
     max_hw_slew_rate_deg_per_s: float = Field(default=10.0, gt=0.0)
-    stow_el_deg: float = -45.0
+    stow_el_deg: float = 90.0
     home_el_deg: float = 45.0
     simulation: GimbalSimulationConfig = field(default_factory=GimbalSimulationConfig)
     xeryon: XeryonConfig = field(default_factory=XeryonConfig)
@@ -477,6 +521,8 @@ class GimbalConfig:
             raise ValueError("stow_el_deg must be within [el_hw_min_deg, el_hw_max_deg]")
         if not (self.el_hw_min_deg <= self.home_el_deg <= self.el_hw_max_deg):
             raise ValueError("home_el_deg must be within [el_hw_min_deg, el_hw_max_deg]")
+        if self.simulation.J_kg_m2 > self.xeryon.payload_inertia_limit_kg_m2:
+            raise ValueError("simulation.J_kg_m2 must be <= xeryon.payload_inertia_limit_kg_m2")
         return self
 
 
@@ -561,9 +607,7 @@ class DriverConfig:
     Each field names a deployment axis the composition root must resolve to a
     concrete driver: 'sim' selects an in-process stand-in, 'real' selects the
     flight driver/device. host is a free-form label for the target machine
-    (provenance only; not acted on). The 'lock' (LaunchLock) axis is intentionally
-    absent: there is no LaunchLock device, so it is a permanent VCRM gap, not a
-    config field. The clock axis is informational here -- the composition root
+    (provenance only; not acted on). The clock axis is informational here -- the composition root
     chooses RealClock vs ManualClock from it BEFORE building drivers.
 
     Satisfies: REQ-OPER-HIGH-002 (validated startup config selects the deployment axes).
@@ -602,15 +646,25 @@ class PactConfig:
     drivers: DriverConfig = field(default_factory=DriverConfig)
 
     @model_validator(mode="after")
-    def _inference_matches_upsampled_frame(self) -> Self:
-        """Reject an inference size that is not the upsampled RGB frame."""
-        factor = self.preprocessing.upsample_factor
-        plane_h = self.sensor.height_px * factor
-        plane_w = self.sensor.width_px * factor
-        if self.inference.input_height_px != plane_h or self.inference.input_width_px != plane_w:
+    def _input_bands_in_layout(self) -> Self:
+        """Reject inference input bands that are absent from the sensor channel layout."""
+        layout = set(self.sensor.channel_layout)
+        for band in self.inference.input_bands:
+            if band not in layout:
+                raise ValueError(
+                    f"inference.input_bands entry {band!r} is not present in sensor.channel_layout"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _inference_matches_frame(self) -> Self:
+        """Reject inference input size that is not the full sensor frame."""
+        if (
+            self.inference.input_height_px != self.sensor.height_px
+            or self.inference.input_width_px != self.sensor.width_px
+        ):
             raise ValueError(
-                f"inference input size must equal the upsampled RGB frame ({plane_h} x {plane_w})"
+                "inference input size must equal the sensor frame "
+                f"({self.sensor.height_px} x {self.sensor.width_px})"
             )
-        if self.preprocessing.upsample_order not in (1, 3):
-            raise ValueError("preprocessing.upsample_order must be 1 or 3")
         return self

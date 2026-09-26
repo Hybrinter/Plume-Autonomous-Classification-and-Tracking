@@ -62,7 +62,6 @@ def build_sil_system(
     thermal_readings: list[float] | None = None,
     power_readings: list[float] | None = None,
     uplink_key: bytes = b"sil-test-key-0000000000000000000",
-    launch_lock_engaged: bool = False,
 ) -> SilSystem:
     """Construct the sim drivers and wire the flight apps over a fresh bus via build_apps.
 
@@ -94,7 +93,6 @@ def build_sil_system(
         inbound_packets=inbound_packets or [],
         thermal_readings=thermal_readings or [],
         power_readings=power_readings or [],
-        launch_lock_engaged=launch_lock_engaged,
     )
     sil_env = DriverConfig(
         sensor="sim",

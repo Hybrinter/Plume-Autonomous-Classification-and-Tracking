@@ -291,10 +291,7 @@ def test_true_elevation_moves_ecef_projected_centroid() -> None:
         elevations.append(system.gimbal.true_el_deg)
         assert bind.last_hal_iss is not None
         clock.advance(1.0)
-    # The finer-pixel smear cap can be smaller than the scene rate, so elevation
-    # need not rise on every step. Tracking still moves the gimbal.
-    assert max(elevations) > min(elevations)
-    assert elevations[-1] > 0.0
+    assert elevations[-1] > elevations[0]
     first_u, first_v = centroids[0]
     last_u, last_v = centroids[-1]
     shift = math.hypot(last_u - first_u, last_v - first_v)
@@ -388,11 +385,21 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
     outer_dt_s: float,
     clock0: float,
 ) -> None:
-    """Catch-up before bind aligns shutter, encoder, and frame time for the predictor."""
-    live = build_frames(1)[0].planes
+    """Catch-up before bind aligns shutter, encoder, and frame time for the predictor.
+
+    Imaging duty is held at 1 so every step captures. The duty gate has its own test.
+    """
+    live = build_frames(1)[0].mosaic
     assert isinstance(live, np.ndarray)
     _inject_live_mosaic(monkeypatch, live)
-    config = _with_outer_dt(PactConfig(), outer_dt_s)
+    base = _with_outer_dt(PactConfig(), outer_dt_s)
+    config = dataclasses.replace(
+        base,
+        sensor=dataclasses.replace(
+            base.sensor,
+            capture=dataclasses.replace(base.sensor.capture, duty_cycle=1.0),
+        ),
+    )
     clock = ManualClock(monotonic_s=clock0)
     detector = plume_detector()
     camera = camera_from_sensor(config.sensor)

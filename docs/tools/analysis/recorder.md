@@ -28,7 +28,7 @@ step into tidy long and per-group wide pandas frames.
 **`sample_devices(system) -> DeviceSample`**
 
 - Output: last flight-delivered encoder elevation, plant truth pose and rate, held
-  torque, stow command and switch, launch-lock state, link state, station send count,
+  torque, stow command and switch, link state, station send count,
   and replay cursors.
 - The call does not sample the encoder, draw noise, integrate the plant, expire a
   command lease, or write last-feedback time.

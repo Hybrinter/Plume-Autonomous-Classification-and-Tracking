@@ -23,7 +23,6 @@ _EXPECTED_GROUPS = {
     "command_router",
     "storage",
     "downlink",
-    "mechanical",
     "model_deploy",
 }
 

@@ -1,22 +1,58 @@
-"""Band order lives in ``flight.libs.types.BAND_ORDER``.
+"""flight.payload.preprocess.band_select -- reorder stacked channels for inference.
 
-Preprocess does not reorder channels. The driver stacks BLUE, GREEN, RED in
-that tuple, and the model reads the same tuple.
+Satisfies: REQ-AIML-PREP-001, REQ-AIML-IMAG-001
+
+After stacking, channels arrive in SensorConfig.channel_layout (wire) order.
+select_bands reorders them into the InferenceConfig.input_bands order the model
+expects. The band vocabulary is RED/GREEN/BLUE.
+
+This module is layout-agnostic: it only matches names, it does not assume any fixed
+index.
 
 Contains:
-  - canonical_band_names: the ``BAND_ORDER`` names as strings.
+  - select_bands: gather/reorder layout-ordered planes into the requested band order,
+    returning Err(FRAME_MALFORMED) on a plane-count or unknown-name mismatch.
 """
 
 from __future__ import annotations
 
+# third-party
+import numpy as np
+
 # internal
-from flight.libs.types import BAND_ORDER
+from flight.libs.types import Err, FaultCode, Ok, Result
 
 
-def canonical_band_names() -> tuple[str, ...]:
-    """Return the only band order, as strings.
+def select_bands(
+    planes: np.ndarray,  # np.ndarray[float32, (len(layout), H, W)], in channel_layout order
+    layout: tuple[str, ...],
+    band_names: tuple[str, ...],
+) -> Result[np.ndarray, FaultCode]:
+    """Reorder demosaicked band planes from layout order into band_names order.
+
+    Inputs:
+        planes (np.ndarray[float32, (len(layout), H, W)]): Band planes in
+            SensorConfig.channel_layout (wire) order.
+        layout (tuple[str, ...]): The band name of each plane, e.g.
+            ("RED", "GREEN", "BLUE").
+        band_names (tuple[str, ...]): Requested output order
+            (InferenceConfig.input_bands).
 
     Outputs:
-        tuple[str, ...]: ``("BLUE", "GREEN", "RED")``.
+        Result[np.ndarray, FaultCode]:
+            Ok(np.ndarray[float32, (len(band_names), H, W)]) with channels in
+            band_names order;
+            Err(FaultCode.FRAME_MALFORMED) if a requested name is absent from layout,
+            if planes is not 3-D, or if the plane count disagrees with layout.
+
+    Notes:
+        Pure gather by integer index; no copy of pixel data beyond numpy's fancy-index
+        result. The output channel order follows band_names exactly, not layout order.
     """
-    return tuple(band.value for band in BAND_ORDER)
+    if planes.ndim != 3 or planes.shape[0] != len(layout):
+        return Err(FaultCode.FRAME_MALFORMED)
+    try:
+        indices = [layout.index(name) for name in band_names]
+    except ValueError:
+        return Err(FaultCode.FRAME_MALFORMED)
+    return Ok(planes[indices, :, :])  # np.ndarray[float32, (len(band_names), H, W)]

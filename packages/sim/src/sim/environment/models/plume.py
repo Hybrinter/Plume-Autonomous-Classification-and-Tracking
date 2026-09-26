@@ -27,9 +27,10 @@ from sim.environment.models.orbit import OrbitModel
 from sim.environment.models.wind import WindModel
 from sim.environment.records import EnvTime, PlumeState
 
-# Band-plane centroid of sim.scene.plume (documented, not a live import of privates).
-_BANDPLANE_X_PX = 612.0
-_BANDPLANE_Y_PX = 124.0
+# Full-frame centroid of sim.scene.plume (documented, not a live import of privates).
+# Same fraction off boresight as (612, 124) on the old 1224 x 1024 plane.
+_BANDPLANE_X_PX = 1032.0
+_BANDPLANE_Y_PX = 772.0 + (124.0 - 512.0) * (1544.0 / 1024.0)
 _MIN_NORM = 1.0e-12
 _PASSED_AHEAD_M = 1.0
 _WGS84_A_M = 6_378_137.0

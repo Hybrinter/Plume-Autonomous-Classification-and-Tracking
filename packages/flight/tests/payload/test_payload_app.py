@@ -14,7 +14,6 @@ from flight.libs.messages import (
     FaultEventMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
-    LaunchLockStateMsg,
     ModeChangeMsg,
     ProcessedFrameMsg,
     RoutedCommandMsg,
@@ -28,7 +27,6 @@ from flight.libs.types import (
     FrameUsabilityTag,
     GimbalCommandMode,
     GimbalState,
-    LaunchLockState,
     MessageType,
     MosaicFrame,
     Ok,
@@ -60,8 +58,8 @@ class _MemStorage:
 
 
 def _mosaic_frame(frame_id: int) -> MosaicFrame:
-    """Build a zeroed (2048, 2448) uint16 mosaic frame matching the default sensor geometry."""
-    mosaic = np.zeros((2048, 2448), dtype=np.uint16)
+    """Build a zeroed (3, 1544, 2064) uint16 prism buffer matching the default sensor."""
+    mosaic = np.zeros((3, 1544, 2064), dtype=np.uint16)
     return MosaicFrame(
         timestamp_utc="2026-06-01T00:00:00.000Z",
         timestamp_s=float(frame_id),
@@ -74,8 +72,8 @@ def _mosaic_frame(frame_id: int) -> MosaicFrame:
 
 def _plume_detector() -> ScriptedDetector:
     """Scripted detector whose mask yields one strong above-boresight blob each frame."""
-    mask = np.zeros((1024, 1224), dtype=np.float32)
-    mask[99:149, 587:637] = 1.0
+    mask = np.zeros((1544, 2064), dtype=np.float32)
+    mask[149:225, 990:1074] = 1.0
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 
@@ -104,7 +102,6 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     return app, bus, gimbal, clock
 
 
@@ -182,7 +179,6 @@ def test_rate_mode_inner_catchup_samples_encoder_before_outer() -> None:
     app = PayloadApp.from_config(
         cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
     )
-    app.lock_gate.engaged = False
     state = app.controller.initial_state()
     now = 0.1
     state = app.advance_inner(state, now)
@@ -202,8 +198,8 @@ def test_rate_mode_inner_catchup_samples_encoder_before_outer() -> None:
     assert len(app.encoder_stream.samples) == gimbal.reads
 
 
-def test_process_frame_passes_full_band_plane() -> None:
-    """A 2048x2448 mosaic demosaics to (4, 1024, 1224) and is passed to detect() uncropped."""
+def test_process_frame_passes_nchw_tensor() -> None:
+    """A prism buffer is published as NCHW (1, 3, 1544, 2064) with no crop."""
     captured: list[tuple[int, ...]] = []
 
     class _CapturingDetector:
@@ -221,7 +217,39 @@ def test_process_frame_passes_full_band_plane() -> None:
     _state, outcome = app.process_frame(_mosaic_frame(1), app.controller.initial_state(), now=1.0)
 
     assert outcome.fault is None
-    assert captured == [(4, 1024, 1224)]
+    assert captured == [(1, 3, 1544, 2064)]
+
+
+def test_imaging_duty_limits_tensors_and_keeps_gimbal_steps() -> None:
+    """N acquire opportunities publish floor(N * duty) tensors and still step the gimbal."""
+    app, bus, gimbal, clock = _build_app(_plume_detector())
+    inf_sub = bus.subscribe(InferenceResultMsg)
+    state = app.controller.initial_state()
+    n = 8
+    now = 0.0
+    for frame_id in range(1, n + 1):
+        now += 1.0
+        position = gimbal.read_position()
+        assert isinstance(position, Ok)
+        shutter = replace(position.value, timestamp_s=now)
+        if app.capture_this_opportunity():
+            state, outcome = app.process_frame(
+                _mosaic_frame(frame_id), state, now, gimbal_pos=shutter
+            )
+            assert outcome.fault is None
+        else:
+            app.note_gimbal_feedback(shutter)
+        state, _outer = app.advance_outer(state, now)
+        state = app.advance_inner(state, now)
+        clock.advance(1.0)
+    duty = app.sensor_cfg.capture.duty_cycle
+    inference_count = 0
+    while not inf_sub.empty():
+        inf_sub.get_nowait()
+        inference_count += 1
+    assert duty == 0.5
+    assert inference_count == math.floor(n * duty)
+    assert state.last_outer_s == pytest.approx(now)
 
 
 def test_persistent_plume_drives_gimbal_through_app() -> None:
@@ -267,7 +295,7 @@ def test_persistent_plume_drives_gimbal_through_app() -> None:
 def test_no_detection_publishes_inference_but_no_pose_command() -> None:
     """Empty masks publish inference and do not issue pose GimbalCommandMsg."""
     empty_detector = ScriptedDetector(
-        np.zeros((1024, 1224), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
+        np.zeros((1544, 2064), dtype=np.float32), confidence_gate=0.55, min_blob_area_px=15
     )
     app, bus, _gimbal, clock = _build_app(empty_detector)
     cmd_sub = bus.subscribe(GimbalCommandMsg)
@@ -319,6 +347,106 @@ def test_mode_change_safe_issues_stow_actuation() -> None:
     assert health.value.inhibit_confirmed is True
 
 
+class _DutySensor:
+    """ImagingSensor double that counts acquire and drain calls, then stops the loop."""
+
+    def __init__(self, stop: threading.Event, opportunities: int) -> None:
+        self._stop = stop
+        self._opportunities = opportunities
+        self.acquires = 0
+        self.drains = 0
+        self.starts = 0
+        self.stops = 0
+        self.drain_error: FaultCode | None = None
+
+    def _finish_opportunity(self) -> None:
+        if self.acquires + self.drains >= self._opportunities:
+            self._stop.set()
+
+    def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
+        """Count a capture opportunity and stall before any mosaic is built."""
+        self.acquires += 1
+        self._finish_opportunity()
+        return Err(FaultCode.CAMERA_STALL)
+
+    def drain_frame(self) -> Result[None, FaultCode]:
+        """Count an off-duty opportunity and optionally fail the release."""
+        self.drains += 1
+        self._finish_opportunity()
+        if self.drain_error is not None:
+            return Err(self.drain_error)
+        return Ok(None)
+
+    def set_exposure_us(self, exposure: float) -> Result[None, FaultCode]:
+        """Accept exposure writes without a camera."""
+        del exposure
+        return Ok(None)
+
+    def set_gain_db(self, gain: float) -> Result[None, FaultCode]:
+        """Accept gain writes without a camera."""
+        del gain
+        return Ok(None)
+
+    def start_acquisition(self) -> Result[None, FaultCode]:
+        """Record that the payload loop started the stream."""
+        self.starts += 1
+        return Ok(None)
+
+    def stop_acquisition(self) -> Result[None, FaultCode]:
+        """Record that the payload loop stopped the stream."""
+        self.stops += 1
+        return Ok(None)
+
+
+def test_run_drains_camera_on_skipped_opportunities() -> None:
+    """Off-duty loop ticks release a waiting image and do not acquire it."""
+    cfg = PactConfig()
+    bus = MessageBus()
+    clock = ManualClock()
+    stop = threading.Event()
+    sensor = _DutySensor(stop, opportunities=4)
+    gimbal = _RateGimbal(cfg.controller.outer.dt_s)
+    eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    app.run(stop)
+    assert sensor.starts == 1
+    assert sensor.stops == 1
+    assert app.imaging_duty.opportunities == 4
+    assert sensor.drains == 2
+    assert sensor.acquires == 2
+
+
+def test_run_publishes_fault_when_camera_drain_fails() -> None:
+    """A failed off-duty release publishes CAMERA_STALL and keeps the outer loop moving."""
+    cfg = PactConfig()
+    bus = MessageBus()
+    clock = ManualClock()
+    stop = threading.Event()
+    sensor = _DutySensor(stop, opportunities=1)
+    sensor.drain_error = FaultCode.CAMERA_STALL
+    fault_sub = bus.subscribe(FaultEventMsg)
+    gimbal = _RateGimbal(cfg.controller.outer.dt_s)
+    eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
+    calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
+    app = PayloadApp.from_config(
+        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage()
+    )
+    app.run(stop)
+    assert sensor.drains == 1
+    assert sensor.acquires == 0
+    assert gimbal.reads >= 1
+    faults = []
+    while not fault_sub.empty():
+        faults.append(fault_sub.get_nowait())
+    assert any(
+        fault.fault_code is FaultCode.CAMERA_STALL and fault.detail == "imaging sensor buffer drain"
+        for fault in faults
+    )
+
+
 def test_run_loop_starts_and_stops_cleanly() -> None:
     """run() returns promptly when stop_event is pre-set, exercising acquisition glue."""
     app, bus, _gimbal, _clock = _build_app(_plume_detector())
@@ -344,23 +472,6 @@ def test_clock_origin_does_not_replay_from_zero() -> None:
     assert not any("catch-up" in f.detail for f in faults)
 
 
-def test_lock_engaged_writes_zero_torque() -> None:
-    """Fail-closed lock writes tau=0 and freezes the commanded rate."""
-    app, bus, gimbal, _clock = _build_app(_plume_detector())
-    app.lock_gate.engaged = True
-    bus.publish(
-        LaunchLockStateMsg(
-            msg_type=MessageType.LAUNCH_LOCK_STATE,
-            timestamp_utc="t",
-            state=LaunchLockState.ENGAGED,
-        )
-    )
-    state = replace(app.controller.initial_state(), commanded_rate_rad_s=0.1)
-    state = app.advance_inner(state, now=1.0)
-    assert gimbal._tau_nm == 0.0
-    assert state.commanded_rate_rad_s == 0.0
-
-
 def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:
     """Healthy SAFE cannot continue a stale outward tracking command."""
     app, _bus, gimbal, _clock = _build_app(_plume_detector())
@@ -370,10 +481,10 @@ def test_safe_latch_replaces_tracking_torque_with_stow_control() -> None:
     state = replace(
         initial,
         inner=replace(initial.inner, last_inner_s=0.0),
-        commanded_rate_rad_s=0.1,
+        commanded_rate_rad_s=-0.1,
     )
     app.advance_inner(state, now=0.001)
-    assert gimbal._tau_nm <= 0.0
+    assert gimbal._tau_nm > 0.0
 
 
 def test_encoder_failure_contains_motion_and_commands_safe(

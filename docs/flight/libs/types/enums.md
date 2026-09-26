@@ -14,17 +14,14 @@ across subsystems.
 | --- | --- | --- |
 | `SystemMode` | enum | Top-level operational mode |
 | `GimbalState` | enum | Gimbal arbiter state |
-| `is_rewind_hunt` | function | True for `REWIND` and `FAST_REWIND` |
 | `GimbalCommandMode` | enum | Gimbal command axis interpretation |
 | `FaultCode` | enum | Enumerated fault conditions |
-| `Band` | enum | RGB prism band names |
-| `BAND_ORDER` | constant | The only channel order: BLUE, GREEN, RED |
+| `Band` | enum | Prism RGB band names |
 | `FrameUsabilityTag` | enum | Per-frame quality classification |
 | `MessageType` | enum | Bus message discriminant |
 | `DownlinkPriority` | enum | Downlink queue priority |
 | `ModelDeployState` | enum | Model deployment lifecycle state |
 | `LinkState` | enum | Station link acquisition state |
-| `LaunchLockState` | enum | Launch-lock mechanism state |
 | `AckStatus` | enum | Command ingress outcome |
 | `CommandId` | enum | Command dictionary opcode keys |
 | `ParamKind` | enum | Command parameter primitive kind |
@@ -83,15 +80,14 @@ across subsystems.
 | `COMMAND_SEQ_ERROR` | Command sequence replay or ordering failure |
 | `COMMAND_INVALID` | Unknown command or bad parameters |
 | `COMMAND_UNROUTABLE` | Command target not in dictionary |
-| `LAUNCH_LOCK_FAULT` | Launch-lock read or actuation failure |
 
 ### Band
 
 | Member | Description |
 | --- | --- |
-| `BLUE` | Blue CMOS plane |
-| `GREEN` | Green CMOS plane |
-| `RED` | Red CMOS plane |
+| `BLUE` | Blue passband (~490 nm) |
+| `GREEN` | Green passband (~560 nm) |
+| `RED` | Red passband (~665 nm) |
 
 ### FrameUsabilityTag
 
@@ -103,7 +99,7 @@ across subsystems.
 | `CLOUD_CONTAMINATED` | Cloud contamination detected |
 | `SUNGLINT` | Sunglint detected |
 | `SATURATED` | Saturation detected |
-| `MOTION_SMEAR` | Reserved; not raised. Smear is a control cap |
+| `MOTION_SMEAR` | Motion smear detected |
 | `INCOMPLETE_METADATA` | Missing metadata |
 
 ### MessageType
@@ -111,7 +107,7 @@ across subsystems.
 Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMBAL_COMMAND`,
 `TELEMETRY_EVENT`, `FAULT_EVENT`, `HEARTBEAT`, `MODE_CHANGE`, `COMMAND`, `ROUTED_COMMAND`,
 `SAFETY_STATE`, `STORAGE_WRITE`, `PRODUCT_REF`, `DOWNLINK_ITEM`, `UPLINK_CHUNK`, `COMMAND_ACK`,
-`LINK_STATE`, `LAUNCH_LOCK_STATE`, `MODEL_STAGED`, `MODEL_DEPLOY`.
+`LINK_STATE`, `MODEL_STAGED`, `MODEL_DEPLOY`.
 
 ### DownlinkPriority
 
@@ -137,14 +133,6 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `AOS` | Link up; downlink may drain |
 | `LOS` | Link down; hold downlink |
 
-### LaunchLockState
-
-| Member | Description |
-| --- | --- |
-| `ENGAGED` | Pin engaged; gimbal motion inhibited |
-| `RELEASED` | Pin released |
-| `UNKNOWN` | Indeterminate read |
-
 ### AckStatus
 
 | Member | Description |
@@ -160,7 +148,6 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `NOOP` | Accepted no-op, no params |
 | `SET_THERMAL_LIMIT` | Set thermal limit (`limit_c: float`) |
 | `EXIT_SAFE` | Hazardous SAFE exit (`phase: str`) |
-| `RELEASE_LAUNCH_LOCK` | Hazardous lock release (`phase: str`) |
 | `UPLOAD_MODEL_CHUNK` | Chunked classifier+segmentor pair upload params |
 | `ACTIVATE_MODEL` | Activate staged inference pair (`version: str`) |
 | `GIMBAL_STOW` | Payload stow via the position loop |

@@ -43,7 +43,7 @@ docs/       # package-mirrored descriptive docs, ADRs, requirements (VCRM), vali
 ```
 
 Each subsystem under `packages/flight/src/flight/` (`payload`, `fault`, `iss_iface`, `thermal`,
-`electrical`, `mechanical`) is an isolated app: a thin imperative shell around a pure decision
+`electrical`) is an isolated app: a thin imperative shell around a pure decision
 core, talking to peers **only** over `flight.libs.bus`. `flight.core` is the sole composition root.
 
 ---

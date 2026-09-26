@@ -109,13 +109,16 @@ class OnnxSegmentor:
         """Run the session, apply sigmoid, and return the (H, W) probability mask.
 
         Args:
-            frame: Preprocessed frame whose tensor is (C, H, W) float32.
+            frame: Preprocessed frame whose tensor is (1, C, H, W) float32.
 
         Returns:
-            Ok(np.ndarray[float32, (H, W)]) on finite output, else Err(INFERENCE_NAN).
+            Ok(np.ndarray[float32, (H, W)]) on finite output, else Err(INFERENCE_NAN)
+            or Err(FRAME_MALFORMED) when the tensor is not 4-D.
         """
-        bands = np.asarray(frame.tensor, dtype=np.float32)  # np.ndarray[float32, (C, H, W)]
-        model_input = bands[np.newaxis, ...]  # (1, C, H, W)
+        bands = np.asarray(frame.tensor, dtype=np.float32)
+        if bands.ndim != 4:
+            return Err(FaultCode.FRAME_MALFORMED)
+        model_input = bands
         input_name = self._session.get_inputs()[0].name
         logits = self._session.run(None, {input_name: model_input})[0]
         probs = 1.0 / (1.0 + np.exp(-logits))

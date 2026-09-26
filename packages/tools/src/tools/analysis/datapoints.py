@@ -45,7 +45,6 @@ from flight.libs.messages import (
     GimbalCommandMsg,
     HeartbeatMsg,
     InferenceResultMsg,
-    LaunchLockStateMsg,
     LinkStateMsg,
     ModeChangeMsg,
     ModelDeployStateMsg,
@@ -67,7 +66,7 @@ _NAN = float("nan")
 SignalValue = float | str
 ExtractorFn = Callable[["SampleContext"], SignalValue]
 
-# The 19 frozen bus message types, in a stable order (used to generate the bus signal family).
+# The 18 frozen bus message types, in a stable order (used to generate the bus signal family).
 MESSAGE_TYPES: tuple[type, ...] = (
     ProcessedFrameMsg,
     InferenceResultMsg,
@@ -87,7 +86,6 @@ MESSAGE_TYPES: tuple[type, ...] = (
     ModelDeployStateMsg,
     CommandAckMsg,
     LinkStateMsg,
-    LaunchLockStateMsg,
 )
 
 # The nine heartbeat-emitting subsystems the FDIR watchdog monitors (mirrors MONITORED_SUBSYSTEMS).
@@ -99,7 +97,6 @@ MONITORED: tuple[str, ...] = (
     "command_router",
     "storage",
     "downlink",
-    "mechanical",
     "model_deploy",
 )
 
@@ -129,7 +126,6 @@ class DeviceSample:
         gimbal_tau_nm: held torque command (N·m).
         gimbal_mode: the active GimbalCommandMode name, or "NONE" before the first command.
         stow_switch: True once stow is commanded and the true pose is within stow tolerance.
-        launch_lock_state: the LaunchLockState name read from the launch-lock driver.
         link_state: the station LinkState name (AOS / LOS).
         station_sent_total: cumulative count of packets the station link has transmitted.
         sensor_index / thermal_index / power_index: replay cursors of the sim sources.
@@ -141,7 +137,6 @@ class DeviceSample:
     gimbal_tau_nm: float
     gimbal_mode: str
     stow_switch: bool
-    launch_lock_state: str
     link_state: str
     station_sent_total: int
     sensor_index: int
@@ -545,13 +540,6 @@ def _payload_signals() -> list[Signal]:
             "Residual covariance trace",
             "rad^2",
             lambda ctx: float(np.trace(ctx.payload_state.residual.P)),
-        ),
-        _num(
-            "payload.motion_inhibited",
-            "payload",
-            "Launch-lock motion inhibit",
-            "bool",
-            _bool(lambda ctx: ctx.system.apps.payload.lock_gate.engaged),
         ),
         _num(
             "payload.gimbal_el_meas_deg",
@@ -1139,52 +1127,6 @@ def _downlink_signals() -> list[Signal]:
     return signals
 
 
-def _mechanical_signals() -> list[Signal]:
-    """Mechanical: launch-lock state + interlock telemetry, observed gimbal motion."""
-    return [
-        _cat(
-            "mechanical.launch_lock_state",
-            "mechanical",
-            "Launch-lock state",
-            lambda ctx: ctx.system.apps.mechanical.state.last_state.value,
-        ),
-        _num(
-            "mechanical.launch_lock_engaged",
-            "mechanical",
-            "Launch-lock engaged",
-            "bool",
-            _bool(lambda ctx: ctx.devices.launch_lock_state == "ENGAGED"),
-        ),
-        _num(
-            "mechanical.lock_state_msg_count",
-            "mechanical",
-            "LaunchLockStateMsg/step",
-            "count",
-            _count_of(LaunchLockStateMsg),
-        ),
-        _num(
-            "mechanical.lock_fault_count",
-            "mechanical",
-            "Launch-lock faults/step",
-            "count",
-            lambda ctx: float(
-                sum(
-                    1
-                    for m in _typed(ctx, FaultEventMsg)
-                    if m.fault_code is FaultCode.LAUNCH_LOCK_FAULT
-                )
-            ),
-        ),
-        _num(
-            "mechanical.gimbal_cmd_observed",
-            "mechanical",
-            "Gimbal commands observed/step",
-            "count",
-            _count_of(GimbalCommandMsg),
-        ),
-    ]
-
-
 def _model_deploy_signals() -> list[Signal]:
     """Model deploy: lifecycle state, active/rollback versions, staged artifact, transitions."""
     return [
@@ -1421,7 +1363,6 @@ def build_registry() -> tuple[Signal, ...]:
     signals.extend(_command_router_signals())
     signals.extend(_storage_signals())
     signals.extend(_downlink_signals())
-    signals.extend(_mechanical_signals())
     signals.extend(_model_deploy_signals())
     signals.extend(_enrichment_signals())
     seen: set[str] = set()

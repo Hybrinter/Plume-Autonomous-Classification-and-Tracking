@@ -82,7 +82,7 @@ status = "verified"
 
 [[requirement]]
 id = "REQ-GIMB-HIGH-003"
-statement = "Envelope clips and the light integrity detector (NaN, encoder freeze, lock-fight) force a stow."
+statement = "Envelope clips and the light integrity detector (NaN, encoder freeze) force a stow."
 method = "SIL"
 venue = "sil"
 modules = ["REQ-GIMB-HIGH-003"]
@@ -92,7 +92,7 @@ evidence = [
 ]
 status = "verified"
 
-# --- FSW code-complete capabilities (2026-06-14): command path, data system, mechanical,
+# --- FSW code-complete capabilities (2026-06-14): command path, data system,
 # --- model lifecycle, platform robustness, config integrity. -----------------------------
 [[requirement]]
 id = "REQ-COMM-CMD-001"
@@ -144,18 +144,6 @@ evidence = [
     "packages/flight/tests/core/test_downlink.py",
     "packages/sim/tests/sil/test_sil_data_system.py",
     "scenario:product_downlink",
-]
-status = "verified"
-
-[[requirement]]
-id = "REQ-MECH-HIGH-001"
-statement = "Launch-lock release is a hazardous ground command; gimbal motion is interlocked against the lock state (both directions)."
-method = "SIL"
-venue = "sil"
-modules = ["REQ-MECH-HIGH-001"]
-evidence = [
-    "packages/flight/tests/mechanical/test_mechanical_app.py",
-    "packages/sim/tests/sil/test_sil_mechanical.py",
 ]
 status = "verified"
 

@@ -25,8 +25,8 @@ object is constructed.
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
-| `SensorConfig` | class | Purchased mosaic geometry, optics, IFOV, and exposure/gain ranges |
-| `PreprocessingConfig` | class | Quality-flag thresholds and outer-rate smear cap |
+| `SensorConfig` | class | AP-3200T-USB frame, channel layout, optics, and capture limits |
+| `PreprocessingConfig` | class | Quality-flag thresholds |
 | `FaultConfig` | class | Watchdog, inference timeout, and power limit |
 | `ThermalConfig` | class | Record-only per-component temperature limits |
 | `GimbalConfig` | class | Elevation envelopes, stow/home, plant scalars, encoder |
@@ -52,8 +52,8 @@ into `PactConfig`.
 2. Frozen dataclasses prevent runtime mutation after load.
 3. Tuple fields hold array-like values. TOML arrays load as lists and map into tuples.
 4. Unknown keys and out-of-range values fail at construction.
-5. `PactConfig` requires inference `H,W` to equal the demosaiced band plane
-   (`height_px/2`, `width_px/2`).
+5. `PactConfig` requires inference `H,W` to equal the sensor frame
+   (`height_px`, `width_px`) and `input_bands` to be a subset of `channel_layout`.
 6. `DriverConfig` names sim/real axes for sensor, gimbal, ephemeris, compute, link, and clock.
 7. `LinkConfig` holds TCP bind for inbound TC and UDP destination for outbound TM.
 8. `CommandIngressConfig` names the HMAC key path and accepted command sources.
@@ -86,16 +86,15 @@ Nested tables under `[controller]`:
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`
 - `integrity`: `catchup_max_s`, `freeze_strikes`, `r_min_rad_s`,
-  `encoder_rate_ratio`, `lock_fight_rad_s`, `lock_fight_strikes`,
-  `command_authority_s`, `feedback_max_age_s`, `recovery_max_attempts`,
+  `encoder_rate_ratio`, `command_authority_s`, `feedback_max_age_s`, `recovery_max_attempts`,
   `recovery_window_s`, `science_boundary_guard_deg`
 
 ### InferenceConfig
 
 `segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
-`classifier_rollback_model_path`, `classifier_logit_threshold`, input
-dimensions (`3088 x 4128`, the sensor size times the upsample factor), INT8 flag,
-and `latency_budget_ms` (4 ms expected detect). Channel count is `len(BAND_ORDER)`.
+`classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
+dimensions (`1544 x 2064`), INT8 flag, and `latency_budget_ms` (4 ms expected
+detect). `input_bands` is BLUE, GREEN, RED.
 
 ### CommsConfig
 
@@ -104,10 +103,12 @@ staged segmentor and classifier paths, and per-pass downlink byte budget.
 
 ### SensorConfig
 
-Mosaic `width_px` (lateral 2448) and `height_px` (along-track 2048), bit depth, mosaic
-layout, pixel pitch, focal length, f-number, mosaic and band IFOV, FOV check fields,
-QE and well-capacity records, exposure and gain legal ranges plus initials, and
-`calibration_dir`.
+`width_px` (lateral 2064) and `height_px` (along-track 1544), bit depth, wire
+`channel_layout` RED/GREEN/BLUE, and pixel pitch. `SensorOpticsConfig` holds the
+Edmund 16-849 focal length, f-number, stored distortion, one-pixel IFOV, active-area
+FOV, and the 1/1.8 in datasheet HFOV. `SensorCaptureConfig` holds the 35 Hz cap,
+8-bit exposure range, ALC gain range, and `duty_cycle`. `calibration_dir` selects
+artifact loading. Duty 0.5 is the imaging gate, not the Xeryon vacuum duty.
 
 ### FaultConfig
 
@@ -121,10 +122,10 @@ not compare these values.
 
 ### GimbalConfig
 
-Hardware elevation `[el_hw_min_deg, el_hw_max_deg]`, science window
-`[el_science_min_deg, el_science_max_deg]`, stow and home elevation, max hardware slew,
-plant copies `J_kg_m2`, `B_nms_per_rad`, `tau_max_nm`, 18-bit encoder counts, and sim
-encoder noise. There is no azimuth travel field.
+Hardware elevation `[0, +90]` deg, science window `[+5, +45]`, stow at `+90`
+(flat launch pose), home at `+45`, and max hardware slew. Plant `J_kg_m2` is capped
+by the XRT-U-60 payload inertia limit, with `B_nms_per_rad`, `tau_max_nm` (90 mN·m),
+64800 encoder counts, and sim encoder noise. There is no azimuth travel field.
 
 ### LinkConfig
 
@@ -149,9 +150,8 @@ ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
 - Default field values must match `config/default.toml` exactly.
 - No subsystem reads TOML directly.
 - `calibration_dir=""` selects identity calibration (SIL only).
-- Launch-lock axis is not in `DriverConfig`.
 - Science elevation must lie inside hardware travel. Stow and home must lie inside
-  hardware travel.
+  hardware travel. Plant `J_kg_m2` must be at most `xeryon.payload_inertia_limit_kg_m2`.
 - `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have
   length 2.
 

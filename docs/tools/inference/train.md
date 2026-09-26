@@ -18,6 +18,7 @@ directory.
 | `overlay_train_config` | function | Apply CLI field overlays |
 | `apply_train_mapping` | function | Overlay from a string-key mapping |
 | `config_digest` | function | 8-hex identity of experiment fields |
+| `resolve_train_channels` | function | Channel count from the pack or the config |
 | `train` | function | Run the loop and write a run directory |
 | `is_cuda_oom` | function | Detect a CUDA allocator failure |
 | `next_batch_after_oom` | function | Halve a batch size, or raise at size 1 |
@@ -32,6 +33,8 @@ directory.
 `apply_train_mapping(cfg, data) -> TrainConfig`.
 
 `config_digest(cfg) -> str`.
+
+`resolve_train_channels(cfg, pack) -> int`. Raises `ValueError` when pack metadata disagrees with the image tensor, when a synthetic pack disagrees with `in_channels`, or when `data_dir` is set and a non-default `in_channels` disagrees with the pack.
 
 `train(config=None) -> Path`. Returns the run directory.
 
@@ -52,7 +55,12 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
    used unchanged.
 2. Raise `FileExistsError` when the run directory already has `summary.json`
    and `overwrite` is false.
-3. Load a processed pack, an unsplit disk adapter, or a synthetic pack.
+3. Load a processed pack, an unsplit disk adapter, or a synthetic pack. When
+   ``data_dir`` is set, the input channel count comes from the processed pack.
+   The default ``in_channels`` of 3 is replaced by the pack count when they
+   differ. A non-default ``in_channels`` that disagrees with the pack raises
+   ``ValueError``. Synthetic training with no ``data_dir`` keeps
+   ``cfg.in_channels``.
 4. Probe one training step at `batch_size`. A CUDA out-of-memory error halves
    the size and retries down to 1. The written `config.toml` stores the size
    that fitted.
@@ -73,9 +81,13 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 
 `ValueError` on an unknown `kind`, architecture, optimizer, scheduler, loss
 name, or empty train split. Unknown `kind`, `optimizer`, and `scheduler` fail
-at schema construction. `FileExistsError` when the run directory exists and
-`overwrite` is false. `RuntimeError` when a CUDA out-of-memory error persists
-at `batch_size` 1.
+at schema construction. `ValueError` when pack metadata disagrees with image
+tensor channels, when a synthetic pack band count disagrees with
+``in_channels``, or when ``data_dir`` is set and a non-default ``in_channels``
+disagrees with the pack (Zenodo fetch packs are 4-band; pass ``in_channels =
+4`` or rely on the default 3 being replaced by the pack count).
+`FileExistsError` when the run directory exists and `overwrite` is false.
+`RuntimeError` when a CUDA out-of-memory error persists at `batch_size` 1.
 
 ## Messages
 
@@ -84,7 +96,7 @@ None.
 ## Configuration
 
 `TrainConfig` defaults: `kind=segmentor`, `arch=""`, `input_height_px=256`,
-`input_width_px=256`, `in_channels=4`, `epochs=1`, `batch_size=2`,
+`input_width_px=256`, `in_channels=3`, `epochs=1`, `batch_size=2`,
 `learning_rate=0.01`, `momentum=0.9`, `weight_decay=0.0`, `optimizer=sgd`,
 `scheduler=none`, `shuffle=false`, `pos_weight=0.0`, `augment=false`,
 `loss=bce`, `focal_gamma=2.0`, `focal_alpha=0.25`, `amp=false`, `patience=0`,

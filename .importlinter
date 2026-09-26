@@ -28,7 +28,7 @@ name = Flight layered architecture
 type = layers
 layers =
     flight.core
-    flight.payload | flight.thermal | flight.electrical | flight.mechanical | flight.iss_iface | flight.fault
+    flight.payload | flight.thermal | flight.electrical | flight.iss_iface | flight.fault
     flight.hal.interfaces
     flight.libs
 
@@ -39,7 +39,6 @@ source_modules =
     flight.payload
     flight.thermal
     flight.electrical
-    flight.mechanical
     flight.iss_iface
     flight.fault
     flight.libs
@@ -126,6 +125,15 @@ source_modules =
     gse
 forbidden_modules =
     analysis
+
+[importlinter:contract:original-dataset-isolation]
+name = Original dataset analysis must not import flight or inference
+type = forbidden
+source_modules =
+    tools.original_dataset_analysis
+forbidden_modules =
+    flight
+    tools.inference
 
 [importlinter:contract:tools-analysis-isolation]
 name = Tools must not import analysis

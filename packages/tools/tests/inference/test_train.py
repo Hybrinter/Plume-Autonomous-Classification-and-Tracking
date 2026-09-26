@@ -196,6 +196,7 @@ def test_train_processed_pack_splits(tmp_path: Path) -> None:
             input_width_px=32,
             epochs=1,
             batch_size=2,
+            in_channels=4,
             data_dir=str(pack_dir),
             run_dir=str(tmp_path / "runs"),
             run_id="from-pack",
@@ -223,6 +224,7 @@ def test_train_disk_adapter(tmp_path: Path) -> None:
             input_width_px=32,
             epochs=1,
             batch_size=2,
+            in_channels=4,
             data_dir=str(tmp_path),
             checkpoint_path=str(extra),
             run_dir=str(tmp_path / "runs"),
@@ -356,11 +358,12 @@ def test_train_unknown_optimizer() -> None:
         TrainConfig(optimizer="nope")  # type: ignore[arg-type]
 
 
-def test_resolve_train_channels_adopts_pack_default_mismatch() -> None:
-    """Default in_channels adopts a 4-band pack when data_dir is set."""
+def test_resolve_train_channels_default_mismatch_raises() -> None:
+    """Default in_channels that disagrees with the pack raises."""
     pack = _minimal_pack(4)
     cfg = TrainConfig(data_dir="/pack", in_channels=3)
-    assert resolve_train_channels(cfg, pack) == 4
+    with pytest.raises(ValueError, match="in_channels=3"):
+        resolve_train_channels(cfg, pack)
 
 
 def test_resolve_train_channels_explicit_pack_match() -> None:
@@ -371,7 +374,7 @@ def test_resolve_train_channels_explicit_pack_match() -> None:
 
 
 def test_resolve_train_channels_explicit_mismatch_raises() -> None:
-    """A non-default in_channels that disagrees with the pack raises."""
+    """An in_channels value that disagrees with the pack raises."""
     pack = _minimal_pack(4)
     cfg = TrainConfig(data_dir="/pack", in_channels=5)
     with pytest.raises(ValueError, match="in_channels=5"):

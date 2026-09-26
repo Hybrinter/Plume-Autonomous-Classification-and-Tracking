@@ -5,32 +5,28 @@
 
 ## Purpose
 
-This module reorders demosaicked band planes from sensor layout order into the channel
-order the inference model expects.
+Band order lives in `flight.libs.types.BAND_ORDER`. This module exposes that
+order as strings. Preprocess does not reorder channels.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `select_bands` | function | Gathers planes by band name into model input order |
+| `canonical_band_names` | function | Returns `("BLUE", "GREEN", "RED")` |
 
 ## Inputs and outputs
 
-`select_bands(planes, layout, band_names)` takes `(len(layout), H, W)` planes in
-mosaic cell order. It returns `Result[np.ndarray, FaultCode]` with shape
-`(len(band_names), H, W)`.
+`canonical_band_names()` takes no arguments. It returns one string per
+`BAND_ORDER` entry.
 
 ## Behavior
 
-1. Verify the plane count matches `layout` length and the array is 3-D.
-2. Resolve each name in `band_names` to an index in `layout`.
-3. Return the gathered stack in `band_names` order.
+1. Read `BAND_ORDER`.
+2. Return each member's value, in that order.
 
 ## Errors and faults
 
-| Result | Trigger |
-| --- | --- |
-| `Err(FRAME_MALFORMED)` | Planes not 3-D, count mismatch, or unknown band name |
+None.
 
 ## Messages
 
@@ -38,14 +34,14 @@ None.
 
 ## Configuration
 
-Uses `SensorConfig.mosaic_layout` and `InferenceConfig.input_bands`.
+None.
 
 ## Constraints
 
-The module matches names only; it does not assume fixed band indices. `input_bands` must
-be a subset of `mosaic_layout`.
+The driver stacks planes in `BAND_ORDER`. The model reads the same tuple.
+This module does not gather or permute arrays.
 
 ## Related documents
 
-- [`flight.payload.preprocess`](preprocess.md)
-- [`flight.payload.preprocess.demosaic`](demosaic.md)
+- [`flight.payload.preprocess`](../preprocess.md)
+- [`flight.libs.types.enums`](../../libs/types/enums.md)

@@ -22,7 +22,7 @@ import numpy as np
 
 # internal
 from flight.hal.interfaces.ephemeris import IssState
-from flight.libs.config import SensorConfig
+from flight.libs.config import PreprocessingConfig, SensorConfig
 from flight.libs.time import Clock
 from flight.payload.gimbal.intersect import CameraGeometry
 
@@ -134,9 +134,10 @@ def camera_from_sensor(sensor: SensorConfig) -> CameraGeometry:
     Returns:
         CameraGeometry at demosaiced band-plane pitch (2x mosaic pitch).
     """
+    factor = PreprocessingConfig().upsample_factor
     return CameraGeometry(
-        width_px=sensor.width_px // 2,
-        height_px=sensor.height_px // 2,
-        pixel_pitch_m=2.0 * sensor.pixel_um * 1.0e-6,
+        width_px=sensor.width_px * factor,
+        height_px=sensor.height_px * factor,
+        pixel_pitch_m=sensor.pixel_um * 1.0e-6 / factor,
         focal_length_m=sensor.focal_length_mm * 1.0e-3,
     )

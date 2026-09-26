@@ -18,11 +18,10 @@ from dataclasses import field
 from typing import Literal, Self
 
 # third-party
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, model_validator
 from pydantic.dataclasses import dataclass
 
 _SCHEMA = ConfigDict(extra="forbid")
-_MOSAIC_BANDS: frozenset[str] = frozenset({"BLUE", "GREEN", "RED", "NIR"})
 
 # ---------------------------------------------------------------------------
 # Per-subsystem config dataclasses
@@ -167,9 +166,8 @@ class InferenceConfig:
     segmentor_rollback_model_path: str = "data/models/rollback_segmentor.onnx"
     classifier_rollback_model_path: str = "data/models/rollback_classifier.onnx"
     classifier_logit_threshold: float = 0.0
-    input_bands: tuple[str, ...] = Field(default=("BLUE", "GREEN", "RED", "NIR"), min_length=1)
-    input_height_px: int = Field(default=1024, gt=0)
-    input_width_px: int = Field(default=1224, gt=0)
+    input_height_px: int = Field(default=3088, gt=0)
+    input_width_px: int = Field(default=4128, gt=0)
     use_int8: bool = False
     latency_budget_ms: float = Field(default=4.0, gt=0.0)
 
@@ -200,32 +198,27 @@ class StorageConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class SensorConfig:
-    """Configuration for the imaging sensor and its 2x2 mosaic filter optics.
+    """Configuration for the JAI AP-3200T-USB prism RGB camera.
 
-    Geometry and optics constants for the FLIR Blackfly S BFS-U3-50S5M-C (Sony IMX264)
-    behind a 150 mm f/4 athermal lens and a custom 2x2 mosaic filter
-    (BLUE/GREEN/RED/NIR ~ Sentinel-2 B2/B3/B4/B8). width_px is lateral (cross-track);
-    height_px is along-track. IFOV is a fixed optic property. Pointing and smear use
-    ifov_band_deg_per_px (2x2 demosaic). These values drive demosaic, normalization,
-    quality gates, and the composition root's calibration-load decision.
+    Three Sony IMX265 sensors, 2064 x 1544, 3.45 um, no mosaic filter and no NIR.
+    width_px is lateral. height_px is along-track. ifov_band_deg_per_px is the
+    native pixel. The controller divides it by the upsample factor.
 
     Satisfies: REQ-AIML-IMAG-001.
     """
 
-    part_number: str = "BFS-U3-50S5M-C"
-    sensor_name: str = "Sony IMX264"
-    width_px: int = Field(default=2448, gt=0)
-    height_px: int = Field(default=2048, gt=0)
+    part_number: str = "AP-3200T-USB"
+    sensor_name: str = "Sony IMX265"
+    width_px: int = Field(default=2064, gt=0)
+    height_px: int = Field(default=1544, gt=0)
     bit_depth: int = Field(default=12, ge=1, le=16)
-    mosaic_layout: tuple[str, ...] = ("BLUE", "GREEN", "RED", "NIR")
     pixel_um: float = Field(default=3.45, gt=0.0)
     focal_length_mm: float = Field(default=150.0, gt=0.0)
     f_number: float = Field(default=4.0, gt=0.0)
     lens_distortion_pct: float = Field(default=0.66, ge=0.0)
-    ifov_mosaic_deg_per_px: float = Field(default=0.001318, gt=0.0)
-    ifov_band_deg_per_px: float = Field(default=0.002636, gt=0.0)
-    fov_lateral_deg: float = Field(default=3.204, gt=0.0)
-    fov_along_deg: float = Field(default=2.681, gt=0.0)
+    ifov_band_deg_per_px: float = Field(default=0.001318, gt=0.0)
+    fov_lateral_deg: float = Field(default=2.720, gt=0.0)
+    fov_along_deg: float = Field(default=2.035, gt=0.0)
     datasheet_hfov_2_3_deg: float = Field(default=3.36, gt=0.0)
     qe_530_pct: float = Field(default=62.51, gt=0.0)
     saturation_capacity_e: float = Field(default=10824.0, gt=0.0)
@@ -239,25 +232,6 @@ class SensorConfig:
     gain_max_db: float = Field(default=47.0, ge=0.0)
     initial_gain_db: float = Field(default=0.0, ge=0.0)
     calibration_dir: str = ""
-
-    @field_validator("width_px", "height_px")
-    @classmethod
-    def _even_mosaic_dim(cls, value: int) -> int:
-        """Reject odd mosaic-plane dimensions (2x2 CFA separation)."""
-        if value % 2:
-            raise ValueError("must be even (2x2 mosaic separation)")
-        return value
-
-    @model_validator(mode="after")
-    def _mosaic_permutation(self) -> Self:
-        """Reject a mosaic_layout that is not a permutation of BLUE/GREEN/RED/NIR."""
-        if frozenset(self.mosaic_layout) != _MOSAIC_BANDS or len(self.mosaic_layout) != len(
-            _MOSAIC_BANDS
-        ):
-            raise ValueError(
-                "sensor.mosaic_layout must name each Band (BLUE/GREEN/RED/NIR) exactly once"
-            )
-        return self
 
     @model_validator(mode="after")
     def _exposure_gain_range(self) -> Self:
@@ -277,12 +251,21 @@ class SensorConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class PreprocessingConfig:
-    """Quality-flag thresholds plus the outer-rate smear cap (`max_motion_smear_px`)."""
+    """Quality thresholds, smear cap, and the cubic upscale after plane confirm.
+
+    ``max_motion_smear_px`` is the along-track budget in upsampled band-plane
+    pixels. The default 4 is 0.002636 deg at the default upsampled IFOV.
+    """
 
     saturation_fraction_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
-    nir_red_ratio_threshold: float = Field(default=3.0, gt=0.0)
-    sunglint_nir_mean_threshold: float = Field(default=0.6, gt=0.0)
-    max_motion_smear_px: float = Field(default=1.0, gt=0.0)
+    cloud_whiteness_min: float = Field(default=0.85, ge=0.0, le=1.0)
+    cloud_luminance_min: float = Field(default=0.45, ge=0.0, le=1.0)
+    cloud_fraction_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
+    sunglint_luminance_min: float = Field(default=0.85, ge=0.0, le=1.0)
+    sunglint_fraction_threshold: float = Field(default=0.02, ge=0.0, le=1.0)
+    max_motion_smear_px: float = Field(default=4.0, gt=0.0)
+    upsample_factor: int = Field(default=2, ge=1)
+    upsample_order: int = Field(default=3, ge=1, le=3)
 
 
 @dataclass(frozen=True, config=_SCHEMA)
@@ -619,23 +602,15 @@ class PactConfig:
     drivers: DriverConfig = field(default_factory=DriverConfig)
 
     @model_validator(mode="after")
-    def _input_bands_in_mosaic(self) -> Self:
-        """Reject inference input bands that are absent from the sensor mosaic."""
-        mosaic_set = set(self.sensor.mosaic_layout)
-        for band in self.inference.input_bands:
-            if band not in mosaic_set:
-                raise ValueError(
-                    f"inference.input_bands entry {band!r} is not present in sensor.mosaic_layout"
-                )
-        return self
-
-    @model_validator(mode="after")
-    def _inference_matches_band_plane(self) -> Self:
-        """Reject inference input size that is not the full demosaiced band plane."""
-        plane_h = self.sensor.height_px // 2
-        plane_w = self.sensor.width_px // 2
+    def _inference_matches_upsampled_frame(self) -> Self:
+        """Reject an inference size that is not the upsampled RGB frame."""
+        factor = self.preprocessing.upsample_factor
+        plane_h = self.sensor.height_px * factor
+        plane_w = self.sensor.width_px * factor
         if self.inference.input_height_px != plane_h or self.inference.input_width_px != plane_w:
             raise ValueError(
-                f"inference input size must equal the demosaiced band plane ({plane_h} x {plane_w})"
+                f"inference input size must equal the upsampled RGB frame ({plane_h} x {plane_w})"
             )
+        if self.preprocessing.upsample_order not in (1, 3):
+            raise ValueError("preprocessing.upsample_order must be 1 or 3")
         return self

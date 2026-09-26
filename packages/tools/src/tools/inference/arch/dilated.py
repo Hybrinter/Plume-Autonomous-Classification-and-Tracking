@@ -50,6 +50,7 @@ from torch import nn
 
 from tools.inference.arch.blocks import conv_norm_relu
 from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
+from tools.inference.arch.stem import PACT_IN_CHANNELS
 
 DILATED_PREFIX = "dilatenet"
 
@@ -129,7 +130,7 @@ class DilatedSegmentor(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 4,
+        in_channels: int = PACT_IN_CHANNELS,
         out_channels: int = 1,
         base_width: int = DEFAULT_DILATED_WIDTH,
         blocks: int = DEFAULT_DILATED_BLOCKS,
@@ -159,8 +160,7 @@ class DilatedSegmentor(nn.Module):
             )
         rates = dilation_rates(blocks)
         body_width = base_width * _BODY_MULTIPLIER
-        # The stem is dense: separating four input bands saves almost nothing
-        # and discards the cross-band mixing the NIR plane exists to provide.
+        # The stem stays dense so the first layer can mix the RGB planes.
         stages: list[nn.Module] = [_block(in_channels, base_width, 2, 1, separable=False)]
         stages.append(_block(base_width, body_width, 2, 1, separable=separable))
         if output_stride == 8:
@@ -228,7 +228,7 @@ def parse_dilated(name: str) -> DilatedSpec:
 
 
 def build_dilated_segmentor(
-    spec: DilatedSpec, in_channels: int = 4, out_channels: int = 1
+    spec: DilatedSpec, in_channels: int = PACT_IN_CHANNELS, out_channels: int = 1
 ) -> nn.Module:
     """Return an untrained :class:`DilatedSegmentor` for a parsed spec.
 

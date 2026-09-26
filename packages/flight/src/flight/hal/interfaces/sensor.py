@@ -1,11 +1,11 @@
 """Imaging-sensor hardware abstraction.
 
 Defines the ImagingSensor protocol that every camera driver (real or simulated)
-satisfies. Drivers ACQUIRE ONLY: acquire_frame() returns a raw (H, W) uint16 2x2-CFA
-mosaic plane (a MosaicFrame), with NO demosaic, calibration, or normalization inside
-any driver (ADR: raw-mosaic ingest contract). Those stages run as pure functions in
-flight.payload.preprocess. Implementations must be thread-safe: acquire_frame() runs on
-the capture path while the tuning calls may arrive from a control path.
+satisfies. Drivers acquire only. acquire_frame() returns a MosaicFrame whose planes
+are uint16 with shape (3, H, W) in BAND_ORDER. No calibration or normalization runs
+inside a driver. Those stages run as pure functions in flight.payload.preprocess.
+Implementations must be thread-safe: acquire_frame() runs on the capture path while
+the tuning calls may arrive from a control path.
 
 Contains:
   - ImagingSensor: the runtime-checkable Protocol every camera driver satisfies.
@@ -20,27 +20,27 @@ from flight.libs.types import FaultCode, MosaicFrame, Result
 
 @runtime_checkable
 class ImagingSensor(Protocol):
-    """Hardware abstraction for a 2x2-mosaic imaging sensor (acquire-only contract).
+    """Hardware abstraction for a three-plane RGB imaging sensor (acquire-only contract).
 
     Implementations return a raw MosaicFrame from acquire_frame() and never perform
-    image processing; demosaic/calibration/normalization live in preprocess. The
+    image processing. Calibration and normalization live in preprocess. The
     control-plane methods (exposure/gain, acquisition start/stop) stay on the Protocol.
     """
 
     def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
-        """Capture one raw 2x2-CFA mosaic frame.
+        """Capture one raw RGB frame.
 
         Inputs:
             None.
 
         Returns:
-            Result[MosaicFrame, FaultCode]: Ok(frame) carrying the raw (H, W) uint16
-            mosaic plane plus capture metadata on success; Err(FaultCode.CAMERA_STALL)
-            when no complete frame is available in time.
+            Result[MosaicFrame, FaultCode]: Ok(frame) carrying uint16 planes of shape
+            (3, H, W) in BAND_ORDER plus capture metadata on success;
+            Err(FaultCode.CAMERA_STALL) when no complete frame is available in time.
 
         Notes:
-            The returned plane is un-demosaicked: it is the raw CFA image straight off
-            the sensor. No calibration or normalization has been applied.
+            The returned planes are raw sensor counts in BAND_ORDER. No calibration
+            or normalization has been applied.
         """
         ...
 

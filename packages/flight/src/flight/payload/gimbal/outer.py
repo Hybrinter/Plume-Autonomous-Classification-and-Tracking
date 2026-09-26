@@ -54,7 +54,7 @@ def smear_cap_rad_s(
 
     Inputs:
         exposure_us: Live frame exposure, microseconds. Non-positive yields +inf.
-        max_motion_smear_px: Allowed along-track smear in band-plane pixels.
+        max_motion_smear_px: Allowed along-track smear in upsampled band-plane pixels.
         ifov_band_deg_per_px: Band-plane IFOV in degrees per pixel.
 
     Outputs:

@@ -111,7 +111,7 @@ def test_pactnet_accepts_non_default_in_channels() -> None:
 def test_pactnet_depth_one_works() -> None:
     """A single-stage stack still emits one logit per sample."""
     net = PactNet(depth=1).eval()
-    x = torch.zeros(1, 4, 32, 32)
+    x = torch.zeros(1, 3, 32, 32)
     with torch.no_grad():
         y = net(x)
     assert y.shape == (1, 1)

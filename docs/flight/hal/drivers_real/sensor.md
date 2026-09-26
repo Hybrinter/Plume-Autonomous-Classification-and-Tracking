@@ -5,8 +5,9 @@
 
 ## Purpose
 
-`RealSensor` drives a FLIR Blackfly S camera through PySpin. It captures one raw 2x2-CFA
-mosaic frame per `acquire_frame()` call. It satisfies `ImagingSensor` structurally.
+`RealSensor` drives a camera through PySpin. It captures one raw RGB frame per
+`acquire_frame()` call. Planes are uint16 `(3, H, W)` in `BAND_ORDER`. It satisfies
+`ImagingSensor` structurally.
 
 ## Public interface
 
@@ -36,6 +37,9 @@ Construction raises `ImportError` when PySpin is not installed.
 2. `start_acquisition()` begins streaming. `acquire_frame()` waits up to the timeout for
    the next image.
 3. A complete image copies into a uint16 numpy array and releases the SDK buffer.
+   A packed `(H, W, 3)` buffer moves to `(3, H, W)`. Packed channel 0 is blue, which
+   matches `BAND_ORDER`. A buffer that is already `(3, H, W)` stays as-is. Any other
+   shape returns `CAMERA_STALL`.
 4. The driver stamps `timestamp_utc` from the injected clock and reads exposure and gain
    from the node map.
 5. A lock serializes all node-map access between capture and control calls.
@@ -45,7 +49,7 @@ Construction raises `ImportError` when PySpin is not installed.
 
 | Fault | Trigger |
 | --- | --- |
-| `CAMERA_STALL` | SDK timeout, incomplete image, or node-map error |
+| `CAMERA_STALL` | SDK timeout, incomplete image, bad buffer shape, or node-map error |
 
 ## Messages
 
@@ -63,7 +67,7 @@ Startup exposure and gain come from `PactConfig` via `select_drivers`.
 ## Constraints
 
 - PySpin imports inside `__init__` only. Importing this module does not require the SDK.
-- Acquire-only: no demosaic, calibration, or normalization in the driver.
+- Acquire-only: no calibration or normalization in the driver.
 - `frame_id` is a driver-local uint32 counter starting at 1 on the first good frame.
 
 ## Related documents

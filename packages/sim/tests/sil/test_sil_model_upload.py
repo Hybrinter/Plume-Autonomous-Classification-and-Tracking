@@ -8,7 +8,7 @@ from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
 from flight.libs.messages import ModelDeployStateMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import ModelDeployState
+from flight.libs.types import BAND_ORDER, ModelDeployState
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilHarness, build_sil_system
 
@@ -16,10 +16,11 @@ _KEY = b"sil-test-key-0000000000000000000"
 _INF = PactConfig().inference
 _H = _INF.input_height_px
 _W = _INF.input_width_px
+_C = len(BAND_ORDER)
 
 
-def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 4) -> bytes:
-    """A pair-upload manifest; channels=4 matches flight, other values fail activate."""
+def _manifest(version: str, classifier_channels: int, segmentor_channels: int = _C) -> bytes:
+    """A pair-upload manifest. Channel count follows BAND_ORDER."""
     return json.dumps(
         {
             "version": version,
@@ -93,7 +94,7 @@ def test_model_upload_activate_then_rollback() -> None:
         return system.apps.model_deploy.state.state
 
     # --- good model: upload -> stage -> activate -> ACTIVE ---
-    for pkt in _chunk_packets(_manifest("v2", classifier_channels=4), base_seq=1):
+    for pkt in _chunk_packets(_manifest("v2", classifier_channels=_C), base_seq=1):
         system.station.enqueue(pkt)
     advance(4)  # ingest + route + reassemble + stage
     assert deploy_state() is ModelDeployState.STAGED
@@ -103,7 +104,7 @@ def test_model_upload_activate_then_rollback() -> None:
     assert system.apps.model_deploy.state.active_version == "v2"
 
     # --- bad model: upload -> stage -> activate -> auto-rollback ---
-    for pkt in _chunk_packets(_manifest("v3", classifier_channels=3), base_seq=4):
+    for pkt in _chunk_packets(_manifest("v3", classifier_channels=_C + 1), base_seq=4):
         system.station.enqueue(pkt)
     advance(4)
     assert deploy_state() is ModelDeployState.STAGED

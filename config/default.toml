@@ -69,9 +69,8 @@ classifier_model_path = "data/models/active_classifier.onnx"
 segmentor_rollback_model_path = "data/models/rollback_segmentor.onnx"
 classifier_rollback_model_path = "data/models/rollback_classifier.onnx"
 classifier_logit_threshold = 0.0
-input_bands = ["BLUE", "GREEN", "RED", "NIR"]
-input_height_px = 1024
-input_width_px = 1224
+input_height_px = 3088
+input_width_px = 4128
 use_int8 = false
 # Derived expected detect wall (Orin Nano Super, mixed knee: cls FP16 + seg INT8).
 latency_budget_ms = 4.0
@@ -94,26 +93,29 @@ checksum_algorithm = "sha256"
 
 [preprocessing]
 saturation_fraction_threshold = 0.05
-nir_red_ratio_threshold = 3.0
-sunglint_nir_mean_threshold = 0.6
-max_motion_smear_px = 1.0
+cloud_whiteness_min = 0.85
+cloud_luminance_min = 0.45
+cloud_fraction_threshold = 0.50
+sunglint_luminance_min = 0.85
+sunglint_fraction_threshold = 0.02
+max_motion_smear_px = 4.0
+upsample_factor = 2
+upsample_order = 3
 
 [sensor]
-# BFS-U3-50S5M-C, Sony IMX264, global shutter. width is lateral; height is along-track.
-part_number = "BFS-U3-50S5M-C"
-sensor_name = "Sony IMX264"
-width_px = 2448
-height_px = 2048
+# JAI AP-3200T-USB, three Sony IMX265 sensors. width is lateral; height is along-track.
+part_number = "AP-3200T-USB"
+sensor_name = "Sony IMX265"
+width_px = 2064
+height_px = 1544
 bit_depth = 12
-mosaic_layout = ["BLUE", "GREEN", "RED", "NIR"]
 pixel_um = 3.45
 focal_length_mm = 150.0
 f_number = 4.0
 lens_distortion_pct = 0.66
-ifov_mosaic_deg_per_px = 0.001318
-ifov_band_deg_per_px = 0.002636
-fov_lateral_deg = 3.204
-fov_along_deg = 2.681
+ifov_band_deg_per_px = 0.001318
+fov_lateral_deg = 2.720
+fov_along_deg = 2.035
 datasheet_hfov_2_3_deg = 3.36
 qe_530_pct = 62.51
 saturation_capacity_e = 10824.0

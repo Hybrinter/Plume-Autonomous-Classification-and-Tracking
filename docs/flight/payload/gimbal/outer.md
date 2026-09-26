@@ -78,7 +78,8 @@ None.
 is the REWIND window before the arbiter promotes to FAST_REWIND. Hardware slew,
 torque, and inertia come from
 `GimbalConfig`; the inner bandwidth comes from `InnerLoopConfig`. Smear pixels
-come from `PreprocessingConfig.max_motion_smear_px`.
+come from `PreprocessingConfig.max_motion_smear_px` on the upsampled grid.
+The default of 4 pixels is 0.002636 deg at the default upsampled IFOV.
 
 ## Constraints
 

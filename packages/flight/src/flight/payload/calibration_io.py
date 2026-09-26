@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 
 # internal
-from flight.libs.types import Err, FaultCode, Ok, Result
+from flight.libs.types import BAND_ORDER, Err, FaultCode, Ok, Result
 from flight.payload.preprocess import MosaicCalibration
 
 _ARTIFACT_NAMES: tuple[str, ...] = ("dark_frame", "flat_field", "bad_pixel_mask")
@@ -52,17 +52,17 @@ def build_identity_calibration(height_px: int, width_px: int) -> MosaicCalibrati
 
     Returns:
         MosaicCalibration with dark_frame all-zeros, flat_field all-ones, and
-        bad_pixel_mask all-False, each of shape (height_px, width_px).
+        bad_pixel_mask all-False, each of shape (len(BAND_ORDER), height_px, width_px).
 
     Notes:
         With identity calibration, calibrate_mosaic returns the raw DN values cast to
         float32, unchanged. Downstream normalization still clips and scales to [0, 1].
     """
-    shape = (height_px, width_px)
+    shape = (len(BAND_ORDER), height_px, width_px)
     return MosaicCalibration(
-        dark_frame=np.zeros(shape, dtype=np.float32),  # np.ndarray[float32, (H, W)]
-        flat_field=np.ones(shape, dtype=np.float32),  # np.ndarray[float32, (H, W)]
-        bad_pixel_mask=np.zeros(shape, dtype=bool),  # np.ndarray[bool, (H, W)]
+        dark_frame=np.zeros(shape, dtype=np.float32),  # np.ndarray[float32, (C, H, W)]
+        flat_field=np.ones(shape, dtype=np.float32),  # np.ndarray[float32, (C, H, W)]
+        bad_pixel_mask=np.zeros(shape, dtype=bool),  # np.ndarray[bool, (C, H, W)]
     )
 
 
@@ -75,8 +75,8 @@ def load_calibration(
 
     Reads manifest.json to discover each artifact file and its expected sha256 digest.
     Each .npy file is read, its digest is computed and compared against the manifest,
-    and its shape is verified against (height_px, width_px). All three steps must pass
-    for all three artifacts before a MosaicCalibration is returned.
+    and its shape is verified against (len(BAND_ORDER), height_px, width_px). All three
+    steps must pass for all three artifacts before a MosaicCalibration is returned.
 
     Args:
         calibration_dir: Path to the directory containing manifest.json and the .npy
@@ -123,7 +123,8 @@ def load_calibration(
         except OSError, ValueError:
             return Err(FaultCode.CALIBRATION_INVALID)
 
-    if any(arrays[n].shape != (height_px, width_px) for n in _ARTIFACT_NAMES):
+    expected = (len(BAND_ORDER), height_px, width_px)
+    if any(arrays[n].shape != expected for n in _ARTIFACT_NAMES):
         return Err(FaultCode.CALIBRATION_INVALID)
 
     return Ok(

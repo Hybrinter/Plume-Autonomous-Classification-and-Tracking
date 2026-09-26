@@ -145,7 +145,7 @@ def test_dilated_segmentor_accepts_non_default_in_channels() -> None:
 def test_dilated_segmentor_output_stride_eight_preserves_spatial_size() -> None:
     """Output stride 8 still returns a full-resolution logit map."""
     net = DilatedSegmentor(output_stride=8).eval()
-    x = torch.zeros(1, 4, 128, 128)
+    x = torch.zeros(1, 3, 128, 128)
     with torch.no_grad():
         y = net(x)
     assert y.shape == (1, 1, 128, 128)

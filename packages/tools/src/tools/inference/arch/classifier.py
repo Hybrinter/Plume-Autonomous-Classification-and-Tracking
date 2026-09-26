@@ -44,7 +44,7 @@ from torchvision.models import (
     shufflenet_v2_x0_5,
 )
 
-from tools.inference.arch.stem import retarget_final_linear, retarget_first_conv
+from tools.inference.arch.stem import PACT_IN_CHANNELS, retarget_final_linear, retarget_first_conv
 
 PRETRAINED_SUFFIX = "_pt"
 
@@ -138,7 +138,7 @@ def construct_backbone(spec: BackboneSpec) -> nn.Module:
     return model
 
 
-def build_backbone_spec(spec: BackboneSpec, in_channels: int = 4) -> nn.Module:
+def build_backbone_spec(spec: BackboneSpec, in_channels: int = PACT_IN_CHANNELS) -> nn.Module:
     """Return a retargeted torchvision classifier for a parsed spec.
 
     Args:
@@ -154,7 +154,7 @@ def build_backbone_spec(spec: BackboneSpec, in_channels: int = 4) -> nn.Module:
     return model
 
 
-def build_backbone(name: str, in_channels: int = 4) -> nn.Module:
+def build_backbone(name: str, in_channels: int = PACT_IN_CHANNELS) -> nn.Module:
     """Return a retargeted torchvision classifier for a registry name.
 
     Args:
@@ -170,7 +170,7 @@ def build_backbone(name: str, in_channels: int = 4) -> nn.Module:
     return build_backbone_spec(parse_backbone(name), in_channels=in_channels)
 
 
-def build_classifier(in_channels: int = 4) -> nn.Module:
+def build_classifier(in_channels: int = PACT_IN_CHANNELS) -> nn.Module:
     """Return the default compact pactnet classifier.
 
     Args:

@@ -17,7 +17,8 @@ across subsystems.
 | `is_rewind_hunt` | function | True for `REWIND` and `FAST_REWIND` |
 | `GimbalCommandMode` | enum | Gimbal command axis interpretation |
 | `FaultCode` | enum | Enumerated fault conditions |
-| `Band` | enum | Mosaic-filter band names |
+| `Band` | enum | RGB prism band names |
+| `BAND_ORDER` | constant | The only channel order: BLUE, GREEN, RED |
 | `FrameUsabilityTag` | enum | Per-frame quality classification |
 | `MessageType` | enum | Bus message discriminant |
 | `DownlinkPriority` | enum | Downlink queue priority |
@@ -88,10 +89,9 @@ across subsystems.
 
 | Member | Description |
 | --- | --- |
-| `BLUE` | Blue passband (~490 nm) |
-| `GREEN` | Green passband (~560 nm) |
-| `RED` | Red passband (~665 nm) |
-| `NIR` | Near-infrared passband (~842 nm) |
+| `BLUE` | Blue CMOS plane |
+| `GREEN` | Green CMOS plane |
+| `RED` | Red CMOS plane |
 
 ### FrameUsabilityTag
 

@@ -45,7 +45,7 @@ from flight.libs.messages import (
     RoutedCommandMsg,
 )
 from flight.libs.time import Clock
-from flight.libs.types import AckStatus, Err, FaultCode, MessageType, ModelDeployState
+from flight.libs.types import BAND_ORDER, AckStatus, Err, FaultCode, MessageType, ModelDeployState
 
 SUBSYSTEM = "model_deploy"
 _ACTIVATE_MODEL = "ACTIVATE_MODEL"
@@ -187,7 +187,7 @@ class ModelDeployService:
     def _expected_pair(self) -> tuple[ArtifactContract, ArtifactContract]:
         """Return (classifier, segmentor) contracts derived from the inference config."""
         h, w = self.inference_cfg.input_height_px, self.inference_cfg.input_width_px
-        shared_input = (1, len(self.inference_cfg.input_bands), h, w)
+        shared_input = (1, len(BAND_ORDER), h, w)
         return (
             ArtifactContract(shared_input, (1, 1)),
             ArtifactContract(shared_input, (1, 1, h, w)),

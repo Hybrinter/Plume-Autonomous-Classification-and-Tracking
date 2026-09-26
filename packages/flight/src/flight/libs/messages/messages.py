@@ -93,8 +93,8 @@ class BlobMeta:
 class ProcessedFrameMsg:
     """Preprocessed, band-selected, calibrated tensor from preprocessing to inference.
 
-    tensor shape: (4, H, W) float32, bands per InferenceConfig.input_bands
-    (BLUE/GREEN/RED/NIR), H/W = sensor size / 2.
+    tensor shape: (3, H, W) float32 in BAND_ORDER (BLUE, GREEN, RED).
+    H and W are the sensor size times the upsample factor.
     """
 
     msg_type: MessageType  # must be MessageType.PROCESSED_FRAME

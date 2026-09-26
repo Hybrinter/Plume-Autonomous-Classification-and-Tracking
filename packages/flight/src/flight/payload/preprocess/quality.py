@@ -10,20 +10,18 @@ vs. invalid).
 Flag conditions:
     SATURATED           -- any band has > saturation_fraction_threshold of pixels above
                            SATURATION_PIXEL_LEVEL (post-normalisation).
-    CLOUD_CONTAMINATED  -- NIR/Red mean ratio exceeds cfg.nir_red_ratio_threshold.
-    SUNGLINT            -- mean NIR band intensity exceeds cfg.sunglint_nir_mean_threshold.
+    CLOUD_CONTAMINATED  -- fraction of bright, near-white pixels exceeds
+                           cfg.cloud_fraction_threshold.
+    SUNGLINT            -- fraction of near-white pixels above
+                           cfg.sunglint_luminance_min exceeds
+                           cfg.sunglint_fraction_threshold.
     INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
 
 MOTION_SMEAR is not raised. Along-track smear is a control cap in outer_rate
 (max_motion_smear_px). FAST_REWIND smears on purpose; exclude those frames by
 gimbal mode, not a second smear inequality.
 
-Band index assumptions (for a (C, H, W) array after select_bands), order
-[BLUE, GREEN, RED, NIR]:
-    index 0 -> BLUE
-    index 1 -> GREEN
-    index 2 -> RED
-    index 3 -> NIR
+Band order is ``BAND_ORDER``: index 0 BLUE, 1 GREEN, 2 RED. There is no NIR plane.
 
 Contains:
   - SmearRateSource: provenance of the elevation rate the payload app selected.
@@ -62,7 +60,7 @@ class SmearRateSource(Enum):
 
 
 def compute_quality_flags(
-    bands: object,  # np.ndarray[float32, (C, H, W)], order [BLUE, GREEN, RED, NIR]
+    bands: object,  # np.ndarray[float32, (3, H, W)] in BAND_ORDER
     exposure_us: float,
     slew_rate_deg_per_s: float,
     ifov_band_deg_per_px: float,
@@ -76,8 +74,8 @@ def compute_quality_flags(
     empty frozenset means the frame is clean and inference-ready.
 
     Inputs:
-        bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised band array.
-            C >= 4, band ordering [BLUE, GREEN, RED, NIR].
+        bands (np.ndarray[float32, (3, H, W)]): Calibrated and normalised RGB array
+            in ``BAND_ORDER``.
         exposure_us (float): Camera exposure time in microseconds.
         slew_rate_deg_per_s (float): Gimbal elevation rate in degrees per second
             over the exposure. ``0.0`` is a stationary gimbal. Unused for flags;
@@ -113,18 +111,16 @@ def compute_quality_flags(
             flags.add(FrameUsabilityTag.SATURATED)
             break
 
-    # --- CLOUD_CONTAMINATED ---
-    # Band index 2 = RED, index 3 = NIR.
-    red_band: np.ndarray = bands_arr[2]  # np.ndarray[float32, (H, W)]
-    nir_band: np.ndarray = bands_arr[3]  # np.ndarray[float32, (H, W)]
-    epsilon: float = 1e-6
-    nir_red_ratio: float = float(nir_band.mean()) / (float(red_band.mean()) + epsilon)
-    if nir_red_ratio > cfg.nir_red_ratio_threshold:
+    # Bright and nearly equal RGB is cloud or sunglint. There is no NIR plane.
+    luma = bands_arr.mean(axis=0)
+    max_rgb = bands_arr.max(axis=0)
+    min_rgb = bands_arr.min(axis=0)
+    white = (min_rgb / (max_rgb + 1.0e-6)) >= cfg.cloud_whiteness_min
+    cloud_fraction = float((white & (luma >= cfg.cloud_luminance_min)).mean())
+    if cloud_fraction > cfg.cloud_fraction_threshold:
         flags.add(FrameUsabilityTag.CLOUD_CONTAMINATED)
-
-    # --- SUNGLINT ---
-    nir_mean: float = float(nir_band.mean())
-    if nir_mean > cfg.sunglint_nir_mean_threshold:
+    glint_fraction = float((white & (luma >= cfg.sunglint_luminance_min)).mean())
+    if glint_fraction > cfg.sunglint_fraction_threshold:
         flags.add(FrameUsabilityTag.SUNGLINT)
 
     return frozenset(flags)

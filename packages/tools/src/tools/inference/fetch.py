@@ -1,4 +1,4 @@
-"""Zenodo 4250706 fetch, checksum verify, and 4-band preprocess.
+"""Zenodo 4250706 fetch, checksum verify, and RGB preprocess.
 
 Default invocation does not download. Pass ``--download`` to fetch missing or
 mismatched files into ``data/raw/``. ``--preprocess`` reads the Zenodo tarballs
@@ -43,6 +43,7 @@ from pathlib import Path, PurePosixPath
 from typing import cast
 
 import numpy as np
+from flight.libs.types import BAND_ORDER
 from pydantic import ConfigDict, TypeAdapter, field_validator
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
@@ -76,7 +77,10 @@ DEFAULT_RAW = REPO_ROOT / "data" / "raw"
 DEFAULT_PROCESSED = REPO_ROOT / "data" / "processed"
 
 # Fallback if the TOML omits indices: B2, B3, B4, B8 in the 13-band GeoTIFF.
-DEFAULT_PACT_BAND_INDICES: tuple[int, int, int, int] = (1, 2, 3, 7)
+# Sentinel-2 B2, B3, B4. Same length and order as BAND_ORDER (BLUE, GREEN, RED).
+DEFAULT_PACT_BAND_INDICES: tuple[int, ...] = (1, 2, 3)
+if len(DEFAULT_PACT_BAND_INDICES) != len(BAND_ORDER):
+    raise RuntimeError("DEFAULT_PACT_BAND_INDICES must match BAND_ORDER")
 DEFAULT_DN_SCALE = 10000.0
 
 
@@ -172,7 +176,7 @@ def select_pact_bands(
     planes: np.ndarray,
     indices: tuple[int, ...] = DEFAULT_PACT_BAND_INDICES,
 ) -> np.ndarray:
-    """Take BLUE/GREEN/RED/NIR planes from a 13-band stack.
+    """Take BLUE, GREEN, and RED planes from a 13-band stack.
 
     Args:
         planes: np.ndarray[..., C, H, W] or (C, H, W) with C >= max(indices)+1.

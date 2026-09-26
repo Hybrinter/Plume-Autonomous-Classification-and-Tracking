@@ -46,6 +46,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from tools.inference.arch.registry import build, resolve_arch
+from tools.inference.arch.stem import PACT_IN_CHANNELS
 from tools.inference.cost import count_flops, count_params
 from tools.inference.data import (
     ProcessedPack,
@@ -79,7 +80,7 @@ _SCHEMA = ConfigDict(extra="forbid")
 class TrainConfig:
     """Frozen train hyperparameters.
 
-    Defaults match the flight inference contract (4 bands, 256 px) and a short
+    Defaults match ``BAND_ORDER`` and a 256 px tile, plus a short
     SGD schedule. Spatial size is not frozen in the network; it comes from
     these fields.
     """
@@ -88,7 +89,7 @@ class TrainConfig:
     arch: str = ""
     input_height_px: int = 256
     input_width_px: int = 256
-    in_channels: int = 4
+    in_channels: int = PACT_IN_CHANNELS
     epochs: int = 1
     batch_size: int = 2
     learning_rate: float = 0.01

@@ -1,7 +1,8 @@
 """Pinhole boresight-relative pointing geometry (pure).
 
 Elevation error uses the pinhole (not px * IFOV). Image +x is unactuated optical
-azimuth. Image +y (down) is -elevation. Band-plane pitch is 2 * mosaic pixel pitch.
+azimuth. Image +y (down) is -elevation. Pixel pitch is the sensor pitch divided
+by the upsample factor.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 """
@@ -27,7 +28,7 @@ def pinhole_error_rad(
     Inputs:
         centroid_px: (u, v) in band-plane pixels.
         plane_width_px, plane_height_px: Band-plane size; principal point at center.
-        pixel_pitch_m: Band-plane pitch in meters (2 * mosaic pixel pitch).
+        pixel_pitch_m: Upsampled pixel pitch in meters.
         focal_m: Focal length in meters.
 
     Outputs:

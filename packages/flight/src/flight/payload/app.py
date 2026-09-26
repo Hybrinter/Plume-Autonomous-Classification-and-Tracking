@@ -54,7 +54,6 @@ from flight.libs.messages import (
 from flight.libs.time import Clock
 from flight.libs.types import (
     AckStatus,
-    Band,
     DownlinkPriority,
     Err,
     FaultCode,
@@ -76,9 +75,9 @@ from flight.payload.preprocess import (
     SmearRateSource,
     calibrate_mosaic,
     compute_quality_flags,
+    confirm_planes,
     normalize_dn,
-    select_bands,
-    separate_bands,
+    upsample_planes,
 )
 from flight.payload.tracking import EncoderSample
 
@@ -220,15 +219,11 @@ class PayloadApp:
         Raises:
             ValueError: Invalid sensor mosaic or inference geometry.
         """
-        if cfg.sensor.width_px % 2 or cfg.sensor.height_px % 2:
-            raise ValueError("sensor mosaic dimensions must be even")
-        plane_h, plane_w = cfg.sensor.height_px // 2, cfg.sensor.width_px // 2
+        factor = cfg.preprocessing.upsample_factor
+        plane_h = cfg.sensor.height_px * factor
+        plane_w = cfg.sensor.width_px * factor
         if plane_h != cfg.inference.input_height_px or plane_w != cfg.inference.input_width_px:
-            raise ValueError("band plane must equal the inference input size")
-        if sorted(cfg.sensor.mosaic_layout) != sorted(b.value for b in Band):
-            raise ValueError("mosaic_layout must name each Band exactly once")
-        if any(b not in cfg.sensor.mosaic_layout for b in cfg.inference.input_bands):
-            raise ValueError("input_bands must be a subset of mosaic_layout")
+            raise ValueError("upsampled RGB frame must equal the inference input size")
         return PayloadApp(
             sensor=sensor,
             gimbal=gimbal,
@@ -442,25 +437,21 @@ class PayloadApp:
         ``None`` uses encoder motion over the exposure, then the commanded rate.
         """
         del safe_commanded, safe_cleared
-        mosaic = np.asarray(raw.mosaic, dtype=np.float32)
+        raw_planes = np.asarray(raw.planes, dtype=np.float32)
+        exposure = raw.exposure_us if raw.exposure_us_by_band is None else raw.exposure_us_by_band
+        gain = raw.gain_db if raw.gain_db_by_band is None else raw.gain_db_by_band
 
-        calibrated = calibrate_mosaic(mosaic, self.calib)
+        calibrated = calibrate_mosaic(raw_planes, self.calib, exposure, gain)
         if isinstance(calibrated, Err):
             self._publish_fault(calibrated.error, f"calibration failed frame_id={raw.frame_id}")
             return state, self._fault_outcome(raw.frame_id, calibrated.error, state)
 
-        planes = separate_bands(calibrated.value)
+        planes = confirm_planes(calibrated.value)
         if isinstance(planes, Err):
-            self._publish_fault(planes.error, f"demosaic failed frame_id={raw.frame_id}")
+            self._publish_fault(planes.error, f"rgb stack failed frame_id={raw.frame_id}")
             return state, self._fault_outcome(raw.frame_id, planes.error, state)
 
         normalized = normalize_dn(planes.value, self.sensor_cfg.bit_depth)
-        selected = select_bands(
-            normalized, self.sensor_cfg.mosaic_layout, self.inference_cfg.input_bands
-        )
-        if isinstance(selected, Err):
-            self._publish_fault(selected.error, f"band select failed frame_id={raw.frame_id}")
-            return state, self._fault_outcome(raw.frame_id, selected.error, state)
 
         if gimbal_pos is None:
             position = self._read_position()
@@ -476,7 +467,7 @@ class PayloadApp:
         )
         omega_scene_el_deg_per_s = math.degrees(state.target.last_omega_scene_el)
         quality_flags = compute_quality_flags(
-            selected.value,
+            normalized,
             raw.exposure_us,
             gimbal_rate_deg_per_s,
             self.sensor_cfg.ifov_band_deg_per_px,
@@ -484,12 +475,28 @@ class PayloadApp:
             self.preprocessing_cfg,
             omega_scene_el_deg_per_s=omega_scene_el_deg_per_s,
         )
+        if quality_flags:
+            return state, TickOutcome(
+                frame_id=raw.frame_id,
+                fault=None,
+                command_issued=False,
+                gimbal_state=state.arbiter.gimbal_state,
+            )
+
+        upsampled = upsample_planes(
+            normalized,
+            self.preprocessing_cfg.upsample_factor,
+            self.preprocessing_cfg.upsample_order,
+        )
+        if isinstance(upsampled, Err):
+            self._publish_fault(upsampled.error, f"upsample failed frame_id={raw.frame_id}")
+            return state, self._fault_outcome(raw.frame_id, upsampled.error, state)
 
         processed = ProcessedFrameMsg(
             msg_type=MessageType.PROCESSED_FRAME,
             timestamp_utc=raw.timestamp_utc,
             frame_id=raw.frame_id,
-            tensor=selected.value,
+            tensor=upsampled.value,
             quality_flags=quality_flags,
         )
 

@@ -313,11 +313,11 @@ class PayloadController:
             preprocessing=prep,
             arbiter=GimbalArbiter(cfg.arbiter, gimbal),
             residual_filt=ResidualFilter.from_config(cfg.residual, cfg.outer.dt_s),
-            plane_width_px=sensor.width_px // 2,
-            plane_height_px=sensor.height_px // 2,
-            pixel_pitch_m=2.0 * sensor.pixel_um * 1.0e-6,
+            plane_width_px=sensor.width_px * prep.upsample_factor,
+            plane_height_px=sensor.height_px * prep.upsample_factor,
+            pixel_pitch_m=(sensor.pixel_um * 1.0e-6) / prep.upsample_factor,
             focal_m=sensor.focal_length_mm * 1.0e-3,
-            ifov_band_deg_per_px=sensor.ifov_band_deg_per_px,
+            ifov_band_deg_per_px=sensor.ifov_band_deg_per_px / prep.upsample_factor,
         )
 
     def initial_state(self) -> ControlState:

@@ -46,7 +46,7 @@ from flight.hal.interfaces import (
 )
 from flight.libs.config import PactConfig
 from flight.libs.time import Clock
-from flight.libs.types import LaunchLockState, MosaicFrame, Ok
+from flight.libs.types import BAND_ORDER, LaunchLockState, MosaicFrame, Ok
 from flight.payload.inference import DetectorBackend, ScriptedDetector
 
 
@@ -171,7 +171,7 @@ def select_drivers(
         from flight.payload.inference.artifact_path import resolve_quantized_path
 
         inf = config.inference
-        bands = len(inf.input_bands)
+        bands = len(BAND_ORDER)
         height = inf.input_height_px
         width = inf.input_width_px
         detector = OnnxDetector(

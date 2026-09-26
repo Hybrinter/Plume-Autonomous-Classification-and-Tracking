@@ -45,6 +45,7 @@ from torch import nn
 
 from tools.inference.arch.blocks import conv_norm_relu
 from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
+from tools.inference.arch.stem import PACT_IN_CHANNELS
 
 COMPACT_PREFIX = "pactnet"
 
@@ -115,7 +116,7 @@ class PactNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 4,
+        in_channels: int = PACT_IN_CHANNELS,
         base_width: int = DEFAULT_COMPACT_WIDTH,
         depth: int = DEFAULT_COMPACT_DEPTH,
         separable: bool = True,
@@ -137,9 +138,7 @@ class PactNet(nn.Module):
         if base_width < 1:
             raise ValueError(f"base_width must be at least 1, got {base_width}")
         widths = compact_stage_widths(base_width, depth)
-        # The stem is always dense: separating four input bands saves almost
-        # nothing and discards the cross-band mixing that the NIR plane exists
-        # to provide.
+        # The stem stays dense so the first layer can mix the RGB planes.
         stages: list[nn.Module] = [_conv_block(in_channels, widths[0], 2, separable=False)]
         for index in range(1, depth):
             stages.append(_conv_block(widths[index - 1], widths[index], 2, separable=separable))
@@ -191,7 +190,7 @@ def parse_compact(name: str) -> CompactSpec:
     )
 
 
-def build_compact_classifier(spec: CompactSpec, in_channels: int = 4) -> nn.Module:
+def build_compact_classifier(spec: CompactSpec, in_channels: int = PACT_IN_CHANNELS) -> nn.Module:
     """Return an untrained :class:`PactNet` for a parsed spec.
 
     Args:

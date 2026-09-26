@@ -12,12 +12,10 @@ The plume scene module renders radiometrically plausible raw mosaic frames. It a
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `MOSAIC_HEIGHT_PX` | constant | Mosaic along-track size (2048 px) |
-| `MOSAIC_WIDTH_PX` | constant | Mosaic lateral size (2448 px) |
-| `BAND_HEIGHT_PX` | constant | Band-plane along-track size (1024 px) |
-| `BAND_WIDTH_PX` | constant | Band-plane lateral size (1224 px) |
-| `DETECTOR_HEIGHT_PX` | constant | Inference tensor height (1024 px) |
-| `DETECTOR_WIDTH_PX` | constant | Inference tensor width (1224 px) |
+| `PLANE_HEIGHT_PX` | constant | Native along-track size (1544 px) |
+| `PLANE_WIDTH_PX` | constant | Native lateral size (2064 px) |
+| `DETECTOR_HEIGHT_PX` | constant | Upsampled inference height (3088 px) |
+| `DETECTOR_WIDTH_PX` | constant | Upsampled inference width (4128 px) |
 | `build_frames` | function | Render N uint16 mosaic frames with monotonic `frame_id` |
 | `plume_detector` | function | Return a `ScriptedDetector` with a 50x50 unit mask |
 
@@ -26,27 +24,27 @@ The plume scene module renders radiometrically plausible raw mosaic frames. It a
 **`build_frames(num_frames, seed=0) -> list[MosaicFrame]`**
 
 - Inputs: frame count, NumPy random seed.
-- Output: list of `(2048, 2448)` uint16 mosaic planes with exposure and gain metadata.
+- Output: list of `(3, 1544, 2064)` uint16 RGB planes with exposure and gain metadata.
 
 **`plume_detector() -> ScriptedDetector`**
 
-- Output: detector with mask region `[99:149, 587:637]` at tensor resolution, confidence
-  gate 0.55, minimum blob area 15 px.
+- Output: detector with mask region `[55:105, 2039:2089]` at the upsampled tensor
+  size, confidence gate 0.55, minimum blob area 15 px.
 
 ## Behavior
 
-1. `build_frames` builds a 1024x1224 Gaussian plume in band-plane space at (x=612, y=124)
-   with sigma 40 px, above boresight so elevation stays in the science window.
-2. It composites background and per-band plume amplitudes, adds Gaussian read noise (sigma
-   2 DN), and quantizes to 12-bit.
-3. It interleaves four band planes into the 2x2 CFA mosaic via `interleave_bands`.
+1. `build_frames` builds a Gaussian plume on the native 1544x2064 grid at (x=1032, y=40)
+   with sigma 40 px, above boresight.
+2. It composites background and per-channel plume amplitudes, adds Gaussian read noise
+   (sigma 2 DN), and quantizes to 12-bit.
+3. It stores the three planes in `BAND_ORDER`.
 4. It assigns `frame_id` values 1 through `num_frames` with fixed timestamp metadata.
-5. `plume_detector` fills a 1024x1224 float mask with a square at unit probability above
+5. `plume_detector` fills the upsampled mask with a square at unit probability above
    boresight.
 
 ## Errors and faults
 
-None. Fixed geometry makes `interleave_bands` succeed with an internal assert.
+None.
 
 ## Messages
 
@@ -58,8 +56,8 @@ None.
 
 ## Constraints
 
-- NIR band amplitude is highest inside the plume region.
-- The centroid sits ~388 px above the 1024x1224-plane boresight (612, 512).
+- The red plane is brightest inside the plume region.
+- The plume sits above the native-frame boresight.
 - TRACKING commands positive elevation inside the science window.
 
 ## Related documents

@@ -5,8 +5,8 @@
 
 ## Purpose
 
-This module defines the `ImagingSensor` Protocol for a 2x2-CFA mosaic camera. Drivers
-acquire raw frames only. Demosaic, calibration, and normalization run in
+This module defines the `ImagingSensor` Protocol for a three-plane RGB camera. Drivers
+acquire raw frames only. Calibration and normalization run in
 `flight.payload.preprocess`.
 
 ## Public interface
@@ -25,13 +25,14 @@ acquire raw frames only. Demosaic, calibration, and normalization run in
 | `start_acquisition()` | None | `Result[None, FaultCode]` |
 | `stop_acquisition()` | None | `Result[None, FaultCode]` |
 
-`MosaicFrame` carries a raw `(H, W)` uint16 mosaic plane plus capture metadata. It is not
-a bus message.
+`MosaicFrame` carries uint16 planes of shape `(3, H, W)` in `BAND_ORDER` plus capture
+metadata. It is not a bus message.
 
 ## Behavior
 
 1. The payload app calls `acquire_frame()` on the capture path.
-2. A successful call returns a raw mosaic plane with no in-driver processing.
+2. A successful call returns raw RGB planes with no in-driver calibration or
+   normalization. Channel order is `BAND_ORDER`.
 3. Control-plane calls adjust exposure, gain, and acquisition state.
 4. Implementations serialize capture and control access when both paths are active.
 
@@ -54,7 +55,7 @@ None at the Protocol level. Concrete drivers read camera and timeout settings fr
 
 ## Constraints
 
-- Drivers acquire only. No demosaic, calibration, or normalization inside any driver.
+- Drivers acquire only. No calibration or normalization inside any driver.
 - `MosaicFrame` passes by direct call from the sensor driver to the payload app.
 - Implementations must be thread-safe between the capture loop and tuning calls.
 

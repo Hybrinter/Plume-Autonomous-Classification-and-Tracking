@@ -93,9 +93,9 @@ Nested tables under `[controller]`:
 ### InferenceConfig
 
 `segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
-`classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
-dimensions (`1024 x 1224`), INT8 flag, and `latency_budget_ms` (4 ms expected
-detect).
+`classifier_rollback_model_path`, `classifier_logit_threshold`, input
+dimensions (`3088 x 4128`, the sensor size times the upsample factor), INT8 flag,
+and `latency_budget_ms` (4 ms expected detect). Channel count is `len(BAND_ORDER)`.
 
 ### CommsConfig
 

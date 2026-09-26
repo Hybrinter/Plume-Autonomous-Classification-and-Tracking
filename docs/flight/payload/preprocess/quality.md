@@ -36,9 +36,10 @@ raise `MOTION_SMEAR` from that rate.
 3. Do not raise `MOTION_SMEAR`. Along-track smear is a control cap in the outer rate
    law (`max_motion_smear_px`). FAST_REWIND frames smear on purpose. Exclude them by
    gimbal mode, not a pixel smear estimate.
-4. Raise `CLOUD_CONTAMINATED` when the NIR-to-Red mean ratio exceeds
-   `nir_red_ratio_threshold` (bands at indices 2 and 3 after select).
-5. Raise `SUNGLINT` when mean NIR exceeds `sunglint_nir_mean_threshold`.
+4. Raise `CLOUD_CONTAMINATED` when the fraction of bright, near-white pixels
+   exceeds `cloud_fraction_threshold`.
+5. Raise `SUNGLINT` when the fraction of near-white pixels above
+   `sunglint_luminance_min` exceeds `sunglint_fraction_threshold`.
 
 ## Errors and faults
 
@@ -51,9 +52,10 @@ None. Flags are carried on the in-process processed frame; they are not bus mess
 ## Configuration
 
 Reads `PreprocessingConfig`: `saturation_fraction_threshold`,
-`nir_red_ratio_threshold`, `sunglint_nir_mean_threshold`. Also uses
-frame metadata from the raw mosaic. `max_motion_smear_px` is the outer-rate control
-cap, not a quality threshold.
+`cloud_whiteness_min`, `cloud_luminance_min`, `cloud_fraction_threshold`,
+`sunglint_luminance_min`, `sunglint_fraction_threshold`. Also uses frame metadata
+from the raw stack. `max_motion_smear_px` is the outer-rate control cap, not a
+quality threshold.
 
 ## Constraints
 

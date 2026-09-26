@@ -57,7 +57,12 @@ def test_prepare_band_z_keeps_values_above_one(tmp_path: Path) -> None:
     )
     dest = module.prepare_band_z_pack(src, tmp_path / "z")
     pack = load_processed_pack(dest)
-    assert float(np.max(pack.images.numpy())) > 1.0
+    stored = pack.images
+    if isinstance(stored, np.ndarray):
+        peak = float(np.max(stored))
+    else:
+        peak = float(np.max(stored.numpy()))
+    assert peak > 1.0
 
 
 def test_run_cell_trains_one_synthetic_cell_without_export(

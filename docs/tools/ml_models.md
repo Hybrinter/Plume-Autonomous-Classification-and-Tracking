@@ -45,12 +45,13 @@ run calls `data.canvas.sample_view`.
 
 ## Constraints
 
-- `tools.ml_models.data` does not import torch.
+- `tools.ml_models.data.fetch` imports `train.recipe`, which imports torch.
+- Other `tools.ml_models.data` modules do not import torch.
 - `tools.ml_models.arch` does not import `flight`.
 - `tools.ml_models.train` imports torch.
 - `tools.ml_models.export` imports torch.
-- `tools.ml_models.analysis.eval` and `tools.ml_models.analysis.native` import torch.
-- Pack files are local directories. This package does not fetch a corpus.
+- `tools.ml_models.analysis.eval`, `analysis.native`, and `analysis.scores` import torch.
+- `data.fetch` prints checksum status unless the caller passes `--download`.
 - The package `__init__` does not re-export names.
 
 ## Related documents

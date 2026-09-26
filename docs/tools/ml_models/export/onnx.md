@@ -76,7 +76,8 @@ seg_manifest))`.
 
 `ImportError` when INT8 or FP16 conversion runs without onnxruntime.
 `ValueError` on an unknown kind, a rejected promote, a calibration geometry
-mismatch, or a same-name ONNX initializer whose shapes differ. `FileNotFoundError` on a missing checkpoint, source ONNX, sidecar, or
+mismatch, or a same-name ONNX initializer whose shapes differ.
+`FileNotFoundError` on a missing checkpoint, source ONNX, sidecar, or
 calibration pack.
 
 ## Messages
@@ -101,5 +102,4 @@ paths. Classifier output shape is `(1, 1)`. Segmentor output shape is
 - [`tools.ml_models.export`](../export.md)
 - [`tools.ml_models.export.pair`](pair.md)
 - [`tools.ml_models.export.accept`](accept.md)
-- [`tools.inference.export`](../../inference/export.md)
 - [`flight.payload.inference.verify`](../../../flight/payload/inference/verify.md)

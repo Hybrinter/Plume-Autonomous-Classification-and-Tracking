@@ -63,10 +63,9 @@ or below zero disables BCE positive-class weighting.
 ## Constraints
 
 This module imports torch. Loss values feed the train loop and are not published
-on the bus. `tools.inference.losses` re-exports these names.
+on the bus.
 
 ## Related documents
 
 - [`tools.ml_models.train`](../train.md)
 - [`tools.ml_models.train.loop`](loop.md)
-- [`tools.inference.losses`](../../inference/losses.md)

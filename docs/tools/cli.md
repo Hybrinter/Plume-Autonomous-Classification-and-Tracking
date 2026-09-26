@@ -22,10 +22,9 @@ process exit code.
 
 ## Behavior
 
-1. Register the inference application as `inference`.
-2. Register the analysis application as `analysis`.
-3. Register the ml_models application as `ml-models`.
-4. Dispatch the selected package command.
+1. Register the analysis application as `analysis`.
+2. Register the ml_models application as `ml-models`.
+3. Dispatch the selected package command.
 
 ## Errors and faults
 
@@ -49,6 +48,5 @@ None.
 ## Related documents
 
 - [`tools`](../tools.md)
-- [`tools.inference.cli`](inference/cli.md)
 - [`tools.analysis.cli`](analysis/cli.md)
 - [`tools.ml_models.cli`](ml_models/cli.md)

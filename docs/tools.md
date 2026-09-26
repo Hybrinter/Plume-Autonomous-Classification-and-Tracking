@@ -6,8 +6,7 @@
 ## Purpose
 
 The tools package holds engineering utilities outside the flight image. It
-includes inference training, export, and acceptance under `tools.inference`,
-processed-pack data, network builders, training, ONNX export, and run
+includes processed-pack data, network builders, training, ONNX export, and run
 analysis under `tools.ml_models`, and SIL telemetry analysis under
 `tools.analysis`.
 
@@ -15,20 +14,14 @@ analysis under `tools.ml_models`, and SIL telemetry analysis under
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`inference`](tools/inference.md) | package | Train, export, accept, and score inference artifacts |
 | [`ml_models`](tools/ml_models.md) | package | Packs, builders, training, export, and analysis |
 | [`analysis`](tools/analysis.md) | package | Deterministic SIL capture, stats, plots, and reports |
-| [`original_dataset_analysis`](tools/original_dataset_analysis.md) | package | Zenodo band and ground-sample-distance study |
 | [`cli`](tools/cli.md) | module | Root `pact-tools` Typer application |
-| [`__main__`](tools/__main__.md) | module | `python -m tools` entry shim |
 
 ## Package interface
 
-`tools` has no top-level `__init__.py` exports. Import from `tools.inference`,
-`tools.ml_models`, `tools.analysis`, or `tools.original_dataset_analysis`.
-
-Run inference workflows with
-`pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`.
+`tools` has no top-level `__init__.py` exports. Import from `tools.ml_models`
+or `tools.analysis`.
 
 Run ml_models workflows with
 `pact-tools ml-models <train|eval|export|accept|pair>`.
@@ -36,13 +29,13 @@ Run ml_models workflows with
 Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.
 
-`python -m tools`, `python -m tools.inference`, `python -m tools.ml_models`,
-and `python -m tools.analysis` provide module aliases.
+`python -m tools`, `python -m tools.ml_models`, and `python -m tools.analysis`
+provide module aliases.
 
 ## Interactions
 
 `tools.ml_models.export.accept` imports `flight.payload.inference.verify` for
-hash and I/O contract checks. `tools.inference.accept` re-exports that gate.
+hash and I/O contract checks.
 
 `tools.analysis` drives `sim.sil.build_sil_system` and `step_once`, subscribes
 passively to bus message types, and writes static report bundles. It never
@@ -67,9 +60,7 @@ publishes to the bus or changes flight behavior.
 
 ## Related documents
 
-- [`tools.inference`](tools/inference.md)
 - [`tools.ml_models`](tools/ml_models.md)
 - [`tools.analysis`](tools/analysis.md)
-- [`tools.original_dataset_analysis`](tools/original_dataset_analysis.md)
 - [`tools.cli`](tools/cli.md)
 - [`sim.sil`](sim/sil.md)

@@ -41,10 +41,9 @@ None.
 ## Constraints
 
 Torch is a required tools dependency. The FLOP count is the torch counter
-total for that dummy pass. `tools.inference.cost` re-exports these names.
+total for that dummy pass.
 
 ## Related documents
 
 - [`tools.ml_models.train`](../train.md)
 - [`tools.ml_models.train.loop`](loop.md)
-- [`tools.inference.cost`](../../inference/cost.md)

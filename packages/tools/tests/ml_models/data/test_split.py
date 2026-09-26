@@ -7,6 +7,7 @@ from tools.ml_models.data.split import (
     SplitIndex,
     SplitRecipe,
     assign_group_splits,
+    load_group_ids,
     load_splits,
     write_splits,
 )
@@ -82,6 +83,29 @@ def test_splits_json_roundtrip(tmp_path: Path) -> None:
     path = tmp_path / "splits.json"
     write_splits(path, index)
     assert load_splits(path) == index
+    assert load_group_ids(path) is None
+
+
+def test_splits_json_round_trips_group_ids(tmp_path: Path) -> None:
+    """write_splits stores group ids and load_group_ids returns them."""
+    index = SplitIndex(train=(0, 1), val=(2,), test=(3,))
+    path = tmp_path / "splits.json"
+    write_splits(path, index, group_ids=("a", "a", "b", "c"))
+    assert load_splits(path) == index
+    assert load_group_ids(path) == ("a", "a", "b", "c")
+
+
+def test_load_group_ids_rejects_non_strings(tmp_path: Path) -> None:
+    """A non-string group id raises ValueError."""
+    path = tmp_path / "splits.json"
+    path.write_text(
+        '{"train": [0], "val": [1], "test": [2], "group_ids": [1, 2, 3]}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="group_ids"):
+        load_splits(path)
+    with pytest.raises(ValueError, match="group_ids"):
+        load_group_ids(path)
 
 
 def test_load_splits_rejects_overlap(tmp_path: Path) -> None:

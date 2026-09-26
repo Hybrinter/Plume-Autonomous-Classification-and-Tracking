@@ -15,7 +15,7 @@ indices.
 | `SplitRecipe` | class | Seed plus train/val/test fractions |
 | `SplitIndex` | class | Integer row indices for each split |
 | `assign_group_splits` | function | One split per group; rows follow the group |
-| `write_splits` / `load_splits` | function | `splits.json` codec |
+| `write_splits` / `load_splits` / `load_group_ids` | function | `splits.json` codec |
 
 ## Inputs and outputs
 
@@ -26,7 +26,12 @@ indices.
 `SplitIndex.train`, `.val`, and `.test` are `tuple[int, ...]`. Indices point
 into the `group_ids` sequence.
 
+`write_splits(path, index, group_ids=None)`. When `group_ids` is passed, the
+file stores that list beside the indices.
+
 `load_splits(path) -> SplitIndex`.
+
+`load_group_ids(path) -> tuple[str, ...] | None`. None means the key is absent.
 
 ## Behavior
 
@@ -42,12 +47,15 @@ into the `group_ids` sequence.
 5. Every row whose group id is in a split stays in that split. Inside a split,
    row indices follow the input sequence.
 6. `load_splits` rejects a missing name, a non-integer index, an unknown key,
-   and overlapping indices.
+   and overlapping indices. The key `group_ids` is optional. When present, it
+   is a list of strings. `load_group_ids` returns that tuple, or None when the
+   key is absent.
 
 ## Errors and faults
 
 `ValueError` when a fraction is not finite and positive, the fractions do not
-sum to 1, fewer than 3 groups are present, or split indices overlap.
+sum to 1, fewer than 3 groups are present, split indices overlap, or
+`group_ids` is not a list of strings.
 
 ## Messages
 

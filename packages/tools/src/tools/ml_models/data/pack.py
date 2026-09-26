@@ -1,10 +1,12 @@
 """On-disk processed packs and in-memory concatenation.
 
 Contains:
-  - ProcessedPack: arrays, split index, and dataset meta.
+  - ProcessedPack: arrays, split index, per-row group ids, and dataset meta.
   - write_processed_pack / load_processed_pack: ``images.npy``, ``masks.npy``,
     ``labels.npy``, ``splits.json``, ``provenance.json``, and ``dataset.json``.
+    ``splits.json`` stores ``group_ids`` when those ids assigned the split.
   - concat_packs / assert_same_ingest: stack packs that share one provenance.
+    Concatenation rejects a group id that appears in more than one pack.
 
 ``write_processed_pack`` writes provenance, then the pack hash, then
 ``dataset.json``. ``concat_packs`` does not write files. Its ``dataset_hash``
@@ -34,6 +36,7 @@ from tools.ml_models.data.split import (
     SplitIndex,
     SplitRecipe,
     assign_group_splits,
+    load_group_ids,
     load_splits,
     write_splits,
 )
@@ -49,6 +52,8 @@ class ProcessedPack:
         labels: np.ndarray[float32, (N, 1)].
         splits: Row indices for train, val, and test.
         meta: Pack identity. ``dataset_hash`` is empty on a concatenated pack.
+        group_ids: Group id per row when the split came from groups. None when
+            the caller passed a precomputed ``SplitIndex``.
     """
 
     images: np.ndarray
@@ -56,6 +61,7 @@ class ProcessedPack:
     labels: np.ndarray
     splits: SplitIndex
     meta: DatasetMeta
+    group_ids: tuple[str, ...] | None = None
 
 
 def write_processed_pack(
@@ -95,7 +101,8 @@ def write_processed_pack(
 
     Notes:
         Files are written as arrays, ``splits.json``, then ``provenance.json``.
-        The hash is computed next. ``dataset.json`` is last.
+        The hash is computed next. ``dataset.json`` is last. When ``group_ids``
+        assigns the split, those ids are stored in ``splits.json``.
     """
     n, _channels, height, width = _require_array_shapes(
         images,
@@ -113,8 +120,10 @@ def write_processed_pack(
         if len(group_ids) != n:
             raise ValueError(f"len(group_ids) must equal N; got {len(group_ids)} and {n}")
         index = assign_group_splits(group_ids, recipe if recipe is not None else SplitRecipe())
+        stored_groups: tuple[str, ...] | None = tuple(group_ids)
     else:
         index = splits
+        stored_groups = None
     _require_complete_split(index, n)
     root = Path(dest)
     root.mkdir(parents=True, exist_ok=True)
@@ -124,7 +133,7 @@ def write_processed_pack(
     np.save(root / "masks.npy", np.ascontiguousarray(masks))
     # np.ndarray[float32, (N, 1)]
     np.save(root / "labels.npy", np.ascontiguousarray(labels))
-    write_splits(root / "splits.json", index)
+    write_splits(root / "splits.json", index, group_ids=stored_groups)
     write_provenance(root / "provenance.json", provenance)
     digest = compute_dataset_hash(root)
     meta = dataset_meta_from_provenance(
@@ -146,7 +155,7 @@ def load_processed_pack(dest: str | Path) -> ProcessedPack:
         dest: Pack directory.
 
     Returns:
-        ProcessedPack: Memmap arrays, splits, and meta.
+        ProcessedPack: Memmap arrays, splits, group ids, and meta.
 
     Raises:
         ValueError: If the hash does not match, provenance disagrees with the
@@ -163,7 +172,15 @@ def load_processed_pack(dest: str | Path) -> ProcessedPack:
     masks = np.load(root / "masks.npy", mmap_mode="r", allow_pickle=False)
     labels = np.load(root / "labels.npy", mmap_mode="r", allow_pickle=False)
     splits = load_splits(root / "splits.json")
-    pack = ProcessedPack(images=images, masks=masks, labels=labels, splits=splits, meta=meta)
+    group_ids = load_group_ids(root / "splits.json")
+    pack = ProcessedPack(
+        images=images,
+        masks=masks,
+        labels=labels,
+        splits=splits,
+        meta=meta,
+        group_ids=group_ids,
+    )
     _require_consistent_pack(pack)
     return pack
 
@@ -196,21 +213,27 @@ def concat_packs(packs: Sequence[ProcessedPack]) -> ProcessedPack:
 
     Returns:
         ProcessedPack: Images, masks, and labels stacked on N. Split indices are
-        shifted by the preceding sample count. Provenance is the shared
+        shifted by the preceding sample count. Group ids are concatenated when
+        every input has them, and None when none do. Provenance is the shared
         provenance. ``dataset_hash`` is empty. ``n`` is the sum of the inputs.
 
     Raises:
         ValueError: If ``ingest_path`` differs, or band names, spatial size,
-            norm, band moments, or another provenance field differs.
+            norm, band moments, or another provenance field differs. Also when
+            a group id appears in more than one pack, or some packs have group
+            ids and others do not.
 
     Notes:
         This function does not write a directory. The empty hash is meaningful
-        only after ``write_processed_pack`` rewrites the files.
+        only after ``write_processed_pack`` rewrites the files. Each input
+        keeps its own split. Shared group ids are rejected, so one group cannot
+        land in two splits through concatenation.
     """
     assert_same_ingest(packs)
     for pack in packs:
         _require_consistent_pack(pack)
     _require_same_layout(packs)
+    group_ids = _require_disjoint_groups(packs)
     # np.ndarray[float32, (N, C, H, W)]
     images = np.concatenate([np.asarray(pack.images) for pack in packs], axis=0)
     # np.ndarray[float32, (N, 1, H, W)]
@@ -241,7 +264,41 @@ def concat_packs(packs: Sequence[ProcessedPack]) -> ProcessedPack:
         labels=labels,
         splits=SplitIndex(train=tuple(train), val=tuple(val), test=tuple(test)),
         meta=meta,
+        group_ids=group_ids,
     )
+
+
+def _require_disjoint_groups(packs: Sequence[ProcessedPack]) -> tuple[str, ...] | None:
+    """Return concatenated group ids, or None when no pack has them.
+
+    Args:
+        packs: Packs already checked for shape and split coverage.
+
+    Returns:
+        tuple[str, ...] | None: Group id per output row, in concatenation
+        order. None when every input ``group_ids`` is None.
+
+    Raises:
+        ValueError: If some packs have group ids and others do not, or the
+            same group id appears in more than one pack.
+    """
+    if all(pack.group_ids is None for pack in packs):
+        return None
+    if any(pack.group_ids is None for pack in packs):
+        raise ValueError("group ids must be set on every pack or on none")
+    seen: set[str] = set()
+    combined: list[str] = []
+    for pack in packs:
+        ids = pack.group_ids
+        if ids is None:
+            raise ValueError("group ids must be set on every pack or on none")
+        overlap = seen.intersection(ids)
+        if overlap:
+            group_id = min(overlap)
+            raise ValueError(f"group id {group_id!r} appears in more than one pack")
+        seen.update(ids)
+        combined.extend(ids)
+    return tuple(combined)
 
 
 def _require_same_layout(packs: Sequence[ProcessedPack]) -> None:
@@ -294,7 +351,8 @@ def _require_consistent_pack(pack: ProcessedPack) -> None:
         None.
 
     Raises:
-        ValueError: If dtype, shape, channel count, or split coverage is wrong.
+        ValueError: If dtype, shape, channel count, split coverage, or group-id
+            length is wrong.
     """
     n, channels, height, width = _require_array_shapes(
         pack.images,
@@ -318,6 +376,8 @@ def _require_consistent_pack(pack: ProcessedPack) -> None:
             f"and len(band_names) {len(pack.meta.band_names)}"
         )
     _require_complete_split(pack.splits, n)
+    if pack.group_ids is not None and len(pack.group_ids) != n:
+        raise ValueError(f"len(group_ids) must equal N; got {len(pack.group_ids)} and {n}")
 
 
 def _require_array_shapes(

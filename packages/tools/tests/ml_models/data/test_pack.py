@@ -79,6 +79,7 @@ def _memory_pack(
     source_doi: str = "10.5281/zenodo.4250706",
     band_mean: tuple[float, ...] = (),
     band_std: tuple[float, ...] = (),
+    group_ids: tuple[str, ...] | None = None,
 ) -> ProcessedPack:
     """Return an in-memory pack whose arrays match its meta."""
     images, masks, labels = _arrays(n, channels=len(bands), height=height, width=width, fill=fill)
@@ -97,7 +98,14 @@ def _memory_pack(
         height=height,
         width=width,
     )
-    return ProcessedPack(images=images, masks=masks, labels=labels, splits=splits, meta=meta)
+    return ProcessedPack(
+        images=images,
+        masks=masks,
+        labels=labels,
+        splits=splits,
+        meta=meta,
+        group_ids=group_ids,
+    )
 
 
 def test_write_processed_pack_with_group_ids_round_trips(tmp_path: Path) -> None:
@@ -130,6 +138,7 @@ def test_write_processed_pack_with_group_ids_round_trips(tmp_path: Path) -> None
     assert loaded.meta.band_mean == provenance.band_mean
     assert loaded.meta.band_std == provenance.band_std
     assert loaded.meta.in_channels == 1
+    assert loaded.group_ids == tuple(group_ids)
     np.testing.assert_array_equal(loaded.images, images)
     for group in ("a", "b", "c"):
         rows = [i for i, group_id in enumerate(group_ids) if group_id == group]
@@ -170,6 +179,7 @@ def test_write_processed_pack_uses_precomputed_splits(tmp_path: Path) -> None:
     )
     loaded = load_processed_pack(dest)
     assert loaded.splits == index
+    assert loaded.group_ids is None
     assert loaded.meta.n == 4
 
 
@@ -266,6 +276,7 @@ def test_concat_same_ingest_sums_n_and_remaps_splits(ingest: IngestPath) -> None
     assert float(combined.images[0, 0, 0, 0]) == pytest.approx(1.0)
     assert float(combined.images[3, 0, 0, 0]) == pytest.approx(2.0)
     assert provenance_from_meta(combined.meta) == provenance_from_meta(left.meta)
+    assert combined.group_ids is None
 
 
 def test_concat_rejects_layout_mismatch() -> None:
@@ -349,6 +360,105 @@ def test_concat_rejects_different_band_stats() -> None:
     assert combined.meta.band_mean == (1.0,)
     assert combined.meta.band_std == (2.0,)
     assert combined.meta.norm == "band_z"
+
+
+def test_concat_rejects_a_group_shared_across_loaded_packs(tmp_path: Path) -> None:
+    """The same group id in two packs raises ValueError after a load."""
+    provenance = _provenance()
+    images, masks, labels = _arrays(3, fill=0.2)
+    left_dir = tmp_path / "left"
+    right_dir = tmp_path / "right"
+    write_processed_pack(
+        left_dir,
+        images,
+        masks,
+        labels,
+        provenance,
+        "doi",
+        group_ids=["a", "b", "c"],
+        recipe=SplitRecipe(seed=0),
+    )
+    write_processed_pack(
+        right_dir,
+        images,
+        masks,
+        labels,
+        provenance,
+        "doi",
+        group_ids=["c", "d", "e"],
+        recipe=SplitRecipe(seed=1),
+    )
+    left = load_processed_pack(left_dir)
+    right = load_processed_pack(right_dir)
+    with pytest.raises(ValueError, match="group id 'c'"):
+        concat_packs([left, right])
+
+
+def test_concat_disjoint_groups_stay_in_one_split(tmp_path: Path) -> None:
+    """Disjoint group ids concatenate and each group stays in one split."""
+    provenance = _provenance()
+    left_ids = ["a", "a", "b", "c"]
+    right_ids = ["d", "e", "e", "f"]
+    left_images, left_masks, left_labels = _arrays(len(left_ids), fill=0.1)
+    right_images, right_masks, right_labels = _arrays(len(right_ids), fill=0.2)
+    left_dir = tmp_path / "left"
+    right_dir = tmp_path / "right"
+    write_processed_pack(
+        left_dir,
+        left_images,
+        left_masks,
+        left_labels,
+        provenance,
+        "doi",
+        group_ids=left_ids,
+    )
+    write_processed_pack(
+        right_dir,
+        right_images,
+        right_masks,
+        right_labels,
+        provenance,
+        "doi",
+        group_ids=right_ids,
+    )
+    combined = concat_packs([load_processed_pack(left_dir), load_processed_pack(right_dir)])
+    assert combined.group_ids == tuple(left_ids + right_ids)
+    for group in ("a", "b", "c", "d", "e", "f"):
+        rows = [i for i, group_id in enumerate(combined.group_ids) if group_id == group]
+        homes = [
+            name
+            for name in ("train", "val", "test")
+            if any(row in combined.splits.for_name(name) for row in rows)
+        ]
+        assert homes == [homes[0]]
+        assert all(row in combined.splits.for_name(homes[0]) for row in rows)
+
+
+def test_concat_rejects_partial_group_ids() -> None:
+    """A mix of packs with and without group ids raises ValueError."""
+    left = _memory_pack(
+        "flight_camera",
+        fill=1.0,
+        splits=_SPLIT3,
+        n=3,
+        group_ids=("a", "b", "c"),
+    )
+    right = _memory_pack("flight_camera", fill=2.0, splits=_SPLIT3, n=3)
+    with pytest.raises(ValueError, match="group ids"):
+        concat_packs([left, right])
+
+
+def test_concat_rejects_group_id_length() -> None:
+    """group_ids shorter than N raises ValueError."""
+    pack = _memory_pack(
+        "flight_camera",
+        fill=1.0,
+        splits=_SPLIT3,
+        n=3,
+        group_ids=("a", "b"),
+    )
+    with pytest.raises(ValueError, match="group_ids"):
+        concat_packs([pack])
 
 
 def test_concat_result_can_be_rewritten(tmp_path: Path) -> None:

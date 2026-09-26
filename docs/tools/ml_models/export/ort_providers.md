@@ -41,11 +41,9 @@ None. The preference list is a module constant.
 
 ## Constraints
 
-Flight session load does not call this helper. `tools.inference.ort_providers`
-re-exports these names.
+Flight session load does not call this helper.
 
 ## Related documents
 
 - [`tools.ml_models.export`](../export.md)
 - [`tools.ml_models.export.accept`](accept.md)
-- [`tools.inference.ort_providers`](../../inference/ort_providers.md)

@@ -21,6 +21,7 @@ modules.
 | [`classifier`](arch/classifier.md) | module | torchvision backbones with a 3-channel stem |
 | [`compact`](arch/compact.md) | module | Compact `pactnet` classifier family |
 | [`stem`](arch/stem.md) | module | Band-count surgery for pretrained stems |
+| [`study`](arch/study.md) | module | Untrained ShuffleNet classifier and DilateNet |
 | [`registry`](arch/registry.md) | module | Kind plus grammar name to a builder |
 
 ## Package interface
@@ -41,6 +42,6 @@ graphs emit logits. Flight applies sigmoid on the segmentor output.
 ## Related documents
 
 - [`tools.ml_models`](../ml_models.md)
-- [`tools.inference`](../inference.md)
-- [`tools.inference.train`](../inference/train.md)
-- [`tools.inference.export`](../inference/export.md)
+- [`tools.ml_models.train`](train.md)
+- [`tools.ml_models.export`](export.md)
+- [`tools.ml_models.arch.study`](arch/study.md)

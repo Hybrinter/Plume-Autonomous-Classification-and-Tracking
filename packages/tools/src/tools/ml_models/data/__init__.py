@@ -9,6 +9,9 @@ Contains:
   - grid: legal-side coarsening and any-side area resample.
   - matrix: native band matrix for the Zenodo study.
   - zenodo: archive index, tile cache, and location splits.
+  - annotations: polygon labels for the Zenodo corpus.
+  - fetch: checksum status, download, and 4-band preprocess.
+  - moments: train-split per-band mean and standard deviation.
   - prism: AP-3200T weights and the 76 px proxy pack.
   - augment: dihedral transforms and feathered paste.
   - canvas: flight-frame scenes and windows.

@@ -8,9 +8,9 @@ def test_root_help_succeeds() -> None:
     assert main(["--help"]) == 0
 
 
-def test_root_registers_inference_commands() -> None:
-    """The root command dispatches to the inference application."""
-    assert main(["inference", "--help"]) == 0
+def test_root_rejects_inference_command() -> None:
+    """inference is an unknown root command."""
+    assert main(["inference", "--help"]) != 0
 
 
 def test_root_registers_analysis_commands() -> None:

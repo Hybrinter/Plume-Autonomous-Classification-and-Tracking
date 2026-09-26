@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-from tools.inference.split import DatasetMeta, compute_dataset_hash, write_dataset_meta
 from tools.ml_models.analysis.eval import evaluate
 from tools.ml_models.data.bands import ZENODO_BAND_IDS, verify_band_order
 from tools.ml_models.data.matrix import Cell, gsd_cells, native_cells
 from tools.ml_models.data.norm import apply_band_z, fit_band_stats
 from tools.ml_models.train.config import TrainConfig
 from tools.ml_models.train.loop import train
+from tools.ml_models.train.recipe import DatasetMeta, compute_dataset_hash, write_dataset_meta
 
 TrainKind = Literal["classifier", "segmentor"]
 

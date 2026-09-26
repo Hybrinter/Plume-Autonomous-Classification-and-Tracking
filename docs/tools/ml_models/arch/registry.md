@@ -100,5 +100,5 @@ builder call. Modifier tokens share
 - [`tools.ml_models.arch.unet`](unet.md)
 - [`tools.ml_models.arch.encoder_unet`](encoder_unet.md)
 - [`tools.ml_models.arch.dilated`](dilated.md)
-- [`tools.inference.train`](../../inference/train.md)
-- [`tools.inference.export`](../../inference/export.md)
+- [`tools.ml_models.train`](../train.md)
+- [`tools.ml_models.export`](../export.md)

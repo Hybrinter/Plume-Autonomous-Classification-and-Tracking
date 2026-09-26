@@ -144,7 +144,7 @@ def eval_command(
     checkpoint: Annotated[str | None, typer.Option(help="Checkpoint path.")] = None,
 ) -> None:
     """Score a checkpoint. The default split is val."""
-    from tools.inference.eval import evaluate
+    from tools.ml_models.analysis.eval import evaluate
 
     try:
         path = evaluate(run, checkpoint=checkpoint, split=split)

@@ -77,4 +77,4 @@ Registry names use the compact classifier grammar in
 - [`tools.ml_models.arch.blocks`](blocks.md)
 - [`tools.ml_models.arch.classifier`](classifier.md)
 - [`tools.ml_models.arch.registry`](registry.md)
-- [`tools.inference.train`](../../inference/train.md)
+- [`tools.ml_models.train`](../train.md)

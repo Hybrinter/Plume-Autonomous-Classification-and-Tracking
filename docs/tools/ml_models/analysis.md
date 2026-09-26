@@ -19,6 +19,7 @@ full-frame blob metrics.
 | [`eval`](analysis/eval.md) | module | Checkpoint scoring on one split |
 | [`results`](analysis/results.md) | module | Native and ground-sample markdown tables |
 | [`native`](analysis/native.md) | module | Coarse logits on the 120 px mask |
+| [`scores`](analysis/scores.md) | module | Classifier and segmentor scores on one batch |
 | [`full_frame`](analysis/full_frame.md) | module | Gate, blob overlap, and canvas scenes |
 
 ## Package interface
@@ -30,7 +31,7 @@ import each module by name.
 
 `plots` reads `tools.ml_models.train.metrics.sigmoid` and
 `tools.ml_models.data.grid.gsd_m`. `eval` reads a processed pack through
-`tools.inference.data` and rebuilds the network with
+`tools.ml_models.train.samples` and rebuilds the network with
 `tools.ml_models.arch.registry.build`. `full_frame` calls
 `flight.payload.blobs.extract_blobs` and reads vision gates from
 `flight.libs.config.PactConfig`. No module imports `flight.payload.inference`,
@@ -38,7 +39,7 @@ import each module by name.
 
 ## Constraints
 
-- The package imports torch in `eval` and `native`.
+- The package imports torch in `eval`, `native`, and `scores`.
 - `plots` selects the Agg backend on import.
 - `full_frame` may import `flight.payload.blobs`.
 - The package `__init__` does not re-export names.
@@ -53,5 +54,6 @@ import each module by name.
 - [`tools.ml_models.analysis.eval`](analysis/eval.md)
 - [`tools.ml_models.analysis.results`](analysis/results.md)
 - [`tools.ml_models.analysis.native`](analysis/native.md)
+- [`tools.ml_models.analysis.scores`](analysis/scores.md)
 - [`tools.ml_models.analysis.full_frame`](analysis/full_frame.md)
 - [`flight.payload.blobs`](../../flight/payload/blobs.md)

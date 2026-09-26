@@ -3,8 +3,8 @@
 Measured numbers for the optimization work described in
 [`experiments/README.md`](../README.md). Every table here records a sweep or
 finalize result. Run directories stay out of git. Reproduce them from the
-stage TOML files with `pact-tools inference sweep` and
-`pact-tools inference finalize`.
+stage TOML files with `tools.ml_models.train.sweep.sweep` and
+`tools.ml_models.export.finalize.finalize`.
 
 | Stage | Segmentor | Classifier |
 | --- | --- | --- |

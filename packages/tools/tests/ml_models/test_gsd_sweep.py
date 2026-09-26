@@ -9,8 +9,8 @@ from types import ModuleType
 
 import numpy as np
 import pytest
-from tools.inference.data import load_processed_pack
 from tools.ml_models.data.matrix import Cell
+from tools.ml_models.train.samples import load_processed_pack
 
 
 def _script() -> ModuleType:
@@ -57,7 +57,9 @@ def test_prepare_band_z_keeps_values_above_one(tmp_path: Path) -> None:
     )
     dest = module.prepare_band_z_pack(src, tmp_path / "z")
     pack = load_processed_pack(dest)
-    assert float(np.max(pack.images.numpy())) > 1.0
+    loaded = pack.images
+    peak = float(np.max(loaded)) if isinstance(loaded, np.ndarray) else float(loaded.numpy().max())
+    assert peak > 1.0
 
 
 def test_run_cell_trains_one_synthetic_cell_without_export(
@@ -69,14 +71,12 @@ def test_run_cell_trains_one_synthetic_cell_without_export(
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("export called")
 
-    import tools.inference.export as inference_export
     import tools.ml_models.export.onnx as onnx_export
 
     monkeypatch.setattr(onnx_export, "export", _boom)
-    monkeypatch.setattr(inference_export, "export", _boom)
 
-    from tools.inference.data import make_synthetic_pack, write_processed_pack
-    from tools.inference.split import SplitRecipe
+    from tools.ml_models.train.recipe import SplitRecipe
+    from tools.ml_models.train.samples import make_synthetic_pack, write_processed_pack
 
     module = _script()
     images, masks, labels = make_synthetic_pack(4, 3, 16, 16, seed=0)

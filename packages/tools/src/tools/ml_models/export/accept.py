@@ -1,7 +1,7 @@
 """Model-artifact acceptance gate: manifest + hash + I/O contract + quality + latency.
 
 Passing this gate admits a frozen .onnx artifact into data/models/. Training and
-export live in tools.inference. The segmentor gate runs five checks:
+export live in tools.ml_models. The segmentor gate runs five checks:
 
   1. manifest: sidecar JSON with version / source SHA / dataset hash / I/O / SHA-256.
   2. hash: the artifact's SHA-256 equals the manifest digest.
@@ -29,7 +29,7 @@ Contains:
   - load_manifest / accept_artifact / accept_classifier_artifact / accept_kind.
   - load_golden_scenes / load_golden_classifier_scenes: scenes from a pack.
     Classifier scenes skip ``masks.npy`` and copy one image row at a time.
-  - compute_iou: re-export from tools.inference.metrics.
+  - compute_iou: re-export from tools.ml_models.train.metrics.
   - onnx_inference_fn / onnx_classifier_inference_fn.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -56,10 +56,10 @@ from flight.libs.config import InferenceConfig
 from flight.libs.types import Ok
 from flight.payload.inference.verify import verify_io_contract, verify_model_hash
 
-from tools.inference.data import ProcessedPack, _row_image, load_processed_pack
-from tools.inference.metrics import compute_iou as compute_iou
-from tools.inference.metrics import mean_binary_accuracy
 from tools.ml_models.export.ort_providers import resolve_ort_providers
+from tools.ml_models.train.metrics import compute_iou as compute_iou
+from tools.ml_models.train.metrics import mean_binary_accuracy
+from tools.ml_models.train.samples import ProcessedPack, _row_image, load_processed_pack
 
 Shape = tuple[int | None, ...]
 InferenceFn = Callable[[torch.Tensor], torch.Tensor]

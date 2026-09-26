@@ -8,6 +8,7 @@ Contains:
   - eval: checkpoint scoring on a named split.
   - results: native and ground-sample markdown tables.
   - native: coarse logits scored on the 120 px mask.
+  - scores: classifier and segmentor scores on one batch.
   - full_frame: blob hit, empty-frame false positives, and eval scenes.
 
 Import each module by name. This package does not re-export names.

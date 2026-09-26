@@ -20,8 +20,7 @@ from pathlib import Path
 
 from flight.libs.config import FaultConfig, InferenceConfig
 
-from tools.inference.eval import evaluate
-from tools.inference.train import load_train_config
+from tools.ml_models.analysis.eval import evaluate
 from tools.ml_models.export.accept import (
     AcceptanceReport,
     ClassifierAcceptanceReport,
@@ -30,6 +29,7 @@ from tools.ml_models.export.accept import (
     load_manifest,
 )
 from tools.ml_models.export.onnx import ExportConfig, export, int8_artifact_path, promote
+from tools.ml_models.train.config import load_train_config
 
 
 @dataclass(frozen=True, slots=True)

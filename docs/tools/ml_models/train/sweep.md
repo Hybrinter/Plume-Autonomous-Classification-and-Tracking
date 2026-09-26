@@ -63,12 +63,11 @@ Space keys overlay `TrainConfig`. `max_runs` is not a train field.
 
 The sweep scores the val split. Axis names sort with Python string order. A
 killed sweep can leave the lock file in place. Delete that file before a new
-sweep on the same output. `tools.inference.sweep` re-exports these names.
+sweep on the same output.
 
 ## Related documents
 
 - [`tools.ml_models.train`](../train.md)
 - [`tools.ml_models.train.loop`](loop.md)
 - [`tools.ml_models.train.config`](config.md)
-- [`tools.inference.eval`](../../inference/eval.md)
-- [`tools.inference.sweep`](../../inference/sweep.md)
+- [`tools.ml_models.analysis.eval`](../analysis/eval.md)

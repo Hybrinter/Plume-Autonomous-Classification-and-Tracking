@@ -67,4 +67,4 @@ third-party U-Net sources. Registry names use the `unet` family in
 - [`tools.ml_models.arch.grammar`](grammar.md)
 - [`tools.ml_models.arch.blocks`](blocks.md)
 - [`tools.ml_models.arch.registry`](registry.md)
-- [`tools.inference.train`](../../inference/train.md)
+- [`tools.ml_models.train`](../train.md)

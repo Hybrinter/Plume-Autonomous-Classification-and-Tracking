@@ -24,10 +24,10 @@ from typing import Literal
 from pydantic import ConfigDict, TypeAdapter
 from pydantic.dataclasses import dataclass
 
-from tools.inference.data import ProcessedPack as InferencePack
 from tools.ml_models.data.canvas import CanvasConfig
 from tools.ml_models.data.pack import ProcessedPack as MlPack
 from tools.ml_models.train.losses import DEFAULT_FOCAL_ALPHA, DEFAULT_FOCAL_GAMMA, LossName
+from tools.ml_models.train.samples import ProcessedPack as InferencePack
 
 TrainKind = Literal["classifier", "segmentor"]
 OptimizerName = Literal["sgd", "adamw"]

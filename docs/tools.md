@@ -7,13 +7,15 @@
 
 The tools package holds engineering utilities outside the flight image. It
 includes inference training, export, and acceptance under `tools.inference`,
-and SIL telemetry analysis under `tools.analysis`.
+processed-pack data under `tools.ml_models`, and SIL telemetry analysis under
+`tools.analysis`.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
 | [`inference`](tools/inference.md) | package | Train, export, accept, and score inference artifacts |
+| [`ml_models`](tools/ml_models.md) | package | Processed-pack metadata, splits, and normalization |
 | [`analysis`](tools/analysis.md) | package | Deterministic SIL capture, stats, plots, and reports |
 | [`original_dataset_analysis`](tools/original_dataset_analysis.md) | package | Zenodo band and ground-sample-distance study |
 | [`cli`](tools/cli.md) | module | Root `pact-tools` Typer application |
@@ -22,7 +24,7 @@ and SIL telemetry analysis under `tools.analysis`.
 ## Package interface
 
 `tools` has no top-level `__init__.py` exports. Import from `tools.inference`,
-`tools.analysis`, or `tools.original_dataset_analysis`.
+`tools.ml_models`, `tools.analysis`, or `tools.original_dataset_analysis`.
 
 Run inference workflows with
 `pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`.
@@ -62,6 +64,7 @@ publishes to the bus or changes flight behavior.
 ## Related documents
 
 - [`tools.inference`](tools/inference.md)
+- [`tools.ml_models`](tools/ml_models.md)
 - [`tools.analysis`](tools/analysis.md)
 - [`tools.original_dataset_analysis`](tools/original_dataset_analysis.md)
 - [`tools.cli`](tools/cli.md)

@@ -33,6 +33,8 @@ def _provenance(
     bands: tuple[str, ...] = ("b0",),
     norm: NormName = "unit",
     gsd_m: float = 10.5,
+    band_mean: tuple[float, ...] = (),
+    band_std: tuple[float, ...] = (),
 ) -> Provenance:
     """Return a provenance record for a one-band pack."""
     return Provenance(
@@ -44,6 +46,8 @@ def _provenance(
         band_names=bands,
         norm=norm,
         bit_depth=12,
+        band_mean=band_mean,
+        band_std=band_std,
     )
 
 
@@ -73,10 +77,18 @@ def _memory_pack(
     height: int = 2,
     width: int = 2,
     source_doi: str = "10.5281/zenodo.4250706",
+    band_mean: tuple[float, ...] = (),
+    band_std: tuple[float, ...] = (),
 ) -> ProcessedPack:
     """Return an in-memory pack whose arrays match its meta."""
     images, masks, labels = _arrays(n, channels=len(bands), height=height, width=width, fill=fill)
-    provenance = _provenance(ingest, bands=bands, norm=norm)
+    provenance = _provenance(
+        ingest,
+        bands=bands,
+        norm=norm,
+        band_mean=band_mean,
+        band_std=band_std,
+    )
     meta = dataset_meta_from_provenance(
         provenance,
         dataset_hash="stored-hash",
@@ -115,6 +127,8 @@ def test_write_processed_pack_with_group_ids_round_trips(tmp_path: Path) -> None
     assert loaded.meta.band_names == provenance.band_names
     assert loaded.meta.norm == provenance.norm
     assert loaded.meta.bit_depth == provenance.bit_depth
+    assert loaded.meta.band_mean == provenance.band_mean
+    assert loaded.meta.band_std == provenance.band_std
     assert loaded.meta.in_channels == 1
     np.testing.assert_array_equal(loaded.images, images)
     for group in ("a", "b", "c"):
@@ -126,6 +140,18 @@ def test_write_processed_pack_with_group_ids_round_trips(tmp_path: Path) -> None
         ]
         assert len(homes) == 1
         assert all(row in loaded.splits.for_name(homes[0]) for row in rows)
+
+
+def test_write_processed_pack_persists_band_moments(tmp_path: Path) -> None:
+    """band_z mean and std survive a pack write and load."""
+    dest = tmp_path / "pack"
+    images, masks, labels = _arrays(3, fill=0.25)
+    provenance = _provenance(norm="band_z", band_mean=(0.5,), band_std=(1.25,))
+    write_processed_pack(dest, images, masks, labels, provenance, "doi", splits=_SPLIT3)
+    loaded = load_processed_pack(dest)
+    assert loaded.meta.band_mean == (0.5,)
+    assert loaded.meta.band_std == (1.25,)
+    assert provenance_from_meta(loaded.meta) == provenance
 
 
 def test_write_processed_pack_uses_precomputed_splits(tmp_path: Path) -> None:
@@ -264,9 +290,65 @@ def test_concat_rejects_layout_mismatch() -> None:
     )
     with pytest.raises(ValueError, match="spatial"):
         concat_packs([base, other_spatial])
-    other_norm = _memory_pack("flight_camera", fill=1.0, splits=_SPLIT3, n=3, norm="band_z")
+    other_norm = _memory_pack(
+        "flight_camera",
+        fill=1.0,
+        splits=_SPLIT3,
+        n=3,
+        norm="band_z",
+        band_mean=(0.0,),
+        band_std=(1.0,),
+    )
     with pytest.raises(ValueError, match="norm"):
         concat_packs([base, other_norm])
+
+
+def test_concat_rejects_different_band_stats() -> None:
+    """band_z packs with different fitted moments are not concatenated."""
+    left = _memory_pack(
+        "flight_camera",
+        fill=1.0,
+        splits=_SPLIT3,
+        n=3,
+        norm="band_z",
+        band_mean=(1.0,),
+        band_std=(2.0,),
+    )
+    other_mean = _memory_pack(
+        "flight_camera",
+        fill=2.0,
+        splits=_SPLIT3,
+        n=3,
+        norm="band_z",
+        band_mean=(3.0,),
+        band_std=(2.0,),
+    )
+    with pytest.raises(ValueError, match="band stats"):
+        concat_packs([left, other_mean])
+    other_std = _memory_pack(
+        "flight_camera",
+        fill=2.0,
+        splits=_SPLIT3,
+        n=3,
+        norm="band_z",
+        band_mean=(1.0,),
+        band_std=(4.0,),
+    )
+    with pytest.raises(ValueError, match="band stats"):
+        concat_packs([left, other_std])
+    same = _memory_pack(
+        "flight_camera",
+        fill=2.0,
+        splits=_SPLIT3,
+        n=3,
+        norm="band_z",
+        band_mean=(1.0,),
+        band_std=(2.0,),
+    )
+    combined = concat_packs([left, same])
+    assert combined.meta.band_mean == (1.0,)
+    assert combined.meta.band_std == (2.0,)
+    assert combined.meta.norm == "band_z"
 
 
 def test_concat_result_can_be_rewritten(tmp_path: Path) -> None:

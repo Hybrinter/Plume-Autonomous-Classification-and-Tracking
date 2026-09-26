@@ -47,15 +47,15 @@ counts. `dataset_hash` is an empty string.
    `images.shape[1] == meta.in_channels == len(band_names)`, spatial size, mask
    shape `(N, 1, H, W)`, and label shape `(N, 1)`.
 6. `concat_packs` calls `assert_same_ingest`. It then requires equal band
-   names, spatial size, norm, and the rest of the provenance. Split indices
-   shift by each preceding pack's N.
+   names, spatial size, norm, `band_mean`, `band_std`, and the rest of the
+   provenance. Split indices shift by each preceding pack's N.
 7. `concat_packs` does not write a directory.
 
 ## Errors and faults
 
 `ValueError` when a shape, dtype, or split source is wrong, when the hash does
-not match, when `ingest_path` differs, or when band names, spatial size, or
-norm differ. `FileNotFoundError` when a pack file is missing.
+not match, when `ingest_path` differs, or when band names, spatial size, norm,
+or band moments differ. `FileNotFoundError` when a pack file is missing.
 
 ## Messages
 

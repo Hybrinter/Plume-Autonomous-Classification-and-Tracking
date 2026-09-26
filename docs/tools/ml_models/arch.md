@@ -1,6 +1,6 @@
-# tools.inference.arch
+# tools.ml_models.arch
 
-**Source:** `packages/tools/src/tools/inference/arch/`
+**Source:** `packages/tools/src/tools/ml_models/arch/`
 **Kind:** package
 
 ## Purpose
@@ -18,14 +18,14 @@ modules.
 | [`unet`](arch/unet.md) | module | Parameterised scratch U-Net segmentor |
 | [`encoder_unet`](arch/encoder_unet.md) | module | ResNet-encoder U-Net segmentor |
 | [`dilated`](arch/dilated.md) | module | Dilated fully-convolutional `dilatenet` segmentor |
-| [`classifier`](arch/classifier.md) | module | torchvision backbones with a 4-channel stem |
+| [`classifier`](arch/classifier.md) | module | torchvision backbones with a 3-channel stem |
 | [`compact`](arch/compact.md) | module | Compact `pactnet` classifier family |
 | [`stem`](arch/stem.md) | module | Band-count surgery for pretrained stems |
 | [`registry`](arch/registry.md) | module | Kind plus grammar name to a builder |
 
 ## Package interface
 
-`tools.inference.arch.__init__` carries a module docstring only. Callers import
+`tools.ml_models.arch.__init__` carries a module docstring only. Callers import
 builders from the submodules or call `registry.build`.
 
 ## Interactions
@@ -40,6 +40,7 @@ graphs emit logits. Flight applies sigmoid on the segmentor output.
 
 ## Related documents
 
+- [`tools.ml_models`](../ml_models.md)
 - [`tools.inference`](../inference.md)
-- [`tools.inference.train`](train.md)
-- [`tools.inference.export`](export.md)
+- [`tools.inference.train`](../inference/train.md)
+- [`tools.inference.export`](../inference/export.md)

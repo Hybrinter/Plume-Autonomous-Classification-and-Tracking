@@ -16,7 +16,8 @@ gate) reports accepted.
 Contains:
   - ExportConfig: frozen export hyperparameters.
   - export: write one ONNX graph plus a Manifest JSON sidecar.
-  - reexport_spatial: rebuild a graph at a new H/W and copy matching weights.
+  - reexport_spatial: rebuild a graph at a new H/W and copy same-name weights.
+    A same-name shape mismatch is an error.
   - convert_fp16: rewrite an FP32 graph to FP16 with float32 I/O.
   - quantize_int8: static QDQ INT8 with float32 I/O.
   - quantize_knee: classifier FP16 and segmentor INT8 in place.
@@ -43,8 +44,8 @@ from flight.payload.inference.verify import compute_sha256
 from torch import Tensor, nn
 
 from tools.inference.accept import Manifest, load_manifest
-from tools.inference.arch.registry import build
 from tools.inference.data import _row_image, load_processed_pack
+from tools.ml_models.arch.registry import build
 
 _EXPORT_KINDS = frozenset({"classifier", "segmentor"})
 
@@ -492,7 +493,10 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
 
 
 def _copy_matching_initializers(source_onnx: str, dest_onnx: str) -> int:
-    """Copy same-name, same-shape initializers from ``source_onnx`` into ``dest_onnx``.
+    """Copy same-name initializers from ``source_onnx`` into ``dest_onnx``.
+
+    Same-name, same-shape tensors are copied. A destination name with no source
+    counterpart is skipped. A same-name tensor whose shapes differ raises.
 
     Args:
         source_onnx: Trained ONNX path (any spatial size).
@@ -503,7 +507,8 @@ def _copy_matching_initializers(source_onnx: str, dest_onnx: str) -> int:
 
     Raises:
         ImportError: If onnx is not installed.
-        ValueError: If no matching initializer can be copied.
+        ValueError: If a same-name initializer has a different shape, or if no
+            initializer is copied.
     """
     try:
         import onnx
@@ -524,7 +529,10 @@ def _copy_matching_initializers(source_onnx: str, dest_onnx: str) -> int:
         src_arr = numpy_helper.to_array(src_tensor)
         dst_arr = numpy_helper.to_array(init)
         if src_arr.shape != dst_arr.shape:
-            continue
+            raise ValueError(
+                f"ONNX initializer {init.name!r} shape mismatch: "
+                f"source {tuple(src_arr.shape)} destination {tuple(dst_arr.shape)}"
+            )
         init.CopyFrom(numpy_helper.from_array(src_arr, name=init.name))
         copied += 1
     if copied == 0:
@@ -547,10 +555,12 @@ def reexport_spatial(
     model_repo_sha: str | None = None,
     dataset_hash: str | None = None,
 ) -> tuple[Path, Path, Manifest]:
-    """Export ``arch`` at ``(H, W)`` and copy matching weights from ``source_onnx``.
+    """Export ``arch`` at ``(H, W)`` and copy same-name weights from ``source_onnx``.
 
     Convolution weights do not include spatial size, so a fully convolutional
-    graph can change H/W without retraining. Provenance fields come from the
+    graph can change H/W without retraining. Same-name, same-shape initializers
+    are copied. A same-name shape mismatch raises ``ValueError``. A destination
+    name missing from the source is skipped. Provenance fields come from the
     source sidecar when present.
 
     Args:
@@ -570,7 +580,8 @@ def reexport_spatial(
         tuple: ``(onnx_path, manifest_path, manifest)`` at the new spatial size.
 
     Raises:
-        ValueError: If ``kind`` is unknown or no weights copy.
+        ValueError: If ``kind`` is unknown, no weights copy, or a same-name
+            initializer has a different shape.
         FileNotFoundError: If ``source_onnx`` is missing.
         ImportError: If onnx is not installed.
     """

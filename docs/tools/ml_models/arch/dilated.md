@@ -1,6 +1,6 @@
-# tools.inference.arch.dilated
+# tools.ml_models.arch.dilated
 
-**Source:** `packages/tools/src/tools/inference/arch/dilated.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/dilated.py`
 **Kind:** module
 
 ## Purpose
@@ -38,7 +38,7 @@ modifier token, or unsupported output stride.
 Height and width come from the input tensor. A bilinear resize restores full
 resolution after the head.
 
-`build_dilated_segmentor(spec, in_channels=4, out_channels=1) -> DilatedSegmentor`.
+`build_dilated_segmentor(spec, in_channels=3, out_channels=1) -> DilatedSegmentor`.
 
 ## Behavior
 
@@ -70,21 +70,21 @@ None.
 
 ## Configuration
 
-`in_channels` defaults to 4. `out_channels` defaults to 1. Spatial size is not a
+`in_channels` defaults to 3. `out_channels` defaults to 1. Spatial size is not a
 constructor field.
 
 ## Constraints
 
 This module imports torch at import time. The graph does not apply sigmoid.
 Registry names use the dilated segmentor grammar in
-[`tools.inference.arch.registry`](registry.md).
+[`tools.ml_models.arch.registry`](registry.md).
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.grammar`](grammar.md)
-- [`tools.inference.arch.blocks`](blocks.md)
-- [`tools.inference.arch.unet`](unet.md)
-- [`tools.inference.arch.encoder_unet`](encoder_unet.md)
-- [`tools.inference.arch.registry`](registry.md)
-- [`tools.inference.train`](../train.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.grammar`](grammar.md)
+- [`tools.ml_models.arch.blocks`](blocks.md)
+- [`tools.ml_models.arch.unet`](unet.md)
+- [`tools.ml_models.arch.encoder_unet`](encoder_unet.md)
+- [`tools.ml_models.arch.registry`](registry.md)
+- [`tools.inference.train`](../../inference/train.md)

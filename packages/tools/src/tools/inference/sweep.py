@@ -37,9 +37,9 @@ from pathlib import Path
 
 import torch
 
-from tools.inference.arch.registry import resolve_arch
 from tools.inference.eval import evaluate
 from tools.inference.train import TrainConfig, apply_train_mapping, config_digest, train
+from tools.ml_models.arch.registry import resolve_arch
 
 _SPACE_EXTRA = frozenset({"max_runs"})
 

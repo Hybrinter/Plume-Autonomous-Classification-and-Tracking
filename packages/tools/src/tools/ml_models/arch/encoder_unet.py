@@ -1,6 +1,6 @@
 """Segmentor with a torchvision ResNet encoder and a light U-Net decoder.
 
-The scratch U-Net in :mod:`tools.inference.arch.unet` spends most of its
+The scratch U-Net in :mod:`tools.ml_models.arch.unet` spends most of its
 parameters on the encoder. Swapping in a ResNet encoder lets the same decoder
 sit on top of ImageNet features, and lets encoder capacity and decoder capacity
 be traded independently: ``decoder_width`` scales the decoder alone, so a
@@ -29,14 +29,14 @@ from typing import cast
 import torch
 from torch import nn
 
-from tools.inference.arch.classifier import (
+from tools.ml_models.arch.classifier import (
     RESNET_BACKBONES,
     BackboneName,
     BackboneSpec,
     construct_backbone,
 )
-from tools.inference.arch.stem import retarget_first_conv
-from tools.inference.arch.unet import ConvBlock
+from tools.ml_models.arch.stem import retarget_first_conv
+from tools.ml_models.arch.unet import ConvBlock
 
 RESNET_ENCODERS: frozenset[str] = frozenset(member.value for member in RESNET_BACKBONES)
 
@@ -122,7 +122,7 @@ class ResNetUNet(nn.Module):
     def __init__(
         self,
         encoder: str = "resnet18",
-        in_channels: int = 4,
+        in_channels: int = 3,
         out_channels: int = 1,
         pretrained: bool = False,
         decoder_width: int = 16,
@@ -132,7 +132,7 @@ class ResNetUNet(nn.Module):
 
         Args:
             encoder: Name in ``RESNET_ENCODERS``.
-            in_channels: Input band count (flight default 4).
+            in_channels: Input band count (flight default 3, BLUE/GREEN/RED).
             out_channels: Logit maps (flight default 1).
             pretrained: Load ImageNet encoder weights and remap the stem.
             decoder_width: Channel count of the finest decoder stage.
@@ -196,7 +196,7 @@ class ResNetUNet(nn.Module):
 
 def build_encoder_segmentor(
     encoder: str,
-    in_channels: int = 4,
+    in_channels: int = 3,
     out_channels: int = 1,
     pretrained: bool = False,
     decoder_width: int = 16,

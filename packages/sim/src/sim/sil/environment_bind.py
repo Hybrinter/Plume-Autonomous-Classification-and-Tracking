@@ -98,7 +98,7 @@ class SilEnvironmentBind:
                     timestamp_utc=self._clock.wall_clock_iso(),
                     timestamp_s=now,
                     frame_id=self._frame_id,
-                    planes=mosaic,
+                    mosaic=mosaic,
                     exposure_us=shutter.exposure_us,
                     gain_db=shutter.gain_db,
                 )

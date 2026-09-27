@@ -39,7 +39,6 @@ import torch
 from torch import nn
 
 from tools.inference.arch.blocks import conv3x3_layers
-from tools.inference.arch.stem import PACT_IN_CHANNELS
 
 ENCODER_CHANNELS: tuple[int, int, int, int] = (64, 128, 256, 512)
 
@@ -190,7 +189,7 @@ class UNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = PACT_IN_CHANNELS,
+        in_channels: int = 4,
         out_channels: int = 1,
         base_width: int = 64,
         depth: int = 4,
@@ -243,7 +242,7 @@ class UNet(nn.Module):
 
 
 def build_segmentor(
-    in_channels: int = PACT_IN_CHANNELS,
+    in_channels: int = 4,
     out_channels: int = 1,
     base_width: int = 64,
     depth: int = 4,

@@ -16,11 +16,9 @@ from flight.libs.types import FrameUsabilityTag
 # module under test
 from flight.payload.preprocess import compute_quality_flags
 
-# Shared test constants. slew_rate 0.0 is a stationary gimbal, so saturation tests
-# isolate only the SATURATED flag when the scene rate is also 0.0.
+# Shared test constants.
 _TS: str = "2026-04-03T00:00:00.000Z"
 _CFG: PreprocessingConfig = PreprocessingConfig()
-_IFOV: float = 0.04  # degrees per band-plane pixel
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +54,7 @@ def _inject_saturation(
 def test_no_flags_clean_frame() -> None:
     """A zeros array must return an empty frozenset (no flags raised)."""
     bands = _make_bands(value=0.0)
-    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
+    flags = compute_quality_flags(bands, 10_000.0, _TS, _CFG)
     assert flags == frozenset(), f"Expected no flags for clean frame, got {flags}"
 
 
@@ -65,7 +63,7 @@ def test_saturated_flag_raised() -> None:
     bands = _make_bands(value=0.0)
     # Inject 10% saturated pixels -- well above the 5% threshold
     bands = _inject_saturation(bands, fraction=0.10, sat_value=1.0)
-    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
+    flags = compute_quality_flags(bands, 10_000.0, _TS, _CFG)
     assert FrameUsabilityTag.SATURATED in flags, (
         f"Expected SATURATED flag for 10% saturated pixels, got {flags}"
     )
@@ -91,7 +89,7 @@ def test_saturated_flag_boundary(fraction: float, expect_saturated: bool) -> Non
     """
     bands = _make_bands(value=0.0)
     bands = _inject_saturation(bands, fraction=fraction, sat_value=1.0)
-    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
+    flags = compute_quality_flags(bands, 10_000.0, _TS, _CFG)
     if expect_saturated:
         assert FrameUsabilityTag.SATURATED in flags, (
             f"Expected SATURATED at fraction={fraction}, but flag was absent. Flags: {flags}"
@@ -102,54 +100,11 @@ def test_saturated_flag_boundary(fraction: float, expect_saturated: bool) -> Non
         )
 
 
-def test_motion_smear_from_slew_and_exposure() -> None:
-    """Elevation-relative mismatch flags; matched gimbal and scene rates stay clean."""
+def test_motion_smear_is_not_a_quality_flag() -> None:
+    """Quality flags do not include MOTION_SMEAR. Smear is a control cap."""
     bands = np.zeros((4, 8, 8), dtype=np.float32)
-    cfg = PreprocessingConfig()  # max_motion_smear_px = 1.0
-    exposure_us = 50_000.0
-    ifov = 0.04
-    ts = "2026-06-09T00:00:00.000Z"
-    # |2 - 0| deg/s * 0.05 s / 0.04 deg/px = 2.5 px > 1.0 -> flagged
-    flags = compute_quality_flags(bands, exposure_us, 2.0, ifov, ts, cfg)
-    assert FrameUsabilityTag.MOTION_SMEAR in flags
-    # Matched 2 deg/s gimbal and scene -> zero relative smear (azimuth not modeled).
     flags = compute_quality_flags(
-        bands, exposure_us, 2.0, ifov, ts, cfg, omega_scene_el_deg_per_s=2.0
-    )
-    assert FrameUsabilityTag.MOTION_SMEAR not in flags
-    # Both rates zero (stationary, no scene rate) -> never flags
-    flags = compute_quality_flags(bands, exposure_us, 0.0, ifov, ts, cfg)
-    assert FrameUsabilityTag.MOTION_SMEAR not in flags
-
-
-def test_azimuth_only_motion_does_not_raise_motion_smear() -> None:
-    """Lateral smear is not an input; matched elevation rates stay clean."""
-    bands = np.zeros((4, 8, 8), dtype=np.float32)
-    cfg = PreprocessingConfig()
-    flags = compute_quality_flags(
-        bands,
-        50_000.0,
-        2.0,
-        _IFOV,
-        _TS,
-        cfg,
-        omega_scene_el_deg_per_s=2.0,
-    )
-    assert FrameUsabilityTag.MOTION_SMEAR not in flags
-
-
-def test_motion_smear_scene_matched_high_gimbal_rate_is_clean() -> None:
-    """A high commanded elevation rate that tracks the scene must not raise MOTION_SMEAR."""
-    bands = np.zeros((4, 8, 8), dtype=np.float32)
-    cfg = PreprocessingConfig()
-    flags = compute_quality_flags(
-        bands,
-        50_000.0,
-        5.0,
-        _IFOV,
-        _TS,
-        cfg,
-        omega_scene_el_deg_per_s=5.0,
+        bands, 50_000.0, "2026-06-09T00:00:00.000Z", PreprocessingConfig()
     )
     assert FrameUsabilityTag.MOTION_SMEAR not in flags
 
@@ -157,14 +112,14 @@ def test_motion_smear_scene_matched_high_gimbal_rate_is_clean() -> None:
 def test_quality_flags_returns_frozenset() -> None:
     """compute_quality_flags must always return a frozenset."""
     bands = _make_bands()
-    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
+    flags = compute_quality_flags(bands, 10_000.0, _TS, _CFG)
     assert isinstance(flags, frozenset), f"Expected frozenset, got {type(flags)}"
 
 
 def test_flags_contain_only_usability_tags() -> None:
     """All elements in the returned frozenset must be FrameUsabilityTag members."""
     bands = _inject_saturation(_make_bands(), fraction=0.10)
-    flags = compute_quality_flags(bands, 10_000.0, 0.0, _IFOV, _TS, _CFG)
+    flags = compute_quality_flags(bands, 10_000.0, _TS, _CFG)
     for flag in flags:
         assert isinstance(flag, FrameUsabilityTag), (
             f"Non-FrameUsabilityTag found in quality flags: {flag!r}"

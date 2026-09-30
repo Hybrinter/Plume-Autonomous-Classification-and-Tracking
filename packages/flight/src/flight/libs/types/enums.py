@@ -5,7 +5,7 @@ software. The Ok/Err/Result types live in flight.libs.types.result.
 
 Includes:
 - SystemMode: top-level operational mode transitions.
-- GimbalState: TRACKING / REWIND / SAFE arbiter for gimbal control.
+- GimbalState: TRACKING / REWIND / FAST_REWIND / SAFE arbiter for gimbal control.
 - GimbalCommandMode: interpretation of gimbal pose commands (ABSOLUTE/STOW/HOME).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
   (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
@@ -48,11 +48,30 @@ class SystemMode(enum.Enum):
 
 
 class GimbalState(enum.Enum):
-    """Three-state + safe arbiter. REQ-AIML-GIMB-008."""
+    """Four-state arbiter. REQ-AIML-GIMB-008.
+
+    REWIND and FAST_REWIND are hunts toward the science limb. ``is_rewind_hunt``
+    is that check on the state.
+    """
 
     TRACKING = "TRACKING"
     REWIND = "REWIND"
+    FAST_REWIND = "FAST_REWIND"
     SAFE = "SAFE"
+
+    def is_rewind_hunt(self) -> bool:
+        """True when this state is a hunt toward the science limb.
+
+        Inputs:
+            self (GimbalState): Arbiter state.
+
+        Outputs:
+            bool: True for REWIND and FAST_REWIND.
+
+        Notes:
+            REWIND is the smear-capped hunt. FAST_REWIND is the hardware-slew hunt.
+        """
+        return self is GimbalState.REWIND or self is GimbalState.FAST_REWIND
 
 
 class GimbalCommandMode(enum.Enum):

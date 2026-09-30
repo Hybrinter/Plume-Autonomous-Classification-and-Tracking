@@ -42,8 +42,11 @@ across subsystems.
 | Member | Description |
 | --- | --- |
 | `TRACKING` | Closed-loop pointing or limb wait with `r=0` |
-| `REWIND` | Slew elevation to the science limb after TRACKING loss |
+| `REWIND` | Smear-capped hunt toward the science limb after TRACKING loss |
+| `FAST_REWIND` | Hardware-slew hunt after the sharp REWIND window |
 | `SAFE` | Gimbal inhibited; position loop drives stow |
+
+`GimbalState.is_rewind_hunt` returns true for `REWIND` and `FAST_REWIND`.
 
 ### GimbalCommandMode
 

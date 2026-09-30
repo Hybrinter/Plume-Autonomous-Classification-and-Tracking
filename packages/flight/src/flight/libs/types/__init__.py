@@ -4,9 +4,9 @@ Other flight modules import these from `flight.libs.types`, never from the
 submodules, so the internal split stays refactorable.
 
 Exports:
-- Enumerations: AckStatus, Band, CommandId, DownlinkPriority, FaultCode, FrameUsabilityTag,
-  GimbalCommandMode, GimbalState, LinkState, MessageType, ModelDeployState, ParamKind,
-  SystemMode.
+- Enumerations: AckStatus, Band, CommandId, DownlinkPriority, FaultCode,
+  FrameUsabilityTag, GimbalCommandMode, GimbalState, LinkState, MessageType,
+  ModelDeployState, ParamKind, SystemMode.
 - Result types: Err, Ok, Result.
 - Frame types: MosaicFrame.
 """

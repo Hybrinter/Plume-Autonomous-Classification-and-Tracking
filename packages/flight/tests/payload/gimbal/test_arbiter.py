@@ -1,4 +1,4 @@
-"""Unit tests for flight.payload.gimbal.arbiter -- TRACKING / REWIND / SAFE.
+"""Unit tests for flight.payload.gimbal.arbiter -- TRACKING / REWIND / FAST_REWIND / SAFE.
 
 REQ-AIML-GIMB-001 through 008, REQ-GIMB-HIGH-001 through 004
 """
@@ -228,6 +228,105 @@ def test_rewind_at_limb_returns_to_tracking(default_config: PactConfig) -> None:
     assert request is None
 
 
+def _hunt_state(mode: GimbalState, *, rewind_entered_s: float = 0.0) -> ArbiterState:
+    """Seed a hunt-mode arbiter snapshot."""
+    return ArbiterState(
+        gimbal_state=mode,
+        tracked_blobs=(),
+        current_target_id=None,
+        miss_count=0,
+        rewind_entered_s=rewind_entered_s,
+    )
+
+
+def test_rewind_promotes_to_fast_rewind_after_sharp_window(default_config: PactConfig) -> None:
+    """REWIND promotes to FAST_REWIND after rewind_sharp_max_s without plume or limb."""
+    arbiter = _arbiter(default_config)
+    rewind = _hunt_state(GimbalState.REWIND, rewind_entered_s=1.0)
+    sharp = default_config.controller.outer.rewind_sharp_max_s
+    held, _request, events = arbiter.step(
+        rewind,
+        (),
+        now=1.0 + sharp - 0.01,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+        rewind_sharp_max_s=sharp,
+    )
+    assert held.gimbal_state is GimbalState.REWIND
+    assert held.rewind_entered_s == 1.0
+    assert events == []
+
+    promoted, _request, events = arbiter.step(
+        held,
+        (),
+        now=1.0 + sharp,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+        rewind_sharp_max_s=sharp,
+    )
+    assert promoted.gimbal_state is GimbalState.FAST_REWIND
+    assert promoted.rewind_entered_s == 1.0
+    assert events[-1].payload["from"] == GimbalState.REWIND.value
+    assert events[-1].payload["to"] == GimbalState.FAST_REWIND.value
+
+
+def test_fast_rewind_plume_returns_to_tracking(default_config: PactConfig) -> None:
+    """A plume during FAST_REWIND returns to TRACKING immediately."""
+    arbiter = _arbiter(default_config)
+    hunt = _hunt_state(GimbalState.FAST_REWIND, rewind_entered_s=1.0)
+    new_state, request, events = arbiter.step(
+        hunt,
+        (make_blob(blob_id=7),),
+        now=4.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=10.0,
+    )
+    assert new_state.gimbal_state is GimbalState.TRACKING
+    assert new_state.rewind_entered_s is None
+    assert new_state.aggregate_live is True
+    assert request is None
+    assert events[-1].payload["to"] == GimbalState.TRACKING.value
+
+
+def test_fast_rewind_at_limb_returns_to_tracking(default_config: PactConfig) -> None:
+    """Arrival at the science limb with no plume returns FAST_REWIND to TRACKING."""
+    arbiter = _arbiter(default_config)
+    hunt = _hunt_state(GimbalState.FAST_REWIND, rewind_entered_s=1.0)
+    limb = default_config.gimbal.el_science_max_deg
+    new_state, request, _events = arbiter.step(
+        hunt,
+        (),
+        now=4.0,
+        safe_commanded=False,
+        safe_cleared=False,
+        el_deg=limb,
+    )
+    assert new_state.gimbal_state is GimbalState.TRACKING
+    assert request is None
+
+
+def test_fast_rewind_safe_latches_and_stows(default_config: PactConfig) -> None:
+    """SAFE from FAST_REWIND issues STOW."""
+    arbiter = _arbiter(default_config)
+    hunt = _hunt_state(GimbalState.FAST_REWIND, rewind_entered_s=1.0)
+    new_state, request, events = arbiter.step(
+        hunt,
+        (),
+        now=4.0,
+        safe_commanded=True,
+        safe_cleared=False,
+        el_deg=10.0,
+    )
+    assert new_state.gimbal_state is GimbalState.SAFE
+    assert request is not None
+    assert request.mode is GimbalCommandMode.STOW
+    assert events[-1].payload["from"] == GimbalState.FAST_REWIND.value
+    assert events[-1].payload["to"] == GimbalState.SAFE.value
+
+
 def test_safe_latches_and_stows(
     arbiter_tracking_state: ArbiterState, default_config: PactConfig
 ) -> None:
@@ -318,12 +417,22 @@ def test_transition_uses_injected_timestamp(
 
 
 def test_legal_transitions(default_config: PactConfig) -> None:
-    """Allowed mode edges are TRACKING↔REWIND and either↔SAFE."""
+    """Allowed mode edges are TRACKING→REWIND→FAST_REWIND→TRACKING and hunt/track→SAFE."""
     allowed = {
         GimbalState.TRACKING: frozenset(
             {GimbalState.TRACKING, GimbalState.REWIND, GimbalState.SAFE}
         ),
-        GimbalState.REWIND: frozenset({GimbalState.REWIND, GimbalState.TRACKING, GimbalState.SAFE}),
+        GimbalState.REWIND: frozenset(
+            {
+                GimbalState.REWIND,
+                GimbalState.FAST_REWIND,
+                GimbalState.TRACKING,
+                GimbalState.SAFE,
+            }
+        ),
+        GimbalState.FAST_REWIND: frozenset(
+            {GimbalState.FAST_REWIND, GimbalState.TRACKING, GimbalState.SAFE}
+        ),
         GimbalState.SAFE: frozenset({GimbalState.SAFE, GimbalState.TRACKING}),
     }
     assert set(GimbalState) == set(allowed)

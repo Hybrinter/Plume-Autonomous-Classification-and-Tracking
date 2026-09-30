@@ -24,9 +24,9 @@ matches the scene rate and smear-caps leftover along-track image motion.
 
 `outer_rate` takes predictor elevation rate, residual rate, `e_hat`, `K_p`, arbiter
 mode, a live-target flag, elevation, science window, hardware slew, live exposure,
-smear budget, band IFOV, stopping-governor terms, REWIND elapsed time, and REWIND
-sharp-window duration. Residual rate is unused in REWIND. The function does not
-take azimuth rate.
+smear budget, band IFOV, and stopping-governor terms. Residual rate is unused in
+REWIND and FAST_REWIND. The function does not take azimuth rate or hunt elapsed
+time.
 
 The return is a `RateDecision`. Callers that command the gimbal read
 `commanded_rate_rad_s`.
@@ -35,19 +35,21 @@ The return is a `RateDecision`. Callers that command the gimbal read
 
 1. `omega_sharp,el` is `σ * IFOV / Δt_exp` from the live exposure. This is the
    full elevation smear budget.
-2. In REWIND, if elevation is at `theta_sci_max`, commanded rate is 0. Inside
-   `rewind_sharp_max_s`, requested relative rate is `+omega_sharp`. After that
-   window, requested relative rate is `+omega_hw`. Scene rate is `omega_t_nom`.
-   Residual rate is ignored. A negative commanded rate at `theta_sci_min` is 0.
-3. In TRACKING with a live aggregate, scene rate is `omega_t_nom + omega_t_res`
+2. In REWIND, if elevation is at `theta_sci_max`, commanded rate is 0. Requested
+   relative rate is `+omega_sharp`. Scene rate is `omega_t_nom`. Residual rate is
+   ignored. A negative commanded rate at `theta_sci_min` is 0.
+3. In FAST_REWIND, if elevation is at `theta_sci_max`, commanded rate is 0.
+   Requested relative rate is `+omega_hw`. Scene rate is `omega_t_nom`. Residual
+   rate is ignored.
+4. In TRACKING with a live aggregate, scene rate is `omega_t_nom + omega_t_res`
    and is not smear-clipped. Only `K_p * e_hat` is clipped to `+-omega_sharp`.
    Requested rate is scene rate plus that relative term. Commanded rate that
    would leave `[theta_sci_min, theta_sci_max]` is 0. Navigation is optional.
    Without an ISS sample, `omega_t_nom` is zero and visual residual feedback
    remains active.
-4. Otherwise commanded rate is `0.0` (limb wait, cold TRACKING, or unused SAFE
+5. Otherwise commanded rate is `0.0` (limb wait, cold TRACKING, or unused SAFE
    path).
-5. `finish` clips requested rate to hardware slew, then the science-window
+6. `finish` clips requested rate to hardware slew, then the science-window
    stopping governor. `hardware_limited` and `science_limited` record those
    clips. A zero remaining angle yields a zero cap before any infinite
    stopping product.
@@ -73,9 +75,11 @@ None.
 ## Configuration
 
 `OuterLoopConfig.Kp` sets the proportional gain. `OuterLoopConfig.rewind_sharp_max_s`
-sets the sharp REWIND window. Hardware slew, torque, and inertia come from
+is the REWIND window before the arbiter promotes to FAST_REWIND. Hardware slew,
+torque, and inertia come from
 `GimbalConfig`; the inner bandwidth comes from `InnerLoopConfig`. Smear pixels
-come from `PreprocessingConfig.max_motion_smear_px`.
+come from `PreprocessingConfig.max_motion_smear_px` on the upsampled grid.
+The default of 4 pixels is 0.002636 deg at the default upsampled IFOV.
 
 ## Constraints
 

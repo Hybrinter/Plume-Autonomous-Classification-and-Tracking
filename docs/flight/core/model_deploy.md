@@ -57,7 +57,7 @@ activates the pair on `ACTIVATE_MODEL`. A failed sanity check rolls back the pai
 5. On read, digest, or parse failure, publish `FaultEventMsg(MODEL_CORRUPT)`.
 6. On routed `ACTIVATE_MODEL`, require a staged pair.
 7. Compare both contracts to inference config:
-   shared input `(1, len(input_bands), H, W)`, classifier output `(1, 1)`,
+   shared input `(1, len(BAND_ORDER), H, W)`, classifier output `(1, 1)`,
    segmentor output `(1, 1, H, W)`.
 8. On both matches, move staged version to active, retain previous as rollback, clear
    staged, set state to `ACTIVE`, publish state, and ack accepted.
@@ -86,7 +86,7 @@ command `ACTIVATE_MODEL`).
 
 | Field | Source |
 | --- | --- |
-| `inference.input_bands` | Input channel count for both contracts |
+| `BAND_ORDER` | Input channel count for both contracts |
 | `inference.input_height_px` | Input height for both contracts |
 | `inference.input_width_px` | Input width for both contracts |
 | `fault.watchdog_interval_s` | Heartbeat interval |

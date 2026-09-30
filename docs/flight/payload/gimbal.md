@@ -13,7 +13,7 @@ gates, and the light integrity detector.
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`arbiter`](gimbal/arbiter.md) | pure module | TRACKING / REWIND / SAFE FSM |
+| [`arbiter`](gimbal/arbiter.md) | pure module | TRACKING / REWIND / FAST_REWIND / SAFE FSM |
 | [`inner`](gimbal/inner.md) | pure module | PI plus computed torque |
 | [`outer`](gimbal/outer.md) | pure module | Scene match plus elevation-relative smear cap |
 | [`scene`](gimbal/scene.md) | pure module | CoG / boresight / none selection and residual-reference identity |

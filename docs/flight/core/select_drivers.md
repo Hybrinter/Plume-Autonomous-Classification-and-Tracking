@@ -48,7 +48,7 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
    `inference.segmentor_model_path` and `inference.classifier_model_path`.
    `use_int8` true selects `<stem>.int8.onnx`. The logit threshold and
    `fault.inference_timeout_ms` (20 ms) feed the detect-time fault threshold.
-   The I/O contract is `(1, C, H, W)` from `input_bands` and `input_*_px`.
+   The I/O contract is `(1, C, H, W)` from `len(BAND_ORDER)` and `input_*_px`.
 6. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
 7. Return the assembled `Drivers` dataclass.
 

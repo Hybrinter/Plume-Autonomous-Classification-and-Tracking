@@ -28,3 +28,4 @@ These repository-scope decisions apply to flight. They stay under `docs/adr/`.
 | ADR-FLIGHT-0002 | [0002-single-axis-full-frame.md](adr/0002-single-axis-full-frame.md) | Single-axis envelopes and full-frame inference | Accepted |
 | ADR-FLIGHT-0003 | [0003-orin-nano-full-frame-inference.md](adr/0003-orin-nano-full-frame-inference.md) | Orin Nano Super full-frame inference budgets | Accepted |
 | ADR-FLIGHT-0004 | [0004-elevation-relative-smear-height-proxy.md](adr/0004-elevation-relative-smear-height-proxy.md) | Elevation-relative smear, 2 km CoG proxy, REWIND hunt with no CoG | Accepted |
+| ADR-FLIGHT-0005 | [0005-fast-rewind-mode.md](adr/0005-fast-rewind-mode.md) | FAST_REWIND is an arbiter mode; smear is a control cap | Accepted |

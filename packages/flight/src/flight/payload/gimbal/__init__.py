@@ -1,6 +1,6 @@
 """Payload gimbal control: pointing FSM, inner/outer laws, and safety gates (pure).
 
-arbiter -- TRACKING / REWIND / SAFE mode selection;
+arbiter -- TRACKING / REWIND / FAST_REWIND / SAFE mode selection;
 inner -- PI + computed torque;
 outer -- scene match, smear clip, and RateDecision;
 scene -- CoG / boresight / none selection and residual-reference identity;

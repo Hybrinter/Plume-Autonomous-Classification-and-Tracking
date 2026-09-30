@@ -38,13 +38,16 @@ torque loop.
 and storage. It returns a `PayloadApp` and raises `ValueError` for invalid
 sensor or inference geometry.
 
-`process_frame` takes a `MosaicFrame`, `ControlState`, and an optional measured
-elevation rate. A measured `0.0` is stationary motion. A missing rate uses
-encoder displacement over the exposure, then the commanded rate.
-`_smear_gimbal_rate_deg_per_s` returns that rate and a `SmearRateSource` of
-`MEASURED`, `ENCODER`, or `COMMANDED`. The method records valid encoder
-feedback, creates a frame-ID-bearing vision sample, and does not write a gimbal
-command.
+`process_frame` takes a `MosaicFrame` and `ControlState`. Quality flags cover
+saturation and incomplete metadata. `MOTION_SMEAR` is not raised. The method
+records valid encoder feedback, creates a frame-ID-bearing vision sample, and
+does not write a gimbal command.
+
+`_smear_gimbal_rate_deg_per_s` returns a measured, encoder, or commanded
+elevation rate and a `SmearRateSource` of `MEASURED`, `ENCODER`, or
+`COMMANDED`. A measured `0.0` is stationary motion. A missing measured rate
+uses encoder displacement over the exposure, then the commanded rate. Quality
+flags do not take that rate.
 
 ## Behavior
 

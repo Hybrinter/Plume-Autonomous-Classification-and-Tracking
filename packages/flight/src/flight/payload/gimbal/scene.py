@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from flight.libs.types import GimbalState, is_rewind_hunt
+from flight.libs.types import GimbalState
 from flight.payload.gimbal.intersect import intersect_boresight
 from flight.payload.gimbal.predictor import LosPrediction, predict_los
 
@@ -90,7 +90,7 @@ def acquire_resets_residual(
         return False
     if not new_blob_ids:
         return False
-    if is_rewind_hunt(previous_mode):
+    if previous_mode.is_rewind_hunt():
         return True
     if not previous_aggregate_live:
         return True
@@ -146,7 +146,7 @@ def select_scene(
 
     source = SceneSource.NONE
     point_ecef_m: tuple[float, float, float] | None = None
-    if is_rewind_hunt(mode):
+    if mode.is_rewind_hunt():
         source = SceneSource.BORESIGHT
         if r_iss_eci_m is not None and v_iss_eci_m_s is not None and utc_s is not None:
             bore = intersect_boresight(

@@ -46,6 +46,8 @@ across subsystems.
 | `FAST_REWIND` | Hardware-slew hunt after the sharp REWIND window |
 | `SAFE` | Gimbal inhibited; position loop drives stow |
 
+`GimbalState.is_rewind_hunt` returns true for `REWIND` and `FAST_REWIND`.
+
 ### GimbalCommandMode
 
 | Member | Description |

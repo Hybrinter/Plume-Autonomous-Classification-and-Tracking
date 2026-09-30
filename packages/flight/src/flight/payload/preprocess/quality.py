@@ -58,11 +58,8 @@ class SmearRateSource(Enum):
 def compute_quality_flags(
     bands: object,  # np.ndarray[float32, (C, H, W)]
     exposure_us: float,
-    slew_rate_deg_per_s: float,
-    ifov_band_deg_per_px: float,
     utc_timestamp: str,
     cfg: PreprocessingConfig,
-    omega_scene_el_deg_per_s: float = 0.0,
 ) -> frozenset[FrameUsabilityTag]:
     """Compute per-frame quality flags for a calibrated, normalized multispectral frame.
 
@@ -72,23 +69,17 @@ def compute_quality_flags(
     Inputs:
         bands (np.ndarray[float32, (C, H, W)]): Calibrated and normalised channel array.
         exposure_us (float): Camera exposure time in microseconds.
-        slew_rate_deg_per_s (float): Gimbal elevation rate in degrees per second
-            over the exposure. ``0.0`` is a stationary gimbal. Unused for flags.
-        ifov_band_deg_per_px (float): Instantaneous field of view per pixel,
-            degrees per pixel (SensorOpticsConfig.ifov_band_deg_per_px). Unused for flags.
         utc_timestamp (str): ISO 8601 timestamp string from the frame metadata.
         cfg (PreprocessingConfig): Quality-flag thresholds.
-        omega_scene_el_deg_per_s (float): Nominal scene elevation rate in degrees per
-            second. Unused for flags.
 
     Outputs:
         frozenset[FrameUsabilityTag]: The flags raised for this frame; empty if clean.
 
     Notes:
-        MOTION_SMEAR is not raised. Dataset exclusion for hardware-slew hunt frames
-        is gimbal_state FAST_REWIND.
+        MOTION_SMEAR is not raised. Along-track smear is a control cap in the outer
+        rate law. Dataset exclusion for hardware-slew hunt frames is gimbal_state
+        FAST_REWIND.
     """
-    del slew_rate_deg_per_s, ifov_band_deg_per_px, omega_scene_el_deg_per_s
     flags: set[FrameUsabilityTag] = set()
 
     # --- INCOMPLETE_METADATA ---

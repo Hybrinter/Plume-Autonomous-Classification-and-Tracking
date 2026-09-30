@@ -17,7 +17,7 @@ from dataclasses import dataclass, replace
 
 from flight.libs.config import ArbiterConfig, GimbalConfig
 from flight.libs.messages import BlobMeta, TelemetryEventMsg
-from flight.libs.types import GimbalCommandMode, GimbalState, MessageType, is_rewind_hunt
+from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.gimbal.request import GimbalRequest
 
 
@@ -191,7 +191,7 @@ class GimbalArbiter:
             last_observation_s = now if observation_t_s is None else observation_t_s
             miss_count = 0
             loss_handled = False
-            if is_rewind_hunt(old_gs):
+            if old_gs.is_rewind_hunt():
                 new_gs = GimbalState.TRACKING
         elif vision_updated:
             miss_count = state.miss_count + 1
@@ -209,7 +209,7 @@ class GimbalArbiter:
             else:
                 new_gs = GimbalState.REWIND
                 miss_count = 0
-        elif is_rewind_hunt(old_gs) and not has_plume and at_limb:
+        elif old_gs.is_rewind_hunt() and not has_plume and at_limb:
             new_gs = GimbalState.TRACKING
             miss_count = 0
         elif old_gs is GimbalState.REWIND and not has_plume:
@@ -228,8 +228,8 @@ class GimbalArbiter:
         if new_gs != old_gs:
             events.append(self._transition_event(old_gs, new_gs, timestamp_utc))
 
-        if is_rewind_hunt(new_gs):
-            rewind_entered_s = now if not is_rewind_hunt(old_gs) else state.rewind_entered_s
+        if new_gs.is_rewind_hunt():
+            rewind_entered_s = now if not old_gs.is_rewind_hunt() else state.rewind_entered_s
             if rewind_entered_s is None:
                 rewind_entered_s = now
         else:

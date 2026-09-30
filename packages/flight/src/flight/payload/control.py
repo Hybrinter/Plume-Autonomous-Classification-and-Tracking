@@ -32,7 +32,6 @@ from flight.libs.types import (
     GimbalCommandMode,
     GimbalState,
     MessageType,
-    is_rewind_hunt,
 )
 from flight.payload.gimbal import (
     ArbiterState,
@@ -616,7 +615,7 @@ class PayloadController:
         history = state.residual_history
         vision_disposition = "none"
         omega_az = state.target.last_omega_az_nom
-        in_rewind = is_rewind_hunt(new_arbiter.gimbal_state)
+        in_rewind = new_arbiter.gimbal_state.is_rewind_hunt()
         if new_arbiter.gimbal_state is GimbalState.SAFE:
             if vision is not None and vision.exposure_us > 0.0:
                 exposure_us = vision.exposure_us

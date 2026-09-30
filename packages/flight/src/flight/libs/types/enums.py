@@ -48,17 +48,30 @@ class SystemMode(enum.Enum):
 
 
 class GimbalState(enum.Enum):
-    """Four-state arbiter. REQ-AIML-GIMB-008."""
+    """Four-state arbiter. REQ-AIML-GIMB-008.
+
+    REWIND and FAST_REWIND are hunts toward the science limb. ``is_rewind_hunt``
+    is that check on the state.
+    """
 
     TRACKING = "TRACKING"
     REWIND = "REWIND"
     FAST_REWIND = "FAST_REWIND"
     SAFE = "SAFE"
 
+    def is_rewind_hunt(self) -> bool:
+        """True when this state is a hunt toward the science limb.
 
-def is_rewind_hunt(mode: GimbalState) -> bool:
-    """True for REWIND and FAST_REWIND (sharp hunt and hardware-slew hunt)."""
-    return mode is GimbalState.REWIND or mode is GimbalState.FAST_REWIND
+        Inputs:
+            self (GimbalState): Arbiter state.
+
+        Outputs:
+            bool: True for REWIND and FAST_REWIND.
+
+        Notes:
+            REWIND is the smear-capped hunt. FAST_REWIND is the hardware-slew hunt.
+        """
+        return self is GimbalState.REWIND or self is GimbalState.FAST_REWIND
 
 
 class GimbalCommandMode(enum.Enum):

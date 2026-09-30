@@ -19,8 +19,7 @@ dataset classification.
 
 ## Inputs and outputs
 
-`compute_quality_flags(bands, exposure_us, slew_rate_deg_per_s, ifov_band_deg_per_px,
-utc_timestamp, cfg, omega_scene_el_deg_per_s=0.0)` returns
+`compute_quality_flags(bands, exposure_us, utc_timestamp, cfg)` returns
 `frozenset[FrameUsabilityTag]`. An empty set means a clean frame.
 
 `SmearRateSource` names the elevation-rate source the payload app selected.
@@ -47,16 +46,14 @@ None. Flags are carried on the in-process processed frame; they are not bus mess
 
 ## Configuration
 
-Reads `PreprocessingConfig`: `saturation_fraction_threshold`, `max_motion_smear_px`.
-Also uses `SensorOpticsConfig.ifov_band_deg_per_px` and frame metadata from the
-camera buffer.
+Reads `PreprocessingConfig.saturation_fraction_threshold` and frame metadata
+from the camera buffer: exposure and timestamp.
 
 ## Constraints
 
 Quality evaluation runs on the selected channels before the batch axis is added.
-A zero gimbal rate is a stationary
-measurement. The payload app supplies a measured, encoder, or commanded elevation
-rate and a `SmearRateSource` label.
+`SmearRateSource` names a rate the payload app can select. Quality flags do not
+take that rate.
 
 ## Related documents
 

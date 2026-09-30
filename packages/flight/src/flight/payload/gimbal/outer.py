@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from flight.libs.types import GimbalState, is_rewind_hunt
+from flight.libs.types import GimbalState
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,7 +300,7 @@ def outer_rate(
     """
     omega_sharp = smear_cap_rad_s(exposure_us, max_motion_smear_px, ifov_band_deg_per_px)
 
-    if is_rewind_hunt(mode):
+    if mode.is_rewind_hunt():
         if theta_g_rad >= theta_sci_max_rad - 1e-9:
             return RateDecision(
                 scene_rate_rad_s=omega_t_nom,

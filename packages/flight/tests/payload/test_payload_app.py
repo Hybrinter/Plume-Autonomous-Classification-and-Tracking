@@ -551,7 +551,7 @@ def test_process_frame_preserves_measured_zero_slew() -> None:
     rate_deg_per_s, source = app._smear_gimbal_rate_deg_per_s(raw, state, 0.0)
     assert rate_deg_per_s == 0.0
     assert source is SmearRateSource.MEASURED
-    _state, outcome = app.process_frame(raw, state, now=1.0, slew_rate_deg_per_s=0.0)
+    _state, outcome = app.process_frame(raw, state, now=1.0)
     assert outcome.fault is None
     assert detector.flags
     assert FrameUsabilityTag.MOTION_SMEAR not in detector.flags[0]

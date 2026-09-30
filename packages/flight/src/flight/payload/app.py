@@ -422,7 +422,6 @@ class PayloadApp:
         raw: MosaicFrame,
         state: ControlState,
         now: float,
-        slew_rate_deg_per_s: float | None = None,
         gimbal_pos: GimbalPosition | None = None,
         safe_commanded: bool = False,
         safe_cleared: bool = False,
@@ -430,8 +429,7 @@ class PayloadApp:
         """Preprocess, detect, and enqueue a vision sample. Does not write torque.
 
         SAFE flags are accepted for call-site compatibility; the outer loop applies them.
-        ``slew_rate_deg_per_s`` is a measured elevation rate. ``0.0`` is stationary.
-        ``None`` uses encoder motion over the exposure, then the commanded rate.
+        Quality flags are saturation and incomplete metadata. MOTION_SMEAR is not raised.
         """
         del safe_commanded, safe_cleared
         stacked = stack_channels(np.asarray(raw.mosaic))
@@ -461,18 +459,11 @@ class PayloadApp:
         else:
             self._record_encoder(gimbal_pos)
 
-        gimbal_rate_deg_per_s, _ = self._smear_gimbal_rate_deg_per_s(
-            raw, state, slew_rate_deg_per_s
-        )
-        omega_scene_el_deg_per_s = math.degrees(state.target.last_omega_scene_el)
         quality_flags = compute_quality_flags(
             selected.value,
             raw.exposure_us,
-            gimbal_rate_deg_per_s,
-            self.sensor_cfg.optics.ifov_band_deg_per_px,
             raw.timestamp_utc,
             self.preprocessing_cfg,
-            omega_scene_el_deg_per_s=omega_scene_el_deg_per_s,
         )
 
         processed = ProcessedFrameMsg(

@@ -62,4 +62,3 @@ No module publishes on the bus.
 - [`tools.ml_models.train.cost`](train/cost.md)
 - [`tools.ml_models.train.sweep`](train/sweep.md)
 - [`tools.ml_models.data.prism`](data/prism.md)
-- [`tools.ml_models.data.canvas`](data/canvas.md)

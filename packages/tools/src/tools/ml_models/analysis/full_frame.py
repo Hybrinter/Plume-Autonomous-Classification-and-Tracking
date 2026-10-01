@@ -1,4 +1,4 @@
-"""Tile-stitch scoring for a camera frame, plus canvas eval scenes.
+"""Tile-stitch scoring for a camera frame, plus eval scenes from a chip pack.
 
 The frame is an 8 by 8 grid. On the 1544 by 2064 camera frame each tile is
 193 by 258. One batch covers the 64 tiles. The classifier gate is the max
@@ -15,8 +15,8 @@ Contains:
   - FullFrameScore: hit, empty-frame false positive, and an optional placement.
   - score_full_frame: gate and blob overlap on one probability plane.
   - placement_of: center, corner, edge, or empty from a mask centroid.
-  - EvalScene: one canvas view plus the source chip.
-  - build_eval_scenes: test-split scenes from ``sample_view``.
+  - EvalScene: one frame plus the source chip.
+  - build_eval_scenes: test-split plume scenes and empty scenes.
   - FrameEval: one scored scene with chip scores and tile scores.
   - summarize_frames: hit rate, empty-frame rate, chip scores, and tile scores.
   - score_dry_run: fake tile logits for a scene.
@@ -26,15 +26,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from flight.libs.config import PactConfig
 from flight.payload.blobs import extract_blobs
 
-from tools.ml_models.data.canvas import CanvasConfig, Chip, sample_view
-from tools.ml_models.data.prism import FRAME_HW, TILE_GRID, TILE_HW
+from tools.ml_models.data.prism import FRAME_HW, TILE_GRID, TILE_HW, _compose_frame
 
 _VISION = PactConfig().controller.vision
 DEFAULT_PROB_THRESHOLD = float(_VISION.confidence_gate)
@@ -61,7 +60,7 @@ class FullFrameScore:
 
 @dataclass(frozen=True, slots=True)
 class EvalScene:
-    """One full-frame canvas view built from a pack.
+    """One camera frame built from a pack.
 
     Attributes:
         image: Float32 scene ``(C, H, W)``.
@@ -406,94 +405,98 @@ def _read_splits(path: Path) -> dict[str, tuple[int, ...]]:
     return splits
 
 
+@dataclass(frozen=True, slots=True)
+class _SourceChip:
+    """One test-split chip.
+
+    Attributes:
+        image: Float32 array ``(C, H, W)``.
+        mask: Float32 mask ``(1, H, W)``.
+        label: Presence, ``0`` or ``1``.
+    """
+
+    image: np.ndarray
+    mask: np.ndarray
+    label: float
+
+
 def _chips(
     images: np.ndarray,
     masks: np.ndarray,
     labels: np.ndarray,
     indices: Sequence[int],
-) -> tuple[Chip, ...]:
+) -> tuple[_SourceChip, ...]:
     """Return chips for ``indices``."""
-    chips: list[Chip] = []
+    chips: list[_SourceChip] = []
     for index in indices:
         image = np.array(images[index], dtype=np.float32, copy=True)
         mask = np.array(masks[index], dtype=np.float32, copy=True)
         if mask.ndim == 2:
             mask = mask[None, :, :]
         label = float(np.asarray(labels[index], dtype=np.float32).reshape(-1)[0])
-        chips.append(
-            Chip(
-                image=image,
-                mask=mask,
-                label=label,
-                group_id=str(index),
-                split="test",
-                annotated=bool(np.any(mask > 0.0)),
-            )
-        )
+        chips.append(_SourceChip(image=image, mask=mask, label=label))
     return tuple(chips)
 
 
-def default_canvas(chip_side: int, frame_h: int = 1544, frame_w: int = 2064) -> CanvasConfig:
-    """Return a canvas whose frame defaults to 1544 by 2064.
+def _frame_hw(frame_h: int | None, frame_w: int | None) -> tuple[int, int]:
+    """Return the eval frame size.
 
     Args:
-        chip_side: Spatial side of every chip.
-        frame_h: Frame height. The default is 1544.
-        frame_w: Frame width. The default is 2064.
+        frame_h: Frame height. ``None`` is 1544.
+        frame_w: Frame width. ``None`` is 2064.
 
     Returns:
-        CanvasConfig: Frame, chip side, and a window that fits the frame.
+        tuple[int, int]: ``(height, width)``.
+
+    Raises:
+        ValueError: If a provided side is not a positive int.
     """
-    window = min(512, frame_h, frame_w, chip_side)
-    feather = min(6, max(chip_side // 8, 0))
-    return CanvasConfig(
-        frame_hw=(frame_h, frame_w),
-        window_px=max(window, 1),
-        chip_side=chip_side,
-        feather_px=feather,
-        empty_fraction=0.0,
-        max_plumes=1,
-    )
+    height = FRAME_HW[0] if frame_h is None else frame_h
+    width = FRAME_HW[1] if frame_w is None else frame_w
+    if (
+        isinstance(height, bool)
+        or isinstance(width, bool)
+        or not isinstance(height, int)
+        or not isinstance(width, int)
+        or height < 1
+        or width < 1
+    ):
+        raise ValueError(f"frame size must be positive ints; got {(frame_h, frame_w)!r}")
+    return height, width
 
 
 def build_eval_scenes(
     pack_dir: str | Path,
-    canvas: CanvasConfig | None = None,
     *,
     limit: int = 1,
     seed: int = 0,
     frame_h: int | None = None,
     frame_w: int | None = None,
 ) -> tuple[EvalScene, ...]:
-    """Build full-frame scenes from the pack test split.
+    """Build plume scenes and empty scenes from the pack test split.
 
     Args:
         pack_dir: Directory with ``images.npy``, ``masks.npy``, ``labels.npy``,
             and ``splits.json``.
-        canvas: Scene settings. ``None`` builds :func:`default_canvas` from
-            the pack chip side. ``frame_h`` and ``frame_w`` set the frame when
-            ``canvas`` is omitted. An omitted canvas returns ``limit`` plume
-            scenes and ``limit`` empty scenes. An explicit canvas returns
-            ``limit`` draws from that canvas.
-        limit: Draws per default cohort, or draws from an explicit canvas.
-            Must be at least 1.
-        seed: Generator seed. The default cohorts share one generator.
-        frame_h: Frame height used when ``canvas`` is omitted.
-        frame_w: Frame width used when ``canvas`` is omitted.
+        limit: Scenes in each cohort. Must be at least 1.
+        seed: Generator seed. Both cohorts share one generator.
+        frame_h: Frame height. The default is 1544.
+        frame_w: Frame width. The default is 2064.
 
     Returns:
-        tuple[EvalScene, ...]: Full-frame views. An omitted canvas returns
-        ``limit`` plume scenes and ``limit`` empty scenes. An explicit canvas
-        returns ``limit`` scenes. Each scene's placement comes from the mask
-        centroid.
+        tuple[EvalScene, ...]: ``limit`` plume scenes, then ``limit`` empty
+        scenes. Each scene's placement comes from the mask centroid. A plume
+        scene keeps the first annotated test chip as ``chip_image``.
 
     Raises:
-        ValueError: If the test split is empty, the pack has no background
-            chip, or ``limit`` is below 1.
+        ValueError: If the test split is empty, chips are not square, the
+            pack has no negative chip, the pack has no annotated plume, or
+            ``limit`` is below 1.
         FileNotFoundError: If a pack file is missing.
     """
-    if limit < 1:
-        raise ValueError(f"limit must be >= 1; got {limit}")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError(f"limit must be an int >= 1; got {limit!r}")
+    height, width = _frame_hw(frame_h, frame_w)
     root = Path(pack_dir)
     images = np.load(root / "images.npy")
     masks = np.load(root / "masks.npy")
@@ -501,43 +504,52 @@ def build_eval_scenes(
     test_index = _read_splits(root / "splits.json")["test"]
     if not test_index:
         raise ValueError("test split is empty")
+    side = int(images.shape[-1])
+    if int(images.shape[-2]) != side:
+        raise ValueError("pack chips must be square")
     chips = _chips(images, masks, labels, test_index)
-    if canvas is None:
-        side = int(images.shape[-1])
-        if int(images.shape[-2]) != side:
-            raise ValueError("pack chips must be square")
-        height = 1544 if frame_h is None else int(frame_h)
-        width = 2064 if frame_w is None else int(frame_w)
-        base = default_canvas(side, height, width)
-        canvases: tuple[CanvasConfig, ...] = (
-            replace(base, empty_fraction=0.0),
-            replace(base, empty_fraction=1.0),
-        )
-    else:
-        canvases = (canvas,)
-    annotated = [chip for chip in chips if chip.annotated and chip.label > 0.0]
-    chip_ref = annotated[0] if annotated else None
+    background = [chip.image for chip in chips if chip.label <= 0.0]
+    if not background:
+        raise ValueError("test split has no negative chip")
+    annotated = [chip for chip in chips if chip.label > 0.0 and bool(np.any(chip.mask > 0.0))]
+    if not annotated:
+        raise ValueError("test split has no annotated chip")
+    chip_ref = annotated[0]
+    feather = min(6, max(side // 8, 0))
     rng = np.random.default_rng(seed)
     scenes: list[EvalScene] = []
-    for view in canvases:
-        for _ in range(limit):
-            sample = sample_view(chips, view, rng, full_frame=True)
-            label = float(sample.label)
-            chip_image = None
-            chip_mask = None
-            if chip_ref is not None and label > 0.0:
-                chip_image = chip_ref.image
-                chip_mask = chip_ref.mask
-            scenes.append(
-                EvalScene(
-                    image=sample.image,
-                    mask=sample.mask,
-                    label=label,
-                    placement=placement_of(sample.mask),
-                    chip_image=chip_image,
-                    chip_mask=chip_mask,
-                )
+    for _ in range(limit):
+        choice = annotated[int(rng.integers(0, len(annotated)))]
+        image, mask, label = _compose_frame(
+            background,
+            (height, width),
+            rng,
+            plume_image=choice.image,
+            plume_mask=choice.mask,
+            feather_px=feather,
+        )
+        scenes.append(
+            EvalScene(
+                image=image,
+                mask=mask,
+                label=label,
+                placement=placement_of(mask),
+                chip_image=chip_ref.image,
+                chip_mask=chip_ref.mask,
             )
+        )
+    for _ in range(limit):
+        image, mask, label = _compose_frame(background, (height, width), rng, feather_px=feather)
+        scenes.append(
+            EvalScene(
+                image=image,
+                mask=mask,
+                label=label,
+                placement=placement_of(mask),
+                chip_image=None,
+                chip_mask=None,
+            )
+        )
     return tuple(scenes)
 
 
@@ -562,7 +574,7 @@ def score_dry_run(scene: EvalScene) -> FrameEval:
     """Score one scene by stitching a fake 64-tile batch.
 
     Args:
-        scene: Canvas view. The frame must divide into an 8 by 8 tile grid.
+        scene: Eval scene. The frame must divide into an 8 by 8 tile grid.
 
     Returns:
         FrameEval: A positive scene uses tile logit 1 and chip logit 1.5.

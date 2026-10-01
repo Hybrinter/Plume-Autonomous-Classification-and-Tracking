@@ -11,7 +11,7 @@ Contains:
   - save_figures: PNG emission.
   - write_band_bars, write_metric_bars, write_delta_bars: study bar charts.
   - write_pr_curve, write_loss_curve, write_learning_rate, write_gsd_lines.
-  - write_canvas_preview, write_score_histogram, write_reliability.
+  - write_image_mask_preview, write_score_histogram, write_reliability.
   - write_hit_rate_by_placement, write_empty_fpr, write_logit_margin.
   - write_blob_area_histogram.
 
@@ -483,8 +483,8 @@ def _preview_rgb(image: np.ndarray) -> np.ndarray:
     return _rgb(arr)
 
 
-def write_canvas_preview(image: np.ndarray, mask: np.ndarray, path: Path) -> Path:
-    """Draw one canvas image beside its mask.
+def write_image_mask_preview(image: np.ndarray, mask: np.ndarray, path: Path) -> Path:
+    """Draw one image beside its mask.
 
     Args:
         image: Float array ``(C, H, W)`` or ``(H, W, 3)``.
@@ -504,7 +504,7 @@ def write_canvas_preview(image: np.ndarray, mask: np.ndarray, path: Path) -> Pat
         plane = plane[0]
     figure, axes = plt.subplots(1, 2, figsize=(6.4, 3.2), dpi=_DPI)
     axes[0].imshow(np.clip(rgb, 0.0, 1.0))
-    axes[0].set_title("canvas")
+    axes[0].set_title("image")
     axes[0].axis("off")
     axes[1].imshow(plane, vmin=0.0, vmax=1.0, cmap="gray")
     axes[1].set_title("mask")

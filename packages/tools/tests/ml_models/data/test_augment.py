@@ -1,10 +1,10 @@
-"""Dihedral transforms and feathered paste."""
+"""Dihedral transforms."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
-from tools.ml_models.data.augment import dihedral, feather_paste
+from tools.ml_models.data.augment import dihedral
 
 
 def test_dihedral_keeps_image_and_mask_together() -> None:
@@ -26,14 +26,3 @@ def test_dihedral_keeps_image_and_mask_together() -> None:
     assert np.array_equal(turned[0] > 0.0, turned_mask[0] > 0.0)
     with pytest.raises(ValueError, match="0..7"):
         dihedral(image, mask, 8)
-
-
-def test_feather_replaces_the_interior_and_blends_the_border() -> None:
-    """Interior pixels copy the chip. Border pixels blend with the canvas."""
-    canvas = np.zeros((1, 6, 6), dtype=np.float32)
-    chip = np.ones((1, 4, 4), dtype=np.float32)
-    feather_paste(canvas, chip, 1, 1, 1)
-    assert canvas[0, 1, 1] == pytest.approx(0.5)
-    assert canvas[0, 2, 2] == pytest.approx(1.0)
-    assert canvas[0, 0, 0] == 0.0
-    assert canvas[0, 4, 4] == pytest.approx(0.5)

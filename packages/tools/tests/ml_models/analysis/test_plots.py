@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 from tools.ml_models.analysis.plots import (
     write_blob_area_histogram,
-    write_canvas_preview,
     write_empty_fpr,
     write_gsd_lines,
     write_hit_rate_by_placement,
+    write_image_mask_preview,
     write_learning_rate,
     write_logit_margin,
     write_reliability,
@@ -19,15 +19,15 @@ from tools.ml_models.analysis.plots import (
 )
 
 
-def test_canvas_preview_draws_a_feathered_mask(tmp_path: Path) -> None:
-    """A tiny canvas and a soft mask border write one PNG."""
+def test_image_mask_preview_draws_a_soft_border(tmp_path: Path) -> None:
+    """A tiny image and a soft mask border write one PNG."""
     image = np.zeros((3, 8, 8), dtype=np.float32)
     image[:, 2:6, 2:6] = 0.8
     mask = np.zeros((8, 8), dtype=np.float32)
     mask[3:5, 3:5] = 1.0
     mask[2, 2:6] = 0.35
     mask[5, 2:6] = 0.35
-    path = write_canvas_preview(image, mask, tmp_path / "canvas.png")
+    path = write_image_mask_preview(image, mask, tmp_path / "preview.png")
     assert path.is_file()
     assert path.stat().st_size > 0
 

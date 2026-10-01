@@ -1,4 +1,4 @@
-"""Full-frame gate, blob overlap, and canvas scenes."""
+"""Full-frame gate, blob overlap, and eval scenes."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from tools.ml_models.analysis.full_frame import (
     summarize_frames,
     tile_hw_for_frame,
 )
-from tools.ml_models.data.canvas import CanvasConfig
 from tools.ml_models.data.prism import FRAME_HW, TILE_GRID, TILE_HW
 
 
@@ -70,18 +69,10 @@ def _tiny_pack(root: Path) -> Path:
 
 
 def test_build_eval_scenes_uses_a_tiny_frame(tmp_path: Path) -> None:
-    """Scenes follow the caller canvas and stay far below 1544 by 2064."""
+    """Scenes use the requested frame and stay far below 1544 by 2064."""
     pack = _tiny_pack(tmp_path / "pack")
-    canvas = CanvasConfig(
-        frame_hw=(24, 24),
-        window_px=8,
-        chip_side=8,
-        feather_px=1,
-        empty_fraction=0.0,
-        max_plumes=1,
-    )
-    scenes = build_eval_scenes(pack, canvas, limit=1, seed=0)
-    assert len(scenes) == 1
+    scenes = build_eval_scenes(pack, frame_h=24, frame_w=24, limit=1, seed=0)
+    assert len(scenes) == 2
     assert scenes[0].image.shape == (3, 24, 24)
     assert scenes[0].mask.shape == (1, 24, 24)
     assert scenes[0].placement in {"center", "corner", "edge", "empty"}
@@ -94,8 +85,8 @@ def test_build_eval_scenes_uses_a_tiny_frame(tmp_path: Path) -> None:
     assert "passed" not in summary
 
 
-def test_omitted_canvas_includes_plume_and_empty_scenes(tmp_path: Path) -> None:
-    """An omitted canvas returns a plume scene and an empty scene."""
+def test_eval_scenes_include_plume_and_empty(tmp_path: Path) -> None:
+    """A pack returns a plume scene and an empty scene."""
     pack = _tiny_pack(tmp_path / "pack")
     scenes = build_eval_scenes(pack, frame_h=24, frame_w=24, limit=1, seed=0)
     assert any(scene.label == 0.0 and scene.placement == "empty" for scene in scenes)

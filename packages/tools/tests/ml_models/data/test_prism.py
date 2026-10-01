@@ -20,6 +20,7 @@ from tools.ml_models.data.prism import (
     TILE_GRID,
     TILE_HW,
     WeightTable,
+    _feather_paste,
     load_weight_table,
     mix_prism,
     to_proxy_chip,
@@ -349,6 +350,17 @@ def test_write_tile_pack_seed_changes_the_positive_offset(tmp_path: Path) -> Non
     np.testing.assert_array_equal(original.images, again.images)
     np.testing.assert_array_equal(original.masks, again.masks)
     assert not np.array_equal(original.masks[0], other.masks[0])
+
+
+def test_feather_paste_blends_the_border() -> None:
+    """Interior pixels copy the chip. Border pixels blend with the frame."""
+    frame = np.zeros((1, 6, 6), dtype=np.float32)
+    chip = np.ones((1, 4, 4), dtype=np.float32)
+    _feather_paste(frame, chip, 1, 1, 1)
+    assert frame[0, 1, 1] == pytest.approx(0.5)
+    assert frame[0, 2, 2] == pytest.approx(1.0)
+    assert frame[0, 0, 0] == 0.0
+    assert frame[0, 4, 4] == pytest.approx(0.5)
 
 
 def test_write_tile_pack_rejects_a_split_without_negatives(tmp_path: Path) -> None:

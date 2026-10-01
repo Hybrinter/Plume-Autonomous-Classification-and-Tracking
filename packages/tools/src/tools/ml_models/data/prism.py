@@ -32,7 +32,6 @@ from types import MappingProxyType
 import numpy as np
 
 from tools.ml_models.data.bands import coerce_descriptions, verify_band_order
-from tools.ml_models.data.canvas import CanvasConfig, Chip, build_scene
 from tools.ml_models.data.grid import EXTENT_M, rasterize_percent_mask, resample_area
 from tools.ml_models.data.meta import DatasetMeta, IngestPath, Provenance
 from tools.ml_models.data.pack import ProcessedPack, load_processed_pack, write_processed_pack
@@ -47,6 +46,7 @@ FRAME_HW: tuple[int, int] = (1544, 2064)
 TILE_GRID: tuple[int, int] = (8, 8)
 GSD_MATCH_TOLERANCE: float = 0.01
 _TILE_INGEST: IngestPath = "sentinel2_4250706_prism_tile"
+_TILE_FEATHER_PX = 6
 SOURCE_DOI = "10.5281/zenodo.4250706"
 _DN_SCALE = np.float32(10000.0)
 _COLOR_NAMES: tuple[str, ...] = ("blue", "green", "red")
@@ -320,10 +320,12 @@ def write_tile_pack(
 
     Notes:
         Each source row becomes one tile of ``TILE_HW`` ``(193, 258)``. A row
-        with label 0 is a mosaic of same-split negative chips. A row with
-        label above 0 places that annotated chip on the mosaic. The offset
-        keeps one positive mask pixel inside the tile. Group ids are the
-        source location ids, in source order. The tile provenance uses ingest
+        with label 0 is a fill of same-split negative chips. A row with
+        label above 0 places that annotated chip on the fill. The offset
+        keeps one positive mask pixel inside the tile. The image border of
+        6 pixels blends into the tile. The mask keeps the
+        polygon pixels that land in the tile. Group ids are the source
+        location ids, in source order. The tile provenance uses ingest
         path ``sentinel2_4250706_prism_tile``, ground sample distance
         ``PROXY_GSD_M``, bands BLUE, GREEN, RED, norm ``unit``, and radiometry
         ``s2_l2a_reflectance``. ``extent_m`` stays 1200 m.
@@ -617,59 +619,288 @@ def _row_splits(pack: ProcessedPack) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _chips_from_pack(pack: ProcessedPack, group_ids: tuple[str, ...]) -> tuple[Chip, ...]:
-    """Copy pack rows into canvas chips.
+def _overlap_window(
+    frame_hw: tuple[int, int],
+    chip_hw: tuple[int, int],
+    top: int,
+    left: int,
+) -> tuple[int, int, int, int, int, int] | None:
+    """Return the overlapping source and destination rectangles.
 
     Args:
-        pack: Chip pack. Arrays are float32 ``(N, 3, 76, 76)`` and
-            ``(N, 1, 76, 76)``.
-        group_ids: Location id per row.
+        frame_hw: Destination ``(height, width)``.
+        chip_hw: Chip ``(height, width)``.
+        top: Destination row of the chip origin. Negative values clip the chip.
+        left: Destination column of the chip origin.
 
     Returns:
-        tuple[Chip, ...]: One chip per row. ``annotated`` is True when the
-        mask has a positive pixel.
+        tuple[int, int, int, int, int, int] | None: ``src_y``, ``src_x``,
+        ``dst_y``, ``dst_x``, ``height``, ``width``. ``None`` when the chip
+        misses the frame.
+    """
+    frame_h, frame_w = frame_hw
+    chip_h, chip_w = chip_hw
+    src_y = max(0, -top)
+    src_x = max(0, -left)
+    dst_y = max(0, top)
+    dst_x = max(0, left)
+    height = min(chip_h - src_y, frame_h - dst_y)
+    width = min(chip_w - src_x, frame_w - dst_x)
+    if height <= 0 or width <= 0:
+        return None
+    return src_y, src_x, dst_y, dst_x, height, width
+
+
+def _feather_alpha(chip_h: int, chip_w: int, feather_px: int) -> np.ndarray:
+    """Return per-pixel blend weights, shape ``(chip_h, chip_w)``.
+
+    Args:
+        chip_h: Chip height.
+        chip_w: Chip width.
+        feather_px: Border thickness in pixels. ``0`` is a hard replace.
+
+    Returns:
+        np.ndarray[float32, (chip_h, chip_w)]: ``1`` on the interior. On the
+        outer ``feather_px`` pixels, the weight is ``(inset + 1) / (feather_px + 1)``.
+        ``inset`` is the distance in pixels to the nearest chip edge.
+    """
+    if feather_px <= 0:
+        return np.ones((chip_h, chip_w), dtype=np.float32)
+    rows = np.arange(chip_h, dtype=np.float32)
+    cols = np.arange(chip_w, dtype=np.float32)
+    dist_y = np.minimum(rows, np.float32(chip_h - 1) - rows)
+    dist_x = np.minimum(cols, np.float32(chip_w - 1) - cols)
+    dist = np.minimum(dist_y[:, None], dist_x[None, :])  # np.ndarray[float32, (H, W)]
+    alpha = np.ones((chip_h, chip_w), dtype=np.float32)
+    border = dist < float(feather_px)
+    alpha[border] = (dist[border] + 1.0) / float(feather_px + 1)
+    return alpha
+
+
+def _feather_paste(
+    frame: np.ndarray,
+    chip: np.ndarray,
+    top: int,
+    left: int,
+    feather_px: int,
+) -> None:
+    """Blend ``chip`` onto ``frame`` in place.
+
+    Args:
+        frame: Array ``(C, H, W)`` updated in place.
+        chip: Array ``(C, h, w)``. The interior replaces the frame. The outer
+            ``feather_px`` pixels blend ``alpha * chip + (1 - alpha) * frame``.
+        top: Destination row of the chip origin. May be negative.
+        left: Destination column of the chip origin. May be negative.
+        feather_px: Border thickness. ``0`` replaces every overlapping pixel.
+
+    Returns:
+        None.
 
     Raises:
-        ValueError: If the split index does not cover the pack.
+        ValueError: If the arrays are not ``(C, H, W)``, the channel counts
+            differ, or ``feather_px`` is negative.
     """
-    splits = _row_splits(pack)
-    chips: list[Chip] = []
-    for row, group_id in enumerate(group_ids):
-        image = np.array(pack.images[row], dtype=np.float32, copy=True)
-        mask = np.array(pack.masks[row], dtype=np.float32, copy=True)
-        chips.append(
-            Chip(
-                image=image,
-                mask=mask,
-                label=float(pack.labels[row, 0]),
-                group_id=group_id,
-                split=splits[row],
-                annotated=bool(np.any(mask > 0.0)),
-            )
+    if isinstance(feather_px, bool) or not isinstance(feather_px, int) or feather_px < 0:
+        raise ValueError(f"feather_px must be an int >= 0; got {feather_px!r}")
+    if frame.ndim != 3 or chip.ndim != 3:
+        raise ValueError(
+            f"frame and chip must have shape (C, H, W); got {frame.shape}, {chip.shape}"
         )
-    return tuple(chips)
+    if int(frame.shape[0]) != int(chip.shape[0]) or int(frame.shape[0]) < 1:
+        raise ValueError(f"channel count {frame.shape[0]} != {chip.shape[0]}")
+    chip_h = int(chip.shape[1])
+    chip_w = int(chip.shape[2])
+    if chip_h < 1 or chip_w < 1 or int(frame.shape[1]) < 1 or int(frame.shape[2]) < 1:
+        raise ValueError("frame and chip spatial axes must be positive")
+    window = _overlap_window(
+        (int(frame.shape[1]), int(frame.shape[2])),
+        (chip_h, chip_w),
+        top,
+        left,
+    )
+    if window is None:
+        return
+    src_y, src_x, dst_y, dst_x, height, width = window
+    alpha = _feather_alpha(chip_h, chip_w, feather_px)
+    weights = alpha[src_y : src_y + height, src_x : src_x + width]  # np.ndarray[float32, (h, w)]
+    dst = frame[:, dst_y : dst_y + height, dst_x : dst_x + width]
+    src = np.asarray(chip[:, src_y : src_y + height, src_x : src_x + width], dtype=np.float32)
+    blended = weights[None, :, :] * src + (1.0 - weights[None, :, :]) * dst
+    dst[...] = blended
 
 
-def _tile_config(*, empty_fraction: float, max_plumes: int) -> CanvasConfig:
-    """Return a canvas config whose scene is one flight tile.
+def _paste_mask(frame_mask: np.ndarray, chip_mask: np.ndarray, top: int, left: int) -> None:
+    """Write polygon pixels that land inside the frame.
 
     Args:
-        empty_fraction: Probability that the scene stays empty.
-        max_plumes: Annotated chips pasted when the scene is not empty.
+        frame_mask: Scene mask ``(1, H, W)``, updated in place.
+        chip_mask: Polygon mask ``(1, h, w)``. Values are not blended.
+        top: Destination row of the chip origin.
+        left: Destination column of the chip origin.
 
     Returns:
-        CanvasConfig: ``frame_hw`` is ``TILE_HW`` and ``chip_side`` is 76.
+        None.
     """
-    return CanvasConfig(
-        frame_hw=TILE_HW,
-        window_px=1,
-        full_frame_every=1,
-        chip_side=CHIP_HW[0],
-        empty_fraction=empty_fraction,
-        max_plumes=max_plumes,
-        feather_px=6,
-        seed=0,
+    window = _overlap_window(
+        (int(frame_mask.shape[1]), int(frame_mask.shape[2])),
+        (int(chip_mask.shape[1]), int(chip_mask.shape[2])),
+        top,
+        left,
     )
+    if window is None:
+        return
+    src_y, src_x, dst_y, dst_x, height, width = window
+    dst = frame_mask[:, dst_y : dst_y + height, dst_x : dst_x + width]
+    src = chip_mask[:, src_y : src_y + height, src_x : src_x + width]
+    np.maximum(dst, src, out=dst)
+
+
+def _offset_keeps_positive(
+    chip_mask: np.ndarray,
+    frame_h: int,
+    frame_w: int,
+    rng: np.random.Generator,
+) -> tuple[int, int]:
+    """Return a clipped offset that keeps one positive mask pixel in frame.
+
+    Args:
+        chip_mask: Polygon mask ``(1, h, w)`` with at least one value above 0.
+        frame_h: Frame height.
+        frame_w: Frame width.
+        rng: Generator for candidate offsets.
+
+    Returns:
+        tuple[int, int]: ``(top, left)`` of the chip origin. Candidates are
+        uniform on offsets where the chip rectangle meets the frame. The
+        result is the first candidate whose overlap contains a positive pixel.
+    """
+    chip_h = int(chip_mask.shape[1])
+    chip_w = int(chip_mask.shape[2])
+    while True:
+        top = int(rng.integers(-chip_h + 1, frame_h))
+        left = int(rng.integers(-chip_w + 1, frame_w))
+        window = _overlap_window((frame_h, frame_w), (chip_h, chip_w), top, left)
+        if window is None:
+            continue
+        src_y, src_x, _dst_y, _dst_x, height, width = window
+        overlap = chip_mask[0, src_y : src_y + height, src_x : src_x + width]
+        if bool(np.any(overlap > 0.0)):
+            return top, left
+
+
+def _mosaic(
+    chips: Sequence[np.ndarray],
+    frame_h: int,
+    frame_w: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Tile background chips with a random phase.
+
+    Args:
+        chips: Label-0 images ``(C, H, W)`` that share a spatial size.
+        frame_h: Frame height.
+        frame_w: Frame width.
+        rng: Generator for the phase and the chip choice at each tile.
+
+    Returns:
+        np.ndarray[float32, (C, frame_h, frame_w)]: Hard-copy fill. Tiles
+        that cross the frame border are clipped.
+    """
+    probe = chips[0]
+    channels = int(probe.shape[0])
+    chip_h = int(probe.shape[1])
+    chip_w = int(probe.shape[2])
+    frame = np.zeros((channels, frame_h, frame_w), dtype=np.float32)
+    phase_y = int(rng.integers(0, chip_h))
+    phase_x = int(rng.integers(0, chip_w))
+    y = -phase_y
+    while y < frame_h:
+        x = -phase_x
+        while x < frame_w:
+            choice = chips[int(rng.integers(0, len(chips)))]
+            window = _overlap_window((frame_h, frame_w), (chip_h, chip_w), y, x)
+            if window is not None:
+                src_y, src_x, dst_y, dst_x, height, width = window
+                frame[:, dst_y : dst_y + height, dst_x : dst_x + width] = choice[
+                    :, src_y : src_y + height, src_x : src_x + width
+                ]
+            x += chip_w
+        y += chip_h
+    return frame
+
+
+def _compose_frame(
+    background: Sequence[np.ndarray],
+    frame_hw: tuple[int, int],
+    rng: np.random.Generator,
+    *,
+    plume_image: np.ndarray | None = None,
+    plume_mask: np.ndarray | None = None,
+    feather_px: int = _TILE_FEATHER_PX,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Fill a frame from negative chips and an optional plume chip.
+
+    Args:
+        background: Label-0 images ``(C, H, W)`` that share one shape.
+        frame_hw: Frame ``(height, width)``.
+        rng: Generator for the fill phase and the plume offset.
+        plume_image: Annotated chip ``(C, h, w)``. ``None`` leaves the mask empty.
+        plume_mask: Polygon mask ``(1, h, w)`` for ``plume_image``.
+        feather_px: Image border blend. The mask is not blended.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, float]: Image ``(C, frame_h, frame_w)``,
+        mask ``(1, frame_h, frame_w)``, and label. The label is ``1`` when any
+        mask pixel is positive.
+
+    Raises:
+        ValueError: If ``background`` is empty, the chips disagree on shape,
+            the plume mask is missing, or the plume mask has no positive pixel.
+    """
+    if not background:
+        raise ValueError("frame needs a negative chip")
+    frame_h, frame_w = frame_hw
+    if (
+        isinstance(frame_h, bool)
+        or isinstance(frame_w, bool)
+        or not isinstance(frame_h, int)
+        or not isinstance(frame_w, int)
+        or frame_h < 1
+        or frame_w < 1
+    ):
+        raise ValueError(f"frame_hw must be positive ints; got {frame_hw!r}")
+    probe = np.asarray(background[0], dtype=np.float32)
+    if probe.ndim != 3 or int(probe.shape[1]) < 1 or int(probe.shape[2]) < 1:
+        raise ValueError(f"background chip must have shape (C, H, W); got {probe.shape}")
+    chips: list[np.ndarray] = []
+    for chip in background:
+        image = np.asarray(chip, dtype=np.float32)
+        if image.shape != probe.shape:
+            raise ValueError(f"background chip shape {image.shape} != {probe.shape}")
+        chips.append(image)
+    image = _mosaic(chips, frame_h, frame_w, rng)
+    mask = np.zeros((1, frame_h, frame_w), dtype=np.float32)
+    if plume_image is None:
+        return image, mask, 0.0
+    if plume_mask is None:
+        raise ValueError("plume chip needs a mask")
+    plume = np.asarray(plume_image, dtype=np.float32)
+    polygon = np.asarray(plume_mask, dtype=np.float32)
+    if plume.ndim != 3 or int(plume.shape[0]) != int(probe.shape[0]):
+        raise ValueError(f"plume chip must have shape {probe.shape}; got {plume.shape}")
+    if polygon.shape != (1, int(plume.shape[1]), int(plume.shape[2])):
+        raise ValueError(
+            f"plume mask must have shape {(1, int(plume.shape[1]), int(plume.shape[2]))}; "
+            f"got {polygon.shape}"
+        )
+    if not bool(np.any(polygon > 0.0)):
+        raise ValueError("plume mask has no positive pixel")
+    top, left = _offset_keeps_positive(polygon, frame_h, frame_w, rng)
+    _feather_paste(image, plume, top, left, feather_px)
+    _paste_mask(mask, polygon, top, left)
+    label = 1.0 if bool(np.any(mask > 0.0)) else 0.0
+    return image, mask, label
 
 
 def _build_tile_arrays(
@@ -692,31 +923,40 @@ def _build_tile_arrays(
         ValueError: If a positive row has an empty mask, or its split has no
             negative chip.
     """
-    chips = _chips_from_pack(pack, group_ids)
-    negatives: dict[str, tuple[Chip, ...]] = {}
-    for split_name in ("train", "val", "test"):
-        negatives[split_name] = tuple(
-            chip for chip in chips if chip.split == split_name and chip.label <= 0.0
-        )
-    positive_config = _tile_config(empty_fraction=0.0, max_plumes=1)
-    negative_config = _tile_config(empty_fraction=1.0, max_plumes=0)
+    splits = _row_splits(pack)
+    negatives: dict[str, list[np.ndarray]] = {"train": [], "val": [], "test": []}
+    rows: list[tuple[np.ndarray, np.ndarray, float, str, str]] = []
+    for row, group_id in enumerate(group_ids):
+        image = np.array(pack.images[row], dtype=np.float32, copy=True)
+        mask = np.array(pack.masks[row], dtype=np.float32, copy=True)
+        label = float(pack.labels[row, 0])
+        split_name = splits[row]
+        rows.append((image, mask, label, split_name, group_id))
+        if label <= 0.0:
+            negatives[split_name].append(image)
     rng = np.random.default_rng(seed)
     image_rows: list[np.ndarray] = []
     mask_rows: list[np.ndarray] = []
     label_rows: list[float] = []
-    for chip in chips:
-        background = negatives[chip.split]
+    for image, mask, label, split_name, group_id in rows:
+        background = negatives[split_name]
         if not background:
-            raise ValueError(f"split {chip.split!r} has no negative chip")
-        if chip.label > 0.0:
-            if not chip.annotated:
-                raise ValueError(f"positive chip {chip.group_id!r} has an empty mask")
-            image, mask, label = build_scene((*background, chip), positive_config, rng)
+            raise ValueError(f"split {split_name!r} has no negative chip")
+        if label > 0.0:
+            if not bool(np.any(mask > 0.0)):
+                raise ValueError(f"positive chip {group_id!r} has an empty mask")
+            filled, filled_mask, filled_label = _compose_frame(
+                background,
+                TILE_HW,
+                rng,
+                plume_image=image,
+                plume_mask=mask,
+            )
         else:
-            image, mask, label = build_scene(background, negative_config, rng)
-        image_rows.append(np.clip(image, 0.0, 1.0).astype(np.float32, copy=False))
-        mask_rows.append(np.asarray(mask, dtype=np.float32))
-        label_rows.append(label)
+            filled, filled_mask, filled_label = _compose_frame(background, TILE_HW, rng)
+        image_rows.append(np.clip(filled, 0.0, 1.0).astype(np.float32, copy=False))
+        mask_rows.append(np.asarray(filled_mask, dtype=np.float32))
+        label_rows.append(filled_label)
     images = np.stack(image_rows, axis=0)  # np.ndarray[float32, (N, 3, 193, 258)]
     masks = np.stack(mask_rows, axis=0)  # np.ndarray[float32, (N, 1, 193, 258)]
     labels = np.asarray(label_rows, dtype=np.float32).reshape(-1, 1)

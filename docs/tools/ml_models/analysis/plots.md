@@ -24,7 +24,7 @@ classifier scores, full-frame metrics, blobs, and the band study.
 | `write_loss_curve` | function | Train, validation, and test loss |
 | `write_learning_rate` | function | Learning rate versus epoch |
 | `write_gsd_lines` | function | `pr_auc` and `native_dice` versus distance |
-| `write_canvas_preview` | function | One canvas image and its mask |
+| `write_image_mask_preview` | function | One image and its mask |
 | `write_score_histogram` | function | Histogram of classifier scores |
 | `write_reliability` | function | Binned probability versus outcome |
 | `write_hit_rate_by_placement` | function | Center, corner, and edge hit-rate bars |
@@ -50,7 +50,7 @@ Each `write_*` function saves one PNG and returns that path.
    loss and a validation metric when those columns are present.
 3. `write_loss_curve` draws train, validation, and test loss on a log axis.
 4. `write_learning_rate` draws learning rate against epoch.
-5. `write_canvas_preview` draws the image and the mask with the mask scale
+5. `write_image_mask_preview` draws the image and the mask with the mask scale
    fixed from 0 to 1, so a soft border stays visible.
 6. `write_reliability` bins probabilities and plots mean outcome.
 7. `write_gsd_lines` draws two panels. Coarse Dice is not on the `native_dice`

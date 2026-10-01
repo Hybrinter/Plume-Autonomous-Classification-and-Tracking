@@ -13,6 +13,5 @@ Contains:
   - fetch: checksum status, download, and 4-band preprocess.
   - moments: train-split per-band mean and standard deviation.
   - prism: AP-3200T weights, the 76 px chip pack, and stored 193 by 258 tiles.
-  - augment: dihedral transforms and feathered paste.
-  - canvas: tile-sized scenes and optional windows.
+  - augment: dihedral transforms on an image and its mask.
 """

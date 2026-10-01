@@ -7,8 +7,8 @@
 
 This module slices a camera frame into an 8 by 8 tile grid, runs that batch
 once, and stitches the segmentor probability mask. It scores the stitched
-frame with the classifier gate and blob overlap. It also builds canvas
-scenes from a pack test split.
+frame with the classifier gate and blob overlap. It also builds plume scenes
+and empty scenes from a pack test split.
 
 ## Public interface
 
@@ -22,9 +22,8 @@ scenes from a pack test split.
 | `FullFrameScore` | class | Hit, empty-frame false positive, placement |
 | `score_full_frame` | function | Gate plus `extract_blobs` overlap |
 | `placement_of` | function | Center, corner, edge, or empty |
-| `EvalScene` | class | One full-frame canvas view |
-| `build_eval_scenes` | function | Test-split plume scenes and empty scenes, or draws from a canvas |
-| `default_canvas` | function | Canvas with a 1544 by 2064 default frame |
+| `EvalScene` | class | One camera frame plus the source chip |
+| `build_eval_scenes` | function | Test-split plume scenes and empty scenes |
 | `FrameEval` | class | Score plus chip scores and tile scores |
 | `score_dry_run` | function | Fixed tile logits for one scene |
 | `summarize_frames` | function | Hit rate, empty-frame rate, chip scores, and tile scores |
@@ -44,9 +43,9 @@ tiles of shape `(64, C, 193, 258)` or `(64, 193, 258)`.
 
 `score_full_frame(logits_classifier, prob_mask, gt_mask, *, logit_threshold=0.0, prob_threshold=0.55, min_area=15, placement=None) -> FullFrameScore`.
 
-`build_eval_scenes(pack_dir, canvas=None, *, limit=1, seed=0, frame_h=None, frame_w=None) -> tuple[EvalScene, ...]`.
-An omitted canvas yields `limit` plume scenes and `limit` empty scenes.
-An explicit canvas yields `limit` draws from that canvas.
+`build_eval_scenes(pack_dir, *, limit=1, seed=0, frame_h=None, frame_w=None) -> tuple[EvalScene, ...]`.
+The result is `limit` plume scenes, then `limit` empty scenes. The default
+frame is 1544 by 2064.
 
 `summarize_frames(records) -> dict`. Keys include `full_frame_hit_rate`,
 `hit_rate_by_placement`, `empty_frame_false_positive_rate`, `chip_scores`,
@@ -66,18 +65,24 @@ An explicit canvas yields `limit` draws from that canvas.
 8. An empty ground truth with an open gate and a blob is an empty-frame
    false positive.
 9. A max tile logit below 0 is a miss when the mask matches the ground truth.
-10. `build_eval_scenes` loads the test split and calls `sample_view` with
-    `full_frame` true. The scored tensor is the stitched frame.
-11. An omitted canvas yields `limit` plume scenes and `limit` empty scenes.
-12. An explicit canvas yields `limit` draws from that canvas.
-13. `summarize_frames` reports chip scores and tile scores as separate means.
-14. `chip_iou` is a side value. It is not a pass or fail field.
+10. `build_eval_scenes` loads the test split. Chips in that split are square
+    and share one side.
+11. The function returns `limit` plume scenes, then `limit` empty scenes.
+    The frame is `frame_h` by `frame_w`. The default frame is 1544 by 2064.
+12. A plume scene places one annotated test chip on a fill of negative test
+    chips. The image border blends. The mask keeps the polygon pixels that
+    land in the frame. `chip_image` is the first annotated test chip.
+13. An empty scene is that fill with an empty mask.
+14. `summarize_frames` reports chip scores and tile scores as separate means.
+15. `chip_iou` is a side value. It is not a pass or fail field.
 
 ## Errors and faults
 
 `ValueError` when a mask is not a plane, the logit array is empty, the frame
 does not divide into the 8 by 8 grid, the probability batch length disagrees
-with the tile batch, the test split is empty, or `limit` is below 1.
+with the tile batch, the test split is empty, chips are not square, the test
+split has no negative chip, the test split has no annotated chip, or `limit`
+is below 1.
 
 ## Messages
 
@@ -98,6 +103,5 @@ This module imports `flight.payload.blobs`, `flight.libs.config`, and
 ## Related documents
 
 - [`tools.ml_models.analysis`](../analysis.md)
-- [`tools.ml_models.data.canvas`](../data/canvas.md)
 - [`tools.ml_models.data.prism`](../data/prism.md)
 - [`flight.payload.blobs`](../../../flight/payload/blobs.md)

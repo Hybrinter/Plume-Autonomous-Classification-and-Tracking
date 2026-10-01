@@ -6,7 +6,7 @@
 ## Purpose
 
 The data package reads and writes processed packs, Zenodo tiles, prism chips,
-stored flight tiles, and canvas scenes.
+and stored flight tiles.
 
 ## Contents
 
@@ -24,8 +24,7 @@ stored flight tiles, and canvas scenes.
 | [`fetch`](data/fetch.md) | module | Checksum status, download, and 4-band preprocess |
 | [`moments`](data/moments.md) | module | Train-split per-band mean and standard deviation |
 | [`prism`](data/prism.md) | module | AP-3200T weights, 76 px chips, and 193 by 258 tiles |
-| [`augment`](data/augment.md) | module | Dihedral transforms and feathered paste |
-| [`canvas`](data/canvas.md) | module | Tile-sized scenes and optional windows |
+| [`augment`](data/augment.md) | module | Dihedral transforms on an image and its mask |
 
 ## Package interface
 
@@ -37,8 +36,8 @@ each module by name.
 `norm` calls `flight.payload.preprocess.normalize.normalize_dn`. `pack` calls
 `meta` and `split` to write sidecars and to assign groups. `zenodo` calls
 `split.assign_group_splits` for location ids. `fetch` calls `annotations` and
-`train.recipe`. `prism` calls `zenodo`, `grid`, `pack`, and `canvas`. `canvas`
-calls `augment.feather_paste`. No module publishes on the bus.
+`train.recipe`. `prism` calls `zenodo`, `grid`, and `pack`. No module
+publishes on the bus.
 
 ## Constraints
 
@@ -68,4 +67,3 @@ calls `augment.feather_paste`. No module publishes on the bus.
 - [`tools.ml_models.data.moments`](data/moments.md)
 - [`tools.ml_models.data.prism`](data/prism.md)
 - [`tools.ml_models.data.augment`](data/augment.md)
-- [`tools.ml_models.data.canvas`](data/canvas.md)

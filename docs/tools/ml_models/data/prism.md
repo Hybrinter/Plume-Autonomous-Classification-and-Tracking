@@ -71,10 +71,11 @@ is a chip-pack directory or a `ProcessedPack`.
    `(1544, 2064)`. `TILE_GRID` is `(8, 8)`. `8 * 193 = 1544` along-track.
    `8 * 258 = 2064` lateral. A tile tensor is `(N, C, 193, 258)`.
 8. `write_tile_pack` reads a 76 px chip pack. Each row becomes one tile.
-   Label 0 builds a mosaic of same-split negative chips. Label 1 places that
-   annotated chip on the mosaic at a random offset. The offset keeps one
-   positive mask pixel inside the tile. Group ids are the source location
-   ids, in source order.
+   Label 0 fills the tile from same-split negative chips. Label 1 places that
+   annotated chip on the fill at a random offset. The offset keeps one
+   positive mask pixel inside the tile. The image border of 6 pixels blends
+   into the tile. The mask keeps the polygon pixels that land in the tile.
+   Group ids are the source location ids, in source order.
 9. The tile-pack provenance is ingest path `sentinel2_4250706_prism_tile`,
    radiometry `s2_l2a_reflectance`, ground sample distance `1200 / 76`,
    extent 1200 m, the source table id, band names `BLUE`, `GREEN`, `RED`,
@@ -124,4 +125,3 @@ split.
 - [`tools.ml_models.data.grid`](grid.md)
 - [`tools.ml_models.data.zenodo`](zenodo.md)
 - [`tools.ml_models.data.pack`](pack.md)
-- [`tools.ml_models.data.canvas`](canvas.md)

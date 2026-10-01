@@ -7,7 +7,7 @@
 
 The tools package holds engineering utilities outside the flight image. It
 includes inference training, export, and acceptance under `tools.inference`,
-processed-pack data and network builders under `tools.ml_models`, and SIL
+finished-dataset builds and network builders under `tools.ml_models`, and SIL
 telemetry analysis under `tools.analysis`.
 
 ## Contents
@@ -15,7 +15,7 @@ telemetry analysis under `tools.analysis`.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`inference`](tools/inference.md) | package | Train, export, accept, and score inference artifacts |
-| [`ml_models`](tools/ml_models.md) | package | Processed-pack data and network builders |
+| [`ml_models`](tools/ml_models.md) | package | Finished-dataset builds and network builders |
 | [`analysis`](tools/analysis.md) | package | Deterministic SIL capture, stats, plots, and reports |
 | [`original_dataset_analysis`](tools/original_dataset_analysis.md) | package | Zenodo band and ground-sample-distance study |
 | [`cli`](tools/cli.md) | module | Root `pact-tools` Typer application |
@@ -32,8 +32,11 @@ Run inference workflows with
 Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.
 
-`python -m tools`, `python -m tools.inference`, and
-`python -m tools.analysis` provide module aliases.
+Build a finished dataset with
+`pact-tools ml-models dataset build --source <flight|synthetic> --out <dir>`.
+
+`python -m tools`, `python -m tools.inference`, `python -m tools.analysis`,
+and `python -m tools.ml_models` provide module aliases.
 
 ## Interactions
 

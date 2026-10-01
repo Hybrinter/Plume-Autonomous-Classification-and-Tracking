@@ -1,12 +1,12 @@
-# tools.ml_models.data.split
+# tools.ml_models.dataset.split
 
-**Source:** `packages/tools/src/tools/ml_models/data/split.py`
+**Source:** `packages/tools/src/tools/ml_models/dataset/split.py`
 **Kind:** module
 
 ## Purpose
 
-This module assigns each group id to train, val, or test, and stores the row
-indices.
+This module assigns each group id to train, val, or test, and stores the
+row indices.
 
 ## Public interface
 
@@ -19,43 +19,47 @@ indices.
 
 ## Inputs and outputs
 
-`SplitRecipe(seed=0, train_fraction=0.70, val_fraction=0.15, test_fraction=0.15)`.
+`SplitRecipe(seed=0, train_fraction=0.70, val_fraction=0.15,
+test_fraction=0.15)` is a frozen pydantic dataclass.
 
 `assign_group_splits(group_ids, recipe) -> SplitIndex`.
 
-`SplitIndex.train`, `.val`, and `.test` are `tuple[int, ...]`. Indices point
-into the `group_ids` sequence.
+`SplitIndex.train`, `.val`, and `.test` are `tuple[int, ...]`. Indices
+point into the `group_ids` sequence. `SplitIndex.for_name(name)` returns
+the tuple for `train`, `val`, or `test`.
 
-`write_splits(path, index, group_ids=None)`. When `group_ids` is passed, the
-file stores that list beside the indices.
+`write_splits(path, index, group_ids=None)`. When `group_ids` is passed,
+the file stores that list beside the indices.
 
-`load_splits(path) -> SplitIndex`.
+`load_splits(path) -> SplitIndex` accepts and ignores the `group_ids` key.
 
-`load_group_ids(path) -> tuple[str, ...] | None`. None means the key is absent.
+`load_group_ids(path) -> tuple[str, ...] | None`. None means the key is
+absent.
 
 ## Behavior
 
 1. Fractions are finite, greater than 0, and sum to 1. Defaults are 0.70,
    0.15, and 0.15.
-2. Unique group ids keep first-seen order. Fewer than 3 unique groups raises
-   `ValueError`.
-3. `numpy.random.default_rng(recipe.seed)` shuffles the groups. That object is
-   a `numpy.random.Generator`.
-4. Fractions apply to groups. Val and test each receive at least one group.
-   When those two counts would consume every group, both counts become 1.
-   Leftover groups go to train.
-5. Every row whose group id is in a split stays in that split. Inside a split,
-   row indices follow the input sequence.
-6. `load_splits` rejects a missing name, a non-integer index, an unknown key,
-   and overlapping indices. The key `group_ids` is optional. When present, it
-   is a list of strings. `load_group_ids` returns that tuple, or None when the
-   key is absent.
+2. Unique group ids keep first-seen order. Fewer than 3 unique groups
+   raises `ValueError`.
+3. `numpy.random.default_rng(recipe.seed)` shuffles the groups. That
+   object is a `numpy.random.Generator`.
+4. Fractions apply to groups. Val and test each receive at least one
+   group. When those two counts would consume every group, both counts
+   become 1. Leftover groups go to train.
+5. Every row whose group id is in a split stays in that split. Inside a
+   split, row indices follow the input sequence.
+6. `load_splits` rejects a missing name, a non-integer index, an unknown
+   key, and overlapping indices. The key `group_ids` is optional. When
+   present, it is a list of strings. `load_group_ids` returns that tuple,
+   or None when the key is absent.
 
 ## Errors and faults
 
-`ValueError` when a fraction is not finite and positive, the fractions do not
-sum to 1, fewer than 3 groups are present, split indices overlap, or
-`group_ids` is not a list of strings.
+`ValueError` when a fraction is not finite and positive, the fractions do
+not sum to 1, a group id is not a string, fewer than 3 groups are present,
+a split name is unknown, split indices overlap, or `group_ids` is not a
+list of strings.
 
 ## Messages
 
@@ -63,16 +67,17 @@ None.
 
 ## Configuration
 
-Default fractions are 0.70, 0.15, and 0.15. Default seed is 0. There is no
-TOML file.
+Default fractions are 0.70, 0.15, and 0.15. Default seed is 0.
+`BuildSpec.split` carries the recipe inside a build spec TOML file.
 
 ## Constraints
 
-The split unit is the group id. Row indices inside a split follow the input
-sequence. The shuffle uses numpy. This module does not import torch.
+The split unit is the group id. Row indices inside a split follow the
+input sequence. The shuffle uses numpy. This module does not import torch.
 
 ## Related documents
 
-- [`tools.ml_models.data`](../data.md)
-- [`tools.ml_models.data.pack`](pack.md)
-- [`tools.ml_models.data.meta`](meta.md)
+- [`tools.ml_models.dataset`](../dataset.md)
+- [`tools.ml_models.dataset.build`](build.md)
+- [`tools.ml_models.dataset.spec`](spec.md)
+- [`tools.ml_models.dataset.manifest`](manifest.md)

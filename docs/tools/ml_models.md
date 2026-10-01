@@ -5,39 +5,45 @@
 
 ## Purpose
 
-The ml_models package holds processed-pack data and network builders for model
-workflows.
+The ml_models package holds finished-dataset builds and network builders
+for model workflows.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`data`](ml_models/data.md) | package | Pack metadata, group splits, and normalization |
+| [`dataset`](ml_models/dataset.md) | package | Raw sources, finished-dataset build, manifest, and loader |
 | [`arch`](ml_models/arch.md) | package | Segmentor and classifier network builders |
+| [`cli`](ml_models/cli.md) | module | `python -m tools.ml_models` dataset build commands |
+| [`__main__`](ml_models/__main__.md) | module | `python -m tools.ml_models` entry shim |
 
 ## Package interface
 
 `tools.ml_models.__init__` carries a module docstring only. Callers import
-`tools.ml_models.data` and `tools.ml_models.arch`.
+`tools.ml_models.dataset` and `tools.ml_models.arch`.
 
 ## Interactions
 
-`tools.ml_models.data.norm` calls
-`flight.payload.preprocess.normalize.normalize_dn`. The package does not publish
-on the bus. `tools.ml_models.data` and `tools.ml_models.arch` do not import
-`flight.payload.inference`, `flight.core`, or `tools.analysis`.
-`tools.ml_models.arch` does not import `flight`.
+`tools.ml_models.dataset.preprocess` calls
+`flight.payload.preprocess.normalize.normalize_dn`. The package does not
+publish on the bus. `tools.ml_models.dataset` and `tools.ml_models.arch`
+do not import `flight.payload.inference`, `flight.core`, or
+`tools.analysis`. `tools.ml_models.arch` does not import `flight`.
+`tools.ml_models.cli` calls `tools.ml_models.dataset.build`. The root
+tools CLI mounts `tools.ml_models.cli` as `ml-models`.
 
 ## Constraints
 
-- `tools.ml_models.data` does not import torch.
+- Inside `tools.ml_models.dataset`, only `loader` imports torch.
 - `tools.ml_models.arch` does not import `flight`.
-- Pack files are local directories. This package does not fetch a corpus.
+- Dataset roots are local directories. This package does not fetch a
+  corpus.
 - The package `__init__` does not re-export names.
 
 ## Related documents
 
 - [`tools`](../tools.md)
-- [`tools.ml_models.data`](ml_models/data.md)
+- [`tools.ml_models.dataset`](ml_models/dataset.md)
 - [`tools.ml_models.arch`](ml_models/arch.md)
+- [`tools.ml_models.cli`](ml_models/cli.md)
 - [`flight.payload.preprocess.normalize`](../flight/payload/preprocess/normalize.md)

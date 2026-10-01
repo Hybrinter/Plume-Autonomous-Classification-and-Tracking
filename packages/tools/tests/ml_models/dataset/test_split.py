@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from tools.ml_models.data.split import (
+from tools.ml_models.dataset.split import (
     SplitIndex,
     SplitRecipe,
     assign_group_splits,

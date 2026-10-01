@@ -150,8 +150,10 @@ pact-tools ml-models export --run artifacts/runs/<run-id> --out artifacts/segmen
 ```
 
 The fetch script prints checksum status and does not download unless
-`--download` is set. Factory flight graphs are
-`data/models/active_classifier.onnx` (ShuffleNetV2-x0.5) and
+`--download` is set. A flight train run passes `--chip-dir` and `--tile-dir`.
+The chip pack is `(N, 3, 76, 76)`. The stored tile pack is `(N, 3, 193, 258)`.
+A flight-promotable export traces a dynamic batch at 193 by 258. Factory flight
+graphs are `data/models/active_classifier.onnx` (ShuffleNetV2-x0.5) and
 `data/models/active_segmentor.onnx` (DilateNet-w32). `config/default.toml`
 `[inference]` points at those paths.
 `tools.ml_models.export.finalize.finalize` scores the test split, exports ONNX,

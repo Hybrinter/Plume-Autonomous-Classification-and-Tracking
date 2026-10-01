@@ -25,7 +25,9 @@ acceptance detail line, or the pair JSON path.
 ## Behavior
 
 1. `train` overlays options on `TrainConfig` and prints the run directory.
-   `--canvas` sets `CanvasConfig()` flight-frame defaults.
+   `--chip-dir` and `--tile-dir` name the chip pack and the tile pack.
+   `--chip-weight` and `--tile-weight` scale the per-image loss. A mixed run
+   selects the checkpoint on the tile metric.
 2. `eval` scores a checkpoint. The default split is `val`. `--split test`
    scores the test split.
 3. `export` writes an ONNX graph and a JSON sidecar for a run. A
@@ -35,8 +37,10 @@ acceptance detail line, or the pair JSON path.
 4. `accept` runs hash, I/O contract, and golden-scene checks. `--flight`
    selects `InferenceConfig` shapes. Without `--flight`, expected shapes come
    from the manifest.
-5. `pair` reads two sidecars and writes the deploy blob. The command exits 1
-   when a run is not flight-promotable or a sidecar shape does not match.
+5. `pair` reads two sidecars and writes the deploy blob. The JSON uses null
+   for the batch axis, grid `[8, 8]`, and frame `[1544, 2064]`. The command
+   exits 1 when a run is not flight-promotable or a sidecar shape does not
+   match.
 
 ## Errors and faults
 
@@ -49,14 +53,15 @@ None.
 
 ## Configuration
 
-`train` overlays `TrainConfig` fields and optional `--canvas`. `accept` uses
+`train` overlays `TrainConfig` fields. `--chip-dir`, `--tile-dir`,
+`--chip-weight`, and `--tile-weight` set a mixed-extent run. `accept` uses
 `FaultConfig.inference_timeout_ms` as the default latency budget. `--flight`
 selects `InferenceConfig` geometry.
 
 ## Constraints
 
 - Command logic stays in library functions.
-- `inference` remains a separate root command.
+- The root command does not register `inference`.
 - `--override-spatial` is not required for a flight-promotable export.
 
 ## Related documents

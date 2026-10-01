@@ -7,7 +7,6 @@ Contains:
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -15,12 +14,7 @@ from typing import Annotated
 import typer
 from flight.libs.config import FaultConfig
 
-from tools.ml_models.data.canvas import CanvasConfig
-from tools.ml_models.train.config import (
-    apply_train_mapping,
-    load_train_config,
-    overlay_train_config,
-)
+from tools.ml_models.train.config import load_train_config, overlay_train_config
 
 
 class ModelKind(StrEnum):
@@ -84,12 +78,28 @@ def train_command(
         int | None, typer.Option(help="Epochs between scoring passes.")
     ] = None,
     max_steps: Annotated[int | None, typer.Option(help="Cap on optimizer steps.")] = None,
-    canvas: Annotated[
-        bool,
-        typer.Option("--canvas", help="Train on CanvasConfig flight-frame defaults."),
-    ] = False,
+    chip_dir: Annotated[
+        str | None,
+        typer.Option("--chip-dir", help="Chip pack directory for a mixed-extent run."),
+    ] = None,
+    tile_dir: Annotated[
+        str | None,
+        typer.Option("--tile-dir", help="Tile pack directory for a mixed-extent run."),
+    ] = None,
+    chip_weight: Annotated[
+        float | None,
+        typer.Option("--chip-weight", help="Per-image loss weight for chip batches."),
+    ] = None,
+    tile_weight: Annotated[
+        float | None,
+        typer.Option("--tile-weight", help="Per-image loss weight for tile batches."),
+    ] = None,
 ) -> None:
-    """Train a classifier or segmentor and print the run directory."""
+    """Train a classifier or segmentor and print the run directory.
+
+    A mixed-extent run sets ``--chip-dir`` and ``--tile-dir``. The checkpoint
+    follows the tile metric.
+    """
     from tools.ml_models.train.loop import train
 
     cfg = overlay_train_config(
@@ -126,9 +136,11 @@ def train_command(
         patience=patience,
         eval_interval=eval_interval,
         max_steps=max_steps,
+        chip_dir=chip_dir,
+        tile_dir=tile_dir,
+        chip_weight=chip_weight,
+        tile_weight=tile_weight,
     )
-    if canvas:
-        cfg = apply_train_mapping(cfg, {"canvas": asdict(CanvasConfig())})
     try:
         path = train(cfg)
     except (ValueError, FileExistsError) as exc:
@@ -326,7 +338,11 @@ def pair_command(
     segmentor: Annotated[str, typer.Option(help="Accepted segmentor sidecar.")],
     out: Annotated[str, typer.Option(help="Pair JSON destination.")],
 ) -> None:
-    """Write the deploy pair blob. Raise when the flight shape does not match."""
+    """Write the flight pair JSON for a dynamic-batch 193 by 258 tile.
+
+    The JSON uses null for the batch axis, grid 8 by 8, and frame 1544 by 2064.
+    The command exits 1 when a run is not flight-promotable.
+    """
     from tools.ml_models.export.pair import write_pair_manifest
 
     try:

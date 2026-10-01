@@ -1,10 +1,10 @@
 # ADR-TOOLS-0005: Use a nested tools CLI and inference package
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-08-27
 **Topic:** restructure
 **Supersedes:** ADR-TOOLS-0001
-**Superseded-by:** none
+**Superseded-by:** ADR-TOOLS-0013
 **Related:** ADR-REPO-0004, ADR-REPO-0011, ADR-TOOLS-0002, ADR-TOOLS-0003, ADR-TOOLS-0004
 
 ## Context

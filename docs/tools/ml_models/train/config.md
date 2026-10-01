@@ -37,10 +37,12 @@ digest, and the pack channel-count rule.
 
 ## Behavior
 
-1. `TrainConfig` defaults to a segmentor, 3 bands, a 256 px crop, and one SGD
-   epoch. `canvas` defaults to `None`. `max_steps` defaults to `None`.
+1. `TrainConfig` defaults to a segmentor, 3 bands, a 256 px synthetic crop,
+   and one SGD epoch. `chip_dir` and `tile_dir` default to empty.
+   `chip_weight` and `tile_weight` default to 1.0. `max_steps` defaults to
+   `None`.
 2. `load_train_config` starts from those defaults. A TOML file overlays known
-   keys. A `[canvas]` table maps onto `CanvasConfig`.
+   keys. `chip_dir` and `tile_dir` are pack directory strings.
 3. `overlay_train_config` replaces only the fields whose CLI value is not
    `None`.
 4. `config_digest` hashes every field except `run_dir`, `run_id`,
@@ -48,8 +50,7 @@ digest, and the pack channel-count rule.
 5. `resolve_train_channels` reads `pack.meta.in_channels` and the image channel
    axis. Those two counts must match. `cfg.in_channels` must match them too.
    The function returns that count.
-6. `write_train_config_toml` omits fields whose value is `None`. A set canvas
-   is a `[canvas]` table. `frame_hw` is a two-integer array.
+6. `write_train_config_toml` omits fields whose value is `None`.
 
 ## Errors and faults
 
@@ -69,8 +70,12 @@ None.
 `learning_rate=0.01`, `momentum=0.9`, `weight_decay=0.0`, `optimizer=sgd`,
 `scheduler=none`, `shuffle=false`, `pos_weight=0.0`, `augment=false`,
 `loss=bce`, `focal_gamma=2.0`, `focal_alpha=0.25`, `amp=false`, `patience=0`,
-`eval_interval=1`, `max_steps` unset, `canvas` unset,
-`run_dir=artifacts/runs`, `overwrite=false`.
+`eval_interval=1`, `max_steps` unset, `chip_dir=""`, `tile_dir=""`,
+`chip_weight=1.0`, `tile_weight=1.0`, `run_dir=artifacts/runs`,
+`overwrite=false`.
+
+The 256 px fields size a synthetic pack. A flight run sets `chip_dir` and
+`tile_dir` to a chip pack and a tile pack.
 
 ## Constraints
 
@@ -81,5 +86,5 @@ None.
 
 - [`tools.ml_models.train`](../train.md)
 - [`tools.ml_models.train.loop`](loop.md)
-- [`tools.ml_models.data.canvas`](../data/canvas.md)
+- [`tools.ml_models.data.prism`](../data/prism.md)
 - [`tools.ml_models.data.pack`](../data/pack.md)

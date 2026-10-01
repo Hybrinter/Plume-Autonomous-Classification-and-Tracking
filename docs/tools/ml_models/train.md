@@ -13,7 +13,7 @@ It holds the objective, the scores, the cost counters, and the sweep helper.
 | Item | Type | Description |
 | --- | --- | --- |
 | [`config`](train/config.md) | module | Frozen hyperparameters and the channel-count rule |
-| [`loop`](train/loop.md) | module | Chip batches and flight-frame canvas steps |
+| [`loop`](train/loop.md) | module | Single-pack batches and mixed chip and tile steps |
 | [`losses`](train/losses.md) | module | BCE, Dice, and focal objectives |
 | [`metrics`](train/metrics.md) | module | Classifier and segmentor scores |
 | [`cost`](train/cost.md) | module | Parameter and FLOP counts |
@@ -27,9 +27,9 @@ each module by name.
 ## Interactions
 
 `loop` calls `config`, `losses`, `metrics`, `cost`, and
-`tools.ml_models.arch.registry.build`. A canvas run calls
-`tools.ml_models.data.canvas.sample_view` and
-`tools.ml_models.data.pack.load_processed_pack`. A chip run calls
+`tools.ml_models.arch.registry.build`. A mixed-extent run calls
+`tools.ml_models.data.prism.union_location_split` and
+`tools.ml_models.data.pack.load_processed_pack`. A single-pack run calls
 `tools.inference.data`. `sweep` calls `loop.train` and `tools.inference.eval`.
 No module publishes on the bus.
 
@@ -50,5 +50,5 @@ No module publishes on the bus.
 - [`tools.ml_models.train.metrics`](train/metrics.md)
 - [`tools.ml_models.train.cost`](train/cost.md)
 - [`tools.ml_models.train.sweep`](train/sweep.md)
-- [`tools.ml_models.data.canvas`](../ml_models/data/canvas.md)
+- [`tools.ml_models.data.prism`](../ml_models/data/prism.md)
 - [`tools.inference.train`](../inference/train.md)

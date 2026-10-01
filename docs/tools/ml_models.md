@@ -28,8 +28,8 @@ plain-torch train loop.
 on the bus. `tools.ml_models.data`, `tools.ml_models.arch`, and
 `tools.ml_models.train` do not import `flight.payload.inference`,
 `flight.core`, or `tools.analysis`. `tools.ml_models.arch` does not import
-`flight`. `tools.ml_models.train.loop` calls `arch.registry.build`. A canvas
-run calls `data.canvas.sample_view`.
+`flight`. `tools.ml_models.train.loop` calls `arch.registry.build`. A
+mixed-extent run calls `data.prism.union_location_split`.
 
 ## Constraints
 

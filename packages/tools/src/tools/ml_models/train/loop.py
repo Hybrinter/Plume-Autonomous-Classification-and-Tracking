@@ -1,9 +1,11 @@
 """Plain-torch train loop for the classifier and the segmentor.
 
-``canvas is None`` trains on chip batches from a ``DataLoader``. A set
-``canvas`` builds flight frames with :func:`tools.ml_models.data.canvas.sample_view`.
-Each run writes ``config.toml``, ``history.csv``, ``summary.json``, and
-``checkpoints/last.pt`` plus ``checkpoints/best.pt``. Canvas runs also write
+Empty ``chip_dir`` and ``tile_dir`` train on one pack from a ``DataLoader``.
+A flight run sets both directories. Each optimizer step is a chip batch or a
+tile batch. The loop indexes rows with
+:func:`tools.ml_models.data.prism.union_location_split`. Each run writes
+``config.toml``, ``history.csv``, ``summary.json``, and
+``checkpoints/last.pt`` plus ``checkpoints/best.pt``. A mixed run also writes
 ``batch_shapes.json``.
 
 Contains:
@@ -19,10 +21,11 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import subprocess
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -37,9 +40,10 @@ from tools.inference.data import load_processed_pack as load_inference_pack
 from tools.inference.data import write_processed_pack as write_inference_pack
 from tools.inference.split import DatasetMeta, SplitIndex, SplitRecipe
 from tools.ml_models.arch.registry import build, resolve_arch
-from tools.ml_models.data.canvas import CanvasConfig, Chip, sample_view
 from tools.ml_models.data.pack import ProcessedPack as MlPack
-from tools.ml_models.data.pack import load_processed_pack as load_canvas_pack
+from tools.ml_models.data.pack import load_processed_pack
+from tools.ml_models.data.prism import union_location_split
+from tools.ml_models.data.split import SplitRecipe as GroupSplitRecipe
 from tools.ml_models.train.config import (
     TrainConfig,
     apply_train_mapping,
@@ -48,7 +52,13 @@ from tools.ml_models.train.config import (
     write_train_config_toml,
 )
 from tools.ml_models.train.cost import count_flops, count_params
-from tools.ml_models.train.losses import LOSS_NAMES, PlumeLoss, build_loss
+from tools.ml_models.train.losses import (
+    LOSS_NAMES,
+    bce_per_sample,
+    build_loss,
+    focal_dice_per_sample,
+    weighted_batch_loss,
+)
 from tools.ml_models.train.metrics import classifier_metrics, segmentor_metrics
 
 _TRAIN_KINDS = frozenset({"classifier", "segmentor"})
@@ -87,6 +97,8 @@ def _validate_train_config(cfg: TrainConfig) -> None:
         raise ValueError(f"unknown loss {cfg.loss!r}")
     if cfg.max_steps is not None and cfg.max_steps < 1:
         raise ValueError(f"max_steps must be >= 1; got {cfg.max_steps}")
+    _require_source_weight("chip_weight", cfg.chip_weight)
+    _require_source_weight("tile_weight", cfg.tile_weight)
 
 
 def _default_val_metric(kind: str, name: str) -> str:
@@ -102,6 +114,26 @@ def _default_val_metric(kind: str, name: str) -> str:
             return "mean_iou"
         case _:
             raise ValueError(f"unknown train kind {kind!r}")
+
+
+def _require_source_weight(name: str, value: float) -> None:
+    """Raise ValueError when a source weight is not finite and above zero.
+
+    Args:
+        name: Field name used in the error.
+        value: Candidate weight.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If ``value`` is a bool, not a number, non-finite, or not
+            above zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number; got {value!r}")
+    if not math.isfinite(float(value)) or float(value) <= 0.0:
+        raise ValueError(f"{name} must be finite and > 0; got {value!r}")
 
 
 def _band_names(meta: object, channels: int) -> tuple[str, ...]:
@@ -126,25 +158,43 @@ def _write_checkpoint(
     *,
     band_names: tuple[str, ...],
     in_channels: int,
+    spatial_hw: tuple[int, int] | None = None,
+    contract: dict[str, object] | None = None,
 ) -> None:
-    """Write a checkpoint dict with weights and train identity."""
+    """Write a checkpoint dict with weights and train identity.
+
+    Args:
+        path: Destination file.
+        model: Module whose ``state_dict`` is stored.
+        cfg: Frozen train hyperparameters.
+        arch: Resolved architecture name.
+        dataset_hash: Pack hash stored on the checkpoint.
+        epoch: Scored epoch.
+        band_names: Channel names.
+        in_channels: Band count.
+        spatial_hw: Optional ``(height, width)`` written as
+            ``input_height_px`` and ``input_width_px``. ``None`` uses the
+            config crop.
+        contract: Optional extra fields. A mixed run stores ``chip_hw``,
+            ``tile_hw``, ``gsd_m``, ``chip_weight``, and ``tile_weight``.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    height = cfg.input_height_px if spatial_hw is None else int(spatial_hw[0])
+    width = cfg.input_width_px if spatial_hw is None else int(spatial_hw[1])
     payload: dict[str, object] = {
         "kind": cfg.kind,
         "arch": arch,
         "state_dict": model.state_dict(),
         "in_channels": in_channels,
-        "input_height_px": cfg.input_height_px,
-        "input_width_px": cfg.input_width_px,
+        "input_height_px": height,
+        "input_width_px": width,
         "dataset_hash": dataset_hash,
         "epoch": epoch,
         "band_names": list(band_names),
         "config": asdict(cfg),
     }
-    canvas = cfg.canvas
-    if canvas is not None:
-        payload["frame_hw"] = (int(canvas.frame_hw[0]), int(canvas.frame_hw[1]))
-        payload["window_px"] = int(canvas.window_px)
+    if contract:
+        payload.update(contract)
     torch.save(payload, path)
 
 
@@ -630,61 +680,77 @@ def _train_chips(cfg: TrainConfig, arch: str) -> Path:
     return run_root
 
 
-def _chips_from_pack(pack: MlPack, split: str) -> tuple[Chip, ...]:
-    """Return one chip per row of ``split``.
-
-    A row is annotated when its mask has a positive pixel. A positive label
-    with an all-zero mask stays unannotated.
-    """
-    chips: list[Chip] = []
-    for index in pack.splits.for_name(split):
-        image = np.array(pack.images[index], dtype=np.float32, copy=True)
-        mask = np.array(pack.masks[index], dtype=np.float32, copy=True)
-        label = float(np.asarray(pack.labels[index], dtype=np.float32).reshape(-1)[0])
-        chips.append(
-            Chip(
-                image=image,
-                mask=mask,
-                label=label,
-                group_id=str(index),
-                split=split,
-                annotated=bool(np.any(mask > 0.0)),
-            )
-        )
-    return tuple(chips)
-
-
-def _scene_config(canvas: CanvasConfig, chips: Sequence[Chip]) -> CanvasConfig:
-    """Return ``canvas`` with paste disabled when the split has no polygon."""
-    if any(chip.annotated for chip in chips):
-        return canvas
-    if canvas.max_plumes == 0:
-        return canvas
-    return replace(canvas, max_plumes=0)
-
-
-def _canvas_batch(
-    chips: Sequence[Chip],
-    canvas: CanvasConfig,
-    rng: np.random.Generator,
-    *,
-    full_frame: bool,
-    count: int,
+def _batch_from_rows(
+    pack: MlPack, rows: Sequence[int]
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Stack ``count`` views that share ``full_frame``."""
-    scene = _scene_config(canvas, chips)
-    images: list[np.ndarray] = []
-    masks: list[np.ndarray] = []
-    labels: list[float] = []
-    for _ in range(count):
-        sample = sample_view(chips, scene, rng, full_frame=full_frame)
-        images.append(sample.image)
-        masks.append(sample.mask)
-        labels.append(float(sample.label))
-    image_t = torch.from_numpy(np.stack(images))
-    mask_t = torch.from_numpy(np.stack(masks))
-    label_t = torch.tensor(labels, dtype=torch.float32).reshape(-1, 1)
-    return image_t, mask_t, label_t
+    """Return images, masks, and labels for ``rows``.
+
+    Args:
+        pack: Processed pack.
+        rows: Row indices. The list form keeps a length-1 batch.
+
+    Returns:
+        tuple: Images ``(N, C, H, W)``, masks ``(N, 1, H, W)``, labels ``(N, 1)``.
+    """
+    index = [int(row) for row in rows]
+    images = torch.from_numpy(np.asarray(pack.images[index], dtype=np.float32)).contiguous()
+    masks = torch.from_numpy(np.asarray(pack.masks[index], dtype=np.float32)).contiguous()
+    labels = torch.from_numpy(np.asarray(pack.labels[index], dtype=np.float32)).reshape(-1, 1)
+    return images, masks, labels.contiguous()
+
+
+def _row_batches(
+    indices: Sequence[int],
+    batch: int,
+    rng: np.random.Generator | None,
+) -> list[tuple[int, ...]]:
+    """Split ``indices`` into homogeneous batches.
+
+    Args:
+        indices: Row indices in pack order.
+        batch: Maximum rows per batch.
+        rng: When set, shuffle a copy of ``indices`` before slicing.
+
+    Returns:
+        list[tuple[int, ...]]: Batches in step order. Empty when ``indices``
+        is empty.
+    """
+    rows = [int(row) for row in indices]
+    if rng is not None and rows:
+        order = rng.permutation(len(rows))
+        rows = [rows[int(slot)] for slot in order]
+    if not rows:
+        return []
+    size = max(int(batch), 1)
+    return [tuple(rows[start : start + size]) for start in range(0, len(rows), size)]
+
+
+def _interleave_batches(
+    chip_batches: Sequence[tuple[int, ...]],
+    tile_batches: Sequence[tuple[int, ...]],
+) -> list[tuple[str, tuple[int, ...]]]:
+    """Alternate chip batches and tile batches until both lists are consumed.
+
+    Args:
+        chip_batches: Chip row groups.
+        tile_batches: Tile row groups.
+
+    Returns:
+        list[tuple[str, tuple[int, ...]]]: ``("chip", rows)`` or
+        ``("tile", rows)``. A chip batch comes first when both lists are
+        non-empty.
+    """
+    order: list[tuple[str, tuple[int, ...]]] = []
+    chip_at = 0
+    tile_at = 0
+    while chip_at < len(chip_batches) or tile_at < len(tile_batches):
+        if chip_at < len(chip_batches):
+            order.append(("chip", chip_batches[chip_at]))
+            chip_at += 1
+        if tile_at < len(tile_batches):
+            order.append(("tile", tile_batches[tile_at]))
+            tile_at += 1
+    return order
 
 
 def _forward_tensor(model: nn.Module, images: torch.Tensor) -> torch.Tensor:
@@ -750,53 +816,53 @@ def _scaled_backward(scaler: torch.amp.GradScaler, loss: torch.Tensor) -> None:
     scaled.backward()  # type: ignore[no-untyped-call]
 
 
-def _as_loss(value: object) -> torch.Tensor:
-    """Return ``value`` when it is a tensor."""
-    if not isinstance(value, torch.Tensor):
-        raise TypeError("loss must be a tensor")
-    return value
-
-
-def _canvas_loss(
+def _extent_loss(
     model: nn.Module,
     images: torch.Tensor,
     masks: torch.Tensor,
     labels: torch.Tensor,
     *,
     kind: str,
-    focal: PlumeLoss,
+    focal_gamma: float,
+    focal_alpha: float,
     pos_weight: float,
+    source_weight: float,
 ) -> torch.Tensor:
-    """Return the canvas objective for one batch.
+    """Return the mixed-extent objective for one homogeneous batch.
 
-    Segmentors use focal Dice on the full-resolution logits. Classifiers use
-    BCE-with-logits on the max logit. When the module has ``spatial`` and a
-    sample mask contains a polygon, focal Dice on that map is added. The mask
-    is pooled onto the spatial grid first.
+    Segmentors use per-image focal Dice on the full-resolution logits.
+    Classifiers use per-image BCE-with-logits on the max logit. When the
+    module has ``spatial`` and a sample mask contains a polygon, per-image
+    focal Dice on that map is added. The mask is pooled onto the spatial grid
+    first. A cell is positive when any input pixel in it is positive. The
+    batch mean is then multiplied by ``source_weight``.
     """
     if kind == "segmentor":
-        return _as_loss(focal(_forward_tensor(model, images), masks))
+        per_sample = focal_dice_per_sample(
+            _forward_tensor(model, images),
+            masks,
+            focal_gamma,
+            focal_alpha,
+        )
+        return weighted_batch_loss(per_sample, source_weight)
     logits, spatial = _classifier_outputs(model, images)
-    weight: torch.Tensor | None = None
-    if pos_weight > 0.0:
-        weight = torch.tensor([pos_weight], dtype=logits.dtype, device=logits.device)
-    bce = functional.binary_cross_entropy_with_logits(
-        logits,
-        labels.to(dtype=logits.dtype),
-        pos_weight=weight,
-    )
-    if spatial is None:
-        return bce
-    pasted = masks.flatten(start_dim=2).amax(dim=2).reshape(-1) > 0
-    if not bool(pasted.any().item()):
-        return bce
-    pooled = _pool_mask_any(masks, (int(spatial.shape[-2]), int(spatial.shape[-1])))
-    aux = _as_loss(focal(spatial[pasted], pooled[pasted]))
-    return bce + aux
+    total = bce_per_sample(logits, labels, pos_weight).mean()
+    if spatial is not None:
+        pasted = masks.flatten(start_dim=2).amax(dim=2).reshape(-1) > 0
+        if bool(pasted.any().item()):
+            pooled = _pool_mask_any(masks, (int(spatial.shape[-2]), int(spatial.shape[-1])))
+            aux = focal_dice_per_sample(
+                spatial[pasted],
+                pooled[pasted],
+                focal_gamma,
+                focal_alpha,
+            ).mean()
+            total = total + aux
+    return total * float(source_weight)
 
 
-def _canvas_metric_name(kind: str) -> str:
-    """Return the full-frame metric used to pick ``best.pt``."""
+def _mixed_metric_name(kind: str) -> str:
+    """Return the tile metric used to pick ``best.pt``."""
     match kind:
         case "classifier":
             return "f1"
@@ -806,8 +872,8 @@ def _canvas_metric_name(kind: str) -> str:
             raise ValueError(f"unknown train kind {kind!r}")
 
 
-def _canvas_loss_name(kind: str, model: nn.Module) -> str:
-    """Return the summary loss name for a canvas run."""
+def _mixed_loss_name(kind: str, model: nn.Module) -> str:
+    """Return the summary loss name for a mixed-extent run."""
     if kind == "segmentor":
         return "focal_dice"
     if callable(getattr(model, "spatial", None)):
@@ -815,28 +881,26 @@ def _canvas_loss_name(kind: str, model: nn.Module) -> str:
     return "bce"
 
 
-def _gather_canvas(
+def _gather_rows(
     model: nn.Module,
-    chips: Sequence[Chip],
-    canvas: CanvasConfig,
-    rng: np.random.Generator,
+    pack: MlPack,
+    rows: tuple[int, ...],
     *,
     kind: str,
     batch: int,
     device: str,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Score ``len(chips)`` full frames. Windows are not included."""
-    if not chips:
+    """Score ``rows`` of one pack. Chip rows and tile rows stay separate."""
+    if not rows:
         empty = torch.zeros((0, 1), dtype=torch.float32)
         return empty, empty
     model.eval()
     logit_chunks: list[torch.Tensor] = []
     target_chunks: list[torch.Tensor] = []
-    remaining = len(chips)
+    size = max(int(batch), 1)
     with torch.no_grad():
-        while remaining > 0:
-            take = min(batch, remaining)
-            images, masks, labels = _canvas_batch(chips, canvas, rng, full_frame=True, count=take)
+        for start in range(0, len(rows), size):
+            images, masks, labels = _batch_from_rows(pack, rows[start : start + size])
             images = images.to(device)
             if kind == "classifier":
                 logits, _spatial = _classifier_outputs(model, images)
@@ -846,86 +910,111 @@ def _gather_canvas(
                 targets = masks
             logit_chunks.append(logits.detach().cpu())
             target_chunks.append(targets.detach().cpu())
-            remaining -= take
     return torch.cat(logit_chunks, dim=0), torch.cat(target_chunks, dim=0)
 
 
-def _steps_per_epoch(n_chips: int, batch: int) -> int:
-    """Return how many optimizer steps cover the chip list once."""
-    return max(1, (max(n_chips, 1) + batch - 1) // batch)
+def _mixed_contract(
+    chip_hw: tuple[int, int],
+    tile_hw: tuple[int, int],
+    gsd_m: float,
+    chip_weight: float,
+    tile_weight: float,
+    chip_dataset_hash: str,
+) -> dict[str, object]:
+    """Return checkpoint fields for a mixed-extent run."""
+    return {
+        "chip_hw": (int(chip_hw[0]), int(chip_hw[1])),
+        "tile_hw": (int(tile_hw[0]), int(tile_hw[1])),
+        "gsd_m": float(gsd_m),
+        "chip_weight": float(chip_weight),
+        "tile_weight": float(tile_weight),
+        "chip_dataset_hash": chip_dataset_hash,
+    }
 
 
-def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
-    """Train on flight-frame views and return the run directory."""
-    canvas = cfg.canvas
-    if canvas is None:
-        raise ValueError("canvas training requires TrainConfig.canvas")
-    if not cfg.data_dir:
-        raise ValueError("canvas training requires data_dir")
-    pack = load_canvas_pack(cfg.data_dir)
-    channels = resolve_train_channels(cfg, pack)
-    if int(pack.meta.height) != canvas.chip_side or int(pack.meta.width) != canvas.chip_side:
-        raise ValueError(
-            f"pack spatial size {pack.meta.height}x{pack.meta.width} "
-            f"does not match canvas chip_side {canvas.chip_side}"
-        )
+def _train_mixed(cfg: TrainConfig, arch: str) -> Path:
+    """Train on chip batches and tile batches and return the run directory."""
+    if not cfg.chip_dir or not cfg.tile_dir:
+        raise ValueError("mixed-extent training requires chip_dir and tile_dir")
+    if cfg.data_dir:
+        raise ValueError("mixed-extent training leaves data_dir empty")
+    chip_pack = load_processed_pack(cfg.chip_dir)
+    tile_pack = load_processed_pack(cfg.tile_dir)
+    channels = resolve_train_channels(cfg, chip_pack)
+    resolve_train_channels(cfg, tile_pack)
+    located = union_location_split(
+        chip_pack,
+        tile_pack,
+        recipe=GroupSplitRecipe(seed=cfg.seed),
+    )
+    chip_train = located.left.train
+    tile_train = located.right.train
+    chip_val = located.left.val
+    tile_val = located.right.val
+    if not chip_train:
+        raise ValueError("chip train split is empty")
+    if not tile_train:
+        raise ValueError("tile train split is empty")
+    chip_hw = (int(chip_pack.meta.height), int(chip_pack.meta.width))
+    tile_hw = (int(tile_pack.meta.height), int(tile_pack.meta.width))
     run_id, run_root = _prepare_run(cfg, arch)
     ckpt_dir = run_root / "checkpoints"
-    names = _band_names(pack.meta, channels)
+    names = _band_names(chip_pack.meta, channels)
 
     torch.manual_seed(cfg.seed)
-    rng = np.random.default_rng(canvas.seed)
-    torch.backends.cudnn.benchmark = False
     device = _device_of(cfg)
-    use_amp = device.startswith("cuda")
-    frame_h, frame_w = canvas.frame_hw
+    torch.backends.cudnn.benchmark = False
+    use_amp = bool(cfg.amp) and device.startswith("cuda")
     cost_model = build(cfg.kind, arch, channels)
     n_params = count_params(cost_model)
-    flops = count_flops(cost_model, (1, channels, int(frame_h), int(frame_w)))
+    flops = count_flops(cost_model, (1, channels, tile_hw[0], tile_hw[1]))
     del cost_model
-
-    train_chips = _chips_from_pack(pack, "train")
-    val_chips = _chips_from_pack(pack, "val")
-    if not train_chips:
-        raise ValueError("train split is empty")
+    contract = _mixed_contract(
+        chip_hw,
+        tile_hw,
+        float(chip_pack.meta.gsd_m),
+        cfg.chip_weight,
+        cfg.tile_weight,
+        chip_pack.meta.dataset_hash,
+    )
 
     def _warmup(candidate: int) -> None:
         probe = build(cfg.kind, arch, channels).to(device)
         try:
             opt = _make_optimizer(probe, cfg)
-            focal = build_loss(
-                "focal_dice",
-                focal_gamma=cfg.focal_gamma,
-                focal_alpha=cfg.focal_alpha,
-            ).to(device)
-            images = torch.zeros((candidate, channels, int(frame_h), int(frame_w)), device=device)
-            masks = torch.zeros((candidate, 1, int(frame_h), int(frame_w)), device=device)
-            labels = torch.zeros((candidate, 1), device=device)
             opt.zero_grad(set_to_none=True)
-            if use_amp:
-                with torch.autocast(device_type="cuda"):
-                    loss = _canvas_loss(
+            for hw, weight in ((chip_hw, cfg.chip_weight), (tile_hw, cfg.tile_weight)):
+                images = torch.zeros((candidate, channels, hw[0], hw[1]), device=device)
+                masks = torch.zeros((candidate, 1, hw[0], hw[1]), device=device)
+                labels = torch.zeros((candidate, 1), device=device)
+                if use_amp:
+                    with torch.autocast(device_type="cuda"):
+                        loss = _extent_loss(
+                            probe,
+                            images,
+                            masks,
+                            labels,
+                            kind=cfg.kind,
+                            focal_gamma=cfg.focal_gamma,
+                            focal_alpha=cfg.focal_alpha,
+                            pos_weight=cfg.pos_weight,
+                            source_weight=weight,
+                        )
+                    probe_scaler = torch.amp.GradScaler("cuda")
+                    _scaled_backward(probe_scaler, loss)
+                else:
+                    loss = _extent_loss(
                         probe,
                         images,
                         masks,
                         labels,
                         kind=cfg.kind,
-                        focal=focal,
+                        focal_gamma=cfg.focal_gamma,
+                        focal_alpha=cfg.focal_alpha,
                         pos_weight=cfg.pos_weight,
+                        source_weight=weight,
                     )
-                probe_scaler = torch.amp.GradScaler("cuda")
-                _scaled_backward(probe_scaler, loss)
-            else:
-                loss = _canvas_loss(
-                    probe,
-                    images,
-                    masks,
-                    labels,
-                    kind=cfg.kind,
-                    focal=focal,
-                    pos_weight=cfg.pos_weight,
-                )
-                _backward(loss)
+                    _backward(loss)
         finally:
             del probe
             if device.startswith("cuda"):
@@ -938,22 +1027,10 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
     model.to(device)
     optimizer = _make_optimizer(model, cfg)
     scheduler = _make_scheduler(optimizer, cfg)
-    focal = build_loss(
-        "focal_dice",
-        focal_gamma=cfg.focal_gamma,
-        focal_alpha=cfg.focal_alpha,
-    ).to(device)
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
     write_train_config_toml(run_root / "config.toml", written)
 
-    per_epoch = _steps_per_epoch(len(train_chips), batch)
-    planned = per_epoch * int(cfg.epochs)
-    if cfg.max_steps is not None:
-        planned = min(planned, int(cfg.max_steps))
-    if planned < 1:
-        raise ValueError("canvas schedule has no optimizer steps")
-
-    val_metric = _canvas_metric_name(cfg.kind)
+    val_metric = _mixed_metric_name(cfg.kind)
     history_path = run_root / "history.csv"
     history_fields: list[str] | None = None
     best_score: float | None = None
@@ -963,101 +1040,119 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
     batch_shapes: list[list[int]] = []
     eval_interval = max(int(cfg.eval_interval), 1)
     started_at = time.perf_counter()
-    scheduler_epoch = 0
+    steps_done = 0
+    hit_limit = False
 
-    for step in range(planned):
+    for epoch in range(1, int(cfg.epochs) + 1):
         model.train()
-        full_frame = step % int(canvas.full_frame_every) == 0
-        images, masks, labels = _canvas_batch(
-            train_chips,
-            canvas,
-            rng,
-            full_frame=full_frame,
-            count=batch,
+        shuffle_rng = np.random.default_rng(cfg.seed + epoch) if cfg.shuffle else None
+        order = _interleave_batches(
+            _row_batches(chip_train, batch, shuffle_rng),
+            _row_batches(tile_train, batch, shuffle_rng),
         )
-        batch_shapes.append([int(dim) for dim in images.shape])
-        images = images.to(device)
-        masks = masks.to(device)
-        labels = labels.to(device)
-        optimizer.zero_grad(set_to_none=True)
-        if use_amp:
-            with torch.autocast(device_type="cuda"):
-                loss = _canvas_loss(
+        if not order:
+            raise ValueError("mixed schedule has no optimizer steps")
+        for source, rows in order:
+            if cfg.max_steps is not None and steps_done >= int(cfg.max_steps):
+                hit_limit = True
+                break
+            pack = chip_pack if source == "chip" else tile_pack
+            weight = cfg.chip_weight if source == "chip" else cfg.tile_weight
+            images, masks, labels = _batch_from_rows(pack, rows)
+            batch_shapes.append([int(dim) for dim in images.shape])
+            images = images.to(device)
+            masks = masks.to(device)
+            labels = labels.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            if use_amp:
+                with torch.autocast(device_type="cuda"):
+                    loss = _extent_loss(
+                        model,
+                        images,
+                        masks,
+                        labels,
+                        kind=cfg.kind,
+                        focal_gamma=cfg.focal_gamma,
+                        focal_alpha=cfg.focal_alpha,
+                        pos_weight=cfg.pos_weight,
+                        source_weight=weight,
+                    )
+                if scaler is None:
+                    raise RuntimeError("CUDA autocast requires a GradScaler")
+                _scaled_backward(scaler, loss)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss = _extent_loss(
                     model,
                     images,
                     masks,
                     labels,
                     kind=cfg.kind,
-                    focal=focal,
+                    focal_gamma=cfg.focal_gamma,
+                    focal_alpha=cfg.focal_alpha,
                     pos_weight=cfg.pos_weight,
+                    source_weight=weight,
                 )
-            if scaler is None:
-                raise RuntimeError("CUDA autocast requires a GradScaler")
-            _scaled_backward(scaler, loss)
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss = _canvas_loss(
-                model,
-                images,
-                masks,
-                labels,
-                kind=cfg.kind,
-                focal=focal,
-                pos_weight=cfg.pos_weight,
-            )
-            _backward(loss)
-            optimizer.step()
-
-        epoch = step // per_epoch + 1
-        epoch_end = (step + 1) == min(planned, epoch * per_epoch)
-        if epoch_end and scheduler is not None and scheduler_epoch < epoch:
+                _backward(loss)
+                optimizer.step()
+            steps_done += 1
+        if scheduler is not None:
             scheduler.step()
-            scheduler_epoch = epoch
-        if not epoch_end:
-            continue
-        if epoch % eval_interval != 0 and step + 1 != planned:
+        epoch_scored = epoch % eval_interval == 0 or epoch == int(cfg.epochs) or hit_limit
+        if not epoch_scored:
+            if hit_limit:
+                break
             continue
 
-        rows: list[dict[str, object]] = []
-        train_logits, train_targets = _gather_canvas(
-            model,
-            train_chips,
-            canvas,
-            rng,
-            kind=cfg.kind,
-            batch=batch,
-            device=device,
-        )
-        train_metrics = _score(cfg.kind, train_logits, train_targets)
-        rows.append({"epoch": epoch, "split": "train", **train_metrics})
-        if val_chips:
-            val_logits, val_targets = _gather_canvas(
+        rows_out: list[dict[str, object]] = []
+        tile_select: dict[str, float] | None = None
+        for source, pack, train_rows, val_rows in (
+            ("chip", chip_pack, chip_train, chip_val),
+            ("tile", tile_pack, tile_train, tile_val),
+        ):
+            train_logits, train_targets = _gather_rows(
                 model,
-                val_chips,
-                canvas,
-                rng,
+                pack,
+                train_rows,
+                kind=cfg.kind,
+                batch=batch,
+                device=device,
+            )
+            train_metrics = _score(cfg.kind, train_logits, train_targets)
+            rows_out.append({"epoch": epoch, "split": "train", "source": source, **train_metrics})
+            if source == "tile" and not val_rows:
+                tile_select = train_metrics
+            if not val_rows:
+                continue
+            val_logits, val_targets = _gather_rows(
+                model,
+                pack,
+                val_rows,
                 kind=cfg.kind,
                 batch=batch,
                 device=device,
             )
             val_metrics = _score(cfg.kind, val_logits, val_targets)
-            rows.append({"epoch": epoch, "split": "val", **val_metrics})
-            score = _val_score(val_metrics, val_metric)
-        else:
-            score = _val_score(train_metrics, val_metric)
-
-        history_fields = _append_history(history_path, rows, history_fields)
+            rows_out.append({"epoch": epoch, "split": "val", "source": source, **val_metrics})
+            if source == "tile":
+                tile_select = val_metrics
+        if tile_select is None:
+            raise ValueError("tile metric is missing")
+        score = _val_score(tile_select, val_metric)
+        history_fields = _append_history(history_path, rows_out, history_fields)
         last_path = ckpt_dir / "last.pt"
         _write_checkpoint(
             last_path,
             model,
             cfg,
             arch,
-            pack.meta.dataset_hash,
+            tile_pack.meta.dataset_hash,
             epoch,
             band_names=names,
             in_channels=channels,
+            spatial_hw=tile_hw,
+            contract=contract,
         )
         if best_score is None or _is_better(val_metric, score, best_score):
             best_score = score
@@ -1068,16 +1163,19 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
                 model,
                 cfg,
                 arch,
-                pack.meta.dataset_hash,
+                tile_pack.meta.dataset_hash,
                 epoch,
                 band_names=names,
                 in_channels=channels,
+                spatial_hw=tile_hw,
+                contract=contract,
             )
         else:
             stale_epochs += 1
             if int(cfg.patience) > 0 and stale_epochs >= int(cfg.patience):
                 stopped_early = True
-                break
+        if hit_limit or stopped_early:
+            break
 
     train_seconds = time.perf_counter() - started_at
     _copy_extra_checkpoint(cfg, ckpt_dir / "last.pt")
@@ -1092,25 +1190,35 @@ def _train_canvas(cfg: TrainConfig, arch: str) -> Path:
         "best_epoch": best_epoch,
         "best_val_metric": best_score,
         "val_metric": val_metric,
-        "dataset_hash": pack.meta.dataset_hash,
+        "dataset_hash": tile_pack.meta.dataset_hash,
+        "chip_dataset_hash": chip_pack.meta.dataset_hash,
         "model_repo_sha": _repo_sha(),
         "seed": cfg.seed,
-        "n_train": len(train_chips),
-        "n_val": len(val_chips),
-        "n_test": len(pack.splits.test),
+        "n_train": len(tile_train),
+        "n_val": len(tile_val),
+        "n_test": len(located.right.test),
+        "n_train_chip": len(chip_train),
+        "n_val_chip": len(chip_val),
+        "n_test_chip": len(located.left.test),
+        "n_train_tile": len(tile_train),
+        "n_val_tile": len(tile_val),
+        "n_test_tile": len(located.right.test),
         "epochs": cfg.epochs,
         "device": device,
         "n_params": n_params,
         "flops": flops,
         "optimizer": cfg.optimizer,
         "scheduler": cfg.scheduler,
-        "loss": _canvas_loss_name(cfg.kind, model),
+        "loss": _mixed_loss_name(cfg.kind, model),
         "amp": use_amp,
         "batch_size": batch,
         "stopped_early": stopped_early,
         "train_seconds": round(train_seconds, 3),
-        "frame_hw": [int(frame_h), int(frame_w)],
-        "window_px": int(canvas.window_px),
+        "chip_hw": [chip_hw[0], chip_hw[1]],
+        "tile_hw": [tile_hw[0], tile_hw[1]],
+        "gsd_m": float(chip_pack.meta.gsd_m),
+        "chip_weight": float(cfg.chip_weight),
+        "tile_weight": float(cfg.tile_weight),
     }
     (run_root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return run_root
@@ -1127,23 +1235,24 @@ def train(config: TrainConfig | None = None) -> Path:
 
     Raises:
         ValueError: If `config.kind`, architecture, optimizer, scheduler, or
-            loss is unknown, the train split is empty, or a canvas pack
-            disagrees with ``in_channels`` or ``chip_side``.
+            loss is unknown, a source weight is not finite and above zero, the
+            train split is empty, or a mixed run is missing one pack directory.
         FileExistsError: If the run directory already has ``summary.json`` and
             ``overwrite`` is false.
 
     Notes:
         ``checkpoints/last.pt`` updates every scored epoch.
         ``checkpoints/best.pt`` stores the best validation score. With
-        ``canvas is None``, the classifier default is F1 and the segmentor
-        default is mean IoU. With a canvas, selection uses full-frame
-        classifier F1 or segmentor Dice. The test split is not scored.
-        ``max_steps`` stops the optimizer early. ``None`` runs full epochs.
-        A CUDA out-of-memory error on the first probe halves ``batch_size``.
+        ``chip_dir`` and ``tile_dir`` empty, the classifier default is F1 and
+        the segmentor default is mean IoU. A mixed run selects the tile
+        classifier F1 of the max logit, or the tile segmentor Dice. The test
+        split is not scored. ``max_steps`` stops the optimizer early. ``None``
+        runs full epochs. A CUDA out-of-memory error on the first probe halves
+        ``batch_size``.
     """
     cfg = config if config is not None else TrainConfig()
     _validate_train_config(cfg)
     arch = resolve_arch(cfg.kind, cfg.arch)
-    if cfg.canvas is not None:
-        return _train_canvas(cfg, arch)
+    if cfg.chip_dir or cfg.tile_dir:
+        return _train_mixed(cfg, arch)
     return _train_chips(cfg, arch)

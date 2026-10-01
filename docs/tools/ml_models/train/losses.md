@@ -18,12 +18,30 @@ Every objective consumes raw logits.
 | `LOSS_SPECS` | constant | Name to `LossSpec` table |
 | `DEFAULT_FOCAL_GAMMA` | constant | Default focal focusing exponent (2.0) |
 | `DEFAULT_FOCAL_ALPHA` | constant | Default focal positive-class weight (0.25) |
+| `bce_per_sample` | function | Mean BCE for each image |
+| `dice_per_sample` | function | Soft Dice loss for each image |
+| `focal_per_sample` | function | Mean focal loss for each image |
+| `focal_dice_per_sample` | function | Per-image focal loss plus per-image Dice |
+| `weighted_batch_loss` | function | Batch mean multiplied by a source weight |
 | `dice_term` | function | Soft Dice loss over a batch |
 | `focal_term` | function | Focal loss over a batch |
 | `PlumeLoss` | class | Weighted pixel term plus an optional Dice term |
 | `build_loss` | function | Construct a `PlumeLoss` from a name |
 
 ## Inputs and outputs
+
+`bce_per_sample(logits, targets, pos_weight=0.0) -> Tensor` with shape `(N,)`.
+
+`dice_per_sample(logits, targets) -> Tensor` with shape `(N,)`.
+
+`focal_per_sample(logits, targets, gamma=2.0, alpha=0.25) -> Tensor` with shape
+`(N,)`.
+
+`focal_dice_per_sample(logits, targets, gamma=2.0, alpha=0.25) -> Tensor` with
+shape `(N,)`.
+
+`weighted_batch_loss(per_sample, source_weight) -> Tensor`. Returns the batch
+mean times `source_weight`.
 
 `dice_term(logits, targets) -> Tensor`. Returns scalar `1 - dice` averaged over
 the batch.
@@ -46,10 +64,16 @@ Raises `ValueError` on an unknown name.
    zero applies to BCE only. Focal uses `focal_alpha` for class balance.
 5. Objectives accept segmentor masks `(N, 1, H, W)` and classifier labels
    `(N, 1)`.
+6. `bce_per_sample` and `focal_per_sample` average inside each image. A larger
+   map keeps the same per-image value. `dice_per_sample` is already one value
+   per image. `weighted_batch_loss` multiplies the batch mean by the source
+   weight.
 
 ## Errors and faults
 
-`ValueError` when `build_loss` receives an unknown name.
+`ValueError` when `build_loss` receives an unknown name. `ValueError` when
+`weighted_batch_loss` receives a source weight that is not finite and above
+zero.
 
 ## Messages
 

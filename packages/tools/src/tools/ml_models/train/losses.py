@@ -18,6 +18,9 @@ soft F1.
 Contains:
   - LossName: registered objective names.
   - LossSpec: pixel/Dice weights for one registered name.
+  - bce_per_sample / dice_per_sample / focal_per_sample: one value per image.
+  - focal_dice_per_sample: per-image focal loss plus per-image Dice.
+  - weighted_batch_loss: batch mean multiplied by a source weight.
   - dice_term / focal_term: the two imbalance-aware building blocks.
   - PlumeLoss: weighted BCE, Dice, and focal combination.
   - build_loss: construct a PlumeLoss from a name.
@@ -27,6 +30,7 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -66,6 +70,135 @@ DEFAULT_FOCAL_ALPHA = 0.25
 _DICE_SMOOTH = 1.0
 
 
+def _mean_per_sample(values: torch.Tensor) -> torch.Tensor:
+    """Return the mean of every axis after the batch axis.
+
+    Args:
+        values: torch.Tensor[float32, (N, ...)].
+
+    Returns:
+        torch.Tensor: Shape ``(N,)``. A rank-1 tensor is returned unchanged.
+    """
+    if values.ndim <= 1:
+        return values
+    return values.flatten(start_dim=1).mean(dim=1)
+
+
+def bce_per_sample(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    pos_weight: float = 0.0,
+) -> torch.Tensor:
+    """Return mean BCE-with-logits for each sample.
+
+    Args:
+        logits: torch.Tensor[float32, (N, ...)] raw logits.
+        targets: torch.Tensor[float32, (N, ...)] targets in {0, 1}, same shape.
+        pos_weight: Positive-class weight. Values at or below zero disable it.
+
+    Returns:
+        torch.Tensor: Shape ``(N,)``. Each entry is the mean over that sample,
+        so a larger map does not raise the value.
+    """
+    flat = targets.to(dtype=logits.dtype)
+    weight: torch.Tensor | None = None
+    if pos_weight > 0.0:
+        weight = torch.tensor([float(pos_weight)], dtype=logits.dtype, device=logits.device)
+    raw = nn.functional.binary_cross_entropy_with_logits(
+        logits,
+        flat,
+        pos_weight=weight,
+        reduction="none",
+    )
+    return _mean_per_sample(raw)
+
+
+def dice_per_sample(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """Return soft Dice loss for each sample.
+
+    Args:
+        logits: torch.Tensor[float32, (N, ...)] raw logits.
+        targets: torch.Tensor[float32, (N, ...)] targets in {0, 1}, same shape.
+
+    Returns:
+        torch.Tensor: Shape ``(N,)``. Each entry is ``1 - dice``. Smoothing by
+        one in both numerator and denominator keeps an all-negative sample at
+        zero loss when the prediction is also empty.
+    """
+    probs = torch.sigmoid(logits).flatten(start_dim=1)
+    flat = targets.flatten(start_dim=1).to(dtype=probs.dtype)
+    intersection = (probs * flat).sum(dim=1)
+    total = probs.sum(dim=1) + flat.sum(dim=1)
+    dice = (2.0 * intersection + _DICE_SMOOTH) / (total + _DICE_SMOOTH)
+    return 1.0 - dice
+
+
+def focal_per_sample(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    gamma: float = DEFAULT_FOCAL_GAMMA,
+    alpha: float = DEFAULT_FOCAL_ALPHA,
+) -> torch.Tensor:
+    """Return mean focal loss for each sample.
+
+    Args:
+        logits: torch.Tensor[float32] raw logits.
+        targets: torch.Tensor[float32] targets in {0, 1}, same shape.
+        gamma: Focusing exponent. Zero reduces this to weighted BCE.
+        alpha: Positive-class weight in [0, 1]. Negatives take ``1 - alpha``.
+
+    Returns:
+        torch.Tensor: Shape ``(N,)``. Each entry is the mean over that sample.
+    """
+    flat = targets.to(dtype=logits.dtype)
+    bce = nn.functional.binary_cross_entropy_with_logits(logits, flat, reduction="none")
+    probs = torch.sigmoid(logits)
+    p_t = probs * flat + (1.0 - probs) * (1.0 - flat)
+    alpha_t = alpha * flat + (1.0 - alpha) * (1.0 - flat)
+    return _mean_per_sample(alpha_t * (1.0 - p_t).pow(gamma) * bce)
+
+
+def focal_dice_per_sample(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    gamma: float = DEFAULT_FOCAL_GAMMA,
+    alpha: float = DEFAULT_FOCAL_ALPHA,
+) -> torch.Tensor:
+    """Return per-sample focal loss plus per-sample Dice.
+
+    Args:
+        logits: torch.Tensor[float32] raw logits.
+        targets: torch.Tensor[float32] targets in {0, 1}, same shape.
+        gamma: Focusing exponent.
+        alpha: Positive-class weight in [0, 1].
+
+    Returns:
+        torch.Tensor: Shape ``(N,)``. Both terms use weight 1.0.
+    """
+    return focal_per_sample(logits, targets, gamma, alpha) + dice_per_sample(logits, targets)
+
+
+def weighted_batch_loss(per_sample: torch.Tensor, source_weight: float) -> torch.Tensor:
+    """Return the batch mean of ``per_sample``, multiplied by ``source_weight``.
+
+    Args:
+        per_sample: torch.Tensor[float32, (N,)] one loss per image.
+        source_weight: Finite weight above zero. Chip steps and tile steps
+            pass different weights.
+
+    Returns:
+        torch.Tensor: Scalar loss.
+
+    Raises:
+        ValueError: If ``source_weight`` is not a finite number above zero.
+    """
+    if isinstance(source_weight, bool) or not isinstance(source_weight, (int, float)):
+        raise ValueError(f"source_weight must be a number; got {source_weight!r}")
+    if not math.isfinite(float(source_weight)) or float(source_weight) <= 0.0:
+        raise ValueError(f"source_weight must be finite and > 0; got {source_weight!r}")
+    return per_sample.mean() * float(source_weight)
+
+
 def dice_term(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     """Return the soft Dice loss over each sample in a batch.
 
@@ -76,14 +209,9 @@ def dice_term(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
     Returns:
         torch.Tensor: Scalar ``1 - dice`` averaged over the batch. Smoothing by
         one in both numerator and denominator keeps an all-negative sample at
-        zero loss when the prediction is also empty, rather than undefined.
+        zero loss when the prediction is also empty.
     """
-    probs = torch.sigmoid(logits).flatten(start_dim=1)
-    flat = targets.flatten(start_dim=1).to(dtype=probs.dtype)
-    intersection = (probs * flat).sum(dim=1)
-    total = probs.sum(dim=1) + flat.sum(dim=1)
-    dice = (2.0 * intersection + _DICE_SMOOTH) / (total + _DICE_SMOOTH)
-    return (1.0 - dice).mean()
+    return dice_per_sample(logits, targets).mean()
 
 
 def focal_term(
@@ -101,14 +229,9 @@ def focal_term(
         alpha: Positive-class weight in [0, 1]. Negatives take ``1 - alpha``.
 
     Returns:
-        torch.Tensor: Scalar mean focal loss.
+        torch.Tensor: Scalar mean of the per-sample focal loss.
     """
-    flat = targets.to(dtype=logits.dtype)
-    bce = nn.functional.binary_cross_entropy_with_logits(logits, flat, reduction="none")
-    probs = torch.sigmoid(logits)
-    p_t = probs * flat + (1.0 - probs) * (1.0 - flat)
-    alpha_t = alpha * flat + (1.0 - alpha) * (1.0 - flat)
-    return (alpha_t * (1.0 - p_t).pow(gamma) * bce).mean()
+    return focal_per_sample(logits, targets, gamma, alpha).mean()
 
 
 class PlumeLoss(nn.Module):

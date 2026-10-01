@@ -2,7 +2,7 @@
 
 Contains:
   - config: frozen hyperparameters, TOML overlay, and the channel-count rule.
-  - loop: chip batches and flight-frame canvas steps.
+  - loop: single-pack batches and mixed chip and tile steps.
   - losses: BCE, Dice, and focal objectives.
   - metrics: classifier and segmentor scores.
   - cost: parameter and FLOP counts.

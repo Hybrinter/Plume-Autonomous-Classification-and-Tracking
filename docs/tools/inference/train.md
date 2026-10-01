@@ -6,8 +6,9 @@
 ## Purpose
 
 This module re-exports the plain-torch train loop. The loop body lives in
-[`tools.ml_models.train.loop`](../ml_models/train/loop.md). Chip batches come
-from a `DataLoader` over `SplitDataset`. A set `canvas` builds flight frames.
+[`tools.ml_models.train.loop`](../ml_models/train/loop.md). With `chip_dir` and
+`tile_dir` empty, batches come from a `DataLoader` over `SplitDataset`. A
+flight run sets both directories and trains on chip batches and tile batches.
 Each job writes a run directory.
 
 ## Public interface
@@ -66,25 +67,27 @@ The run directory holds `config.toml`, `history.csv`, `checkpoints/last.pt`,
 5. Build the objective from `tools.inference.losses`. Run the selected
    optimizer for `epochs`. Train shuffle is off by default. Train-split flip and
    rotation run when `augment` is true.
-6. On a chip run, CUDA mixed precision runs when `amp` is true and the device
-   is CUDA. The chip loop uses `torch.amp.autocast` and `GradScaler`. cuDNN
-   benchmark is enabled on CUDA for a chip run. A canvas run keeps cuDNN
-   benchmark off. A canvas run on CUDA uses `torch.autocast` and `GradScaler`.
-   A CPU canvas run does not enter autocast.
+6. On a single-pack run, CUDA mixed precision runs when `amp` is true and the
+   device is CUDA. That loop uses `torch.amp.autocast` and `GradScaler`. cuDNN
+   benchmark is enabled on CUDA for a single-pack run. A mixed run keeps cuDNN
+   benchmark off. A mixed run on CUDA uses `torch.autocast` and `GradScaler`
+   when `amp` is true. A CPU mixed run does not enter autocast.
 7. Score unaugmented train and val splits every `eval_interval` epochs. The
    final epoch is always scored. A cosine schedule steps once per epoch.
 8. Write `last.pt` every scored epoch. Write `best.pt` when the val metric
    improves. Stop early when `patience` scored epochs pass without improvement.
 9. Write `summary.json` with hashes, counts, `n_params`, `flops`, `loss`, `amp`,
    `batch_size`, `stopped_early`, `train_seconds`, and the best epoch.
-10. With `canvas` set, load the pack through `load_processed_pack`. Train steps
-    use one split. Step `i` is a full frame when `i % full_frame_every == 0`.
-    Other steps are windows. `frame_hw` is the frame size. Validation scores
-    full frames. The checkpoint metric is classifier F1 or segmentor Dice.
+10. With `chip_dir` and `tile_dir` set, load both packs. The caller writes the
+    tile pack with `write_tile_pack` before `train`. Rows come from
+    `union_location_split`. Each step is a chip batch or a tile batch. BCE and
+    focal are reduced per image, then multiplied by `chip_weight` or
+    `tile_weight`. Validation writes chip scores and tile scores. The
+    checkpoint metric is tile classifier F1 or tile segmentor Dice.
     `max_steps` caps optimizer steps. `None` runs full epochs. The test split
     is not scored. Checkpoints store model state, epoch, `dataset_hash`, arch,
-    `in_channels`, `band_names`, and, for a canvas run, `frame_hw` and
-    `window_px`. A canvas run also writes `batch_shapes.json`.
+    `in_channels`, `band_names`, `chip_hw`, `tile_hw`, `gsd_m`, `chip_weight`,
+    and `tile_weight`. A mixed run also writes `batch_shapes.json`.
 
 ## Errors and faults
 
@@ -107,13 +110,14 @@ None.
 `learning_rate=0.01`, `momentum=0.9`, `weight_decay=0.0`, `optimizer=sgd`,
 `scheduler=none`, `shuffle=false`, `pos_weight=0.0`, `augment=false`,
 `loss=bce`, `focal_gamma=2.0`, `focal_alpha=0.25`, `amp=false`, `patience=0`,
-`eval_interval=1`, `max_steps` unset, `canvas` unset,
-`run_dir=artifacts/runs`, `overwrite=false`. Classifier val metric defaults to
-F1. Segmentor val metric defaults to mean IoU. A canvas run selects classifier
-F1 or segmentor Dice on full frames. A TOML file may overlay these fields. A
-`[canvas]` table maps onto `CanvasConfig`. `config_digest` omits `run_dir`,
+`eval_interval=1`, `max_steps` unset, `chip_dir=""`, `tile_dir=""`,
+`chip_weight=1.0`, `tile_weight=1.0`, `run_dir=artifacts/runs`,
+`overwrite=false`. Classifier val metric defaults to F1. Segmentor val metric
+defaults to mean IoU. A mixed run selects tile classifier F1 or tile segmentor
+Dice. A TOML file may overlay these fields. `config_digest` omits `run_dir`,
 `run_id`, `checkpoint_path`, and `overwrite`. `patience` at or below zero
-disables early stop. `max_steps` at or above 1 caps optimizer steps.
+disables early stop. `max_steps` at or above 1 caps optimizer steps. The 256 px
+fields size a synthetic pack. A flight run sets `chip_dir` and `tile_dir`.
 
 ## Constraints
 
@@ -132,5 +136,5 @@ Unknown `optimizer`, `scheduler`, or `loss` values raise `ValueError`.
 - [`tools.ml_models.arch.registry`](../ml_models/arch/registry.md)
 - [`tools.ml_models.train`](../ml_models/train.md)
 - [`tools.ml_models.train.loop`](../ml_models/train/loop.md)
-- [`tools.ml_models.data.canvas`](../ml_models/data/canvas.md)
+- [`tools.ml_models.data.prism`](../ml_models/data/prism.md)
 - [`tools.inference.sweep`](sweep.md)

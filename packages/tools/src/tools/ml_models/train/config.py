@@ -1,7 +1,7 @@
 """Frozen train hyperparameters and pack channel checks.
 
 Contains:
-  - TrainConfig: frozen hyperparameters, including an optional canvas.
+  - TrainConfig: frozen hyperparameters, including chip and tile pack paths.
   - load_train_config: dataclass defaults overlaid with an optional TOML file.
   - overlay_train_config: CLI field overlays.
   - apply_train_mapping: overlay from a string-key mapping.
@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tomllib
-from dataclasses import asdict, fields
+from dataclasses import fields
 from pathlib import Path
 from typing import Literal
 
@@ -25,7 +25,6 @@ from pydantic import ConfigDict, TypeAdapter
 from pydantic.dataclasses import dataclass
 
 from tools.inference.data import ProcessedPack as InferencePack
-from tools.ml_models.data.canvas import CanvasConfig
 from tools.ml_models.data.pack import ProcessedPack as MlPack
 from tools.ml_models.train.losses import DEFAULT_FOCAL_ALPHA, DEFAULT_FOCAL_GAMMA, LossName
 
@@ -39,11 +38,12 @@ _SCHEMA = ConfigDict(extra="forbid")
 class TrainConfig:
     """Frozen train hyperparameters.
 
-    Defaults are 3 bands and a 256 px spatial crop (the short training crop, not
-    the flight frame) and a short SGD schedule. Spatial size is not frozen in
-    the network; it comes from these fields. ``canvas`` selects flight-frame
-    sampling. ``None`` keeps chip batches from a processed pack or a synthetic
-    pack. ``max_steps`` caps optimizer steps. ``None`` runs every epoch.
+    Defaults are 3 bands, a 256 px synthetic crop, and a short SGD schedule.
+    Spatial size is not frozen in the network. A flight run sets ``chip_dir``
+    and ``tile_dir`` to two processed packs. The loop loads both packs. The
+    256 px fields apply only when those directories are empty. ``chip_weight``
+    and ``tile_weight`` scale the per-image loss on a mixed run. ``max_steps``
+    caps optimizer steps. ``None`` runs every epoch.
     """
 
     kind: TrainKind = "segmentor"
@@ -78,20 +78,16 @@ class TrainConfig:
     patience: int = 0
     eval_interval: int = 1
     max_steps: int | None = None
-    canvas: CanvasConfig | None = None
+    chip_dir: str = ""
+    tile_dir: str = ""
+    chip_weight: float = 1.0
+    tile_weight: float = 1.0
 
 
 _TRAIN_ADAPTER = TypeAdapter(TrainConfig)
 
 
 _DIGEST_SKIP = frozenset({"run_dir", "run_id", "checkpoint_path", "overwrite"})
-
-
-def _digest_value(value: object) -> object:
-    """Return a JSON-ready copy of one train field."""
-    if isinstance(value, CanvasConfig):
-        return asdict(value)
-    return value
 
 
 def config_digest(cfg: TrainConfig) -> str:
@@ -106,7 +102,7 @@ def config_digest(cfg: TrainConfig) -> str:
         ``overwrite``.
     """
     payload = {
-        item.name: _digest_value(getattr(cfg, item.name))
+        item.name: getattr(cfg, item.name)
         for item in fields(TrainConfig)
         if item.name not in _DIGEST_SKIP
     }
@@ -119,7 +115,7 @@ def load_train_config(path: str | None = None) -> TrainConfig:
 
     Args:
         path: Optional TOML file. Known keys match TrainConfig field names.
-            A ``[canvas]`` table maps onto ``CanvasConfig``.
+            ``chip_dir`` and ``tile_dir`` are pack directories.
 
     Returns:
         TrainConfig: Frozen config.
@@ -189,6 +185,10 @@ def overlay_train_config(
     patience: int | None = None,
     eval_interval: int | None = None,
     max_steps: int | None = None,
+    chip_dir: str | None = None,
+    tile_dir: str | None = None,
+    chip_weight: float | None = None,
+    tile_weight: float | None = None,
 ) -> TrainConfig:
     """Return a copy of `cfg` with any non-None CLI overlays applied.
 
@@ -227,6 +227,10 @@ def overlay_train_config(
             disables.
         eval_interval: Optional epochs between scoring passes.
         max_steps: Optional cap on optimizer steps.
+        chip_dir: Optional chip-pack directory for a mixed-extent run.
+        tile_dir: Optional tile-pack directory for a mixed-extent run.
+        chip_weight: Optional per-image weight for chip batches.
+        tile_weight: Optional per-image weight for tile batches.
 
     Returns:
         TrainConfig: Frozen overlay.
@@ -264,6 +268,10 @@ def overlay_train_config(
         "patience": patience,
         "eval_interval": eval_interval,
         "max_steps": max_steps,
+        "chip_dir": chip_dir,
+        "tile_dir": tile_dir,
+        "chip_weight": chip_weight,
+        "tile_weight": tile_weight,
     }
     updates = {key: value for key, value in candidates.items() if value is not None}
     return apply_train_mapping(cfg, updates) if updates else cfg
@@ -320,22 +328,12 @@ def write_train_config_toml(path: Path, cfg: TrainConfig) -> None:
 
     Notes:
         ``None`` fields are omitted. ``load_train_config`` then keeps the
-        dataclass default. A set ``canvas`` is a ``[canvas]`` table.
+        dataclass default.
     """
     lines: list[str] = []
     for item in fields(TrainConfig):
         value: object = getattr(cfg, item.name)
         if value is None:
-            continue
-        if isinstance(value, CanvasConfig):
-            lines.append("[canvas]")
-            for sub in fields(CanvasConfig):
-                sub_value: object = getattr(value, sub.name)
-                if sub.name == "frame_hw":
-                    height, width = value.frame_hw
-                    lines.append(f"frame_hw = [{height}, {width}]")
-                else:
-                    lines.append(f"{sub.name} = {_toml_scalar(sub_value)}")
             continue
         lines.append(f"{item.name} = {_toml_scalar(value)}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

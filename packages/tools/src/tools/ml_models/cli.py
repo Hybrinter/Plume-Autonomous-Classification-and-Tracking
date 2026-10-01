@@ -181,7 +181,10 @@ def export_command(
         int, typer.Option("--calib-samples", help="INT8 calibration sample count.")
     ] = 4,
 ) -> None:
-    """Export ONNX logits and a sidecar. A flight-promotable run traces 1544 by 2064."""
+    """Export ONNX logits and a sidecar.
+
+    A flight-promotable run traces a dynamic batch at 193 by 258.
+    """
     import json
 
     from tools.ml_models.export.onnx import (

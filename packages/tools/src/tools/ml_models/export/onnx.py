@@ -42,12 +42,12 @@ from typing import Protocol, cast
 
 import numpy as np
 import torch
-from flight.libs.config import InferenceConfig
 from flight.payload.inference.verify import compute_sha256
 from torch import Tensor, nn
 
 from tools.inference.data import _row_image, load_processed_pack
 from tools.ml_models.arch.registry import build
+from tools.ml_models.data.prism import TILE_HW
 from tools.ml_models.export.accept import Manifest, load_manifest
 from tools.ml_models.export.pair import flight_promotable
 
@@ -412,28 +412,26 @@ def resolve_export_hw(
     config_width: int,
     checkpoint_height: int,
     checkpoint_width: int,
-    flight_height: int,
-    flight_width: int,
 ) -> tuple[int, int]:
     """Return the height and width used to trace an ONNX graph.
 
     Args:
-        promotable: True when the run matches the flight frame and bands.
+        promotable: True when the run matches the flight tile and bands.
         override_spatial: True when the caller forces the config size.
         config_height: ``ExportConfig`` height.
         config_width: ``ExportConfig`` width.
         checkpoint_height: Height stored on the checkpoint.
         checkpoint_width: Width stored on the checkpoint.
-        flight_height: ``InferenceConfig.input_height_px``.
-        flight_width: ``InferenceConfig.input_width_px``.
 
     Returns:
-        tuple[int, int]: ``(height, width)`` for the traced dummy.
+        tuple[int, int]: ``(height, width)`` for the traced dummy. A
+        promotable run uses the flight tile. A research run keeps the
+        checkpoint size. The sensor frame is not substituted.
     """
     if override_spatial:
         return config_height, config_width
     if promotable:
-        return flight_height, flight_width
+        return TILE_HW
     return checkpoint_height, checkpoint_width
 
 
@@ -473,17 +471,36 @@ def _build_model(kind: str, arch: str, in_channels: int) -> nn.Module:
     return build(kind, arch, in_channels)
 
 
-def _output_shape(kind: str, height: int, width: int) -> tuple[int, ...]:
-    """Return the frozen output shape for a kind."""
+def _output_shape(
+    kind: str, height: int, width: int, *, dynamic_batch: bool
+) -> tuple[int | None, ...]:
+    """Return the manifest output shape for a kind."""
+    batch: int | None = None if dynamic_batch else 1
     if kind == "classifier":
-        return (1, 1)
+        return (batch, 1)
     if kind == "segmentor":
-        return (1, 1, height, width)
+        return (batch, 1, height, width)
     raise ValueError(f"unknown export kind {kind!r}")
 
 
-def _onnx_export(model: nn.Module, dummy: Tensor, output_path: str, opset: int) -> None:
-    """Write an ONNX graph with logits named ``logits``."""
+def _onnx_export(
+    model: nn.Module,
+    dummy: Tensor,
+    output_path: str,
+    opset: int,
+    *,
+    dynamic_batch: bool = False,
+) -> None:
+    """Write an ONNX graph with logits named ``logits``.
+
+    Args:
+        model: Module in eval mode.
+        dummy: Concrete trace tensor. Batch is 1 even when the axis is dynamic.
+        output_path: Destination ``.onnx`` path.
+        opset: ONNX opset.
+        dynamic_batch: When true, mark axis 0 of ``input`` and ``logits`` dynamic.
+    """
+    dynamic_axes = {"input": {0: "batch"}, "logits": {0: "batch"}} if dynamic_batch else None
     try:
         torch.onnx.export(
             model,
@@ -493,6 +510,7 @@ def _onnx_export(model: nn.Module, dummy: Tensor, output_path: str, opset: int) 
             output_names=["logits"],
             opset_version=opset,
             dynamo=False,
+            dynamic_axes=dynamic_axes,
         )
     except TypeError:
         torch.onnx.export(
@@ -502,6 +520,7 @@ def _onnx_export(model: nn.Module, dummy: Tensor, output_path: str, opset: int) 
             input_names=["input"],
             output_names=["logits"],
             opset_version=opset,
+            dynamic_axes=dynamic_axes,
         )
 
 
@@ -527,7 +546,7 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
     in_channels = _as_int(payload.get("in_channels"), int(config.in_channels))
     run_dir = _run_dir_containing(Path(config.checkpoint_path))
     promotable = run_dir is not None and flight_promotable(run_dir)
-    flight_cfg = InferenceConfig()
+    dynamic_batch = promotable and not config.override_spatial
     height, width = resolve_export_hw(
         promotable=promotable,
         override_spatial=config.override_spatial,
@@ -535,8 +554,6 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
         config_width=int(config.input_width_px),
         checkpoint_height=_as_int(payload.get("input_height_px"), int(config.input_height_px)),
         checkpoint_width=_as_int(payload.get("input_width_px"), int(config.input_width_px)),
-        flight_height=flight_cfg.input_height_px,
-        flight_width=flight_cfg.input_width_px,
     )
     kind = str(payload.get("kind", config.kind))
     if kind not in _EXPORT_KINDS:
@@ -552,10 +569,11 @@ def export(config: ExportConfig) -> tuple[Path, Path, Manifest]:
     onnx_path = Path(config.output_path)
     onnx_path.parent.mkdir(parents=True, exist_ok=True)
     with torch.no_grad():
-        _onnx_export(model, dummy, str(onnx_path), config.opset)
+        _onnx_export(model, dummy, str(onnx_path), config.opset, dynamic_batch=dynamic_batch)
     digest = compute_sha256(str(onnx_path))
-    input_shape = (1, in_channels, height, width)
-    output_shape = _output_shape(kind, height, width)
+    batch: int | None = None if dynamic_batch else 1
+    input_shape = (batch, in_channels, height, width)
+    output_shape = _output_shape(kind, height, width, dynamic_batch=dynamic_batch)
     manifest = Manifest(
         version=config.version,
         model_repo_sha=config.model_repo_sha,
@@ -698,7 +716,7 @@ def reexport_spatial(
         staging.replace(dest)
     digest = compute_sha256(str(dest))
     input_shape = (1, in_channels, height, width)
-    output_shape = _output_shape(kind, height, width)
+    output_shape = _output_shape(kind, height, width, dynamic_batch=False)
     manifest = Manifest(
         version=version
         if version is not None

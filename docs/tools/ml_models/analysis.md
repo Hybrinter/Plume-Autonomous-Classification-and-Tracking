@@ -19,7 +19,7 @@ full-frame blob metrics.
 | [`eval`](analysis/eval.md) | module | Checkpoint scoring on one split |
 | [`results`](analysis/results.md) | module | Native and ground-sample markdown tables |
 | [`native`](analysis/native.md) | module | Coarse logits on the 120 px mask |
-| [`full_frame`](analysis/full_frame.md) | module | Gate, blob overlap, and canvas scenes |
+| [`full_frame`](analysis/full_frame.md) | module | 64-tile stitch, gate, and blob overlap |
 
 ## Package interface
 
@@ -31,8 +31,9 @@ import each module by name.
 `plots` reads `tools.ml_models.train.metrics.sigmoid` and
 `tools.ml_models.data.grid.gsd_m`. `eval` reads a processed pack through
 `tools.inference.data` and rebuilds the network with
-`tools.ml_models.arch.registry.build`. `full_frame` calls
-`flight.payload.blobs.extract_blobs` and reads vision gates from
+`tools.ml_models.arch.registry.build`. `full_frame` reads the 8 by 8 tile
+grid from `tools.ml_models.data.prism`, calls
+`flight.payload.blobs.extract_blobs`, and reads vision gates from
 `flight.libs.config.PactConfig`. No module imports `flight.payload.inference`,
 `flight.core`, or `tools.analysis`. No module publishes on the bus.
 

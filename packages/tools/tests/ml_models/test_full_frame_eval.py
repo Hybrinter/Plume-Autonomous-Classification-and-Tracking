@@ -72,7 +72,9 @@ def test_dry_run_writes_summary_on_a_tiny_frame(tmp_path: Path) -> None:
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert "hit_rate_by_placement" in payload
     assert "empty_frame_false_positive_rate" in payload
-    assert "chip_vs_frame_logit_margin" in payload
+    assert "chip_scores" in payload
+    assert "tile_scores" in payload
+    assert "chip_vs_frame_logit_margin" not in payload
     assert "full_frame_hit_rate" in payload
     assert "chip_iou" in payload
     assert "passed" not in payload

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Score full-frame scenes from a processed pack.
 
-``--dry-run`` builds scenes with ``sample_view`` and scores fixed logits.
-The default frame is 1544 by 2064. ``--frame-h`` and ``--frame-w`` override
-that size. The written JSON reports hit rate by placement, the empty-frame
-false-positive rate, and the chip-versus-frame logit margin. ``chip_iou`` may
-be present and is not a pass or fail field.
+``--dry-run`` builds scenes with ``sample_view`` and scores a 64-tile stitch.
+The default frame is 1544 by 2064. Each tile on that frame is 193 by 258.
+``--frame-h`` and ``--frame-w`` override the frame size when both sides
+divide by 8. The written JSON reports hit rate, the empty-frame
+false-positive rate, chip scores, and tile scores. ``chip_iou`` may be
+present and is not a pass or fail field.
 """
 
 from __future__ import annotations

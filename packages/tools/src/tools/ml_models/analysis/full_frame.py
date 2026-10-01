@@ -1,24 +1,31 @@
-"""Full-frame hit, empty-frame false positives, and canvas eval scenes.
+"""Tile-stitch scoring for a camera frame, plus canvas eval scenes.
 
-The classifier gate is a logit at or above 0. Blob pixels come from a
-probability mask through ``extract_blobs``. Probability and area defaults
-are the controller vision gates on ``PactConfig``.
+The frame is an 8 by 8 grid. On the 1544 by 2064 camera frame each tile is
+193 by 258. One batch covers the 64 tiles. The classifier gate is the max
+tile logit at or above 0. Blob pixels come from the stitched probability
+mask through ``extract_blobs``. Probability and area defaults are the
+controller vision gates on ``PactConfig``.
 
 Contains:
+  - tile_hw_for_frame: tile size for an 8 by 8 grid.
+  - slice_tiles: row-major tiles, along-track then lateral.
+  - stitch_tiles: tile probabilities back to the frame.
+  - TiledFrameScore: gate result, max tile logit, and the stitched plane.
+  - score_tiled_frame: one batch, stitched mask, gate, and blobs.
   - FullFrameScore: hit, empty-frame false positive, and an optional placement.
-  - score_full_frame: one frame's gate and blob overlap.
+  - score_full_frame: gate and blob overlap on one probability plane.
   - placement_of: center, corner, edge, or empty from a mask centroid.
   - EvalScene: one canvas view plus the source chip.
   - build_eval_scenes: test-split scenes from ``sample_view``.
-  - FrameEval: one scored scene with chip and frame logits.
-  - summarize_frames: hit rate, empty-frame rate, and logit margin.
-  - score_dry_run: fake logits for a scene.
+  - FrameEval: one scored scene with chip scores and tile scores.
+  - summarize_frames: hit rate, empty-frame rate, chip scores, and tile scores.
+  - score_dry_run: fake tile logits for a scene.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -27,6 +34,7 @@ from flight.libs.config import PactConfig
 from flight.payload.blobs import extract_blobs
 
 from tools.ml_models.data.canvas import CanvasConfig, Chip, sample_view
+from tools.ml_models.data.prism import FRAME_HW, TILE_GRID, TILE_HW
 
 _VISION = PactConfig().controller.vision
 DEFAULT_PROB_THRESHOLD = float(_VISION.confidence_gate)
@@ -73,21 +81,39 @@ class EvalScene:
 
 
 @dataclass(frozen=True, slots=True)
-class FrameEval:
-    """One scored scene plus the logits used for the margin.
+class TiledFrameScore:
+    """One frame after a single tile batch and a stitched probability mask.
 
     Attributes:
-        score: Gate and blob result.
-        chip_logit: Max logit on the source chip.
-        frame_logit: Classifier logit on the full frame.
-        chip_iou: Overlap of the probability mask and the ground truth.
-            ``None`` when the ground truth is empty.
+        score: Gate and blob result on the stitched mask.
+        tile_logit: Max classifier logit across the tile batch.
+        probability: Stitched probability plane ``(H, W)``.
+    """
+
+    score: FullFrameScore
+    tile_logit: float
+    probability: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class FrameEval:
+    """One scored scene plus separate chip scores and tile scores.
+
+    Attributes:
+        score: Gate and blob result on the stitched frame.
+        chip_logit: Classifier logit on the source chip.
+        tile_logit: Max classifier logit across the tile batch.
+        chip_iou: Overlap on the source chip. ``None`` when the chip has no
+            positive ground truth. This value is not a pass or fail field.
+        tile_iou: Overlap of the stitched probability mask and the frame
+            ground truth. ``None`` when the frame ground truth is empty.
     """
 
     score: FullFrameScore
     chip_logit: float
-    frame_logit: float
+    tile_logit: float
     chip_iou: float | None = None
+    tile_iou: float | None = None
 
 
 def _logit_value(logits: object) -> float:
@@ -190,6 +216,168 @@ def score_full_frame(
         hit=hit,
         empty_false_positive=empty_false_positive,
         placement=placement,
+    )
+
+
+def tile_hw_for_frame(frame_hw: tuple[int, int]) -> tuple[int, int]:
+    """Return the tile size for an 8 by 8 grid on ``frame_hw``.
+
+    Args:
+        frame_hw: Frame ``(height, width)``.
+
+    Returns:
+        tuple[int, int]: ``(height / 8, width / 8)``. The camera frame
+        ``(1544, 2064)`` returns ``(193, 258)``.
+
+    Raises:
+        ValueError: If either side is not a positive multiple of 8, or the
+        camera frame does not yield the flight tile.
+    """
+    rows, cols = TILE_GRID
+    height, width = int(frame_hw[0]), int(frame_hw[1])
+    if height <= 0 or width <= 0 or height % rows != 0 or width % cols != 0:
+        raise ValueError(f"frame {(height, width)} must divide into a {rows} by {cols} tile grid")
+    tile = (height // rows, width // cols)
+    if (height, width) == FRAME_HW and tile != TILE_HW:
+        raise ValueError(f"flight tile {tile} must equal {TILE_HW} on frame {FRAME_HW}")
+    return tile
+
+
+def slice_tiles(frame: np.ndarray, tile_hw: tuple[int, int] | None = None) -> np.ndarray:
+    """Slice a frame into non-overlapping tiles, row-major.
+
+    Args:
+        frame: ``(H, W)`` or ``(C, H, W)``.
+        tile_hw: Tile ``(height, width)``. ``None`` uses
+            :func:`tile_hw_for_frame`.
+
+    Returns:
+        np.ndarray: ``(N, tile_h, tile_w)`` or ``(N, C, tile_h, tile_w)``.
+        Index ``row * n_cols + col`` is the tile at that grid cell. ``row``
+        is along-track. ``col`` is lateral. The camera frame returns
+        ``N == 64`` tiles of 193 by 258.
+
+    Raises:
+        ValueError: If ``frame`` is not a plane or a channel stack, or the
+        frame does not divide into the tile grid.
+    """
+    array = np.ascontiguousarray(np.asarray(frame))
+    if array.ndim not in (2, 3):
+        raise ValueError(f"frame must be (H, W) or (C, H, W); got {array.shape}")
+    frame_hw = (int(array.shape[-2]), int(array.shape[-1]))
+    if tile_hw is None:
+        tile_h, tile_w = tile_hw_for_frame(frame_hw)
+    else:
+        tile_h, tile_w = int(tile_hw[0]), int(tile_hw[1])
+    if tile_h < 1 or tile_w < 1 or frame_hw[0] % tile_h != 0 or frame_hw[1] % tile_w != 0:
+        raise ValueError(f"frame {frame_hw} does not divide into tiles {(tile_h, tile_w)}")
+    n_rows = frame_hw[0] // tile_h
+    n_cols = frame_hw[1] // tile_w
+    if array.ndim == 2:
+        tiles = array.reshape(n_rows, tile_h, n_cols, tile_w)
+        tiles = np.transpose(tiles, (0, 2, 1, 3))
+        return np.ascontiguousarray(tiles.reshape(n_rows * n_cols, tile_h, tile_w))
+    channels = int(array.shape[0])
+    tiles = array.reshape(channels, n_rows, tile_h, n_cols, tile_w)
+    tiles = np.transpose(tiles, (1, 3, 0, 2, 4))
+    return np.ascontiguousarray(tiles.reshape(n_rows * n_cols, channels, tile_h, tile_w))
+
+
+def stitch_tiles(tiles: np.ndarray, frame_hw: tuple[int, int]) -> np.ndarray:
+    """Stitch row-major tiles back to a frame.
+
+    Args:
+        tiles: ``(N, tile_h, tile_w)`` or ``(N, C, tile_h, tile_w)``.
+        frame_hw: Frame ``(height, width)``.
+
+    Returns:
+        np.ndarray: ``(H, W)`` or ``(C, H, W)`` with each tile written to
+        ``[row * tile_h, col * tile_w]``.
+
+    Raises:
+        ValueError: If the tile count does not fill ``frame_hw``.
+    """
+    array = np.ascontiguousarray(np.asarray(tiles))
+    if array.ndim not in (3, 4):
+        raise ValueError(f"tiles must be (N, H, W) or (N, C, H, W); got {array.shape}")
+    height, width = int(frame_hw[0]), int(frame_hw[1])
+    count = int(array.shape[0])
+    tile_h = int(array.shape[-2])
+    tile_w = int(array.shape[-1])
+    if tile_h < 1 or tile_w < 1 or height % tile_h != 0 or width % tile_w != 0:
+        raise ValueError(f"frame {(height, width)} does not divide into tiles {(tile_h, tile_w)}")
+    n_rows = height // tile_h
+    n_cols = width // tile_w
+    if count != n_rows * n_cols:
+        raise ValueError(f"need {n_rows * n_cols} tiles for frame {(height, width)}; got {count}")
+    if array.ndim == 3:
+        view = np.transpose(array.reshape(n_rows, n_cols, tile_h, tile_w), (0, 2, 1, 3))
+        return np.ascontiguousarray(view.reshape(height, width))
+    channels = int(array.shape[1])
+    view = np.transpose(
+        array.reshape(n_rows, n_cols, channels, tile_h, tile_w),
+        (2, 0, 3, 1, 4),
+    )
+    return np.ascontiguousarray(view.reshape(channels, height, width))
+
+
+def score_tiled_frame(
+    image: np.ndarray,
+    gt_mask: object,
+    forward: Callable[[np.ndarray], tuple[object, object]],
+    *,
+    logit_threshold: float = DEFAULT_LOGIT_THRESHOLD,
+    prob_threshold: float = DEFAULT_PROB_THRESHOLD,
+    min_area: int = DEFAULT_MIN_AREA,
+    placement: str | None = None,
+) -> TiledFrameScore:
+    """Score one frame from a single batch of its tiles.
+
+    Args:
+        image: Scene ``(C, H, W)``. The camera frame is 1544 by 2064.
+        gt_mask: Ground-truth mask. A positive pixel is above 0.
+        forward: Maps the tile batch ``(N, C, tile_h, tile_w)`` to classifier
+            logits and a sigmoid probability batch. The probability batch is
+            ``(N, tile_h, tile_w)`` or ``(N, 1, tile_h, tile_w)``.
+        logit_threshold: Gate opens at this logit. The default is 0.
+        prob_threshold: Pixel threshold passed to ``extract_blobs``.
+        min_area: Minimum blob area passed to ``extract_blobs``.
+        placement: Optional label stored on the score.
+
+    Returns:
+        TiledFrameScore: The gate reads the max tile logit. Blobs come from
+        the stitched probability plane.
+
+    Raises:
+        ValueError: If the image is not ``(C, H, W)``, the frame does not
+        divide into the tile grid, or the probability batch length disagrees
+        with the tile batch.
+    """
+    frame = np.ascontiguousarray(np.asarray(image, dtype=np.float32))
+    if frame.ndim != 3:
+        raise ValueError(f"image must be (C, H, W); got {frame.shape}")
+    frame_hw = (int(frame.shape[-2]), int(frame.shape[-1]))
+    tiles = slice_tiles(frame)
+    logits, probs = forward(tiles)
+    prob_batch = np.asarray(probs, dtype=np.float32)
+    batch = int(tiles.shape[0])
+    got = int(prob_batch.shape[0]) if prob_batch.ndim >= 1 else 0
+    if prob_batch.ndim < 1 or got != batch:
+        raise ValueError(f"probability batch {got} != tile batch {batch}")
+    stitched = stitch_tiles(prob_batch, frame_hw)
+    score = score_full_frame(
+        logits,
+        stitched,
+        gt_mask,
+        logit_threshold=logit_threshold,
+        prob_threshold=prob_threshold,
+        min_area=min_area,
+        placement=placement,
+    )
+    return TiledFrameScore(
+        score=score,
+        tile_logit=_logit_value(logits),
+        probability=_plane(stitched, "prob_mask"),
     )
 
 
@@ -353,44 +541,69 @@ def build_eval_scenes(
     return tuple(scenes)
 
 
+def _chip_iou(mask: np.ndarray | None) -> float | None:
+    """Return chip IoU, or ``None`` when the chip has no positive pixels."""
+    if mask is None:
+        return None
+    plane = _plane(mask, "chip_mask")
+    if not bool(np.any(plane > 0.0)):
+        return None
+    return _iou(np.clip(plane, 0.0, 1.0), plane, DEFAULT_PROB_THRESHOLD)
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    """Return the mean of ``values``, or ``None`` when ``values`` is empty."""
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
 def score_dry_run(scene: EvalScene) -> FrameEval:
-    """Score one scene with fixed logits and the scene mask as probabilities.
+    """Score one scene by stitching a fake 64-tile batch.
 
     Args:
-        scene: Canvas view.
+        scene: Canvas view. The frame must divide into an 8 by 8 tile grid.
 
     Returns:
-        FrameEval: A positive scene uses frame logit 1 and chip logit 1.5.
-        An empty scene uses frame logit 1 and paints a 4 by 4 blob.
+        FrameEval: A positive scene uses tile logit 1 and chip logit 1.5.
+        The segmentor probabilities are the ground-truth mask, sliced and
+        stitched. An empty scene uses tile logit 1, chip logit 0, and paints
+        a 4 by 4 blob on the stitched mask.
     """
-    gt = np.asarray(scene.mask[0], dtype=np.float32)
-    if float(scene.label) > 0.0:
-        frame_logit = 1.0
-        chip_logit = 1.5
+    gt = _plane(scene.mask, "mask")
+    positive = float(scene.label) > 0.0
+    if positive:
         prob = np.clip(gt, 0.0, 1.0)
-        iou = _iou(prob, gt, DEFAULT_PROB_THRESHOLD)
+        chip_logit = 1.5
+        chip_iou = _chip_iou(scene.chip_mask)
     else:
-        frame_logit = 1.0
-        chip_logit = 0.0
         prob = np.zeros_like(gt)
         prob[:4, :4] = 1.0
-        iou = None
-    scored = score_full_frame(
-        frame_logit,
-        prob,
-        gt,
-        placement=scene.placement,
-    )
+        chip_logit = 0.0
+        chip_iou = None
+    prob_tiles = slice_tiles(prob)
+
+    def forward(tiles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if int(tiles.shape[0]) != int(prob_tiles.shape[0]):
+            raise ValueError(
+                f"tile batch {tiles.shape[0]} != frame tile count {prob_tiles.shape[0]}"
+            )
+        logits = np.ones((int(tiles.shape[0]),), dtype=np.float64)
+        return logits, prob_tiles
+
+    tiled = score_tiled_frame(scene.image, gt, forward, placement=scene.placement)
+    tile_iou = _iou(tiled.probability, gt, DEFAULT_PROB_THRESHOLD) if positive else None
     return FrameEval(
-        score=scored,
+        score=tiled.score,
         chip_logit=chip_logit,
-        frame_logit=frame_logit,
-        chip_iou=iou,
+        tile_logit=tiled.tile_logit,
+        chip_iou=chip_iou,
+        tile_iou=tile_iou,
     )
 
 
 def summarize_frames(records: Sequence[FrameEval]) -> dict[str, object]:
-    """Summarize hit rate, empty-frame false positives, and logit margin.
+    """Summarize hit rate, empty-frame false positives, and separate scores.
 
     Args:
         records: Scored scenes.
@@ -399,37 +612,45 @@ def summarize_frames(records: Sequence[FrameEval]) -> dict[str, object]:
         dict[str, object]: ``full_frame_hit_rate`` is the fraction of
         non-empty scenes that hit. ``hit_rate_by_placement`` maps center,
         corner, and edge. ``empty_frame_false_positive_rate`` is the fraction
-        of empty scenes with a false positive. ``chip_vs_frame_logit_margin``
-        is the mean of chip logit minus frame logit. ``chip_iou`` is the mean
-        overlap and is not a pass or fail field.
+        of empty scenes with a false positive. ``chip_scores`` and
+        ``tile_scores`` each carry ``logit`` and ``iou`` means over non-empty
+        scenes. ``chip_iou`` repeats the chip IoU mean and is not a pass or
+        fail field.
     """
     by_place: dict[str, list[bool]] = {name: [] for name in _PLACEMENTS}
     empty_flags: list[bool] = []
     plume_hits: list[bool] = []
-    margins: list[float] = []
-    ious: list[float] = []
+    chip_logits: list[float] = []
+    tile_logits: list[float] = []
+    chip_ious: list[float] = []
+    tile_ious: list[float] = []
     for record in records:
         placement = record.score.placement
         if placement == "empty":
             empty_flags.append(record.score.empty_false_positive)
             continue
         plume_hits.append(record.score.hit)
-        margins.append(record.chip_logit - record.frame_logit)
+        chip_logits.append(record.chip_logit)
+        tile_logits.append(record.tile_logit)
         if placement in by_place:
             by_place[placement].append(record.score.hit)
         if record.chip_iou is not None:
-            ious.append(record.chip_iou)
+            chip_ious.append(record.chip_iou)
+        if record.tile_iou is not None:
+            tile_ious.append(record.tile_iou)
     rates: dict[str, float | None] = {}
     for name in _PLACEMENTS:
         hits = by_place[name]
         rates[name] = None if not hits else float(sum(hits) / len(hits))
+    chip_iou = _mean(chip_ious)
     return {
         "full_frame_hit_rate": None if not plume_hits else float(sum(plume_hits) / len(plume_hits)),
         "hit_rate_by_placement": rates,
         "empty_frame_false_positive_rate": (
             None if not empty_flags else float(sum(empty_flags) / len(empty_flags))
         ),
-        "chip_vs_frame_logit_margin": None if not margins else float(sum(margins) / len(margins)),
-        "chip_iou": None if not ious else float(sum(ious) / len(ious)),
+        "chip_scores": {"logit": _mean(chip_logits), "iou": chip_iou},
+        "tile_scores": {"logit": _mean(tile_logits), "iou": _mean(tile_ious)},
+        "chip_iou": chip_iou,
         "n_scenes": len(records),
     }

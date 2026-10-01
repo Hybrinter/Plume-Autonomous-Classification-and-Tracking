@@ -5,24 +5,42 @@
 
 ## Purpose
 
-This module scores one full frame with the classifier gate and blob overlap,
-and it builds canvas scenes from a pack test split.
+This module slices a camera frame into an 8 by 8 tile grid, runs that batch
+once, and stitches the segmentor probability mask. It scores the stitched
+frame with the classifier gate and blob overlap. It also builds canvas
+scenes from a pack test split.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
+| `tile_hw_for_frame` | function | Tile size for an 8 by 8 grid |
+| `slice_tiles` | function | Row-major tiles, along-track then lateral |
+| `stitch_tiles` | function | Tile probabilities back to the frame |
+| `TiledFrameScore` | class | Gate result, max tile logit, stitched plane |
+| `score_tiled_frame` | function | One tile batch, stitch, gate, and blobs |
 | `FullFrameScore` | class | Hit, empty-frame false positive, placement |
 | `score_full_frame` | function | Gate plus `extract_blobs` overlap |
 | `placement_of` | function | Center, corner, edge, or empty |
 | `EvalScene` | class | One full-frame canvas view |
 | `build_eval_scenes` | function | Test-split plume scenes and empty scenes, or draws from a canvas |
 | `default_canvas` | function | Canvas with a 1544 by 2064 default frame |
-| `FrameEval` | class | Score plus chip and frame logits |
-| `score_dry_run` | function | Fixed logits for one scene |
-| `summarize_frames` | function | Hit rate, empty-frame rate, and margin |
+| `FrameEval` | class | Score plus chip scores and tile scores |
+| `score_dry_run` | function | Fixed tile logits for one scene |
+| `summarize_frames` | function | Hit rate, empty-frame rate, chip scores, and tile scores |
 
 ## Inputs and outputs
+
+`tile_hw_for_frame(frame_hw) -> tuple[int, int]`. The camera frame
+`(1544, 2064)` returns `(193, 258)`.
+
+`slice_tiles(frame, tile_hw=None) -> ndarray`. A camera frame returns 64
+tiles of shape `(64, C, 193, 258)` or `(64, 193, 258)`.
+
+`stitch_tiles(tiles, frame_hw) -> ndarray`. The stitched camera mask is
+`(1544, 2064)`.
+
+`score_tiled_frame(image, gt_mask, forward, *, logit_threshold=0.0, prob_threshold=0.55, min_area=15, placement=None) -> TiledFrameScore`.
 
 `score_full_frame(logits_classifier, prob_mask, gt_mask, *, logit_threshold=0.0, prob_threshold=0.55, min_area=15, placement=None) -> FullFrameScore`.
 
@@ -31,29 +49,35 @@ An omitted canvas yields `limit` plume scenes and `limit` empty scenes.
 An explicit canvas yields `limit` draws from that canvas.
 
 `summarize_frames(records) -> dict`. Keys include `full_frame_hit_rate`,
-`hit_rate_by_placement`, `empty_frame_false_positive_rate`,
-`chip_vs_frame_logit_margin`, and `chip_iou`.
+`hit_rate_by_placement`, `empty_frame_false_positive_rate`, `chip_scores`,
+`tile_scores`, and `chip_iou`.
 
 ## Behavior
 
-1. The gate is open when the max classifier logit is at least 0.
-2. `extract_blobs` reads the probability mask. The default probability
-   threshold and minimum area are the controller vision gates.
-3. A hit requires an open gate and a blob that overlaps the ground truth.
-4. An empty ground truth with an open gate and a blob is an empty-frame
+1. `slice_tiles` cuts the frame into an 8 by 8 grid, row-major. The row
+   axis is along-track. The column axis is lateral.
+2. On a 1544 by 2064 frame each tile is 193 by 258. The batch holds 64 tiles.
+3. `score_tiled_frame` calls the tile forward once on that batch.
+4. `stitch_tiles` writes each probability tile back to its frame window.
+5. The gate is open when the max tile classifier logit is at least 0.
+6. `extract_blobs` reads the stitched probability mask. The default
+   probability threshold is 0.55. The default minimum area is 15 pixels.
+7. A hit requires an open gate and a blob that overlaps the ground truth.
+8. An empty ground truth with an open gate and a blob is an empty-frame
    false positive.
-5. A logit below 0 is a miss even when the mask matches the ground truth.
-6. `build_eval_scenes` loads the test split and calls `sample_view` with
-   `full_frame` true.
-7. An omitted canvas yields `limit` plume scenes and `limit` empty scenes.
-8. An explicit canvas yields `limit` draws from that canvas.
-9. `summarize_frames` reports `chip_iou` as a side value. It is not a pass
-   or fail field.
+9. A max tile logit below 0 is a miss when the mask matches the ground truth.
+10. `build_eval_scenes` loads the test split and calls `sample_view` with
+    `full_frame` true. The scored tensor is the stitched frame.
+11. An omitted canvas yields `limit` plume scenes and `limit` empty scenes.
+12. An explicit canvas yields `limit` draws from that canvas.
+13. `summarize_frames` reports chip scores and tile scores as separate means.
+14. `chip_iou` is a side value. It is not a pass or fail field.
 
 ## Errors and faults
 
-`ValueError` when a mask is not a plane, the logit array is empty, the test
-split is empty, or `limit` is below 1.
+`ValueError` when a mask is not a plane, the logit array is empty, the frame
+does not divide into the 8 by 8 grid, the probability batch length disagrees
+with the tile batch, the test split is empty, or `limit` is below 1.
 
 ## Messages
 
@@ -62,16 +86,18 @@ None.
 ## Configuration
 
 `prob_threshold` defaults to `PactConfig.controller.vision.confidence_gate`.
-`min_area` defaults to `min_blob_area_px`. The default frame in
-`default_canvas` is 1544 by 2064.
+`min_area` defaults to `min_blob_area_px`. The camera frame is 1544 by 2064.
+The tile grid is 8 by 8. Each flight tile is 193 by 258.
 
 ## Constraints
 
-This module imports `flight.payload.blobs` and `flight.libs.config`. It does
-not import `flight.payload.inference`, `flight.core`, or `tools.analysis`.
+This module imports `flight.payload.blobs`, `flight.libs.config`, and
+`tools.ml_models.data.prism`. It does not import `flight.payload.inference`,
+`flight.core`, or `tools.analysis`.
 
 ## Related documents
 
 - [`tools.ml_models.analysis`](../analysis.md)
 - [`tools.ml_models.data.canvas`](../data/canvas.md)
+- [`tools.ml_models.data.prism`](../data/prism.md)
 - [`flight.payload.blobs`](../../../flight/payload/blobs.md)

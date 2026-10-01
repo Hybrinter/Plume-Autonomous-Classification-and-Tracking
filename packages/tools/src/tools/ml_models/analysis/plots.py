@@ -641,14 +641,14 @@ def write_empty_fpr(thresholds: Sequence[float], rates: Sequence[float], path: P
 
 def write_logit_margin(
     chip_logits: Sequence[float],
-    frame_logits: Sequence[float],
+    tile_logits: Sequence[float],
     path: Path,
 ) -> Path:
-    """Write chip max logit against full-frame max logit for the same plume.
+    """Write chip max logit against max tile logit for the same plume.
 
     Args:
         chip_logits: Max logit on the source chip.
-        frame_logits: Max logit on the full frame, aligned with ``chip_logits``.
+        tile_logits: Max logit across the tile batch, aligned with ``chip_logits``.
         path: PNG destination.
 
     Returns:
@@ -657,16 +657,16 @@ def write_logit_margin(
     Raises:
         ValueError: If the sequences differ in length or are empty.
     """
-    if not chip_logits or len(chip_logits) != len(frame_logits):
-        raise ValueError("need one frame logit per chip logit")
+    if not chip_logits or len(chip_logits) != len(tile_logits):
+        raise ValueError("need one tile logit per chip logit")
     figure, axis = plt.subplots(figsize=(5.5, 5.0), dpi=_DPI)
-    axis.scatter(list(chip_logits), list(frame_logits))
-    lo = min(*chip_logits, *frame_logits)
-    hi = max(*chip_logits, *frame_logits)
+    axis.scatter(list(chip_logits), list(tile_logits))
+    lo = min(*chip_logits, *tile_logits)
+    hi = max(*chip_logits, *tile_logits)
     axis.plot([lo, hi], [lo, hi], linestyle="--", color="black", linewidth=1)
     axis.set_xlabel("chip max logit")
-    axis.set_ylabel("full-frame max logit")
-    axis.set_title("chip versus frame logit")
+    axis.set_ylabel("max tile logit")
+    axis.set_title("chip versus tile logit")
     figure.tight_layout()
     return _save(figure, path)
 

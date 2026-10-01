@@ -29,7 +29,7 @@ classifier scores, full-frame metrics, blobs, and the band study.
 | `write_reliability` | function | Binned probability versus outcome |
 | `write_hit_rate_by_placement` | function | Center, corner, and edge hit-rate bars |
 | `write_empty_fpr` | function | Empty-frame false-positive rate |
-| `write_logit_margin` | function | Chip max logit versus frame max logit |
+| `write_logit_margin` | function | Chip max logit versus max tile logit |
 | `write_blob_area_histogram` | function | Histogram of blob area |
 
 ## Inputs and outputs

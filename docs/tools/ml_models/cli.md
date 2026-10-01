@@ -29,8 +29,9 @@ acceptance detail line, or the pair JSON path.
 2. `eval` scores a checkpoint. The default split is `val`. `--split test`
    scores the test split.
 3. `export` writes an ONNX graph and a JSON sidecar for a run. A
-   flight-promotable run traces 1544 by 2064. `--override-spatial` uses
-   `--height` and `--width` for a research checkpoint.
+   flight-promotable run traces a dynamic batch at 193 by 258. A research
+   run traces batch 1 at its checkpoint size. `--override-spatial` uses
+   `--height` and `--width`.
 4. `accept` runs hash, I/O contract, and golden-scene checks. `--flight`
    selects `InferenceConfig` shapes. Without `--flight`, expected shapes come
    from the manifest.

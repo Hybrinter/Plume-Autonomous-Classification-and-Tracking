@@ -57,7 +57,7 @@ seg_manifest))`.
 
 1. Load the checkpoint and rebuild the matching network.
 2. Export an ONNX graph named `input` to `logits`. The graph does not include
-   sigmoid. A flight-promotable run traces the `InferenceConfig` frame. A
+   sigmoid. A flight-promotable run traces a dynamic batch at 193 by 258. A
    research run traces the checkpoint height and width. `override_spatial`
    uses `ExportConfig` height and width.
 3. Hash the file and write a Manifest sidecar with `quantization` `fp32`.

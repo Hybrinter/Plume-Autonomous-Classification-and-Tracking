@@ -12,7 +12,7 @@ and writes the classifier plus segmentor pair JSON.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `flight_promotable` | function | True when a run matches `InferenceConfig` |
+| `flight_promotable` | function | True when a run matches the flight tile |
 | `write_pair_manifest` | function | Write the deploy pair JSON |
 
 ## Inputs and outputs
@@ -20,26 +20,28 @@ and writes the classifier plus segmentor pair JSON.
 `flight_promotable(run_dir, inference=None) -> bool`.
 
 `write_pair_manifest(classifier_sidecar, segmentor_sidecar, dest) -> dict`.
-The file holds `version`, `classifier.input_shape`, `classifier.output_shape`,
-`segmentor.input_shape`, and `segmentor.output_shape`.
+The file holds `version`, `grid`, `frame_hw`, and both network shapes.
+JSON `null` is the dynamic batch axis.
 
 ## Behavior
 
 1. Read `config.toml` and `summary.json` from the run directory.
-2. Read `in_channels` and `band_names` from the summary, then the config, then
-   `checkpoints/best.pt` or `checkpoints/last.pt`.
-3. Take spatial size from summary `input_height_px` and `input_width_px` when
-   both are present. Otherwise use summary `frame_hw`, then config
-   `[canvas] frame_hw`, then the config crop size.
-4. Return true when the channel count equals `len(input_bands)`, the band
-   names equal `input_bands`, and the spatial size equals `input_height_px`
-   by `input_width_px`. With today's defaults that is 3,
-   `("BLUE", "GREEN", "RED")`, 1544, and 2064.
-5. Ignore `radiometry` and `ingest_path` for the boolean result.
-6. `write_pair_manifest` requires both runs to be flight-promotable. It
-   requires both sidecars to match the flight input `(1, 3, 1544, 2064)`,
-   classifier output `(1, 1)`, and segmentor output `(1, 1, 1544, 2064)`.
-   It writes that object to `dest`.
+2. Read `in_channels`, `band_names`, `kind`, and `arch` from the summary, then
+   the config, then `checkpoints/best.pt` or `checkpoints/last.pt`. An empty
+   string is missing.
+3. Read `tile_hw` from the summary, then the checkpoint. The sensor frame and
+   the config crop are not the graph size.
+4. Return true when the channel count equals `len(input_bands)` and the band
+   names equal `input_bands`. With today's defaults that is 3 and
+   `("BLUE", "GREEN", "RED")`.
+5. `tile_hw` must be `(193, 258)`. A classifier arch must be `pactnet`. A
+   segmentor arch must be `dilatenet`.
+6. Ignore `radiometry` and `ingest_path` for the boolean result.
+7. `write_pair_manifest` requires both runs to be flight-promotable. Sidecar
+   versions must match. Classifier input is `[null, 3, 193, 258]` and output
+   is `[null, 1]`. Segmentor input matches. Segmentor output is
+   `[null, 1, 193, 258]`. The JSON also records `grid` `[8, 8]` and
+   `frame_hw` `[1544, 2064]`.
 
 ## Errors and faults
 
@@ -53,14 +55,16 @@ None.
 
 ## Configuration
 
-`inference` defaults to `InferenceConfig()`. The pair blob uses that same
-default contract. The check does not require `norm` equal to `normalize_dn`.
+`inference` defaults to `InferenceConfig()`. Channel count and band names come
+from `input_bands`. The graph size is the flight tile. The check does not
+require `norm` equal to `normalize_dn`.
 
 ## Constraints
 
 The module does not import `flight.core` or `tools.analysis`. It does not
-construct `ModelDeployService`. A 76 px run, a 512 px run, or a 4-channel run
-is not flight-promotable.
+construct `ModelDeployService`. A 76 px run, a 512 px run, and a 1544 by 2064
+run are not flight-promotable. A ShuffleNet run or a U-Net run at 193 by 258
+is not flight-promotable. A 4-channel run is not flight-promotable.
 
 ## Related documents
 

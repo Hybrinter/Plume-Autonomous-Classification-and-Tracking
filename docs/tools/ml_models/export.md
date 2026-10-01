@@ -34,10 +34,9 @@ the bus.
 
 - The package imports torch.
 - `flight.payload.inference.verify` supplies the hash and the I/O check.
-- A flight-promotable run traces the `InferenceConfig` frame.
-- A research run traces the checkpoint height and width.
-- The pair blob is written for a flight-promotable run whose sidecars match
-  that frame.
+- A flight-promotable run traces a dynamic batch at 193 by 258.
+- A research run traces batch 1 at the checkpoint height and width.
+- The pair blob records that tile, grid `[8, 8]`, and frame `[1544, 2064]`.
 
 ## Related documents
 

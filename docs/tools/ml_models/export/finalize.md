@@ -30,7 +30,7 @@ under `run_dir/export/`.
 1. Load `config.toml` and locate the processed pack.
 2. Score `checkpoints/best.pt` on the test split.
 3. Export an FP32 ONNX graph. Export INT8 as well when `int8` is true.
-   A flight-promotable run traces the `InferenceConfig` frame.
+   A flight-promotable run traces a dynamic batch at 193 by 258.
 4. Run the golden-scene gate. With `flight` false, expected shapes come from
    the exported manifest. With `flight` true, expected shapes come from
    `InferenceConfig`.

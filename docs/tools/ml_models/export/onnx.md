@@ -55,9 +55,10 @@ seg_manifest))`.
 
 1. Load the checkpoint and rebuild the matching network.
 2. Choose the trace size with `resolve_export_hw`. A flight-promotable run
-   traces `(1, C, 1544, 2064)` with today's `InferenceConfig` defaults.
-   `C` is the checkpoint channel count. A research run traces the checkpoint
-   height and width. `override_spatial` uses the `ExportConfig` size.
+   traces a dynamic batch at 3 by 193 by 258. H and W stay concrete. A
+   research run traces batch 1 at the checkpoint height and width.
+   `override_spatial` uses the `ExportConfig` size. A research checkpoint is
+   not rewritten to 1544 by 2064.
 3. Export an ONNX graph named `input` to `logits`. The graph does not include
    sigmoid.
 4. Hash the file and write a Manifest sidecar with `quantization` `fp32`.
@@ -92,9 +93,9 @@ repo SHA, dataset hash, ONNX opset (default 17), `int8`, `fp16`, `calib_dir`,
 ## Constraints
 
 Torch imports at module level. onnxruntime imports inside the INT8 and FP16
-paths. Classifier output shape is `(1, 1)`. Segmentor output shape is
-`(1, 1, H, W)`. A flight-promotable trace does not require
-`override_spatial`.
+paths. A flight classifier output is `(N, 1)`. A flight segmentor output is
+`(N, 1, 193, 258)`. A research graph uses batch 1. A flight-promotable trace
+does not require `override_spatial`.
 
 ## Related documents
 

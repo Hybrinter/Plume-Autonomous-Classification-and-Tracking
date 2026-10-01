@@ -45,6 +45,8 @@ calls `data.prism.union_location_split`.
 - `tools.ml_models.arch` does not import `flight`.
 - `tools.ml_models.train` imports torch.
 - `tools.ml_models.export` imports torch.
+- The flight pair graph is a dynamic batch at 193 by 258.
+- The camera frame stays 1544 by 2064.
 - Pack files are local directories. This package does not fetch a corpus.
 - The package `__init__` does not re-export names.
 

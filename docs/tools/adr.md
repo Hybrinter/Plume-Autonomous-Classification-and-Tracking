@@ -31,3 +31,4 @@ Package-local decisions for `packages/tools`. New records use files under
 | ADR-TOOLS-0012 | [0012-ci-omits-tools-torch.md](adr/0012-ci-omits-tools-torch.md) | Lean CI shards omit pact-tools | Accepted |
 | ADR-TOOLS-0013 | [0013-ml-models-package.md](adr/0013-ml-models-package.md) | One `tools.ml_models` package for train, export, and accept | Accepted |
 | ADR-TOOLS-0014 | [0014-finished-datasets-per-source.md](adr/0014-finished-datasets-per-source.md) | Finished datasets per source | Accepted |
+| ADR-TOOLS-0015 | [0015-gsd-film-conditioning.md](adr/0015-gsd-film-conditioning.md) | GSD FiLM conditioning in tools training | Accepted |

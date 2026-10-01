@@ -49,6 +49,7 @@ import torch
 from torch import nn
 
 from tools.ml_models.arch.blocks import conv_norm_relu
+from tools.ml_models.arch.film import GsdFilm, resolve_gsd
 from tools.ml_models.arch.grammar import ModifierFlags, parse_modifiers
 
 DILATED_PREFIX = "dilatenet"
@@ -168,19 +169,26 @@ class DilatedSegmentor(nn.Module):
         for rate in rates:
             stages.append(_block(body_width, body_width, 1, rate, separable=separable))
         self.features = nn.Sequential(*stages)
+        self.stem_film = GsdFilm(base_width)
+        self.head_film = GsdFilm(body_width)
         self.head = nn.Conv2d(body_width, out_channels, kernel_size=1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, gsd: torch.Tensor | None = None) -> torch.Tensor:
         """Map a band stack to a full-resolution logit plane.
 
         Args:
             x: Input of shape ``(N, C, H, W)``.
+            gsd: Encoded GSD of shape ``(N, 2)``. None uses the reference
+                encoding, which preserves the legacy single-input path.
 
         Returns:
             torch.Tensor: Logits of shape ``(N, out_channels, H, W)``.
         """
+        gsd = resolve_gsd(x, gsd)
         size = x.shape[-2:]
-        logits = self.head(self.features(x))
+        features = self.stem_film(self.features[0](x), gsd)
+        features = self.features[1:](features)
+        logits = self.head(self.head_film(features, gsd))
         resized: torch.Tensor = nn.functional.interpolate(
             logits, size=size, mode="bilinear", align_corners=False
         )

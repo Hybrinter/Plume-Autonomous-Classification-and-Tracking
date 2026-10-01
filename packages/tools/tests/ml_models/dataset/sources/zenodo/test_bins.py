@@ -24,8 +24,19 @@ def test_default_bins_cover_native_and_flight_elevations() -> None:
     native, *_rest, e45 = DEFAULT_BINS
     assert bin_hw(native) == (NATIVE_SIDE, NATIVE_SIDE)
     assert actual_gsd(native).lateral_m == pytest.approx(10.0)
-    assert bin_hw(e45) == (34, 51)
+    assert bin_hw(e45) == (31, 50)
     assert e45.elevation_deg == 45.0
+
+
+def test_endpoint_bin_covers_whole_grid_maxima() -> None:
+    """The 45-degree bin is sized from the whole 45-degree tile grid, so the
+    stored GSD stays at or above every frame-edge pixel GSD at 460 km."""
+    e45 = DEFAULT_BINS[-1]
+    pair = actual_gsd(e45)
+    assert pair.lateral_m >= 23.97684097
+    assert pair.along_m >= 37.97926712
+    assert pair.lateral_m == pytest.approx(24.0)
+    assert pair.along_m == pytest.approx(38.7096774)
 
 
 def test_actual_gsd_is_extent_over_pixels() -> None:

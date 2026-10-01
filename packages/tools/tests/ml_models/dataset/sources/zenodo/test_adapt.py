@@ -81,7 +81,7 @@ def test_stream_image_orientation_and_mix(archives: tuple[Path, Path, Path]) -> 
     np.testing.assert_allclose(native[1], 0.1, atol=1e-6)
     np.testing.assert_allclose(native[2], 0.15, atol=1e-6)
     e45 = next(t for t in tiles if t.ref.bin_id == "elevation45")
-    assert e45.image.shape == (3, 34, 51)
+    assert e45.image.shape == (3, 31, 50)
     ramp = e45.image[0].astype(np.float64)
     assert np.all(np.diff(ramp[:, 0]) >= 0.0)
     assert ramp[-2:].mean() - ramp[:2].mean() > 0.9
@@ -97,9 +97,9 @@ def test_masks_scale_with_each_bin(archives: tuple[Path, Path, Path]) -> None:
     np.testing.assert_array_equal(positive_native.mask[0, :, 60:], 1)
     positive_e45 = tiles[("10003_2020-01-01T00-00-00.000Z_0", "elevation45")]
     assert positive_e45.mask is not None
-    assert positive_e45.mask.shape == (1, 34, 51)
+    assert positive_e45.mask.shape == (1, 31, 50)
     np.testing.assert_array_equal(positive_e45.mask[0, :, :25], 0)
-    np.testing.assert_array_equal(positive_e45.mask[0, :, 27:], 1)
+    np.testing.assert_array_equal(positive_e45.mask[0, :, 25:], 1)
     negative_native = tiles[("10004_2020-01-02T00-00-00.000Z_0", "native10")]
     assert negative_native.mask is not None
     np.testing.assert_array_equal(negative_native.mask[0, :60, :], 0)
@@ -135,7 +135,7 @@ def test_build_counts_splits_and_stored_gsd(
     assert counts == {"classifier": 18, "segmentor": 12}
     assert all(len(splits) == 1 for splits in group_splits.values())
     assert shapes[("native10", "classifier")] == {(120, 120)}
-    assert shapes[("elevation45", "classifier")] == {(34, 51)}
+    assert shapes[("elevation45", "classifier")] == {(31, 50)}
 
 
 def test_build_rejects_weight_table_mismatch(

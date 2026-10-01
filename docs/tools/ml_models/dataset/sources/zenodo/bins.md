@@ -6,8 +6,10 @@
 ## Purpose
 
 This module defines the Zenodo GSD bins: the native 10 m grid plus one bin
-per boresight flight elevation, computed from flight's optical and Earth
-geometry at a reference orbit.
+per flight elevation, computed from flight's optical and Earth geometry at a
+reference orbit. Elevations 5 through 35 degrees measure the boresight
+footprint; the 45-degree endpoint measures the maximum GSD over the whole
+tile grid, which covers frame-edge tiles.
 
 ## Public interface
 
@@ -24,8 +26,10 @@ geometry at a reference orbit.
 ## Inputs and outputs
 
 `make_bins(altitude_m=460_000, sensor=None, ephemeris=None)` returns
-`("native10", "elevation5", ..., "elevation45")` `BinSpec` rows; the
-elevation rows record the boresight `pixel_gsd` at the nominal ISS state.
+`("native10", "elevation5", ..., "elevation45")` `BinSpec` rows. Elevations
+5 through 35 record the boresight `pixel_gsd` at the nominal ISS state.
+`elevation45` records the achieved GSD of a conservative `floor(1200/GSD)`
+grid sized from the per-pixel maxima of `tile_gsd_grid` at 45 degrees.
 `bin_hw(bin_spec)` returns `(round(1200/along), round(1200/lateral))`.
 `actual_gsd(bin_spec)` returns the `GsdPair` `1200 / (width, height)` of
 the rounded grid.
@@ -35,16 +39,20 @@ the rounded grid.
 1. `nominal_iss_state` supplies the circular reference orbit; each
    elevation bin measures the boresight footprint through
    `pixel_gsd`.
-2. Bin pixel counts round the fixed ground window, so the stored GSD is
+2. The 45-degree endpoint instead takes the lateral and along-track
+   maxima of `tile_gsd_grid`, floors `1200 / maximum` per axis, and stores
+   the achieved `1200 / (W, H)` as the bin's `BinSpec` GSD. The stored GSD
+   therefore stays at or above every frame-edge pixel GSD.
+3. Bin pixel counts round the fixed ground window, so the stored GSD is
    `extent / pixels`, not the requested target.
-3. Both bin dimensions must stay at or above 10 m per pixel: bins only
+4. Both bin dimensions must stay at or above 10 m per pixel: bins only
    retain or coarsen native data.
 
 ## Errors and faults
 
 `ValueError` when the reference orbit or camera geometry is invalid, a
-boresight ray misses Earth, a bin GSD is below 10 m or non-finite, or a
-rounded bin is empty.
+boresight ray or tile-grid sample misses Earth, a bin GSD is below 10 m or
+non-finite, or a rounded bin is empty.
 
 ## Messages
 

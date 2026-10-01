@@ -42,7 +42,9 @@ an unknown family or modifier.
 `resolve_arch(kind, arch) -> str`.
 
 `build(kind, arch, in_channels) -> nn.Module`. Raises `ValueError` on an unknown
-kind or unparsable name.
+kind or unparsable name. Every result accepts the `model(image, gsd)` call:
+`pactnet` and `dilatenet` apply FiLM conditioning, and every other family is
+wrapped in [`IgnoreGsd`](film.md), which forwards the image alone.
 
 ## Behavior
 
@@ -67,7 +69,9 @@ kind or unparsable name.
    convolutions. Examples: `dilatenet`, `dilatenet_w32_d6_s8`.
 7. `build` matches on the parsed spec and calls `build_compact_classifier`,
    `build_backbone_spec`, `build_segmentor`, `build_encoder_segmentor`, or
-   `build_dilated_segmentor`.
+   `build_dilated_segmentor`. The conditioned flight families (`pactnet`,
+   `dilatenet`) return the graph itself; other families return their graph
+   inside `IgnoreGsd`.
 
 ## Errors and faults
 
@@ -94,6 +98,7 @@ builder call. Modifier tokens share
 ## Related documents
 
 - [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.film`](film.md)
 - [`tools.ml_models.arch.grammar`](grammar.md)
 - [`tools.ml_models.arch.classifier`](classifier.md)
 - [`tools.ml_models.arch.compact`](compact.md)

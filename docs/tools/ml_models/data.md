@@ -5,8 +5,8 @@
 
 ## Purpose
 
-The data package reads and writes processed packs, Zenodo tiles, the prism
-proxy, and flight-frame canvases.
+The data package reads and writes processed packs, Zenodo tiles, prism chips,
+stored flight tiles, and canvas scenes.
 
 ## Contents
 
@@ -20,9 +20,9 @@ proxy, and flight-frame canvases.
 | [`grid`](data/grid.md) | module | Legal-side coarsening and any-side resample |
 | [`matrix`](data/matrix.md) | module | Native band matrix for the Zenodo study |
 | [`zenodo`](data/zenodo.md) | module | Archive index, tile cache, and location splits |
-| [`prism`](data/prism.md) | module | AP-3200T weights and the 76 px proxy pack |
+| [`prism`](data/prism.md) | module | AP-3200T weights, 76 px chips, and 193 by 258 tiles |
 | [`augment`](data/augment.md) | module | Dihedral transforms and feathered paste |
-| [`canvas`](data/canvas.md) | module | Flight-frame scenes and windows |
+| [`canvas`](data/canvas.md) | module | Tile-sized scenes and optional windows |
 
 ## Package interface
 
@@ -34,8 +34,8 @@ each module by name.
 `norm` calls `flight.payload.preprocess.normalize.normalize_dn`. `pack` calls
 `meta` and `split` to write sidecars and to assign groups. `zenodo` calls
 `split.assign_group_splits` for location ids. `prism` calls `zenodo`, `grid`,
-and `pack`. `canvas` calls `augment.feather_paste`. No module publishes on
-the bus.
+`pack`, and `canvas`. `canvas` calls `augment.feather_paste`. No module
+publishes on the bus.
 
 ## Constraints
 
@@ -44,6 +44,8 @@ the bus.
   `tools.analysis`.
 - Arrays on disk are float32. Images are `(N, C, H, W)`. Masks are
   `(N, 1, H, W)`. Labels are `(N, 1)`.
+- Chip packs are `(N, 3, 76, 76)`. Tile packs are `(N, 3, 193, 258)`. Both
+  use ground sample distance `1200 / 76` metres.
 - Rasterio is imported inside the GeoTIFF reader in `zenodo`.
 
 ## Related documents

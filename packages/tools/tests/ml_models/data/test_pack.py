@@ -276,7 +276,12 @@ def test_concat_rejects_different_ingest() -> None:
 
 @pytest.mark.parametrize(
     "ingest",
-    ["flight_camera", "sentinel2_4250706_study", "sentinel2_4250706_prism_proxy"],
+    [
+        "flight_camera",
+        "sentinel2_4250706_study",
+        "sentinel2_4250706_prism_proxy",
+        "sentinel2_4250706_prism_tile",
+    ],
 )
 def test_concat_same_ingest_sums_n_and_remaps_splits(ingest: IngestPath) -> None:
     """Matching ingest paths stack on N and shift split indices."""

@@ -1,7 +1,7 @@
 """Model workflows for training, export, and acceptance.
 
 Contains:
-  - data: processed packs, Zenodo reads, prism proxy, and flight canvas.
+  - data: processed packs, Zenodo reads, prism chips, and flight tiles.
   - arch: segmentor and classifier network builders.
 
 Import from ``tools.ml_models.data`` or ``tools.ml_models.arch``. This package

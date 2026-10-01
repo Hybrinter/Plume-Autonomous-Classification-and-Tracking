@@ -35,6 +35,7 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 NormName = Literal["normalize_dn", "band_z", "unit"]
 IngestPath = Literal[
     "sentinel2_4250706_prism_proxy",
+    "sentinel2_4250706_prism_tile",
     "flight_camera",
     "sentinel2_4250706_study",
 ]

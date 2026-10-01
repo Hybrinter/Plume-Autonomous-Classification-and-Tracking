@@ -80,10 +80,13 @@ is passed and `recipe` is omitted. There is no TOML file.
 
 Arrays are float32. The concatenated pack keeps the shared provenance. Its
 `dataset_hash` stays empty until `write_processed_pack` writes the files.
-Group ids on a concatenated pack are disjoint across the input packs.
+`concat_packs` requires equal spatial size. Group ids on a concatenated pack
+are disjoint across the input packs. Packs that share a location id use
+`union_location_split` in `prism`.
 
 ## Related documents
 
 - [`tools.ml_models.data`](../data.md)
 - [`tools.ml_models.data.meta`](meta.md)
 - [`tools.ml_models.data.split`](split.md)
+- [`tools.ml_models.data.prism`](prism.md)

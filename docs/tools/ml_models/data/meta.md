@@ -13,7 +13,7 @@ files.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `NormName` | type | `normalize_dn`, `band_z`, or `unit` |
-| `IngestPath` | type | Prism proxy, flight camera, or Sentinel-2 study |
+| `IngestPath` | type | Prism chip, prism tile, flight camera, or Sentinel-2 study |
 | `Radiometry` | type | `s2_l2a_reflectance` or `normalize_dn` |
 | `DatasetMeta` | class | Every field written to `dataset.json` |
 | `Provenance` | class | Every field written to `provenance.json` |
@@ -61,6 +61,9 @@ files.
    on a new sample.
 9. When `norm` is `normalize_dn` or `unit`, `band_mean` and `band_std` are
    empty.
+10. `ingest_path` is `sentinel2_4250706_prism_proxy`,
+    `sentinel2_4250706_prism_tile`, `flight_camera`, or
+    `sentinel2_4250706_study`.
 
 ## Errors and faults
 

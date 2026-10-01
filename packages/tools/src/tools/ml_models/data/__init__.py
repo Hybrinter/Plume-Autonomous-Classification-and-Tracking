@@ -1,4 +1,4 @@
-"""Processed-pack metadata, Zenodo reads, prism proxy, and flight canvas.
+"""Processed-pack metadata, Zenodo reads, prism chips, and flight tiles.
 
 Contains:
   - meta: dataset identity, provenance, and the pack hash.
@@ -9,7 +9,7 @@ Contains:
   - grid: legal-side coarsening and any-side area resample.
   - matrix: native band matrix for the Zenodo study.
   - zenodo: archive index, tile cache, and location splits.
-  - prism: AP-3200T weights and the 76 px proxy pack.
+  - prism: AP-3200T weights, the 76 px chip pack, and stored 193 by 258 tiles.
   - augment: dihedral transforms and feathered paste.
-  - canvas: flight-frame scenes and windows.
+  - canvas: tile-sized scenes and optional windows.
 """

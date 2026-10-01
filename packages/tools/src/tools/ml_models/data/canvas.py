@@ -1,15 +1,17 @@
-"""Flight-frame scenes pasted from Zenodo chips.
+"""Scenes pasted from prism chips.
 
 Contains:
-  - CanvasConfig: frame size, window, and paste settings.
+  - CanvasConfig: scene size, window, and paste settings.
   - Chip: one source tile.
-  - CanvasSample: a full frame or a window.
+  - CanvasSample: a full scene or a window.
   - build_scene: mosaic plus an optional annotated plume.
   - take_window: a crop that keeps a positive plume off a forced center.
-  - sample_view: one scene and either the full frame or a window.
+  - sample_view: one scene and either the full scene or a window.
 
-``config.seed`` and ``full_frame_every`` are stored for the training loop.
+The default scene is one flight tile, 193 along-track by 258 lateral.
 ``sample_view`` reads the caller's Generator and the ``full_frame`` flag.
+``window_px`` and ``full_frame_every`` stay on the config. ``sample_view``
+does not read them. They are not a training schedule.
 """
 
 from __future__ import annotations
@@ -25,13 +27,15 @@ from tools.ml_models.data.augment import feather_paste, overlap_window
 
 @dataclass(frozen=True, slots=True)
 class CanvasConfig:
-    """Geometry and paste settings for one flight scene.
+    """Geometry and paste settings for one scene.
 
     Attributes:
-        frame_hw: Full frame ``(height, width)``. The default is 1544 by 2064.
-        window_px: Square crop side. The default is 512.
-        full_frame_every: Training steps between full-frame views. The default
-            is 8. ``sample_view`` does not read this field.
+        frame_hw: Scene ``(height, width)``. The default is one flight tile,
+            193 along-track by 258 lateral.
+        window_px: Square crop side used by :func:`take_window`. The default
+            is 512. ``sample_view`` does not read this field.
+        full_frame_every: Stored integer. The default is 8. ``sample_view``
+            does not read this field. It is not a training schedule.
         chip_side: Spatial side of every chip. The default is 76.
         empty_fraction: Probability that a scene stays empty of plumes.
         max_plumes: Annotated chips pasted when the scene is not empty.
@@ -40,7 +44,7 @@ class CanvasConfig:
             ``sample_view`` does not read this field.
     """
 
-    frame_hw: tuple[int, int] = (1544, 2064)
+    frame_hw: tuple[int, int] = (193, 258)
     window_px: int = 512
     full_frame_every: int = 8
     chip_side: int = 76
@@ -347,12 +351,12 @@ def build_scene(
     config: CanvasConfig,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, np.ndarray, float]:
-    """Build one flight frame from background chips and an optional plume.
+    """Build one scene from background chips and an optional plume.
 
     Args:
         chips: Tiles for one scene. Background tiles have ``label == 0``.
             Every tile in the scene shares one split.
-        config: Frame size and paste settings.
+        config: Scene size and paste settings.
         rng: Generator for the mosaic phase, the empty draw, and the paste
             offset.
 
@@ -496,7 +500,7 @@ def sample_view(
 
     Args:
         chips: Tiles passed to :func:`build_scene`.
-        config: Frame and window settings.
+        config: Scene size. ``window_px`` applies only when ``full_frame`` is False.
         rng: Generator shared by the scene and the window.
         full_frame: When True, return the scene. When False, return
             :func:`take_window`.

@@ -5,23 +5,24 @@
 
 ## Purpose
 
-This module builds a flight frame from background chips and an optional
-annotated plume, then returns the full frame or a window.
+This module builds a scene from background chips and an optional annotated
+plume. The default scene is one flight tile, 193 by 258. It returns that
+scene or a window.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `CanvasConfig` | class | Frame size, window, and paste settings |
+| `CanvasConfig` | class | Scene size, window, and paste settings |
 | `Chip` | class | One source tile |
-| `CanvasSample` | class | Full frame or window |
+| `CanvasSample` | class | Full scene or window |
 | `build_scene` | function | Mosaic plus an optional plume |
-| `take_window` | function | Crop that keeps a positive pixel in frame |
-| `sample_view` | function | Scene, then full frame or window |
+| `take_window` | function | Crop that keeps a positive pixel in the scene |
+| `sample_view` | function | Scene, then full scene or window |
 
 ## Inputs and outputs
 
-`CanvasConfig` defaults: `frame_hw=(1544, 2064)`, `window_px=512`,
+`CanvasConfig` defaults: `frame_hw=(193, 258)`, `window_px=512`,
 `full_frame_every=8`, `chip_side=76`, `empty_fraction=0.5`, `max_plumes=1`,
 `feather_px=6`, `seed=0`.
 
@@ -56,9 +57,11 @@ The third value is `(row, column)`.
    inside the frame.
 8. When `window_px` is greater than or equal to the frame height or the frame
    width, `take_window` returns the full frame at origin `(0, 0)`.
-9. `sample_view` builds one scene. `full_frame` True returns that scene.
-   `full_frame` False returns `take_window`. `config.seed` and
-   `full_frame_every` are not read here.
+9. `sample_view` builds one scene at `frame_hw`. `full_frame` True returns
+   that scene. `full_frame` False returns `take_window`. `sample_view` does
+   not read `seed`, `window_px`, or `full_frame_every`.
+10. `window_px` and `full_frame_every` are config fields. They are not a
+    training schedule. `take_window` reads `window_px`.
 
 ## Errors and faults
 
@@ -79,8 +82,8 @@ width.
 ## Constraints
 
 Callers pass the Generator. A scene uses one split. Unannotated positives are
-not pasted. The default frame is 1544 by 2064. Callers may pass a smaller
-`frame_hw`.
+not pasted. The default frame is 193 by 258. Callers may pass another
+`frame_hw`. `window_px` and `full_frame_every` are not a training schedule.
 
 ## Related documents
 

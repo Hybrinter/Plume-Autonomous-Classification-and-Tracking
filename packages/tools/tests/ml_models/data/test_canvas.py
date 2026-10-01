@@ -1,4 +1,4 @@
-"""Flight-frame canvas on a tiny grid. No 1544 by 2064 allocation."""
+"""Canvas scenes on a small grid, plus the default flight tile."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from tools.ml_models.data.canvas import (
     sample_view,
     take_window,
 )
+from tools.ml_models.data.prism import CHIP_HW, TILE_HW
 
 
 def _config(*, empty_fraction: float = 0.0, feather_px: int = 2) -> CanvasConfig:
@@ -47,6 +48,24 @@ def _chip(
         split=split,
         annotated=annotated,
     )
+
+
+def test_default_frame_is_one_flight_tile() -> None:
+    """The default scene is 193 by 258, matching the stored flight tile."""
+    config = CanvasConfig()
+    assert config.frame_hw == (193, 258)
+    assert config.frame_hw == TILE_HW
+    assert config.chip_side == CHIP_HW[0]
+    background = _chip(label=0.0, split="train", annotated=False, side=76)
+    image, mask, label = build_scene(
+        (background,),
+        CanvasConfig(empty_fraction=1.0),
+        np.random.default_rng(0),
+    )
+    assert image.shape == (1, *TILE_HW)
+    assert mask.shape == (1, *TILE_HW)
+    assert label == 0.0
+    assert np.all(mask == 0.0)
 
 
 def test_empty_scene_mask_is_zero() -> None:

@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from tools.inference.arch.stem import (
+from tools.ml_models.arch.stem import (
     adapt_conv_in_channels,
     remap_stem_weight,
     retarget_final_linear,

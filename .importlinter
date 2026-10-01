@@ -144,12 +144,22 @@ forbidden_modules =
     analysis
 
 [importlinter:contract:ml-models-data-isolation]
-name = ml_models data must not import flight inference, flight core, or tools analysis
+name = ml_models data and arch must not import flight inference, flight core, or tools analysis
 type = forbidden
 source_modules =
     tools.ml_models.data
+    tools.ml_models.arch
 forbidden_modules =
     flight.payload.inference
     flight.core
+    tools.analysis
+
+[importlinter:contract:ml-models-arch-flight-isolation]
+name = ml_models arch must not import flight or tools analysis
+type = forbidden
+source_modules =
+    tools.ml_models.arch
+forbidden_modules =
+    flight
     tools.analysis
 

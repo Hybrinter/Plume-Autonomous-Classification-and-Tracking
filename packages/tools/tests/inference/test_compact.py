@@ -2,8 +2,9 @@
 
 import pytest
 import torch
-from tools.inference.arch.classifier import BackboneName, BackboneSpec
-from tools.inference.arch.compact import (
+from tools.inference.cost import count_params
+from tools.ml_models.arch.classifier import BackboneName, BackboneSpec
+from tools.ml_models.arch.compact import (
     DEFAULT_COMPACT_DEPTH,
     DEFAULT_COMPACT_WIDTH,
     CompactSpec,
@@ -12,8 +13,7 @@ from tools.inference.arch.compact import (
     compact_stage_widths,
     parse_compact,
 )
-from tools.inference.arch.registry import build, known, parse_classifier, resolve_arch
-from tools.inference.cost import count_params
+from tools.ml_models.arch.registry import build, known, parse_classifier, resolve_arch
 
 
 def test_parse_compact_defaults() -> None:
@@ -54,10 +54,11 @@ def test_parse_compact_modifiers_combine_in_any_order(name: str) -> None:
     assert spec == CompactSpec(base_width=8, depth=5, separable=False)
 
 
-def test_parse_compact_rejects_unknown_modifiers() -> None:
-    """Unknown modifier tokens raise ValueError."""
+@pytest.mark.parametrize("name", ["pactnet_zzz", "pactnet_max"])
+def test_parse_compact_rejects_unknown_modifiers(name: str) -> None:
+    """Unknown modifier tokens, including a legacy max head name, raise ValueError."""
     with pytest.raises(ValueError, match="unknown pactnet modifier"):
-        parse_compact("pactnet_zzz")
+        parse_compact(name)
 
 
 def test_parse_compact_rejects_non_pactnet_head() -> None:
@@ -100,7 +101,7 @@ def test_pactnet_forward_output_shape(size: int) -> None:
 
 
 def test_pactnet_accepts_non_default_in_channels() -> None:
-    """A band count other than four is accepted."""
+    """A band count other than the default of three is accepted."""
     net = PactNet(in_channels=6).eval()
     x = torch.zeros(1, 6, 64, 64)
     with torch.no_grad():
@@ -111,7 +112,7 @@ def test_pactnet_accepts_non_default_in_channels() -> None:
 def test_pactnet_depth_one_works() -> None:
     """A single-stage stack still emits one logit per sample."""
     net = PactNet(depth=1).eval()
-    x = torch.zeros(1, 4, 32, 32)
+    x = torch.zeros(1, 3, 32, 32)
     with torch.no_grad():
         y = net(x)
     assert y.shape == (1, 1)
@@ -130,7 +131,9 @@ def test_build_compact_classifier_honours_spec() -> None:
     spec = CompactSpec(base_width=8, depth=3, separable=False)
     net = build_compact_classifier(spec, in_channels=5)
     assert isinstance(net, PactNet)
-    assert net.head.in_features == compact_stage_widths(8, 3)[-1]
+    assert isinstance(net.head, torch.nn.Conv2d)
+    assert net.head.in_channels == compact_stage_widths(8, 3)[-1]
+    assert net.head.out_channels == 1
     x = torch.zeros(1, 5, 32, 32)
     with torch.no_grad():
         assert net(x).shape == (1, 1)

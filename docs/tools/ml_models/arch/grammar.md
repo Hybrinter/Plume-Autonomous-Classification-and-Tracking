@@ -1,6 +1,6 @@
-# tools.inference.arch.grammar
+# tools.ml_models.arch.grammar
 
-**Source:** `packages/tools/src/tools/inference/arch/grammar.py`
+**Source:** `packages/tools/src/tools/ml_models/arch/grammar.py`
 **Kind:** module
 
 ## Purpose
@@ -58,8 +58,8 @@ parsers call `parse_modifiers`.
 
 ## Related documents
 
-- [`tools.inference.arch`](../arch.md)
-- [`tools.inference.arch.compact`](compact.md)
-- [`tools.inference.arch.dilated`](dilated.md)
-- [`tools.inference.arch.unet`](unet.md)
-- [`tools.inference.arch.registry`](registry.md)
+- [`tools.ml_models.arch`](../arch.md)
+- [`tools.ml_models.arch.compact`](compact.md)
+- [`tools.ml_models.arch.dilated`](dilated.md)
+- [`tools.ml_models.arch.unet`](unet.md)
+- [`tools.ml_models.arch.registry`](registry.md)

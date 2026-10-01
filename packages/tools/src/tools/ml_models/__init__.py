@@ -2,6 +2,8 @@
 
 Contains:
   - data: processed-pack metadata, splits, and normalization.
+  - arch: segmentor and classifier network builders.
 
-Import from ``tools.ml_models.data``. This package does not re-export names.
+Import from ``tools.ml_models.data`` or ``tools.ml_models.arch``. This package
+does not re-export names.
 """

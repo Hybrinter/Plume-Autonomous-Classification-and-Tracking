@@ -2,8 +2,9 @@
 
 import pytest
 import torch
-from tools.inference.arch.dilated import DilatedSpec
-from tools.inference.arch.registry import (
+from tools.inference.cost import count_params
+from tools.ml_models.arch.dilated import DilatedSpec
+from tools.ml_models.arch.registry import (
     EncoderUNetSpec,
     UNetSpec,
     build,
@@ -12,7 +13,6 @@ from tools.inference.arch.registry import (
     parse_segmentor,
     resolve_arch,
 )
-from tools.inference.cost import count_params
 
 
 def test_known_pairs() -> None:

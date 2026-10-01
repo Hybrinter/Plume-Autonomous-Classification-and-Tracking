@@ -16,10 +16,10 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from tools.inference.arch.registry import build
 from tools.inference.data import ProcessedPack, SplitDataset, load_processed_pack
 from tools.inference.metrics import classifier_metrics, compute_iou, segmentor_metrics, sigmoid
 from tools.inference.train import TrainConfig, load_train_config
+from tools.ml_models.arch.registry import build
 
 _PREVIEW_LIMIT = 8
 

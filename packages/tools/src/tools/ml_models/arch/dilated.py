@@ -48,8 +48,8 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from tools.inference.arch.blocks import conv_norm_relu
-from tools.inference.arch.grammar import ModifierFlags, parse_modifiers
+from tools.ml_models.arch.blocks import conv_norm_relu
+from tools.ml_models.arch.grammar import ModifierFlags, parse_modifiers
 
 DILATED_PREFIX = "dilatenet"
 
@@ -129,7 +129,7 @@ class DilatedSegmentor(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 4,
+        in_channels: int = 3,
         out_channels: int = 1,
         base_width: int = DEFAULT_DILATED_WIDTH,
         blocks: int = DEFAULT_DILATED_BLOCKS,
@@ -159,8 +159,8 @@ class DilatedSegmentor(nn.Module):
             )
         rates = dilation_rates(blocks)
         body_width = base_width * _BODY_MULTIPLIER
-        # The stem is dense: separating four input bands saves almost nothing
-        # and discards the cross-band mixing the NIR plane exists to provide.
+        # The stem is dense so it mixes the input channels. The flight stem is
+        # three channels: BLUE, GREEN, and RED.
         stages: list[nn.Module] = [_block(in_channels, base_width, 2, 1, separable=False)]
         stages.append(_block(base_width, body_width, 2, 1, separable=separable))
         if output_stride == 8:
@@ -228,13 +228,13 @@ def parse_dilated(name: str) -> DilatedSpec:
 
 
 def build_dilated_segmentor(
-    spec: DilatedSpec, in_channels: int = 4, out_channels: int = 1
+    spec: DilatedSpec, in_channels: int = 3, out_channels: int = 1
 ) -> nn.Module:
     """Return an untrained :class:`DilatedSegmentor` for a parsed spec.
 
     Args:
         spec: Parsed dilated specification.
-        in_channels: Input band count (flight default 4).
+        in_channels: Input band count (flight default 3, BLUE/GREEN/RED).
         out_channels: Output plane count.
 
     Returns:

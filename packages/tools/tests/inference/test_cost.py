@@ -1,7 +1,7 @@
 """Parameter and FLOP count tests."""
 
-from tools.inference.arch.registry import build
 from tools.inference.cost import count_flops, count_params
+from tools.ml_models.arch.registry import build
 
 
 def test_unet_cost_at_32px() -> None:

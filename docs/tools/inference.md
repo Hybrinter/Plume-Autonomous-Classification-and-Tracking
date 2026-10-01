@@ -30,7 +30,6 @@ artifact acceptance, dataset preparation, and model metrics.
 | [`export`](inference/export.md) | module | ONNX export, FP16/INT8 conversion, manifest, and promote |
 | [`ort_providers`](inference/ort_providers.md) | module | TensorRT/CUDA/CPU provider preference for accept |
 | [`finalize`](inference/finalize.md) | module | Test eval, ONNX export, and acceptance for a trained run |
-| [`arch`](inference/arch.md) | package | Architecture builders and registry grammar |
 | [`cli`](inference/cli.md) | module | Typer commands for inference workflows |
 | [`__main__`](inference/__main__.md) | module | `python -m tools.inference` entry shim |
 
@@ -68,4 +67,5 @@ into classifier and segmentor packs with frozen splits.
 
 - [`tools`](../tools.md)
 - [`tools.analysis`](analysis.md)
+- [`tools.ml_models.arch`](ml_models/arch.md)
 - [`flight.payload.inference.verify`](../flight/payload/inference/verify.md)

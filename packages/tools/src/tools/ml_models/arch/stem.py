@@ -1,10 +1,10 @@
 """Band-count surgery for ImageNet-pretrained convolution stems.
 
-Torchvision backbones take three RGB planes. PACT feeds four planes ordered
-BLUE, GREEN, RED, NIR (`InferenceConfig.input_bands`). Replacing the stem with a
-randomly initialised convolution throws away the pretrained first layer and
-leaves the downstream batch-norm statistics mismatched, so this module remaps
-the pretrained kernel instead.
+Torchvision backbones take three RGB planes. The flight stem takes three planes
+ordered BLUE, GREEN, RED. Replacing the stem with a randomly initialised
+convolution throws away the pretrained first layer and leaves the downstream
+batch-norm statistics mismatched, so this module remaps the pretrained kernel
+instead.
 
 Two details make the transfer work:
 
@@ -31,7 +31,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-# PACT band order is BLUE, GREEN, RED, NIR; pretrained kernels are R, G, B.
+# Flight band order is BLUE, GREEN, RED; pretrained kernels are R, G, B.
 BAND_TO_RGB_INDEX: tuple[int, int, int] = (2, 1, 0)
 
 _RGB_CHANNELS = 3
@@ -46,9 +46,8 @@ def remap_stem_weight(weight: torch.Tensor, in_channels: int) -> torch.Tensor:
 
     Returns:
         torch.Tensor: (out, in_channels, kh, kw) kernel. The first three bands
-        take the pretrained columns under the PACT band permutation; any
-        further band takes the mean RGB column, which is the least-committal
-        initialisation for a plane with no pretrained counterpart (NIR).
+        take the pretrained columns under the BLUE, GREEN, RED permutation; any
+        further band takes the mean RGB column.
         The whole kernel is scaled by ``3 / in_channels`` so the summed
         response keeps the magnitude the downstream batch-norm statistics were
         fitted against.

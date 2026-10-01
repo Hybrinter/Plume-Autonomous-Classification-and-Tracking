@@ -23,7 +23,7 @@ them for model work. Each source writes its own dataset root: shards of
 | [`spec`](dataset/spec.md) | module | `BuildSpec` TOML schema for a build |
 | [`build`](dataset/build.md) | module | Build a finished dataset from any raw source |
 | [`loader`](dataset/loader.md) | module | Torch datasets and seeded single-shard batches |
-| [`sources`](dataset/sources.md) | package | Raw sources: flight tile directory and synthetic |
+| [`sources`](dataset/sources.md) | package | Raw sources: flight tile directory, synthetic, and Zenodo 4250706 |
 
 ## Package interface
 
@@ -32,7 +32,8 @@ import each module by name.
 
 ## Interactions
 
-`build` consumes a `RawSource` from `sources` and writes shards through
+`build` consumes a `RawSource` from `sources` (including the `zenodo`
+archive adapter) and writes shards through
 `store`, then writes `dataset.json` through `manifest`. `build` calls
 `preprocess`, `augment`, `split`, and `geometry`. `preprocess` calls
 `flight.payload.preprocess.normalize.normalize_dn`. `loader` reads

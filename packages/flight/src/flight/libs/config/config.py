@@ -172,6 +172,7 @@ class InferenceConfig:
     input_width_px: int = Field(default=2064, gt=0)
     use_int8: bool = False
     latency_budget_ms: float = Field(default=4.0, gt=0.0)
+    gsd_reference_m: float = Field(default=15.87, gt=0.0)
 
 
 @dataclass(frozen=True, config=_SCHEMA)

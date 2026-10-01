@@ -15,7 +15,7 @@ while a dataset is built, plus frame-to-tile slicing helpers.
 | `FRAME_H_PX` / `FRAME_W_PX` | constant | Flight frame 1544 by 2064 |
 | `GRID_ROWS` / `GRID_COLS` | constant | Tile grid 8 by 8 |
 | `TILE_H_PX` / `TILE_W_PX` | constant | Flight tile 193 by 258 |
-| `GSD_REFERENCE_M` | constant | Reference GSD of 15.87 metres |
+| `GSD_REFERENCE_M` | constant | Reference GSD of 15.87 metres, re-exported from `flight.payload.gimbal.footprint` |
 | `INPUT_BANDS` | constant | `BLUE`, `GREEN`, `RED` channel order |
 | `frame_hw` / `grid_hw` / `tile_hw` | function | Return the sizes above as tuples |
 | `slice_frame` | function | Cut one frame into 64 tiles |
@@ -52,7 +52,9 @@ The constants are fixed at module level. There is no TOML file.
 
 ## Constraints
 
-The constants stay local to this module until flight tiling publishes the
+`GSD_REFERENCE_M` comes from `flight.payload.gimbal.footprint` so the
+dataset build and inference share one reference. The frame and grid
+constants stay local to this module until flight tiling publishes the
 same numbers. This module does not import torch.
 
 ## Related documents
@@ -60,3 +62,4 @@ same numbers. This module does not import torch.
 - [`tools.ml_models.dataset`](../dataset.md)
 - [`tools.ml_models.dataset.build`](build.md)
 - [`tools.ml_models.dataset.sources.flight`](sources/flight.md)
+- [`flight.payload.gimbal.footprint`](../../../../flight/payload/gimbal/footprint.md)

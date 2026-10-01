@@ -2,7 +2,7 @@
 
 Contains:
   - build_dataset: validate, split, normalize, augment, and write shards.
-  - build_flight, build_synthetic: source-specific wrappers.
+  - build_flight, build_synthetic, build_zenodo: source-specific wrappers.
 
 The build writes a sibling temporary directory and renames it onto ``dest``
 only after ``dataset.json`` is in place. A failure removes the temporary
@@ -15,7 +15,7 @@ import math
 import os
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +31,7 @@ from tools.ml_models.dataset.manifest import (
     write_manifest,
 )
 from tools.ml_models.dataset.preprocess import IMAGE_SCALE, quantize_unit, to_unit
-from tools.ml_models.dataset.raw import RawSource, RawTile, RawTileRef
+from tools.ml_models.dataset.raw import BinSpec, RawSource, RawTile, RawTileRef
 from tools.ml_models.dataset.sources.flight import FlightTileDir
 from tools.ml_models.dataset.sources.synthetic import SyntheticSource
 from tools.ml_models.dataset.spec import BuildSpec
@@ -155,6 +155,53 @@ def build_synthetic(
     """
     source = SyntheticSource(n=n, seed=seed, label=label)
     resolved = BuildSpec() if spec is None else spec
+    return build_dataset(source, dest, resolved)
+
+
+def build_zenodo(
+    images_tar: str | Path,
+    labels_tar: str | Path,
+    weights_path: str | Path,
+    dest: str | Path,
+    spec: BuildSpec | None = None,
+    bins: tuple[BinSpec, ...] | None = None,
+) -> DatasetManifest:
+    """Build a dataset from the Zenodo 4250706 archives.
+
+    Args:
+        images_tar: Image archive of class-directory GeoTIFFs.
+        labels_tar: Label Studio annotation archive.
+        weights_path: Prism weight table TOML.
+        dest: Finished dataset directory.
+        spec: Build specification. The default spec is used when None.
+        bins: GSD bins to emit. ``DEFAULT_BINS`` when None.
+
+    Returns:
+        DatasetManifest: Written identity.
+
+    Raises:
+        FileExistsError: If ``dest`` already exists.
+        FileNotFoundError: If an archive or the weight table is missing.
+        ValueError: If ``spec.weight_table_id`` names a different table, or
+            the raw contract fails.
+    """
+    from tools.ml_models.dataset.sources.zenodo.adapt import ZenodoSource
+    from tools.ml_models.dataset.sources.zenodo.bins import DEFAULT_BINS
+    from tools.ml_models.dataset.sources.zenodo.prism import load_weight_table
+
+    source = ZenodoSource(
+        images_tar,
+        labels_tar,
+        load_weight_table(weights_path),
+        DEFAULT_BINS if bins is None else bins,
+    )
+    resolved = BuildSpec() if spec is None else spec
+    if resolved.weight_table_id and resolved.weight_table_id != source.weight_table_id:
+        raise ValueError(
+            f"spec weight_table_id {resolved.weight_table_id!r} "
+            f"!= weight table {source.weight_table_id!r}"
+        )
+    resolved = replace(resolved, weight_table_id=source.weight_table_id)
     return build_dataset(source, dest, resolved)
 
 

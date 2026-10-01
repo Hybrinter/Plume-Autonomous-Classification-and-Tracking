@@ -16,7 +16,7 @@ uint16 storage grid, and encodes GSD for the model.
 | `to_unit` | function | DN or unit image to float32 unit interval |
 | `quantize_unit` | function | Unit image to uint16 storage grid |
 | `dequantize_unit` | function | Stored uint16 back to float32 unit |
-| `to_model_gsd` | function | `ln(gsd / gsd_reference_m)` per component |
+| `to_model_gsd` | function | `ln(gsd / gsd_reference_m)` per component, delegated to flight |
 
 ## Inputs and outputs
 
@@ -32,7 +32,9 @@ Domain `dn` passes the image and bit depth through
 
 `to_model_gsd(gsd_m, reference_m) -> np.ndarray[float32, (..., 2)]` takes
 lateral then along-track metres along a trailing length-2 axis and returns
-the log ratio to the reference.
+the log ratio to the reference. The computation delegates to
+`flight.payload.gimbal.footprint.to_model_gsd`; an `Err` result surfaces
+as `ValueError`.
 
 ## Behavior
 
@@ -63,7 +65,8 @@ None.
 ## Constraints
 
 This module calls `flight.payload.preprocess.normalize.normalize_dn` for
-the `dn` domain. It does not import torch.
+the `dn` domain and `flight.payload.gimbal.footprint.to_model_gsd` for the
+GSD encoding. It does not import torch.
 
 ## Related documents
 
@@ -71,3 +74,4 @@ the `dn` domain. It does not import torch.
 - [`tools.ml_models.dataset.build`](build.md)
 - [`tools.ml_models.dataset.loader`](loader.md)
 - [`flight.payload.preprocess.normalize`](../../../../flight/payload/preprocess/normalize.md)
+- [`flight.payload.gimbal.footprint`](../../../../flight/payload/gimbal/footprint.md)

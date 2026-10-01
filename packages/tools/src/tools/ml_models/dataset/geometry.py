@@ -7,13 +7,32 @@ Contains:
   - slice_frame, stitch_tiles.
 
 H is along-track and W is lateral. The 1544 by 2064 frame divides into an
-8 by 8 grid of 193 by 258 tiles. These constants stay local until flight
-tiling is the source of the same numbers.
+8 by 8 grid of 193 by 258 tiles. ``GSD_REFERENCE_M`` is re-exported from
+``flight.payload.gimbal.footprint`` so build and inference share one
+reference. The frame and grid constants stay local until flight tiling is
+the source of the same numbers.
 """
 
 from __future__ import annotations
 
 import numpy as np
+from flight.payload.gimbal.footprint import GSD_REFERENCE_M
+
+__all__ = [
+    "FRAME_H_PX",
+    "FRAME_W_PX",
+    "GRID_COLS",
+    "GRID_ROWS",
+    "GSD_REFERENCE_M",
+    "INPUT_BANDS",
+    "TILE_H_PX",
+    "TILE_W_PX",
+    "frame_hw",
+    "grid_hw",
+    "slice_frame",
+    "stitch_tiles",
+    "tile_hw",
+]
 
 FRAME_H_PX = 1544
 FRAME_W_PX = 2064
@@ -21,7 +40,6 @@ GRID_ROWS = 8
 GRID_COLS = 8
 TILE_H_PX = FRAME_H_PX // GRID_ROWS
 TILE_W_PX = FRAME_W_PX // GRID_COLS
-GSD_REFERENCE_M = 15.87
 INPUT_BANDS: tuple[str, ...] = ("BLUE", "GREEN", "RED")
 
 

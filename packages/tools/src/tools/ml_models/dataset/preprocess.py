@@ -14,9 +14,9 @@ stored value back onto the DN grid.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
+from flight.libs.types import Err
+from flight.payload.gimbal.footprint import to_model_gsd as _flight_to_model_gsd
 from flight.payload.preprocess.normalize import normalize_dn
 
 IMAGE_SCALE = 65535
@@ -74,6 +74,9 @@ def dequantize_unit(image: np.ndarray) -> np.ndarray:
 def to_model_gsd(gsd_m: np.ndarray, reference_m: float) -> np.ndarray:
     """Encode metres of GSD as a log ratio to the flight reference.
 
+    Delegates to ``flight.payload.gimbal.footprint.to_model_gsd`` so the
+    training encoding and the flight encoding share one formula.
+
     Args:
         gsd_m: np.ndarray[float32, (..., 2)] lateral then along-track metres.
         reference_m: Positive reference GSD in metres.
@@ -82,18 +85,10 @@ def to_model_gsd(gsd_m: np.ndarray, reference_m: float) -> np.ndarray:
         np.ndarray[float32, (..., 2)]: ``ln(gsd_m / reference_m)``.
 
     Raises:
-        ValueError: If the reference or any GSD component is not finite and
-            greater than 0.
+        ValueError: If the reference is not finite and greater than 0, or the
+            array lacks a trailing length-2 axis of finite positive metres.
     """
-    if not math.isfinite(reference_m) or reference_m <= 0.0:
-        raise ValueError(f"gsd reference must be finite and > 0; got {reference_m}")
-    values = np.asarray(gsd_m, dtype=np.float32)
-    if (
-        values.ndim < 1
-        or values.shape[-1] != 2
-        or values.size == 0
-        or not np.all(np.isfinite(values))
-        or np.any(values <= 0.0)
-    ):
-        raise ValueError("gsd metres must be finite and > 0")
-    return np.asarray(np.log(values / np.float32(reference_m))).astype(np.float32)
+    encoded = _flight_to_model_gsd(gsd_m, reference_m)
+    if isinstance(encoded, Err):
+        raise ValueError("gsd metres must be finite, > 0, with a trailing length-2 axis")
+    return encoded.value

@@ -14,6 +14,7 @@ root after every shard has been closed.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +27,11 @@ _ROW_KEYS: tuple[str, ...] = (
     "grid_rc",
     "bin_id",
     "element",
+    "theta_g_deg",
+    "gsd_nominal",
 )
+
+_ROW_REQUIRED: tuple[str, ...] = _ROW_KEYS[:6]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +45,8 @@ class RowRecord:
         grid_rc: ``(row, col)`` or None.
         bin_id: GSD bin name. Empty when the source has no bins.
         element: Dihedral element. Val and test store ``id``.
+        theta_g_deg: Gimbal elevation in degrees, or None when unrecorded.
+        gsd_nominal: True when the row GSD is nominal orbit geometry.
     """
 
     tile_id: str
@@ -48,6 +55,8 @@ class RowRecord:
     grid_rc: tuple[int, int] | None
     bin_id: str
     element: str
+    theta_g_deg: float | None = None
+    gsd_nominal: bool = False
 
 
 class ShardWriter:
@@ -231,7 +240,7 @@ def read_rows(shard_dir: Path) -> tuple[RowRecord, ...]:
         if not isinstance(raw, dict):
             raise ValueError("rows.jsonl lines must be objects")
         extra = sorted(set(raw) - set(_ROW_KEYS))
-        if extra or any(key not in raw for key in _ROW_KEYS):
+        if extra or any(key not in raw for key in _ROW_REQUIRED):
             raise ValueError(f"rows.jsonl keys must be {_ROW_KEYS}")
         rows.append(_row_from_payload(raw))
     return tuple(rows)
@@ -305,6 +314,8 @@ def _row_payload(row: RowRecord) -> dict[str, object]:
         "grid_rc": grid,
         "bin_id": row.bin_id,
         "element": row.element,
+        "theta_g_deg": row.theta_g_deg,
+        "gsd_nominal": row.gsd_nominal,
     }
 
 
@@ -326,12 +337,22 @@ def _row_from_payload(raw: dict[str, object]) -> RowRecord:
     grid = raw["grid_rc"]
     bin_id = raw["bin_id"]
     element = raw["element"]
+    theta_g_deg = raw.get("theta_g_deg")
+    gsd_nominal = raw.get("gsd_nominal", False)
     if not isinstance(tile_id, str) or not isinstance(group_id, str):
         raise ValueError("tile_id and group_id must be strings")
     if frame_id is not None and not isinstance(frame_id, str):
         raise ValueError("frame_id must be a string or null")
     if not isinstance(bin_id, str) or not isinstance(element, str):
         raise ValueError("bin_id and element must be strings")
+    if theta_g_deg is not None:
+        if isinstance(theta_g_deg, bool) or not isinstance(theta_g_deg, int | float):
+            raise ValueError("theta_g_deg must be a number or null")
+        theta_g_deg = float(theta_g_deg)
+        if not math.isfinite(theta_g_deg):
+            raise ValueError("theta_g_deg must be finite")
+    if not isinstance(gsd_nominal, bool):
+        raise ValueError("gsd_nominal must be a boolean")
     return RowRecord(
         tile_id=tile_id,
         group_id=group_id,
@@ -339,6 +360,8 @@ def _row_from_payload(raw: dict[str, object]) -> RowRecord:
         grid_rc=_grid_rc(grid),
         bin_id=bin_id,
         element=element,
+        theta_g_deg=theta_g_deg,
+        gsd_nominal=gsd_nominal,
     )
 
 

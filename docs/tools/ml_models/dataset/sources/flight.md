@@ -26,7 +26,8 @@ source_ref="", gsd_reference_m=15.87)` creates `dest` with `source.json`,
 `source.json` keys are `band_names`, `bit_depth`, `source_ref`, and
 `gsd_reference_m`. An `index.jsonl` row carries `tile_id`, `frame_id`,
 `row`, `col`, `group_id`, `label`, `has_mask`, `theta_g_deg`,
-`gsd_lateral_m`, and `gsd_along_m`.
+`gsd_lateral_m`, `gsd_along_m`, and the optional boolean `gsd_nominal`
+(default False).
 
 `FlightTileDir(root)` exposes `name` `flight`, `domain` `dn`, `extent_m`
 None, empty `bins`, and `gsd_reference_m` from `source.json`. `index()`
@@ -42,8 +43,12 @@ index order, reading one `.npy` at a time.
 3. A `tile_id` must be a file stem: non-empty, unique, not `.` or `..`,
    and free of path separators. `row` and `col` must lie in 0..7.
 4. A missing `group_id` in `index.jsonl` defaults to `frame_id`.
-5. `grid_rc` is the `(row, col)` pair. `bin_id` is always empty; the
-   source has a single geometry.
+5. `grid_rc` is the `(row, col)` pair. `theta_g_deg` passes through to
+   the ref, and `bin_id` is `elevation{nearest}` for the nearest of
+   (5, 15, 25, 35, 45) degrees, ties choosing the smaller value.
+6. `gsd_nominal` marks tiles whose GSD is nominal orbit geometry;
+   `build_flight` rejects them, while a custom research source built
+   through `build_dataset` may keep the flag.
 
 ## Errors and faults
 

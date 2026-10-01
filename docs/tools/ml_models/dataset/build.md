@@ -24,7 +24,9 @@ already exist.
 
 `build_flight(source_dir, dest, spec=None) -> DatasetManifest`. The
 default `BuildSpec` applies when `spec` is None. The flight
-`gsd_reference_m` in `source.json` must equal `spec.gsd_reference_m`.
+`gsd_reference_m` in `source.json` must equal `spec.gsd_reference_m`,
+and no index row may carry `gsd_nominal` — nominal captures belong to a
+custom research source built through `build_dataset`.
 
 `build_synthetic(dest, spec=None, n=12, seed=0, label=None) ->
 DatasetManifest`. `n` must be at least 3. `seed` drives the image noise.
@@ -46,7 +48,9 @@ is rejected. Zenodo imports are lazy inside the wrapper.
    be `dn` or `unit`. The index must be non-empty with unique non-empty
    `tile_id` values and non-empty `group_id` values.
 3. Per-row geometry: GSD components must be finite and positive, labels
-   must be `0.0` or `1.0`. With no `extent_m` the tile size is the flight
+   must be `0.0` or `1.0`, and `theta_g_deg` must be finite when present.
+   Each ref's `theta_g_deg` and `gsd_nominal` copy onto the stored row.
+   With no `extent_m` the tile size is the flight
    193 by 258. With `extent_m` `(lateral, along)`, the size is
    `round(extent / gsd)` per axis, and the stored GSD is `extent / pixels`.
 4. `assign_group_splits` assigns one split per group. Val and test rows

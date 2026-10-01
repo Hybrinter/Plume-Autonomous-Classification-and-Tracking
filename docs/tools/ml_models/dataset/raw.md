@@ -31,7 +31,10 @@ along_m)` ground window or None when every tile is the flight 193 by 258
 size. `bins` is empty when the source has no named bins.
 
 `RawTileRef` fields: `tile_id`, `group_id`, `label`, `has_mask`, `gsd`,
-`frame_id`, `grid_rc`, `bin_id`. `RawTile.image` is `(3, H, W)` in the
+`frame_id`, `grid_rc`, `bin_id`, `theta_g_deg`, and `gsd_nominal`.
+`theta_g_deg` is the gimbal elevation in degrees or None when the source
+does not record one; `gsd_nominal` marks nominal orbit geometry when the
+capture did not carry a measured value. `RawTile.image` is `(3, H, W)` in the
 source domain. `RawTile.mask` is `(1, H, W)` or None and is present
 exactly when `has_mask` is True.
 

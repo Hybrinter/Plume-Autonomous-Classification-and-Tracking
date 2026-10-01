@@ -31,6 +31,7 @@ GRID = (8, 8)
 FRAME_HW = (1544, 2064)
 COVERAGE_ALTITUDE_M = 460_000.0
 _QUANTIZATION = "fp32"
+_QUANTIZATIONS: frozenset[str] = frozenset({"fp32", "fp16", "int8"})
 _SCHEMA = ConfigDict(extra="forbid")
 _HEX = frozenset("0123456789abcdefABCDEF")
 _FAMILY_PREFIX = {"classifier": "pactnet", "segmentor": "dilatenet"}
@@ -120,6 +121,8 @@ class ModelManifest:
             raise ValueError("output_type must be 'float32'")
         if self.norm != "unit":
             raise ValueError("norm must be 'unit'")
+        if self.quantization not in _QUANTIZATIONS:
+            raise ValueError(f"quantization must be one of {sorted(_QUANTIZATIONS)}")
         if tuple(self.band_names) != BAND_NAMES:
             raise ValueError(f"band_names must be {BAND_NAMES}; got {self.band_names}")
         if not math.isfinite(self.gsd_reference_m) or self.gsd_reference_m <= 0.0:

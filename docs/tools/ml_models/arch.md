@@ -42,6 +42,5 @@ graphs emit logits. Flight applies sigmoid on the segmentor output.
 ## Related documents
 
 - [`tools.ml_models`](../ml_models.md)
-- [`tools.inference`](../inference.md)
-- [`tools.inference.train`](../inference/train.md)
-- [`tools.inference.export`](../inference/export.md)
+- [`tools.ml_models.train`](train.md)
+- [`tools.ml_models.export`](export.md)

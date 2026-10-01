@@ -46,6 +46,8 @@ def rasterize_percent_mask(
     tile_hw: tuple[int, int],
     *,
     rule: str = "half",
+    source_hw: tuple[int, int] | None = None,
+    fitted_hw: tuple[int, int] | None = None,
 ) -> np.ndarray:
     """Supersample each cell on a 4-by-4 grid and union polygons before thresholding."""
     from matplotlib.path import Path
@@ -58,6 +60,19 @@ def rasterize_percent_mask(
     ys = (np.arange(height)[:, None] + offsets).reshape(-1) * (100 / height)
     x, y = np.meshgrid(xs, ys)
     samples = np.column_stack((x.ravel(), y.ravel()))
+    if (source_hw is None) != (fitted_hw is None):
+        raise ValueError("source and fitted mask geometry must be specified together")
+    if source_hw is not None and fitted_hw is not None:
+        if min(*source_hw, *fitted_hw) < 1:
+            raise ValueError("mask fitting dimensions must be positive")
+        # Undo the image's origin crop / edge pad before testing percentage polygons.
+        for axis, source, fitted in (
+            (0, source_hw[1], fitted_hw[1]),
+            (1, source_hw[0], fitted_hw[0]),
+        ):
+            pixels = samples[:, axis] * fitted / 100
+            pixels = np.where(pixels >= source, source - 0.5, pixels)
+            samples[:, axis] = pixels * 100 / source
     inside = np.zeros(len(samples), dtype=bool)
     for polygon in polygons:
         points = np.asarray(polygon, dtype=np.float64)

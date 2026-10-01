@@ -8,10 +8,11 @@ import numpy as np
 import pytest
 from tools.ml_models.cli import main
 from tools.ml_models.dataset.augment import ELEMENT_NAMES, SHAPE_PRESERVING
-from tools.ml_models.dataset.build import build_dataset
+from tools.ml_models.dataset.build import build_dataset, build_flight
 from tools.ml_models.dataset.manifest import check_compatible, load_manifest
 from tools.ml_models.dataset.preprocess import quantize_unit, to_unit
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
+from tools.ml_models.dataset.sources.flight import FlightTileWrite, write_flight_tile_dir
 from tools.ml_models.dataset.spec import BuildSpec
 from tools.ml_models.dataset.store import RowRecord, read_images, read_rows
 
@@ -389,3 +390,76 @@ def test_cli_reports_bad_dataset_args(tmp_path: Path) -> None:
         ]
     )
     assert missing_source != 0
+
+
+def _flight_tile(index: int, **overrides: object) -> FlightTileWrite:
+    """One flight tile write for ``build_flight`` tests."""
+    fields: dict[str, object] = {
+        "tile_id": f"f{index // 8}-{index % 8}-{index}",
+        "frame_id": f"f{index // 8}",
+        "row": index % 8,
+        "col": index % 8,
+        "label": 1.0,
+        "theta_g_deg": 15.0,
+        "gsd": GsdPair(15.87, 15.87),
+        "image": np.full((3, 193, 258), 10, dtype=np.uint16),
+    }
+    fields.update(overrides)
+    return FlightTileWrite(**fields)  # type: ignore[arg-type]
+
+
+def test_build_flight_rejects_nominal_rows(tmp_path: Path) -> None:
+    """The standard flight build refuses nominal-GSD captures."""
+    source_dir = tmp_path / "flight-src"
+    write_flight_tile_dir(source_dir, [_flight_tile(0), _flight_tile(1, gsd_nominal=True)])
+    with pytest.raises(ValueError, match="nominal"):
+        build_flight(source_dir, tmp_path / "ds")
+
+
+def _research_tile(tile_id: str, group_id: str, **ref_overrides: object) -> RawTile:
+    """One 4x8 research-source tile with overridable ref fields."""
+    fields: dict[str, object] = {
+        "tile_id": tile_id,
+        "group_id": group_id,
+        "label": 1.0,
+        "has_mask": False,
+        "gsd": GsdPair(10.0, 20.0),
+        "frame_id": group_id,
+        "grid_rc": (0, 0),
+        "bin_id": "",
+    }
+    fields.update(ref_overrides)
+    return RawTile(
+        ref=RawTileRef(**fields),  # type: ignore[arg-type]
+        image=np.full((3, 4, 8), 5, dtype=np.uint16),
+        mask=None,
+    )
+
+
+def test_research_source_records_nominal_flag(tmp_path: Path) -> None:
+    """A custom research source keeps gsd_nominal and theta on the row."""
+    tiles = tuple(_research_tile(f"t{index}", f"g{index}") for index in range(3)) + (
+        _research_tile("t-nominal", "g0", theta_g_deg=30.0, gsd_nominal=True),
+    )
+    source = MemorySource(tiles, extent_m=(80.0, 80.0))
+    dest = tmp_path / "ds"
+    build_dataset(source, dest, BuildSpec())
+    rows = [
+        row
+        for rows in _rows_by_split(dest, "classifier").values()
+        for row in rows
+        if row.tile_id == "t-nominal" and row.element == "id"
+    ]
+    assert len(rows) == 1
+    assert rows[0].gsd_nominal is True
+    assert rows[0].theta_g_deg == 30.0
+
+
+def test_build_rejects_non_finite_theta(tmp_path: Path) -> None:
+    """A non-finite theta_g_deg fails the build."""
+    tiles = tuple(_research_tile(f"t{index}", f"g{index}") for index in range(3)) + (
+        _research_tile("t-bad", "g0", theta_g_deg=float("nan")),
+    )
+    source = MemorySource(tiles, extent_m=(80.0, 80.0))
+    with pytest.raises(ValueError, match="theta_g_deg"):
+        build_dataset(source, tmp_path / "ds", BuildSpec())

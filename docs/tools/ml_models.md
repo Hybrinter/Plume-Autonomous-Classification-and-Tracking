@@ -16,7 +16,9 @@ for model workflows.
 | [`arch`](ml_models/arch.md) | package | Segmentor and classifier network builders |
 | [`train`](ml_models/train.md) | package | GSD-conditioned training loop, evaluation, and metrics |
 | [`export`](ml_models/export.md) | package | Two-input ONNX export, manifests, acceptance, and pair gates |
-| [`cli`](ml_models/cli.md) | module | `python -m tools.ml_models` dataset, train, export, accept, and pair commands |
+| [`analysis`](ml_models/analysis.md) | package | Run accounting, Pareto ranking, and full-frame evaluation |
+| [`studies`](ml_models/studies.md) | package | Offline band and GSD studies over shared dataset sources |
+| [`cli`](ml_models/cli.md) | module | `python -m tools.ml_models` dataset, train, export, accept, pair, convert, and frame-eval commands |
 | [`__main__`](ml_models/__main__.md) | module | `python -m tools.ml_models` entry shim |
 
 ## Package interface
@@ -37,8 +39,9 @@ import `flight`. `tools.ml_models.export` is the exception for
 from `flight.payload.inference.contract` so the graph contract has one
 implementation. `tools.ml_models.cli` calls
 `tools.ml_models.dataset.build`, `tools.ml_models.train.loop`, and the
-`tools.ml_models.export` modules. The
-root tools CLI mounts `tools.ml_models.cli` as `ml-models`.
+`tools.ml_models.export` and `tools.ml_models.analysis` modules.
+`tools.ml_models.studies` does not import `flight` or `tools.analysis`.
+The root tools CLI mounts `tools.ml_models.cli` as `ml-models`.
 
 ## Constraints
 

@@ -9,10 +9,10 @@ DISABLE_WAITING: bool
 OUTPUT_TO_CONSOLE: bool
 
 class Units(Enum):
-    deg: Units
+    deg = ...
 
 class Stage(Enum):
-    XRTU_40_109: Stage
+    XRTU_40_109 = ...
 
 class Axis:
     def findIndex(self, forceWaiting: bool = ..., direction: int = ...) -> bool: ...

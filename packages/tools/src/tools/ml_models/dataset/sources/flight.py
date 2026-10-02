@@ -44,7 +44,8 @@ _INDEX_REQUIRED: tuple[str, ...] = (
     "gsd_lateral_m",
     "gsd_along_m",
 )
-_INDEX_OPTIONAL: tuple[str, ...] = ("group_id",)
+_INDEX_OPTIONAL: tuple[str, ...] = ("group_id", "gsd_nominal")
+_ELEVATION_BINS: tuple[int, ...] = (5, 15, 25, 35, 45)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +64,8 @@ class FlightTileWrite:
         mask: np.ndarray[uint8, (193, 258)] or ``(1, 193, 258)``. None when
             the tile has no mask.
         group_id: Split group. None stores ``frame_id``.
+        gsd_nominal: True when ``gsd`` is nominal orbit geometry rather than
+            measured capture geometry.
     """
 
     tile_id: str
@@ -75,6 +78,7 @@ class FlightTileWrite:
     image: np.ndarray
     mask: np.ndarray | None = None
     group_id: str | None = None
+    gsd_nominal: bool = False
 
 
 def write_flight_tile_dir(
@@ -149,6 +153,7 @@ def write_flight_tile_dir(
                     "theta_g_deg": tile.theta_g_deg,
                     "gsd_lateral_m": tile.gsd.lateral_m,
                     "gsd_along_m": tile.gsd.along_m,
+                    "gsd_nominal": tile.gsd_nominal,
                 },
                 separators=(",", ":"),
             )
@@ -283,6 +288,8 @@ def _validate_write(
         )
     if not math.isfinite(tile.label) or not math.isfinite(tile.theta_g_deg):
         raise ValueError("label and theta_g_deg must be finite")
+    if not isinstance(tile.gsd_nominal, bool):
+        raise ValueError("gsd_nominal must be a boolean")
     if not math.isfinite(tile.gsd.lateral_m) or tile.gsd.lateral_m <= 0.0:
         raise ValueError("gsd lateral_m must be finite and > 0")
     if not math.isfinite(tile.gsd.along_m) or tile.gsd.along_m <= 0.0:
@@ -359,7 +366,9 @@ def _load_index(path: Path) -> tuple[RawTileRef, ...]:
             raise ValueError(
                 f"flight grid indices must lie in row 0..{GRID_ROWS - 1}, col 0..{GRID_COLS - 1}"
             )
-        _require_float(raw["theta_g_deg"], "theta_g_deg")
+        theta_g_deg = _require_float(raw["theta_g_deg"], "theta_g_deg")
+        gsd_nominal = _require_bool(raw.get("gsd_nominal", False), "gsd_nominal")
+        nearest = min(_ELEVATION_BINS, key=lambda elevation: abs(theta_g_deg - elevation))
         refs.append(
             RawTileRef(
                 tile_id=tile_id,
@@ -372,7 +381,9 @@ def _load_index(path: Path) -> tuple[RawTileRef, ...]:
                 ),
                 frame_id=frame_id,
                 grid_rc=(row, col),
-                bin_id="",
+                bin_id=f"elevation{nearest}",
+                theta_g_deg=theta_g_deg,
+                gsd_nominal=gsd_nominal,
             )
         )
     if not refs:

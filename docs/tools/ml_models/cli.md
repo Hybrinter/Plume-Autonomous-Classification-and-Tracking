@@ -7,8 +7,9 @@
 
 This module is the `python -m tools.ml_models` command line. It builds a
 finished dataset from a raw tile source, trains models on finished
-datasets, exports two-input ONNX artifacts, gates acceptance, and writes
-classifier/segmentor pair manifests.
+datasets, exports two-input ONNX artifacts, gates acceptance, writes
+classifier/segmentor pair manifests, converts artifact precision, and
+runs the full-frame evaluation.
 
 ## Public interface
 
@@ -22,6 +23,8 @@ classifier/segmentor pair manifests.
 | `export_command` | function | `export` command |
 | `accept_command` | function | `accept` command |
 | `pair_command` | function | `pair` command |
+| `convert_command` | function | `convert` command |
+| `frame_eval_command` | function | `frame-eval` command |
 | `main` | function | Module entry point returning an exit code |
 
 ## Inputs and outputs
@@ -78,6 +81,22 @@ classifier/segmentor pair manifests.
 - `--classifier-sidecar`, `--segmentor-sidecar`: model sidecars. Required.
 - `--out`: destination pair manifest JSON. Required.
 - `--allow-partial-gsd`: emit the manifest and record the coverage gap.
+
+`convert` options:
+
+- `--precision`: `fp16` or `int8`. Required.
+- `--source`: source ONNX artifact with its sibling sidecar. Required.
+- `--out`: new destination ONNX artifact. Required.
+- `--dataset`: finished dataset directory, repeatable; required for
+  `int8`.
+- `--calib-samples`: INT8 calibration sample count, default 32.
+
+`frame-eval` options:
+
+- `--dataset`: finished dataset directory. Required.
+- `--classifier-checkpoint`: conditioned classifier checkpoint. Required.
+- `--segmentor-checkpoint`: conditioned segmentor checkpoint. Required.
+- `--out`: destination report JSON. Required; must not exist.
 
 `main(argv=None) -> int` returns a process exit code.
 

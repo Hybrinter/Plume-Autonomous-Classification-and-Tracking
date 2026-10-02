@@ -121,6 +121,8 @@ def build_flight(
             or the raw contract fails.
     """
     source = FlightTileDir(source_dir)
+    if any(ref.gsd_nominal for ref in source.index()):
+        raise ValueError("nominal GSD rows cannot enter the standard flight dataset")
     resolved = BuildSpec() if spec is None else spec
     if source.gsd_reference_m != resolved.gsd_reference_m:
         raise ValueError(
@@ -618,6 +620,8 @@ def _append_planned(
             raise ValueError(f"{tile.ref.tile_id} segmentor row is missing a mask")
         transformed = apply_dihedral(tile.mask, item.element)
         mask = transformed.astype(np.uint8)
+    if tile.ref.theta_g_deg is not None and not math.isfinite(tile.ref.theta_g_deg):
+        raise ValueError(f"{tile.ref.tile_id} theta_g_deg must be finite")
     row = RowRecord(
         tile_id=tile.ref.tile_id,
         group_id=tile.ref.group_id,
@@ -625,6 +629,8 @@ def _append_planned(
         grid_rc=tile.ref.grid_rc,
         bin_id=tile.ref.bin_id,
         element=item.element,
+        theta_g_deg=tile.ref.theta_g_deg,
+        gsd_nominal=tile.ref.gsd_nominal,
     )
     key = (item.task, item.split, item.height, item.width)
     writers[key].append(

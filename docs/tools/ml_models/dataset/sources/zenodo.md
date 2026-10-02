@@ -20,6 +20,7 @@ member extracts to disk.
 | [`annotations`](zenodo/annotations.md) | module | Label Studio polygons and mask rasterize |
 | [`bins`](zenodo/bins.md) | module | Native and flight-elevation GSD bins |
 | [`adapt`](zenodo/adapt.md) | module | `ZenodoSource` raw source |
+| [`fetch`](zenodo/fetch.md) | module | Checksum manifest, download, and verify |
 
 ## Package interface
 

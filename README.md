@@ -141,25 +141,37 @@ A CUDA-enabled install prints a `+cu130` version tag on both Windows and Linux. 
 `True` once an NVIDIA GPU and a matching driver are present. The train loop selects CUDA when it is
 available; pass `--device` to override.
 
-Run inference engineering workflows through the installed tools command:
+Build a finished dataset from reviewed examples, then train and export through
+the model tools command:
 
 ```bash
-pact-tools inference fetch
-pact-tools inference train --kind segmentor --out artifacts/segmentor.pt
-pact-tools inference export \
-  --kind segmentor \
-  --checkpoint artifacts/segmentor.pt \
+pact-tools ml-models dataset build --source flight \
+  --source-dir raw/reviewed-flight --out datasets/flight
+pact-tools ml-models train --kind segmentor --dataset datasets/flight \
+  --run-id segmentor
+pact-tools ml-models export \
+  --checkpoint artifacts/runs/segmentor/checkpoints/last.pt \
   --out artifacts/segmentor.onnx
+pact-tools ml-models accept --artifact artifacts/segmentor.onnx \
+  --manifest artifacts/segmentor.json --dataset datasets/flight
 ```
 
-Flight expects dynamic-batch `image` and `gsd` inputs, with 193×258 image tiles
+Repeat training, export, and acceptance for the classifier, then use
+`pact-tools ml-models pair` with both sidecars to create the deployment manifest.
+Export and pairing check training GSD coverage. `--allow-partial-gsd` records an
+explicit coverage exception; `--dynamic-spatial` creates a research export that
+cannot pass flight promotion or pairing. Export and pairing write artifacts;
+they do not activate models on the payload.
+
+Flight expects dynamic-batch `image` and `gsd` inputs, with fixed 193×258 image tiles
 for the default 1544×2064 frame and 8×8 grid. GSD is lateral/along-track metres
 encoded as `ln(gsd / gsd_reference_m)`. The checked-in factory graphs at
 `data/models/active_classifier.onnx` and `data/models/active_segmentor.onnx`
 use the previous single-input contract and are rejected by the new loader.
 Compatible trained artifacts are required for `compute=real`; scripted SIL
-exercises the tiled path without those artifacts. The commands above belong
-to the legacy ground workflow and do not produce the new flight pair.
+exercises the tiled path without those artifacts. Ground dataset geometry and
+full-frame evaluation reuse flight processing APIs. The retired `tools.inference`
+workflow is replaced by `tools.ml_models`.
 
 Training-example collection, configurable negative/positive balancing,
 training-example storage, and downlink are deferred. Flight owns these

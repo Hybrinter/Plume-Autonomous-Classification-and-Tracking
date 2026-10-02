@@ -157,3 +157,89 @@ def test_index_rows_must_use_stems_and_grid_bounds(tmp_path: Path) -> None:
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="0..7"):
         FlightTileDir(dest)
+
+
+def _single_tile(theta_g_deg: float = 15.0, **overrides: object) -> FlightTileWrite:
+    """One minimal valid flight tile with ``theta_g_deg`` degrees."""
+    fields: dict[str, object] = {
+        "tile_id": "t0",
+        "frame_id": "frame-a",
+        "row": 0,
+        "col": 0,
+        "label": 1.0,
+        "theta_g_deg": theta_g_deg,
+        "gsd": GsdPair(15.87, 15.87),
+        "image": _image(1),
+    }
+    fields.update(overrides)
+    return FlightTileWrite(**fields)  # type: ignore[arg-type]
+
+
+def test_theta_maps_to_nearest_elevation_bin(tmp_path: Path) -> None:
+    """bin_id is elevation{nearest} with ties choosing the smaller value."""
+    cases = {
+        -5.0: "elevation5",
+        5.0: "elevation5",
+        9.9: "elevation5",
+        10.0: "elevation5",
+        10.1: "elevation15",
+        15.0: "elevation15",
+        20.0: "elevation15",
+        25.0: "elevation25",
+        30.0: "elevation25",
+        33.0: "elevation35",
+        40.0: "elevation35",
+        45.0: "elevation45",
+        90.0: "elevation45",
+    }
+    tiles = [_single_tile(theta, tile_id=f"t{index}") for index, theta in enumerate(cases)]
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, tiles)
+    refs = FlightTileDir(dest).index()
+    for ref, expected in zip(refs, cases.values(), strict=True):
+        assert ref.bin_id == expected
+        assert ref.gsd_nominal is False
+
+
+def test_gsd_nominal_round_trip(tmp_path: Path) -> None:
+    """The writer emits gsd_nominal and the reader returns it strictly."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile(gsd_nominal=True)])
+    payload = json.loads((dest / "index.jsonl").read_text(encoding="utf-8").strip())
+    assert payload["gsd_nominal"] is True
+    ref = FlightTileDir(dest).index()[0]
+    assert ref.gsd_nominal is True
+    assert ref.theta_g_deg == 15.0
+
+
+def test_gsd_nominal_must_be_a_boolean(tmp_path: Path) -> None:
+    """Non-boolean gsd_nominal values in index.jsonl are rejected."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile()])
+    path = dest / "index.jsonl"
+    original = json.loads(path.read_text(encoding="utf-8").strip())
+    for bad in (1, "yes"):
+        payload = dict(original)
+        payload["gsd_nominal"] = bad
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="gsd_nominal"):
+            FlightTileDir(dest)
+
+
+def test_theta_required_and_finite(tmp_path: Path) -> None:
+    """index.jsonl requires a finite numeric theta_g_deg."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile()])
+    path = dest / "index.jsonl"
+    original = json.loads(path.read_text(encoding="utf-8").strip())
+    payload = dict(original)
+    del payload["theta_g_deg"]
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="missing"):
+        FlightTileDir(dest)
+    for bad in (True, "15", float("nan")):
+        payload = dict(original)
+        payload["theta_g_deg"] = bad
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="theta_g_deg"):
+            FlightTileDir(dest)

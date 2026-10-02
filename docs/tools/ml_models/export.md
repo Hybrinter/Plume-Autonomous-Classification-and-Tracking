@@ -22,6 +22,8 @@ deployment files.
 | [`session`](export/session.md) | module | Hash-first session opening and I/O validation |
 | [`accept`](export/accept.md) | module | Exhaustive test-split acceptance gate |
 | [`pair`](export/pair.md) | module | Promotability and pair-manifest gates |
+| [`calibration`](export/calibration.md) | module | Two-input INT8 calibration batches |
+| [`precision`](export/precision.md) | module | FP16 and INT8 artifact conversions |
 
 ## Package interface
 

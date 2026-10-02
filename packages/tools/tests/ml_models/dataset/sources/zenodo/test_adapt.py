@@ -102,8 +102,10 @@ def test_masks_scale_with_each_bin(archives: tuple[Path, Path, Path]) -> None:
     np.testing.assert_array_equal(positive_e45.mask[0, :, 25:], 1)
     negative_native = tiles[("10004_2020-01-02T00-00-00.000Z_0", "native10")]
     assert negative_native.mask is not None
-    np.testing.assert_array_equal(negative_native.mask[0, :60, :], 0)
-    np.testing.assert_array_equal(negative_native.mask[0, 60:, :], 1)
+    # The 119-row source maps row 59 back through the native pad: half of its
+    # subsamples land below the 50 percent polygon edge, so it is foreground.
+    np.testing.assert_array_equal(negative_native.mask[0, :59, :], 0)
+    np.testing.assert_array_equal(negative_native.mask[0, 59:, :], 1)
     bare = tiles[("10005_2020-01-03T00-00-00.000Z_0", "native10")]
     assert bare.mask is None
 

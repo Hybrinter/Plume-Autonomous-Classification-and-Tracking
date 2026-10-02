@@ -57,8 +57,10 @@ None.
 
 ## Configuration
 
-Row keys are `tile_id`, `group_id`, `frame_id`, `grid_rc`, `bin_id`, and
-`element`. There is no TOML file.
+Row keys are `tile_id`, `group_id`, `frame_id`, `grid_rc`, `bin_id`,
+`element`, `theta_g_deg`, and `gsd_nominal`. Rows written before the
+angle and nominal fields existed decode with `theta_g_deg` None and
+`gsd_nominal` False. There is no TOML file.
 
 ## Constraints
 

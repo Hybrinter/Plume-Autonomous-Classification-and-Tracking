@@ -56,6 +56,10 @@ class RawTileRef:
         frame_id: Flight frame id. None when the source has no frame.
         grid_rc: ``(row, col)`` on the flight grid. None when absent.
         bin_id: GSD bin name. Empty when the source has a single geometry.
+        theta_g_deg: Gimbal elevation at the shutter, in degrees. None when
+            the source does not record one.
+        gsd_nominal: True when ``gsd`` comes from nominal orbit geometry
+            rather than a measured capture.
     """
 
     tile_id: str
@@ -66,6 +70,8 @@ class RawTileRef:
     frame_id: str | None
     grid_rc: tuple[int, int] | None
     bin_id: str
+    theta_g_deg: float | None = None
+    gsd_nominal: bool = False
 
 
 @dataclass(frozen=True, slots=True)

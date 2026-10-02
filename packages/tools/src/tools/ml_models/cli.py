@@ -1,4 +1,4 @@
-"""Command line for model dataset builds.
+"""Command line for model dataset, training, export, and analysis workflows.
 
 Contains:
   - app: Typer application mounted by the root tools CLI.
@@ -9,13 +9,18 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 from tools.ml_models.dataset.build import build_flight, build_synthetic, build_zenodo
 from tools.ml_models.dataset.raw import BinSpec
 from tools.ml_models.dataset.spec import BuildSpec, load_build_spec
+
+if TYPE_CHECKING:
+    from torch import nn
+
+    from tools.ml_models.dataset.manifest import DatasetManifest
 
 
 class SourceName(StrEnum):
@@ -290,6 +295,126 @@ def pair_command(
     )
     if isinstance(result, Err):
         raise typer.BadParameter(result.error)
+    typer.echo(str(out))
+
+
+class Precision(StrEnum):
+    """Artifact precision conversions the convert command accepts."""
+
+    FP16 = "fp16"
+    INT8 = "int8"
+
+
+@app.command("convert")
+def convert_command(
+    precision: Annotated[
+        Precision,
+        typer.Option(..., help="Target precision: fp16 graph weights or int8 QDQ."),
+    ],
+    source: Annotated[
+        Path,
+        typer.Option(..., help="Source FP32 ONNX artifact with a valid sidecar."),
+    ],
+    out: Annotated[Path, typer.Option(..., help="New destination artifact path.")],
+    dataset: Annotated[
+        list[str] | None,
+        typer.Option(help="Finished dataset directory for INT8 calibration (repeatable)."),
+    ] = None,
+    calib_samples: Annotated[int, typer.Option(help="Maximum INT8 calibration batches.")] = 32,
+) -> None:
+    """Convert a validated FP32 artifact to FP16 or INT8 with a new sidecar."""
+    from flight.libs.types import Err
+
+    from tools.ml_models.export.precision import convert_fp16, quantize_int8
+
+    if precision == Precision.INT8:
+        if not dataset:
+            raise typer.BadParameter("int8 conversion requires at least one --dataset")
+        result = quantize_int8(source, out, datasets=dataset, calib_samples=calib_samples)
+    else:
+        result = convert_fp16(source, out)
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(result.value))
+
+
+def _load_eval_model(
+    checkpoint_path: Path,
+    kind: str,
+    dataset_manifest: DatasetManifest,
+) -> nn.Module:
+    """Load one conditioned checkpoint and check it against the dataset.
+
+    Args:
+        checkpoint_path: Trained ``.pt`` checkpoint.
+        kind: Required ``classifier`` or ``segmentor`` kind.
+        dataset_manifest: Finished dataset manifest.
+
+    Returns:
+        nn.Module: The built model in eval mode.
+
+    Raises:
+        typer.BadParameter: If kind, conditioning, bands, norm, or reference
+            disagree with the dataset.
+    """
+    import torch
+
+    from tools.ml_models.arch.registry import build
+    from tools.ml_models.export.contract import CONDITIONING_ID
+
+    checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=True)
+    provenance = checkpoint["provenance"]
+    if str(checkpoint["kind"]) != kind:
+        raise typer.BadParameter(
+            f"{checkpoint_path.name} kind {checkpoint['kind']!r} is not {kind!r}"
+        )
+    if checkpoint["conditioning"] != CONDITIONING_ID:
+        raise typer.BadParameter(f"{checkpoint_path.name} is not a conditioned checkpoint")
+    bands = tuple(str(band) for band in provenance["band_names"])
+    if bands != tuple(dataset_manifest.band_names):
+        raise typer.BadParameter(f"{checkpoint_path.name} band names differ from the dataset")
+    if provenance["norm"] != dataset_manifest.norm:
+        raise typer.BadParameter(f"{checkpoint_path.name} norm differs from the dataset")
+    if float(provenance["gsd_reference_m"]) != dataset_manifest.gsd_reference_m:
+        raise typer.BadParameter(f"{checkpoint_path.name} GSD reference differs from the dataset")
+    model = build(kind, str(checkpoint["arch"]), int(provenance["in_channels"]))
+    model.load_state_dict(checkpoint["state_dict"], strict=True)
+    model.eval()
+    return model
+
+
+@app.command("frame-eval")
+def frame_eval_command(
+    dataset: Annotated[Path, typer.Option(..., help="Finished flight dataset directory.")],
+    classifier_checkpoint: Annotated[
+        Path, typer.Option(..., help="Conditioned classifier checkpoint (.pt).")
+    ],
+    segmentor_checkpoint: Annotated[
+        Path, typer.Option(..., help="Conditioned segmentor checkpoint (.pt).")
+    ],
+    out: Annotated[Path, typer.Option(..., help="Destination report JSON.")],
+) -> None:
+    """Evaluate complete 64-tile flight frames with a conditioned model pair."""
+    import json
+
+    from tools.ml_models.analysis.full_frame import evaluate_flight_frames
+    from tools.ml_models.dataset.manifest import load_manifest
+
+    if out.exists():
+        raise typer.BadParameter(f"refusing to overwrite {out}")
+    try:
+        dataset_manifest = load_manifest(dataset / "dataset.json")
+        classifier = _load_eval_model(classifier_checkpoint, "classifier", dataset_manifest)
+        segmentor = _load_eval_model(segmentor_checkpoint, "segmentor", dataset_manifest)
+        report = evaluate_flight_frames(dataset, classifier, segmentor)
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("x", encoding="utf-8") as stream:
+            stream.write(json.dumps(report, indent=2) + "\n")
+    except OSError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     typer.echo(str(out))
 
 

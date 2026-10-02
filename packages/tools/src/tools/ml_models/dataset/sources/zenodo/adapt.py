@@ -15,6 +15,7 @@ from tools.ml_models.dataset.sources.zenodo.bands import coerce_descriptions, ve
 from tools.ml_models.dataset.sources.zenodo.bins import (
     DEFAULT_BINS,
     EXTENT_M,
+    NATIVE_SIDE,
     actual_gsd,
     bin_hw,
 )
@@ -82,7 +83,14 @@ class ZenodoSource:
                 shape = bin_hw(item)
                 image = np.clip(resample_area(native, shape), 0, 1).astype(np.float32)
                 mask = (
-                    None if tile.polygons is None else rasterize_percent_mask(tile.polygons, shape)
+                    None
+                    if tile.polygons is None
+                    else rasterize_percent_mask(
+                        tile.polygons,
+                        shape,
+                        source_hw=(int(stack.shape[1]), int(stack.shape[2])),
+                        fitted_hw=(NATIVE_SIDE, NATIVE_SIDE),
+                    )
                 )
                 yield RawTile(self._refs[cursor], image, mask)
                 cursor += 1

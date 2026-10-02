@@ -13,7 +13,7 @@ dataset build reads it.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `Domain` | alias | `str`; the values `dn` and `unit` |
-| `GsdPair` | class | Pixel ground distance at a tile center, lateral then along-track |
+| `GsdPair` | class | Pixel ground distance at a tile center, lateral then along-track; re-exported from `flight.payload.gimbal.footprint` |
 | `BinSpec` | class | One named GSD bin recorded on the finished dataset |
 | `RawTileRef` | class | Row identity and geometry without pixel arrays |
 | `RawTile` | class | One raw tile: a `RawTileRef` plus image and optional mask |

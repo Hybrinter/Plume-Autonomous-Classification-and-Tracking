@@ -1,7 +1,9 @@
 """Raw tile contract consumed by the dataset build.
 
 Contains:
-  - GsdPair, BinSpec: per-tile ground sample distance and an optional bin row.
+  - GsdPair: re-export of ``flight.payload.gimbal.footprint.GsdPair``, so a
+    tile carries the same metres-per-pixel pair flight computes.
+  - BinSpec: an optional GSD bin row.
   - RawTileRef, RawTile: one indexed row and its arrays.
   - Domain: ``dn`` or ``unit``.
   - RawSource: protocol for a forward-only tile stream.
@@ -17,21 +19,11 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import numpy as np
+from flight.payload.gimbal.footprint import GsdPair
 
 Domain = str
 
-
-@dataclass(frozen=True, slots=True)
-class GsdPair:
-    """Ground distance of one pixel at a tile center.
-
-    Attributes:
-        lateral_m: Metres per pixel along W.
-        along_m: Metres per pixel along H.
-    """
-
-    lateral_m: float
-    along_m: float
+__all__ = ["BinSpec", "Domain", "GsdPair", "RawSource", "RawTile", "RawTileRef"]
 
 
 @dataclass(frozen=True, slots=True)

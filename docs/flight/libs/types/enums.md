@@ -156,6 +156,8 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `GIMBAL_STOW` | Payload stow via the position loop |
 | `GIMBAL_HOME` | Payload home via the position loop |
 | `GIMBAL_GOTO` | Payload absolute pose (`el_deg: float`) |
+| `GIMBAL_HOLD` | Declared graph-vocabulary hold; rejected by the current app as unsupported |
+| `GIMBAL_RESUME` | Declared graph-vocabulary resume; rejected by the current app as unsupported |
 
 ### ParamKind
 

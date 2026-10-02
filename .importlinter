@@ -155,6 +155,26 @@ forbidden_modules =
     flight.core
     tools.analysis
 
+[importlinter:contract:gimbal-tracking-not-graphs]
+name = Shared gimbal/tracking primitives must not import payload graphs
+type = forbidden
+source_modules =
+    flight.payload.gimbal
+    flight.payload.tracking
+forbidden_modules =
+    flight.payload.graphs
+
+[importlinter:contract:graphs-not-shell]
+name = Pure payload graphs must not import the payload shell, control, HAL, or core
+type = forbidden
+source_modules =
+    flight.payload.graphs
+forbidden_modules =
+    flight.payload.app
+    flight.payload.control
+    flight.hal
+    flight.core
+
 [importlinter:contract:ml-models-arch-flight-isolation]
 name = ml_models arch must not import flight or tools analysis
 type = forbidden

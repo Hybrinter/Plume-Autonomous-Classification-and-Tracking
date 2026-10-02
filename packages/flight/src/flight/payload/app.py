@@ -66,7 +66,7 @@ from flight.libs.types import (
     Result,
     SystemMode,
 )
-from flight.payload.control import ControlState, IssSample, PayloadController, VisionSample
+from flight.payload.control import ControlState, PayloadController
 from flight.payload.gimbal.footprint import nominal_iss_state, tile_gsd_grid
 from flight.payload.gimbal.integrity import check_integrity
 from flight.payload.gimbal.intersect import CameraGeometry
@@ -81,6 +81,7 @@ from flight.payload.preprocess import (
     select_bands,
     stack_channels,
 )
+from flight.payload.records import IssSample, VisionSample
 from flight.payload.tracking import EncoderSample
 
 

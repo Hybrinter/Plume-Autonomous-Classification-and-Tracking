@@ -230,6 +230,8 @@ class CommandId(enum.Enum):
     GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop
     GIMBAL_HOME = "GIMBAL_HOME"  # non-hazardous; target payload; home via position loop
     GIMBAL_GOTO = "GIMBAL_GOTO"  # non-hazardous; target payload; param el_deg: float
+    GIMBAL_HOLD = "GIMBAL_HOLD"
+    GIMBAL_RESUME = "GIMBAL_RESUME"
 
 
 class ParamKind(enum.Enum):

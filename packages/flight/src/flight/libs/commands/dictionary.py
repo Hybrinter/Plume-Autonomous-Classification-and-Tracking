@@ -104,6 +104,8 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("el_deg", ParamKind.FLOAT),),
         hazardous=False,
     ),
+    CommandId.GIMBAL_HOLD: CommandSpec(CommandId.GIMBAL_HOLD, "payload", (), hazardous=False),
+    CommandId.GIMBAL_RESUME: CommandSpec(CommandId.GIMBAL_RESUME, "payload", (), hazardous=False),
 }
 
 

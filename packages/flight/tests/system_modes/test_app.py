@@ -81,30 +81,48 @@ def _drain(sub: object) -> list:  # type: ignore[type-arg]
     return out
 
 
-def test_accepted_request_publishes_transition_then_activation() -> None:
-    """Boot INIT is accepted: one ACCEPTED transition and one activation with sequence 1."""
+def _booted() -> tuple[SystemModesApp, MessageBus]:
+    """Build an authority and run its boot tick (active mode SAFE, sequence 1)."""
+    app, bus = _app()
+    app.tick()
+    return app, bus
+
+
+def _idle() -> tuple[SystemModesApp, MessageBus]:
+    """Boot SAFE, then EXIT_SAFE -> INIT, then INIT -> IDLE (sequence 3)."""
+    app, bus = _booted()
+    bus.publish(_routed("EXIT_SAFE", {"phase": "EXECUTE"}, seq=100))
+    app.tick()
+    bus.publish(_request(SystemMode.IDLE, "ready", "init"))
+    app.tick()
+    assert app.state.mode is SystemMode.IDLE
+    return app, bus
+
+
+def test_first_tick_boots_into_safe() -> None:
+    """The first tick publishes one ACCEPTED boot transition and a SAFE activation, sequence 1."""
     app, bus = _app()
     transitions = bus.subscribe(SystemModeTransitionMsg)
     activations = bus.subscribe(SystemModeActivatedMsg)
-    bus.publish(_request(SystemMode.INIT, "boot-1", "startup_health_gate"))
     app.tick()
     [record] = _drain(transitions)
     [activation] = _drain(activations)
     assert record.decision is TransitionDecision.ACCEPTED
     assert record.previous_mode is None
-    assert record.resulting_mode is SystemMode.INIT
+    assert record.resulting_mode is SystemMode.SAFE
     assert record.activation_sequence == 1
-    assert record.request_id == "boot-1"
+    assert record.request_id == f"{_EPOCH}-boot"
     assert activation.key == ActivationKey(_EPOCH, 1)
-    assert activation.active_mode is SystemMode.INIT
-    assert activation.request_id == "boot-1"
+    assert activation.active_mode is SystemMode.SAFE
     assert not activation.recovery_authorized
-    assert app.state.mode is SystemMode.INIT
+    app.tick()
+    assert transitions.empty()
+    assert activations.empty()
 
 
 def test_denied_request_publishes_transition_only() -> None:
     """A request with no table edge yields a DENIED record and no activation."""
-    app, bus = _app()
+    app, bus = _booted()
     transitions = bus.subscribe(SystemModeTransitionMsg)
     activations = bus.subscribe(SystemModeActivatedMsg)
     bus.publish(_request(SystemMode.OPERATE, "r1"))
@@ -113,12 +131,12 @@ def test_denied_request_publishes_transition_only() -> None:
     assert record.decision is TransitionDecision.DENIED
     assert record.activation_sequence is None
     assert activations.empty()
-    assert app.state.mode is None
+    assert app.state.mode is SystemMode.SAFE
 
 
 def test_duplicate_requests_are_not_coalesced() -> None:
     """Two SAFE requests in one tick give two records: one ACCEPTED, one DENIED."""
-    app, bus = _app()
+    app, bus = _idle()
     transitions = bus.subscribe(SystemModeTransitionMsg)
     bus.publish(_request(SystemMode.SAFE, "f1", "fault"))
     bus.publish(_request(SystemMode.SAFE, "f2", "fault"))
@@ -135,24 +153,29 @@ def test_activation_sequence_is_monotonic() -> None:
     """Each accepted transition takes the next sequence in the epoch."""
     app, bus = _app()
     activations = bus.subscribe(SystemModeActivatedMsg)
-    bus.publish(_request(SystemMode.INIT, "boot"))
-    bus.publish(_request(SystemMode.IDLE, "verified", "payload"))
     app.tick()
-    bus.publish(_routed("SET_MODE", {"mode": "OPERATE"}, seq=1))
+    bus.publish(_routed("EXIT_SAFE", {"phase": "EXECUTE"}, seq=1))
     app.tick()
-    keys = [a.key for a in _drain(activations)]
-    assert keys == [ActivationKey(_EPOCH, 1), ActivationKey(_EPOCH, 2), ActivationKey(_EPOCH, 3)]
+    bus.publish(_request(SystemMode.IDLE, "ready", "init"))
+    app.tick()
+    bus.publish(_routed("SET_MODE", {"mode": "OPERATE"}, seq=2))
+    app.tick()
+    activations_seen = _drain(activations)
+    assert [a.key for a in activations_seen] == [ActivationKey(_EPOCH, n) for n in (1, 2, 3, 4)]
+    assert [a.active_mode for a in activations_seen] == [
+        SystemMode.SAFE,
+        SystemMode.INIT,
+        SystemMode.IDLE,
+        SystemMode.OPERATE,
+    ]
 
 
 def test_sync_replays_snapshot_without_new_sequence() -> None:
     """A sync request republishes the current activation with the same key."""
-    app, bus = _app()
+    app, bus = _booted()
+    original = app.state.active
     activations = bus.subscribe(SystemModeActivatedMsg)
     transitions = bus.subscribe(SystemModeTransitionMsg)
-    bus.publish(_request(SystemMode.INIT, "boot"))
-    app.tick()
-    [original] = _drain(activations)
-    _drain(transitions)
     bus.publish(
         SystemModeSyncRequestMsg(
             msg_type=MessageType.SYSTEM_MODE_SYNC_REQUEST,
@@ -170,30 +193,10 @@ def test_sync_replays_snapshot_without_new_sequence() -> None:
     assert app.state.sequence == 1
 
 
-def test_sync_before_first_activation_publishes_nothing() -> None:
-    """With no active mode there is no snapshot to replay."""
-    app, bus = _app()
-    activations = bus.subscribe(SystemModeActivatedMsg)
-    bus.publish(
-        SystemModeSyncRequestMsg(
-            msg_type=MessageType.SYSTEM_MODE_SYNC_REQUEST,
-            timestamp_utc="t",
-            request_id="sync-1",
-            subscriber="payload",
-            expected_epoch=None,
-            last_sequence=None,
-        )
-    )
-    app.tick()
-    assert activations.empty()
-
-
 def test_set_mode_command_is_acked_with_correlation() -> None:
     """An accepted SET_MODE is ACKed ACCEPTED with the command's source and seq."""
-    app, bus = _app()
+    app, bus = _idle()
     acks = bus.subscribe(CommandAckMsg)
-    bus.publish(_request(SystemMode.INIT, "boot"))
-    bus.publish(_request(SystemMode.IDLE, "verified"))
     bus.publish(_routed("SET_MODE", {"mode": "OPERATE"}, seq=7))
     app.tick()
     [ack] = _drain(acks)
@@ -204,7 +207,7 @@ def test_set_mode_command_is_acked_with_correlation() -> None:
 
 def test_invalid_set_mode_is_rejected_without_transition() -> None:
     """An unknown mode name is NACKed and never reaches the transition table."""
-    app, bus = _app()
+    app, bus = _booted()
     acks = bus.subscribe(CommandAckMsg)
     transitions = bus.subscribe(SystemModeTransitionMsg)
     bus.publish(_routed("SET_MODE", {"mode": "WARP"}, seq=1))
@@ -217,7 +220,7 @@ def test_invalid_set_mode_is_rejected_without_transition() -> None:
 
 def test_commands_for_other_targets_are_ignored() -> None:
     """Routed commands for other subsystems produce no authority output."""
-    app, bus = _app()
+    app, bus = _booted()
     acks = bus.subscribe(CommandAckMsg)
     bus.publish(
         RoutedCommandMsg(
@@ -235,14 +238,11 @@ def test_commands_for_other_targets_are_ignored() -> None:
 
 
 def test_exit_safe_refused_while_fault_active_then_authorized() -> None:
-    """EXIT_SAFE is NACKed while a SAFE fault is active, then authorizes recovery once clear."""
-    app, bus = _app()
+    """EXIT_SAFE is NACKed while a SAFE fault is active, then authorizes recovery into INIT."""
+    app, bus = _booted()
     acks = bus.subscribe(CommandAckMsg)
     activations = bus.subscribe(SystemModeActivatedMsg)
-    bus.publish(_request(SystemMode.SAFE, "f1", "fault"))
     bus.publish(_safety(True, (FaultCode.POWER_OVER_LIMIT,)))
-    app.tick()
-    _drain(activations)
     bus.publish(_routed("EXIT_SAFE", {"phase": "EXECUTE"}, seq=2))
     app.tick()
     [nack] = _drain(acks)
@@ -255,13 +255,13 @@ def test_exit_safe_refused_while_fault_active_then_authorized() -> None:
     [ack] = _drain(acks)
     [activation] = _drain(activations)
     assert ack.status is AckStatus.ACCEPTED
-    assert activation.active_mode is SystemMode.IDLE
+    assert activation.active_mode is SystemMode.INIT
     assert activation.recovery_authorized
 
 
 def test_safe_request_decided_before_same_tick_exit_safe() -> None:
-    """A SAFE request and an EXIT_SAFE in one tick end in IDLE only via SAFE first."""
-    app, bus = _app()
+    """A SAFE request is decided before an EXIT_SAFE received in the same tick."""
+    app, bus = _idle()
     transitions = bus.subscribe(SystemModeTransitionMsg)
     bus.publish(_routed("EXIT_SAFE", {"phase": "EXECUTE"}, seq=1))
     bus.publish(_request(SystemMode.SAFE, "f1", "fault"))

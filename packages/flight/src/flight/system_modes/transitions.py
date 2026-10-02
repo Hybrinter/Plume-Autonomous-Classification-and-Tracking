@@ -7,11 +7,16 @@ Rules, in order:
   1. The target must be one of the five system modes (IDLE, STOW, SAFE, INIT, OPERATE).
   2. A request for the current mode is denied (no new activation).
   3. SAFE is accepted from any other state, from any requester.
-  4. In SAFE, only a ground EXIT_SAFE to IDLE is accepted, and only while no SAFE-triggering
+  4. In SAFE, only a ground EXIT_SAFE to INIT is accepted, and only while no SAFE-triggering
      fault is active. That activation carries recovery_authorized=True.
   5. EXIT_SAFE outside SAFE is denied.
   6. While the fault safety latch is set, every non-SAFE transition is denied.
   7. Any other transition must appear in MODE_EDGES; everything else is denied.
+
+The system boots into SAFE (the authority's first activation; from no mode only SAFE is
+accepted). INIT is entered only by an explicit ground command (EXIT_SAFE from SAFE, SET_MODE
+from IDLE) and hands off to IDLE when the subsystems report ready. STOW exits only to IDLE or
+SAFE.
 
 Contains:
   - RequestKind: where a request came from (a flight subsystem or a ground command).
@@ -39,7 +44,7 @@ class RequestKind(enum.Enum):
 
     SUBSYSTEM = "SUBSYSTEM"  # SystemModeRequestMsg from a flight subsystem
     SET_MODE = "SET_MODE"  # ground SET_MODE command
-    EXIT_SAFE = "EXIT_SAFE"  # ground EXIT_SAFE command (always targets IDLE)
+    EXIT_SAFE = "EXIT_SAFE"  # ground EXIT_SAFE command (always targets INIT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,16 +107,13 @@ SYSTEM_MODES: frozenset[SystemMode] = frozenset(
 
 MODE_EDGES: frozenset[tuple[SystemMode | None, RequestKind, SystemMode]] = frozenset(
     {
-        (None, RequestKind.SUBSYSTEM, SystemMode.INIT),
         (SystemMode.INIT, RequestKind.SUBSYSTEM, SystemMode.IDLE),
-        (SystemMode.INIT, RequestKind.SET_MODE, SystemMode.STOW),
         (SystemMode.IDLE, RequestKind.SET_MODE, SystemMode.INIT),
         (SystemMode.IDLE, RequestKind.SET_MODE, SystemMode.OPERATE),
         (SystemMode.IDLE, RequestKind.SET_MODE, SystemMode.STOW),
         (SystemMode.OPERATE, RequestKind.SET_MODE, SystemMode.IDLE),
         (SystemMode.OPERATE, RequestKind.SET_MODE, SystemMode.STOW),
         (SystemMode.STOW, RequestKind.SET_MODE, SystemMode.IDLE),
-        (SystemMode.STOW, RequestKind.SET_MODE, SystemMode.INIT),
     }
 )
 
@@ -150,7 +152,7 @@ def decide(current: SystemMode | None, request: ModeRequest, safety: SafetyEvide
     if target is SystemMode.SAFE:
         return _accept(target, f"SAFE requested from {_name(current)}")
     if current is SystemMode.SAFE:
-        if request.kind is not RequestKind.EXIT_SAFE or target is not SystemMode.IDLE:
+        if request.kind is not RequestKind.EXIT_SAFE or target is not SystemMode.INIT:
             return _deny(current, "only EXIT_SAFE may leave SAFE")
         if safety.active_faults:
             active = ", ".join(code.value for code in safety.active_faults)

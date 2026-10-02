@@ -122,8 +122,8 @@ def _run_startup_health_gate(
         window_s: The maximum seconds to wait.
 
     Returns:
-        True if every monitored subsystem heartbeat within the window (after requesting INIT
-        from the system-mode authority); otherwise requests SAFE, publishes a
+        True if every monitored subsystem heartbeat within the window (the authority stays in
+        its boot SAFE until an operator command); otherwise requests SAFE, publishes a
         ModeChangeMsg(SAFE) (annunciating the half-initialized topology), and returns False.
     """
     seen: set[str] = set()
@@ -135,7 +135,6 @@ def _run_startup_health_gate(
     while not heartbeats.empty():
         seen.add(heartbeats.get_nowait().subsystem)
     if startup_healthy(seen, monitored):
-        bus.publish(_startup_request(clock, SystemMode.INIT, "startup health gate passed"))
         return True
     bus.publish(_startup_request(clock, SystemMode.SAFE, "startup health gate failed"))
     bus.publish(

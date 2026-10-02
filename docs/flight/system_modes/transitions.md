@@ -33,7 +33,7 @@ authority shell calls `decide` once for each request.
 1. Deny a target that is not in `SYSTEM_MODES`.
 2. Deny a request for the current mode.
 3. Accept `SAFE` from every other state and every request kind.
-4. In `SAFE`, accept only `EXIT_SAFE` to `IDLE`, and only while `active_faults` is empty. That
+4. In `SAFE`, accept only `EXIT_SAFE` to `INIT`, and only while `active_faults` is empty. That
    decision sets `recovery_authorized`.
 5. Deny `EXIT_SAFE` outside `SAFE`.
 6. Deny every other transition while `safe_latched` is true.
@@ -43,12 +43,15 @@ authority shell calls `decide` once for each request.
 
 | Current | Kind | Target |
 | --- | --- | --- |
-| none | `SUBSYSTEM` | `INIT` |
 | `INIT` | `SUBSYSTEM` | `IDLE` |
-| `INIT` | `SET_MODE` | `STOW` |
 | `IDLE` | `SET_MODE` | `INIT`, `OPERATE`, `STOW` |
 | `OPERATE` | `SET_MODE` | `IDLE`, `STOW` |
-| `STOW` | `SET_MODE` | `IDLE`, `INIT` |
+| `STOW` | `SET_MODE` | `IDLE` |
+
+With no active mode, only `SAFE` is accepted, so the system boots into `SAFE`. `INIT` is entered
+only by a ground command: `EXIT_SAFE` from `SAFE` or `SET_MODE` from `IDLE`. `INIT` hands off to
+`IDLE` on a subsystem request once the subsystems report ready. The readiness signal is not
+defined yet.
 
 ## Errors and faults
 

@@ -22,22 +22,23 @@ mode requests, routed system-mode commands, and sync requests. It decides each r
 
 ## Inputs and outputs
 
-- `from_config(cfg, bus, clock, epoch)` returns a `SystemModesApp` with no active mode.
+- `from_config(cfg, bus, clock, epoch)` returns a `SystemModesApp` with no active mode. Its first tick activates `SAFE`.
 - `tick()` takes no arguments and returns `None`.
 - `run(stop_event)` runs until the event is set.
 
 ## Behavior
 
 1. Drain `SafetyStateMsg` and keep the newest latch flag and active faults as evidence.
-2. Drain `SystemModeRequestMsg` and decide each one as a `SUBSYSTEM` request.
-3. Drain `RoutedCommandMsg` for the `system_modes` target. `EXIT_SAFE` becomes an `EXIT_SAFE`
-   request for `IDLE`. `SET_MODE` becomes a `SET_MODE` request for its `mode` parameter.
-4. For each decision, publish one `SystemModeTransitionMsg`. For an accepted decision, allocate
+2. With no active mode, decide a `SAFE` boot request (request ID `<epoch>-boot`). The system
+   always boots into `SAFE` and waits for an operator command.
+3. Drain `SystemModeRequestMsg` and decide each one as a `SUBSYSTEM` request.
+4. Drain `RoutedCommandMsg` for the `system_modes` target. `EXIT_SAFE` becomes an `EXIT_SAFE`
+   request for `INIT`. `SET_MODE` becomes a `SET_MODE` request for its `mode` parameter.
+5. For each decision, publish one `SystemModeTransitionMsg`. For an accepted decision, allocate
    the next sequence and publish one `SystemModeActivatedMsg` keyed by `(epoch, sequence)`.
-5. For each command, publish one execution `CommandAckMsg`: `ACCEPTED` on an accepted decision,
+6. For each command, publish one execution `CommandAckMsg`: `ACCEPTED` on an accepted decision,
    else `REJECTED` with `COMMAND_INVALID`.
-6. Drain `SystemModeSyncRequestMsg`. Republish the current activation with its existing key.
-   Publish nothing before the first activation.
+7. Drain `SystemModeSyncRequestMsg`. Republish the current activation with its existing key.
 
 Requests are decided before commands in one tick. Duplicate requests are not coalesced.
 

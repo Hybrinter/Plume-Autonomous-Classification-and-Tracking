@@ -27,7 +27,7 @@ The authority subscribes to `SystemModeRequestMsg`, `RoutedCommandMsg`, `SafetyS
 `SystemModeSyncRequestMsg`. It publishes `SystemModeTransitionMsg`, `SystemModeActivatedMsg`,
 `CommandAckMsg`, and `HeartbeatMsg`. The command router routes `SET_MODE` and `EXIT_SAFE` to the
 `system_modes` target. The fault app requests SAFE and releases its SAFE latch only on a
-recovery-authorized activation. The startup health gate requests INIT or SAFE. The composition
+recovery-authorized activation. The authority boots into SAFE. The startup health gate requests SAFE when it fails. The composition
 root supplies the session epoch. The authority does not use HAL drivers.
 
 ## Constraints

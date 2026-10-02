@@ -39,8 +39,8 @@ every app, and runs them under the thread scheduler until shutdown.
 7. Register ten apps on the scheduler in fixed order: payload, fault, iss_iface, thermal,
    electrical, command_router, storage, downlink, model_deploy, system_modes.
 8. Start the scheduler.
-9. Run the startup health gate for `watchdog_interval_s * 3.0` seconds. On success, publish
-   `SystemModeRequestMsg(INIT)`. When any monitored subsystem misses a first heartbeat,
+9. Run the startup health gate for `watchdog_interval_s * 3.0` seconds. The system-mode
+   authority boots into SAFE and waits for an operator command. When any monitored subsystem misses a first heartbeat,
    publish `SystemModeRequestMsg(SAFE)` and `ModeChangeMsg(SAFE)`.
 10. Register a SIGTERM handler that sets a shutdown event.
 11. Call `scheduler.supervise` until SIGTERM or `KeyboardInterrupt`.

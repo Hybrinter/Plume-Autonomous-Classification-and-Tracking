@@ -3,7 +3,8 @@
 Drains mode requests, routed system-mode commands, fault safety evidence, and sync requests
 from the bus. Every request yields one SystemModeTransitionMsg (accepted or denied). Only an
 accepted request yields a SystemModeActivatedMsg with the next (epoch, sequence) key. A sync
-request replays the current activation unchanged (same key, no new sequence).
+request replays the current activation unchanged (same key, no new sequence). The first tick
+activates SAFE: the system always boots SAFE and waits for an operator command.
 
 Contains:
   - SUBSYSTEM: the routing target and heartbeat name ("system_modes").
@@ -102,7 +103,7 @@ class SystemModesApp:
             epoch: Composition-root-provided authority session epoch.
 
         Returns:
-            A SystemModesApp with fresh subscriptions and no active mode.
+            A SystemModesApp with fresh subscriptions; its first tick activates SAFE.
         """
         return SystemModesApp(
             cfg=cfg.fault,
@@ -117,10 +118,14 @@ class SystemModesApp:
         )
 
     def tick(self) -> None:
-        """Run one cycle: evidence, then requests, then commands, then sync replies."""
+        """Run one cycle: evidence, boot SAFE, then requests, then commands, then sync replies."""
         while not self.safety.empty():
             msg = self.safety.get_nowait()
             self.state.evidence = SafetyEvidence(msg.safe_latched, msg.active_faults)
+        if self.state.active is None:
+            self._process(
+                ModeRequest(SystemMode.SAFE, RequestKind.SUBSYSTEM), f"{self.epoch}-boot", SUBSYSTEM
+            )
         while not self.requests.empty():
             request = self.requests.get_nowait()
             self._process(
@@ -141,7 +146,7 @@ class SystemModesApp:
         """Map a routed system-mode command to a request, decide it, and ACK it."""
         request: ModeRequest | None = None
         if command.command_id == CommandId.EXIT_SAFE.value:
-            request = ModeRequest(SystemMode.IDLE, RequestKind.EXIT_SAFE)
+            request = ModeRequest(SystemMode.INIT, RequestKind.EXIT_SAFE)
         elif command.command_id == CommandId.SET_MODE.value:
             target = _MODES_BY_NAME.get(str(command.params.get("mode", "")))
             if target is not None:

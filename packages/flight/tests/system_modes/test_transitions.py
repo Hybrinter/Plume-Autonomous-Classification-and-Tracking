@@ -22,17 +22,14 @@ _CURRENTS: tuple[SystemMode | None, ...] = (None, *sorted(SYSTEM_MODES, key=lamb
 # The complete set of accepted (current, kind, target) triples with clear, unlatched evidence.
 _EXPECTED_ACCEPTED: frozenset[tuple[SystemMode | None, RequestKind, SystemMode]] = frozenset(
     {
-        (None, RequestKind.SUBSYSTEM, SystemMode.INIT),
         (SystemMode.INIT, RequestKind.SUBSYSTEM, SystemMode.IDLE),
-        (SystemMode.INIT, RequestKind.SET_MODE, SystemMode.STOW),
         (SystemMode.IDLE, RequestKind.SET_MODE, SystemMode.INIT),
         (SystemMode.IDLE, RequestKind.SET_MODE, SystemMode.OPERATE),
         (SystemMode.IDLE, RequestKind.SET_MODE, SystemMode.STOW),
         (SystemMode.OPERATE, RequestKind.SET_MODE, SystemMode.IDLE),
         (SystemMode.OPERATE, RequestKind.SET_MODE, SystemMode.STOW),
         (SystemMode.STOW, RequestKind.SET_MODE, SystemMode.IDLE),
-        (SystemMode.STOW, RequestKind.SET_MODE, SystemMode.INIT),
-        (SystemMode.SAFE, RequestKind.EXIT_SAFE, SystemMode.IDLE),
+        (SystemMode.SAFE, RequestKind.EXIT_SAFE, SystemMode.INIT),
     }
     | {
         (current, kind, SystemMode.SAFE)
@@ -72,7 +69,7 @@ def test_every_combination_matches_table(
         assert decision.resulting_mode is current
         assert decision.reason
     assert decision.recovery_authorized is (
-        (current, kind, target) == (SystemMode.SAFE, RequestKind.EXIT_SAFE, SystemMode.IDLE)
+        (current, kind, target) == (SystemMode.SAFE, RequestKind.EXIT_SAFE, SystemMode.INIT)
     )
 
 
@@ -101,7 +98,7 @@ def test_safe_wins_even_with_latch_and_active_faults(current: SystemMode | None)
 def test_exit_safe_refused_while_safe_fault_active() -> None:
     """EXIT_SAFE stays in SAFE while a SAFE-triggering fault is still active."""
     decision = decide(
-        SystemMode.SAFE, ModeRequest(SystemMode.IDLE, RequestKind.EXIT_SAFE), _LATCHED_FAULTED
+        SystemMode.SAFE, ModeRequest(SystemMode.INIT, RequestKind.EXIT_SAFE), _LATCHED_FAULTED
     )
     assert decision.decision is TransitionDecision.DENIED
     assert decision.resulting_mode is SystemMode.SAFE
@@ -110,20 +107,51 @@ def test_exit_safe_refused_while_safe_fault_active() -> None:
 
 
 def test_exit_safe_authorized_with_latch_once_faults_clear() -> None:
-    """EXIT_SAFE is accepted into IDLE with recovery_authorized while the latch is still set."""
+    """EXIT_SAFE is accepted into INIT with recovery_authorized while the latch is still set."""
     decision = decide(
-        SystemMode.SAFE, ModeRequest(SystemMode.IDLE, RequestKind.EXIT_SAFE), _LATCHED_CLEAR
+        SystemMode.SAFE, ModeRequest(SystemMode.INIT, RequestKind.EXIT_SAFE), _LATCHED_CLEAR
     )
     assert decision.decision is TransitionDecision.ACCEPTED
-    assert decision.resulting_mode is SystemMode.IDLE
+    assert decision.resulting_mode is SystemMode.INIT
     assert decision.recovery_authorized
 
 
-def test_set_mode_idle_cannot_leave_safe() -> None:
-    """A plain SET_MODE(IDLE) is not a recovery path out of SAFE."""
-    decision = decide(SystemMode.SAFE, ModeRequest(SystemMode.IDLE, RequestKind.SET_MODE), _CLEAR)
+@pytest.mark.parametrize("target", [SystemMode.IDLE, SystemMode.INIT])
+def test_set_mode_cannot_leave_safe(target: SystemMode) -> None:
+    """A plain SET_MODE is not a recovery path out of SAFE."""
+    decision = decide(SystemMode.SAFE, ModeRequest(target, RequestKind.SET_MODE), _CLEAR)
     assert decision.decision is TransitionDecision.DENIED
     assert "only EXIT_SAFE" in decision.reason
+
+
+def test_boot_only_accepts_safe() -> None:
+    """With no active mode, every non-SAFE request is denied, so the system boots SAFE."""
+    for kind, target in itertools.product(RequestKind, SYSTEM_MODES - {SystemMode.SAFE}):
+        decision = decide(None, ModeRequest(target, kind), _CLEAR)
+        assert decision.decision is TransitionDecision.DENIED
+
+
+def test_stow_exits_only_to_idle_or_safe() -> None:
+    """STOW leaves only to IDLE (SET_MODE) or SAFE."""
+    exits = {
+        target
+        for kind, target in itertools.product(RequestKind, SYSTEM_MODES)
+        if decide(SystemMode.STOW, ModeRequest(target, kind), _CLEAR).accepted
+    }
+    assert exits == {SystemMode.IDLE, SystemMode.SAFE}
+
+
+def test_init_entered_only_from_idle_or_safe_by_command() -> None:
+    """INIT is reachable only from IDLE (SET_MODE) or SAFE (EXIT_SAFE)."""
+    entries = {
+        (current, kind)
+        for current, kind in itertools.product(_CURRENTS, RequestKind)
+        if decide(current, ModeRequest(SystemMode.INIT, kind), _CLEAR).accepted
+    }
+    assert entries == {
+        (SystemMode.IDLE, RequestKind.SET_MODE),
+        (SystemMode.SAFE, RequestKind.EXIT_SAFE),
+    }
 
 
 def test_latch_blocks_non_safe_transitions_outside_safe() -> None:

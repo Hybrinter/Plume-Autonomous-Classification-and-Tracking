@@ -14,29 +14,37 @@ from tools.ml_models.export.contract import (
 _TILE = (193, 258)
 
 
-def test_conditioned_classifier_shapes_pass() -> None:
-    """Dynamic-batch image/gsd/logits shapes satisfy the classifier contract."""
+def test_conditioned_classifier_flight_shapes_pass() -> None:
+    """A flight classifier must match the configured tile exactly."""
     result = verify_conditioned_shapes(
         (None, 3, 193, 258), (None, 2), (None, 1), 3, _TILE, "classifier"
     )
     assert isinstance(result, Ok)
+
+
+def test_conditioned_classifier_research_shapes_pass() -> None:
+    """Ground research models may use dynamic spatial dimensions without a tile."""
     dynamic = verify_conditioned_shapes(
-        (None, 3, None, None), (None, 2), (None, 1), 3, _TILE, "classifier"
+        (None, 3, None, None), (None, 2), (None, 1), 3, None, "classifier"
     )
     assert isinstance(dynamic, Ok)
 
 
-def test_conditioned_segmentor_shapes_pass() -> None:
-    """The segmentor accepts dynamic or tile-exact spatial output dims."""
+def test_conditioned_segmentor_flight_shapes_pass() -> None:
+    """A flight segmentor must match the configured tile exactly."""
     assert isinstance(
         verify_conditioned_shapes(
             (None, 3, 193, 258), (None, 2), (None, 1, 193, 258), 3, _TILE, "segmentor"
         ),
         Ok,
     )
+
+
+def test_conditioned_segmentor_research_shapes_pass() -> None:
+    """Ground research segmentors may keep spatial dimensions dynamic."""
     assert isinstance(
         verify_conditioned_shapes(
-            (None, 3, None, None), (None, 2), (None, 1, None, None), 3, _TILE, "segmentor"
+            (None, 3, None, None), (None, 2), (None, 1, None, None), 3, None, "segmentor"
         ),
         Ok,
     )

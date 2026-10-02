@@ -2,7 +2,7 @@
 
 Contains:
   - build_dataset: validate, split, normalize, augment, and write shards.
-  - build_flight, build_synthetic, build_zenodo: source-specific wrappers.
+  - build_flight, build_zenodo: source-specific wrappers.
 
 The build writes a sibling temporary directory and renames it onto ``dest``
 only after ``dataset.json`` is in place. A failure removes the temporary
@@ -33,7 +33,6 @@ from tools.ml_models.dataset.manifest import (
 from tools.ml_models.dataset.preprocess import IMAGE_SCALE, quantize_unit, to_unit
 from tools.ml_models.dataset.raw import BinSpec, RawSource, RawTile, RawTileRef
 from tools.ml_models.dataset.sources.flight import FlightTileDir
-from tools.ml_models.dataset.sources.synthetic import SyntheticSource
 from tools.ml_models.dataset.spec import BuildSpec
 from tools.ml_models.dataset.split import assign_group_splits
 from tools.ml_models.dataset.store import RowRecord, ShardWriter
@@ -128,35 +127,6 @@ def build_flight(
         raise ValueError(
             f"flight gsd_reference_m {source.gsd_reference_m} != spec {resolved.gsd_reference_m}"
         )
-    return build_dataset(source, dest, resolved)
-
-
-def build_synthetic(
-    dest: str | Path,
-    spec: BuildSpec | None = None,
-    *,
-    n: int = 12,
-    seed: int = 0,
-    label: float | None = None,
-) -> DatasetManifest:
-    """Build a dataset from planted-blob flight-sized tiles.
-
-    Args:
-        dest: Finished dataset directory.
-        spec: Build specification. The default spec is used when None.
-        n: Tile count. At least 3.
-        seed: Image noise seed.
-        label: When set, every tile uses this label.
-
-    Returns:
-        DatasetManifest: Written identity.
-
-    Raises:
-        FileExistsError: If ``dest`` already exists.
-        ValueError: If the raw contract fails.
-    """
-    source = SyntheticSource(n=n, seed=seed, label=label)
-    resolved = BuildSpec() if spec is None else spec
     return build_dataset(source, dest, resolved)
 
 

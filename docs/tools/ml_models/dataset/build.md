@@ -14,7 +14,6 @@ split, normalized, augmented shards plus a `dataset.json` manifest.
 | --- | --- | --- |
 | `build_dataset` | function | Build a dataset from any `RawSource` |
 | `build_flight` | function | Build from a labeled flight tile directory |
-| `build_synthetic` | function | Build from planted-blob flight-sized tiles |
 | `build_zenodo` | function | Build from the Zenodo 4250706 archives |
 
 ## Inputs and outputs
@@ -27,10 +26,6 @@ default `BuildSpec` applies when `spec` is None. The flight
 `gsd_reference_m` in `source.json` must equal `spec.gsd_reference_m`,
 and no index row may carry `gsd_nominal` — nominal captures belong to a
 custom research source built through `build_dataset`.
-
-`build_synthetic(dest, spec=None, n=12, seed=0, label=None) ->
-DatasetManifest`. `n` must be at least 3. `seed` drives the image noise.
-`label`, when set, applies to every tile.
 
 `build_zenodo(images_tar, labels_tar, weights_path, dest, spec=None,
 bins=None) -> DatasetManifest`. `bins` selects GSD bins; `None` emits

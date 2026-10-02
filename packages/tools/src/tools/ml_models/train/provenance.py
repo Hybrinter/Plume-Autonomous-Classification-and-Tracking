@@ -19,7 +19,8 @@ def training_provenance(
     """Return persisted training geometry and reject reused groups across splits.
 
     Only sources with a nonempty source reference share a group namespace
-    across dataset roots. Synthetic test sources do not claim a shared origin.
+    across dataset roots. A source with an empty reference namespaces its
+    groups by the resolved dataset path.
     """
     if len(dests) != len(manifests) or not dests:
         raise ValueError("misaligned dataset provenance")

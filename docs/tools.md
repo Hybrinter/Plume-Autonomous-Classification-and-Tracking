@@ -28,7 +28,7 @@ Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.
 
 Build a finished dataset with
-`pact-tools ml-models dataset build --source <flight|synthetic> --out <dir>`.
+`pact-tools ml-models dataset build --source <flight|zenodo> --out <dir>`.
 
 `python -m tools`, `python -m tools.analysis`,
 and `python -m tools.ml_models` provide module aliases.

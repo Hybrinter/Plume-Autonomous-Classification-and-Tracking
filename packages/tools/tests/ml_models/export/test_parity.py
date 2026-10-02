@@ -7,6 +7,7 @@ passes.
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -223,7 +224,9 @@ def test_export_manifest_contents(tmp_path: Path) -> None:
     assert raw["partial_gsd"] is False
 
 
-def test_exported_pair_loads_with_flight_metadata_and_config(tmp_path: Path) -> None:
+def test_exported_pair_loads_with_flight_metadata_and_config(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
     """A generated fixed-tile pair loads and stages with its configured metadata."""
     import json
 
@@ -232,7 +235,6 @@ def test_exported_pair_loads_with_flight_metadata_and_config(tmp_path: Path) -> 
     from flight.libs.messages import ModelStagedMsg, RoutedCommandMsg
     from flight.libs.time import ManualClock
     from flight.libs.types import MessageType, ModelDeployState
-    from tools.ml_models.dataset.build import build_synthetic
     from tools.ml_models.export.accept import accept_artifact
     from tools.ml_models.export.manifest import acceptance_path
     from tools.ml_models.export.pair import write_pair_manifest
@@ -240,8 +242,7 @@ def test_exported_pair_loads_with_flight_metadata_and_config(tmp_path: Path) -> 
     inference = InferenceConfig()
     artifacts: dict[str, Path] = {}
     manifests: dict[str, ModelManifest] = {}
-    dataset = tmp_path / "synthetic"
-    build_synthetic(dataset, n=9)
+    dataset = build_synthetic_dataset(tmp_path / "ds", n=9)
     for kind, arch, filename in (
         ("classifier", "pactnet", "classifier.onnx"),
         ("segmentor", "dilatenet_w16", "segmentor.onnx"),
@@ -373,9 +374,8 @@ def test_export_refuses_existing_files(tmp_path: Path) -> None:
     assert artifact.read_bytes() == b"keep"
 
 
-def test_full_acceptance_flow(tmp_path: Path) -> None:
+def test_full_acceptance_flow(tmp_path: Path, build_synthetic_dataset: Callable[..., Path]) -> None:
     """accept_artifact scores a real session on a finished test split."""
-    from tools.ml_models.dataset.build import build_synthetic
     from tools.ml_models.export.accept import accept_artifact
 
     ckpt, _model = _checkpoint(tmp_path)
@@ -383,8 +383,7 @@ def test_full_acceptance_flow(tmp_path: Path) -> None:
     result = export(ExportConfig(str(ckpt), str(artifact)))
     assert isinstance(result, Ok), result
     manifest = load_manifest(sidecar_path(artifact))
-    dataset = tmp_path / "ds"
-    build_synthetic(dataset, n=9)
+    dataset = build_synthetic_dataset(tmp_path / "ds", n=9)
     report = accept_artifact(
         artifact,
         manifest,

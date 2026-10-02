@@ -361,22 +361,14 @@ def test_check_compatible_requires_shared_reference_and_bands(tmp_path: Path) ->
         check_compatible([base, alt])
 
 
-def test_cli_builds_synthetic(tmp_path: Path) -> None:
-    """The dataset build command writes a synthetic dataset."""
-    dest = tmp_path / "ds"
-    code = main(
-        ["dataset", "build", "--source", "synthetic", "--out", str(dest), "--n", "6", "--seed", "1"]
-    )
-    assert code == 0
-    manifest = load_manifest(dest / "dataset.json")
-    assert manifest.source == "synthetic"
-    assert manifest.norm == "unit"
-
-
 def test_cli_reports_bad_dataset_args(tmp_path: Path) -> None:
     """Bad dataset arguments surface as a parameter error, not a traceback."""
     missing_dir = main(["dataset", "build", "--source", "flight", "--out", str(tmp_path / "ds")])
     assert missing_dir != 0
+    removed_source = main(
+        ["dataset", "build", "--source", "synthetic", "--out", str(tmp_path / "ds3")]
+    )
+    assert removed_source != 0
     missing_source = main(
         [
             "dataset",

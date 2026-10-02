@@ -37,12 +37,11 @@ field, omitting None values.
 
 1. `kind` is `classifier` or `segmentor`; `arch` empty selects the kind
    default.
-2. `datasets` lists finished dataset roots; empty builds the synthetic
-   source inside the run directory.
+2. `datasets` lists finished dataset roots; an empty list fails at run
+   start.
 3. `dataset_weights` is empty or one positive weight per dataset.
 4. `epochs`, `batch_size`, and `eval_interval` are positive;
-   `synthetic_samples` is at least 12; `patience` is nonnegative;
-   `max_steps` is None or positive.
+   `patience` is nonnegative; `max_steps` is None or positive.
 5. `learning_rate` is finite and positive; `weight_decay` is finite and
    nonnegative; `momentum` lies in `[0, 1)`.
 6. `optimizer` is `sgd` or `adamw`; `scheduler` is `none` or `cosine`.

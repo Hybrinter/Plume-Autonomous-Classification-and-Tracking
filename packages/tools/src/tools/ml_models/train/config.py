@@ -28,7 +28,6 @@ class TrainConfig:
     momentum: float = 0.9
     weight_decay: float = 0.0
     seed: int = 0
-    synthetic_samples: int = 12
     run_dir: str = "artifacts/runs"
     run_id: str = ""
     checkpoint_path: str = ""
@@ -50,8 +49,6 @@ class TrainConfig:
     def _bounds(self) -> Self:
         if min(self.epochs, self.batch_size, self.eval_interval) < 1:
             raise ValueError("epochs, batch_size, and eval_interval must be positive")
-        if self.synthetic_samples < 12:
-            raise ValueError("synthetic_samples must be at least 12")
         if self.patience < 0 or (self.max_steps is not None and self.max_steps < 1):
             raise ValueError("invalid patience or max_steps")
         if not math.isfinite(self.learning_rate) or self.learning_rate <= 0:

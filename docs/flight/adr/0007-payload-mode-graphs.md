@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-10-02
 **Topic:** restructure
-**Supersedes:** none
+**Supersedes:** ADR-FLIGHT-0005 (GimbalState arbiter model), ADR-FLIGHT-0002 (SAFE stow), ADR-REPO-0008 (SAFE stow)
 **Superseded-by:** none
 **Related:** ADR-FLIGHT-0004, ADR-FLIGHT-0005
 

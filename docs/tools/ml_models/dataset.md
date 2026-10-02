@@ -23,7 +23,7 @@ them for model work. Each source writes its own dataset root: shards of
 | [`spec`](dataset/spec.md) | module | `BuildSpec` TOML schema for a build |
 | [`build`](dataset/build.md) | module | Build a finished dataset from any raw source |
 | [`loader`](dataset/loader.md) | module | Torch datasets and seeded single-shard batches |
-| [`sources`](dataset/sources.md) | package | Raw sources: flight tile directory, synthetic, and Zenodo 4250706 |
+| [`sources`](dataset/sources.md) | package | Raw sources: flight tile directory and Zenodo 4250706 |
 
 ## Package interface
 

@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-from tools.ml_models.dataset.build import build_flight, build_synthetic, build_zenodo
+from tools.ml_models.dataset.build import build_flight, build_zenodo
 from tools.ml_models.dataset.raw import BinSpec
 from tools.ml_models.dataset.spec import BuildSpec, load_build_spec
 
@@ -27,7 +27,6 @@ class SourceName(StrEnum):
     """Raw sources the build command accepts."""
 
     FLIGHT = "flight"
-    SYNTHETIC = "synthetic"
     ZENODO = "zenodo"
 
 
@@ -67,10 +66,8 @@ def build_command(
         typer.Option(help="Zenodo GSD bin to emit (repeatable). Default: all bins."),
     ] = None,
     spec: Annotated[Path | None, typer.Option(help="Optional BuildSpec TOML.")] = None,
-    n: Annotated[int, typer.Option(help="Synthetic tile count.")] = 12,
-    seed: Annotated[int, typer.Option(help="Synthetic image seed.")] = 0,
 ) -> None:
-    """Build a finished dataset from flight tiles, Zenodo archives, or the synthetic source."""
+    """Build a finished dataset from flight tiles or Zenodo archives."""
     try:
         resolved = load_build_spec(spec) if spec is not None else BuildSpec()
         if source is SourceName.FLIGHT:
@@ -78,14 +75,11 @@ def build_command(
                 raise typer.BadParameter("--source flight requires --source-dir")
             build_flight(source_dir, out, resolved)
             return
-        if source is SourceName.ZENODO:
-            if images_tar is None or labels_tar is None or weights_path is None:
-                raise typer.BadParameter(
-                    "--source zenodo requires --images-tar, --labels-tar, and --weights-path"
-                )
-            build_zenodo(images_tar, labels_tar, weights_path, out, resolved, _select_bins(bin_id))
-            return
-        build_synthetic(out, resolved, n=n, seed=seed)
+        if images_tar is None or labels_tar is None or weights_path is None:
+            raise typer.BadParameter(
+                "--source zenodo requires --images-tar, --labels-tar, and --weights-path"
+            )
+        build_zenodo(images_tar, labels_tar, weights_path, out, resolved, _select_bins(bin_id))
     except (OSError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
 

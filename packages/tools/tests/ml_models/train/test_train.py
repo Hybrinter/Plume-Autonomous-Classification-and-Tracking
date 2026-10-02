@@ -510,6 +510,8 @@ def test_cli_train_echoes_run_and_rejects_bad_config(
     """``ml-models train`` prints the run path and maps errors to exit codes."""
     from tools.ml_models.cli import main
 
+    dataset = _build(tmp_path / "ds", _groups("g", GsdPair(5.0, 10.0)), _spec())
+    assert main(["train", "--run-dir", str(tmp_path / "runs")]) != 0
     code = main(
         [
             "train",
@@ -517,6 +519,8 @@ def test_cli_train_echoes_run_and_rejects_bad_config(
             "classifier",
             "--arch",
             "pactnet_w8_d2",
+            "--dataset",
+            str(dataset),
             "--run-dir",
             str(tmp_path / "runs"),
             "--epochs",

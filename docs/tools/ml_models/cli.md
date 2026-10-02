@@ -15,7 +15,7 @@ runs the full-frame evaluation.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SourceName` | StrEnum | `flight`, `synthetic`, or `zenodo` raw source kinds |
+| `SourceName` | StrEnum | `flight` or `zenodo` raw source kinds |
 | `app` | Typer application | `tools.ml_models` command group |
 | `dataset_app` | Typer application | `dataset` subgroup under `app` |
 | `build_command` | function | `dataset build` command |
@@ -31,7 +31,7 @@ runs the full-frame evaluation.
 
 `dataset build` options:
 
-- `--source`: `flight`, `synthetic`, or `zenodo`. Required.
+- `--source`: `flight` or `zenodo`. Required.
 - `--out`: finished dataset directory. Required.
 - `--source-dir`: flight tile directory. Required with `--source flight`.
 - `--images-tar`: Zenodo image archive. Required with `--source zenodo`.
@@ -42,8 +42,6 @@ runs the full-frame evaluation.
 - `--bin-id`: Zenodo GSD bin name, repeatable. Selects `DEFAULT_BINS` by
   name; default is every bin.
 - `--spec`: optional `BuildSpec` TOML file.
-- `--n`: synthetic tile count, default 12.
-- `--seed`: synthetic image seed, default 0.
 
 `train` options:
 
@@ -107,12 +105,11 @@ runs the full-frame evaluation.
 3. `zenodo` requires `--images-tar`, `--labels-tar`, and `--weights-path`,
    then calls `build_zenodo`. `--bin-id` selects named bins from
    `DEFAULT_BINS`; an unknown or repeated name is rejected.
-4. `synthetic` calls `build_synthetic` with `n` and `seed`.
-5. `train` loads the optional `--config` TOML, applies the option overlay
+4. `train` loads the optional `--config` TOML, applies the option overlay
    through `apply_train_mapping`, and calls `loop.train`. An `Ok` result
    echoes the run directory path; an `Err` becomes `typer.BadParameter`.
    The train modules import lazily inside the command.
-6. `main` runs `app` under the program name `tools.ml_models` and converts
+5. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 
 ## Errors and faults

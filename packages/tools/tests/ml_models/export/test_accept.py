@@ -1,9 +1,9 @@
 """Tests for acceptance gating that run without the onnxruntime SDK."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from tools.ml_models.dataset.build import build_synthetic
 from tools.ml_models.export.accept import accept_artifact
 from tools.ml_models.export.manifest import ModelManifest
 
@@ -47,10 +47,11 @@ def test_accept_rejects_empty_datasets(tmp_path: Path) -> None:
         accept_artifact(tmp_path / "m.onnx", _manifest(), [])
 
 
-def test_accept_rejects_reference_mismatch(tmp_path: Path) -> None:
+def test_accept_rejects_reference_mismatch(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
     """A dataset GSD reference that disagrees with the model is rejected."""
-    dataset = tmp_path / "ds"
-    build_synthetic(dataset, n=6)
+    dataset = build_synthetic_dataset(tmp_path / "ds", n=6)
     with pytest.raises(ValueError, match="disagree"):
         accept_artifact(
             tmp_path / "m.onnx",
@@ -59,10 +60,11 @@ def test_accept_rejects_reference_mismatch(tmp_path: Path) -> None:
         )
 
 
-def test_accept_reaches_session_open(tmp_path: Path) -> None:
+def test_accept_reaches_session_open(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
     """A compatible dataset passes preprocessing gates and fails at the SDK."""
-    dataset = tmp_path / "ds"
-    build_synthetic(dataset, n=6)
+    dataset = build_synthetic_dataset(tmp_path / "ds", n=6)
     artifact = tmp_path / "m.onnx"
     artifact.write_bytes(b"stub")
     manifest = _manifest()

@@ -98,7 +98,8 @@ class RawSource(Protocol):
         band_names: Channel names in image order.
         domain: ``dn`` or ``unit``.
         bit_depth: ADC depth used when ``domain`` is ``dn``.
-        source_ref: DOI or other provenance string. Empty when synthetic.
+        source_ref: DOI or other provenance string. Empty when the source
+            has no external origin.
         extent_m: ``(lateral_m, along_m)`` ground window, or None when every
             tile is the flight 193 by 258 size.
         bins: Bin table copied onto the manifest. Empty when the source has

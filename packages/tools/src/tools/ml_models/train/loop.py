@@ -39,7 +39,6 @@ from torch import nn
 from tools.ml_models.arch.film import CONDITIONING_ID, IGNORED_CONDITIONING_ID, IgnoreGsd
 from tools.ml_models.arch.registry import build as build_model
 from tools.ml_models.arch.registry import resolve_arch
-from tools.ml_models.dataset.build import build_synthetic
 from tools.ml_models.dataset.geometry import tile_hw
 from tools.ml_models.dataset.loader import make_loader
 from tools.ml_models.dataset.manifest import DatasetManifest, check_compatible, load_manifest
@@ -58,8 +57,8 @@ def train(cfg: TrainConfig | None = None) -> Result[Path, str]:
     """Train one model on finished datasets and return the run directory.
 
     Args:
-        cfg: Training configuration. None uses :class:`TrainConfig` defaults,
-            which build a small synthetic dataset inside the run directory.
+        cfg: Training configuration. None uses :class:`TrainConfig` defaults.
+            ``datasets`` must name at least one finished dataset root.
 
     Returns:
         Result[Path, str]: Ok with the run directory on success.
@@ -74,6 +73,8 @@ def train(cfg: TrainConfig | None = None) -> Result[Path, str]:
 
 def _train(cfg: TrainConfig) -> Path:
     """Run one training pass; raises on any failure."""
+    if not cfg.datasets:
+        raise ValueError("train requires at least one finished dataset")
     run_id = cfg.run_id or f"{cfg.kind}-{config_digest(cfg)}-{time.time_ns()}"
     run = Path(cfg.run_dir) / run_id
     if run.exists():
@@ -82,11 +83,7 @@ def _train(cfg: TrainConfig) -> Path:
     (run / "checkpoints").mkdir()
     write_train_config_toml(run / "config.toml", cfg)
 
-    if cfg.datasets:
-        dests: list[str | Path] = list(cfg.datasets)
-    else:
-        dests = [run / "synthetic"]
-        build_synthetic(dests[0], n=cfg.synthetic_samples, seed=cfg.seed)
+    dests: list[str | Path] = list(cfg.datasets)
 
     manifests = [load_manifest(Path(dest) / "dataset.json") for dest in dests]
     check_compatible(manifests)

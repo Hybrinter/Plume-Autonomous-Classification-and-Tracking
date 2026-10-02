@@ -21,18 +21,17 @@ artifacts.
 
 `train(cfg=None) -> Result[Path, str]`. `Ok` carries the run directory;
 `Err` carries the failure message. `cfg=None` uses `TrainConfig`
-defaults, which build a small synthetic dataset inside the run.
+defaults; `datasets` must name at least one finished dataset root.
 
 The run directory holds `config.toml`, `checkpoints/` (`best.pt` and
-`last.pt`), `summary.json`, `history.jsonl`, and `synthetic/` when
-datasets were omitted.
+`last.pt`), `summary.json`, and `history.jsonl`.
 
 ## Behavior
 
-1. The run directory is `run_dir / (run_id or kind-digest-nanoseconds)`;
+1. `datasets` must name at least one finished dataset; an empty list
+   fails before the run directory is created.
+2. The run directory is `run_dir / (run_id or kind-digest-nanoseconds)`;
    an existing directory is rejected.
-2. With no `datasets`, `build_synthetic` writes `run/synthetic` at
-   `synthetic_samples` rows and the run seed.
 3. Manifests load once; `check_compatible` and `training_provenance`
    each run once. Every dataset must carry train and validation rows for
    the task.

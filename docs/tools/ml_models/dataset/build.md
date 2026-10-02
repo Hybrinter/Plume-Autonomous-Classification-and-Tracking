@@ -15,6 +15,7 @@ split, normalized, augmented shards plus a `dataset.json` manifest.
 | `build_dataset` | function | Build a dataset from any `RawSource` |
 | `build_flight` | function | Build from a labeled flight tile directory |
 | `build_synthetic` | function | Build from planted-blob flight-sized tiles |
+| `build_zenodo` | function | Build from the Zenodo 4250706 archives |
 
 ## Inputs and outputs
 
@@ -28,6 +29,12 @@ default `BuildSpec` applies when `spec` is None. The flight
 `build_synthetic(dest, spec=None, n=12, seed=0, label=None) ->
 DatasetManifest`. `n` must be at least 3. `seed` drives the image noise.
 `label`, when set, applies to every tile.
+
+`build_zenodo(images_tar, labels_tar, weights_path, dest, spec=None,
+bins=None) -> DatasetManifest`. `bins` selects GSD bins; `None` emits
+`DEFAULT_BINS`. The weight table id is recorded on
+`spec.weight_table_id`; a non-empty spec id that disagrees with the table
+is rejected. Zenodo imports are lazy inside the wrapper.
 
 ## Behavior
 
@@ -61,12 +68,14 @@ DatasetManifest`. `n` must be at least 3. `seed` drives the image noise.
 ## Errors and faults
 
 `FileExistsError` when `dest` exists before or during the build.
-`ValueError` on a band or domain mismatch, an empty index, a duplicate or
-empty `tile_id`, an empty `group_id`, a non-finite or non-positive GSD or
-extent, a non-binary label, a rounded size below 1, an empty legal-element
-intersection, a stream that disagrees with the index in order, shape, or
-mask, a non-finite image, a non-binary mask, or no selected rows.
-`OSError` when the destination cannot be created.
+`FileNotFoundError` from `build_zenodo` when an archive or the weight
+table is missing. `ValueError` on a band or domain mismatch, an empty
+index, a duplicate or empty `tile_id`, an empty `group_id`, a non-finite
+or non-positive GSD or extent, a non-binary label, a rounded size below 1,
+an empty legal-element intersection, a stream that disagrees with the
+index in order, shape, or mask, a non-finite image, a non-binary mask, a
+`spec.weight_table_id` that disagrees with the loaded table, or no
+selected rows. `OSError` when the destination cannot be created.
 
 ## Messages
 

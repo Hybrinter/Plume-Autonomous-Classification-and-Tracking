@@ -1,7 +1,7 @@
 # ML dataset flight and ground cleanup
 
-**Status:** Flight processing and model interface implemented; repository validation complete.
-**Date:** 2026-10-01
+**Status:** Flight processing and stacked ground workflow integrated; stack validation complete.
+**Date:** 2026-10-02
 
 ## Objective and evidence
 
@@ -19,8 +19,8 @@ Inputs reviewed:
   and architecture builders.
 - Remote source and patches for open pull requests 100 through 104. These
   contain newer dataset, footprint, conditioning, training, and export work
-  than the returned pull-request descriptions describe. Future ground migration
-  should recheck exact commit identities; a branch name is not a pinned snapshot.
+  than the returned pull-request descriptions describe. The branch heads were
+  fetched before stack integration; a branch name is not a pinned snapshot.
 
 The diagram includes two connected paths:
 
@@ -189,12 +189,35 @@ the deployed flight consumer cannot load.
 Four GPT-6-luna execution tasks have disjoint ownership: geometry/tiling/config,
 inference backends and gate, session/deployment contract, and app/message/SIL
 integration. The parent reviews integration and maintains cross-cutting docs.
-No force-push or existing PR rewrite is inferred from the attached proposal.
+The user subsequently requested updates to the existing PR 100–104 stack;
+integration preserves branch histories and uses fast-forward publication.
 
-Later work will migrate the finished ground dataset/training/export/evaluation
-stack onto these flight APIs and implement the separately agreed collection,
-storage, balancing, and downlink policies. Existing mask science products
-continue through the current storage path during this pass.
+The existing pull-request stack now carries these APIs through finished ground
+datasets, conditioning, training, export, and evaluation. Collection, storage,
+balancing, and downlink policies remain future work. Existing mask science
+products continue through the current storage path during this pass.
+
+### Pull-request allocation
+
+| Pull request | Resulting responsibility |
+| --- | --- |
+| 100 | Flight processing/model interface plus finished dataset core; tools geometry and GSD encoding delegate to flight |
+| 101 | Ground Zenodo decoding, annotation adaptation, spectral mapping, and resampling; flight supplies reference geometry |
+| 102 | Torch FiLM conditioning and training; export-size metadata derives from flight-backed geometry |
+| 103 | Ground two-input export, acceptance, and pairing; actual flight loader and deployment validate generated fixed-tile artifacts |
+| 104 | Ground analysis and legacy cutover; full-frame scoring calls flight's classifier/segmentor gate and stitching |
+
+Each layer retains its existing branch history and incorporates its updated
+parent. The first open pull request targets the merged main branch. Ground
+augmentation, group splitting, finished dataset shards, training, and reports
+stay in tools because they operate after examples are compiled. Ground raw
+directory writers are import/fixture helpers, not onboard collection services.
+
+The default export has dynamic batch and concrete flight tile dimensions.
+Dynamic spatial graphs remain research artifacts and fail flight promotion
+and pairing. ONNX shape inference resolves segmentor Resize dimensions before
+validation; actual Runtime parity and deployment tests check the resulting
+graph metadata.
 
 Every execution task should identify its exact files, input/output contract,
 reuse source, forbidden dependencies, acceptance checks, and out-of-scope
@@ -207,15 +230,16 @@ on cross-package contracts.
   convention; malformed data follows flight's Result contract.
 - Shared flight and offline gate behavior, with segmentation called only for
   classifier-positive tiles and finite outputs checked.
-- Two-input ONNX parity and dynamic-batch checks; activation and rollback
-  validate the new model-pair sidecar contract. The legacy ground exporter
-  remains a separate migration task.
+- Two-input ONNX parity and dynamic-batch checks; generated classifier and
+  segmentor artifacts pass acceptance, pairing, flight parsing, and activation.
+  The legacy ground exporter is removed by the stack's cutover layer.
 - SIL pointing and model-upload scenarios pass after wiring.
 - Relevant static, import, documentation, requirement, flight-image, and
   subsystem test gates pass. Hardware timing and flight-domain accuracy
   remain measured validation tasks, not conclusions from synthetic tests.
 
-Final repository validation with the optional ONNX dependencies installed:
+Flight-foundation validation before stack integration, with optional ONNX
+dependencies installed:
 `pytest -m 'not e2e' -n 2` passed 1,168 tests and skipped 12. Ruff lint/format,
 strict mypy, all 18 import contracts, strict documentation/ADR checks, VCRM,
 and the isolated lean flight-image check passed. Verification includes actual
@@ -223,6 +247,18 @@ two-input ONNX execution, tiled geometry and gating, SIL pointing, model upload,
 activation/rollback, and analysis scenarios. The broader run also exposed stale
 ground export fixtures and a finalizer channel-count assumption; those were
 corrected while preserving three- and four-band finalization support.
+
+Stack validation includes 1,105 passing PR-suite tests on PR 100 and 1,134 on
+PR 101; 35 architecture/training tests on PR 102; and all 122 export tests on
+PR 103. The integrated run exercised 1,136 tests, with 1,128 passing and four
+skipped. Its four failures exposed stale dynamic-spatial contract expectations
+and handcrafted ONNX fixtures using an unsupported IR version. Contract
+checks now distinguish fixed flight tiles from dynamic research graphs; the
+precision fixtures use supported IR 10 and declare their actual input shape.
+Both real SDK precision conversions pass. After these fixture corrections,
+the final PR suite (`pytest -m 'not slow and not e2e' -n 2`) passed 1,103 tests
+and skipped four. All static gates and the isolated flight image check pass
+on the integrated stack.
 
 ## Future decisions outside this pass
 
@@ -234,5 +270,6 @@ corrected while preserving three- and four-band finalization support.
 4. The ground migration's final augmentation/GSD variants and source population
    details. These do not block the confirmed flight model interface.
 
-Future collection and ground migration will need these decisions; this pass
-implements the confirmed processing boundary without selecting them.
+Future collection and source-population work will need these decisions; this
+pass implements the processing boundary and reuses it throughout the stack
+without selecting the deferred collection policies.

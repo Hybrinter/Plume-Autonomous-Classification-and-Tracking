@@ -30,7 +30,8 @@ report from `full_frame.evaluate_flight_frames`.
 ## Interactions
 
 `full_frame` reads finished flight datasets through
-`tools.ml_models.dataset` helpers and scores them with `train.metrics`.
+`tools.ml_models.dataset` helpers, uses flight's shared GSD, tiling and tile
+inference functions, and scores results with `train.metrics`.
 `runs`, `pareto`, `plots`, and `report` operate on local run directories
 written by `tools.ml_models.train.loop`. `cost` profiles torch modules
 from `tools.ml_models.arch.registry`.

@@ -235,12 +235,14 @@ def _real_graph(tmp_path: Path) -> Path:
         [weight],
     )
     model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    model.ir_version = 10
     onnx.checker.check_model(model)
     artifact = tmp_path / "fp32.onnx"
     onnx.save(model, str(artifact))
     manifest = _manifest(
         kind="segmentor",
         arch="dilatenet_stub",
+        input_shape=(None, 3, 193, 258),
         output_shape=(None, 1, 193, 258),
         sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(),
     )

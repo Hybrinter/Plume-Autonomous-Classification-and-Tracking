@@ -6,10 +6,11 @@
 ## Purpose
 
 This module evaluates a conditioned classifier/segmentor pair on real
-finished flight frames. Each test frame is scored as its 64 stored tiles:
-the classifier runs on every tile, the segmentor runs only on tiles the
-classifier selects, and the stitched mask is compared to the stored
-ground masks.
+finished flight frames. Torch models are adapted to flight's typed NumPy tile
+backend protocols, then scored by `flight.payload.inference.detector.infer_tiles`.
+Flight also owns GSD encoding and row-major tile slicing and stitching. Frame
+dimensions, band count, grid dimensions, and reference GSD come from the
+flight-backed dataset geometry aliases.
 
 ## Public interface
 
@@ -22,8 +23,9 @@ ground masks.
 ## Inputs and outputs
 
 `score_tiled_frame(classifier, segmentor, frame, tile_gsd_m, *,
-gsd_reference_m, logit_threshold)` takes a float32 `(1, 3, H, W)` unit
-frame and `(64, 2)` metre GSD pairs and returns `TiledScore`.
+gsd_reference_m, logit_threshold)` takes a float32
+`(len(INPUT_BANDS), H, W)` unit frame and `(grid_rows * grid_cols, 2)` metre
+GSD pairs, using the flight-backed geometry defaults, and returns `TiledScore`.
 `evaluate_flight_frames(dataset, classifier, segmentor, *,
 logit_threshold)` returns a JSON-ready dict with per-frame reports,
 per-bin aggregates, and `incomplete_frame_ids`.
@@ -33,13 +35,13 @@ per-bin aggregates, and `incomplete_frame_ids`.
 1. `evaluate_flight_frames` loads `dataset.json`, requires
    `source == "flight"`, and groups test rows by `frame_id` and
    `grid_rc`.
-2. Frames missing any of the 64 grid cells are skipped and reported in
+2. Frames missing any configured grid cell are skipped and reported in
    `incomplete_frame_ids`.
-3. `score_tiled_frame` slices the stitched frame, encodes the per-tile
-   GSD against the manifest reference, classifies all 64 tiles, and runs
-   the segmentor only on tiles whose logit reaches the threshold.
+3. `score_tiled_frame` uses flight's tiling and GSD helpers, classifies every
+   configured grid tile through `infer_tiles`, and lets the shared positive
+   gate run the segmentor only on tiles whose logit reaches the threshold.
 4. Tiles with a stored ground mask contribute per-tile IoU and Dice; a
-   frame with all 64 masks also scores stitched `full_frame_iou` and
+   frame with all configured masks also scores stitched `full_frame_iou` and
    `full_frame_dice`. Frames without masks contribute classifier metrics
    only.
 5. Per-bin aggregates use the stored `bin_id` of each tile.
@@ -61,7 +63,7 @@ manifest reference.
 
 ## Constraints
 
-- Only complete 64-tile frames are scored.
+- Only complete frames with every configured grid cell are scored.
 - No synthetic scene composition or resizing; stored tiles only.
 - Unannotated masks remain unknown and are never treated as empty.
 

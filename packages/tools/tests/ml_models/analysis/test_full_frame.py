@@ -7,6 +7,8 @@ from typing import cast
 import numpy as np
 import pytest
 import torch
+from flight.libs.types import Ok
+from flight.payload.preprocess.tiling import slice_frame as flight_slice_frame
 from tools.ml_models.analysis.full_frame import evaluate_flight_frames, score_tiled_frame
 from tools.ml_models.dataset.augment import AugmentRecipe
 from tools.ml_models.dataset.geometry import (
@@ -14,7 +16,6 @@ from tools.ml_models.dataset.geometry import (
     TILE_H_PX,
     TILE_W_PX,
     frame_hw,
-    slice_frame,
 )
 from tools.ml_models.dataset.manifest import (
     DatasetManifest,
@@ -260,7 +261,9 @@ def test_score_tiled_frame_segments_only_positive_tiles() -> None:
     score = score_tiled_frame(_StubClassifier(), _RecordingSegmentor(), frame, gsd)
     assert seen == [len(_POSITIVE_INDICES)]
     assert score.positive.tolist() == [index in _POSITIVE_INDICES for index in range(64)]
-    tiles = slice_frame(score.mask[None, None])[:, 0]
+    result = flight_slice_frame(score.mask[None])
+    assert isinstance(result, Ok)
+    tiles = result.value[:, 0]
     for index in range(64):
         expected = 1.0 if index in _POSITIVE_INDICES else 0.0
         assert float(tiles[index].mean()) == pytest.approx(expected)

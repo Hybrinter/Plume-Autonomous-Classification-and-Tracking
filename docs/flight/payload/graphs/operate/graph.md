@@ -27,14 +27,16 @@ The OPERATE graph orchestrator: spec, edges, initial state, one-tick step, and
 
 ## Behavior
 
-1. Activation mismatch, containment, stale feedback, and flagged vision emit
-   inhibit (containment and flags with a SAFE intent).
-2. A valid routed command commits before automatic edges; guard failures
+1. Activation mismatch, containment, and flagged vision inhibit with the
+   disabled policy. Containment and flagged vision also emit a SAFE intent.
+2. Stale or missing encoder feedback inhibits the motion reference and keeps
+   the enabled imaging and inference policy.
+3. A valid routed command commits before automatic edges; guard failures
    return `Err(COMMAND_INVALID)` with the state untouched.
-3. Accepted vision commits `VISION_ACQUIRED` before limb arrival and the
+4. Accepted vision commits `VISION_ACQUIRED` before limb arrival and the
    rewind timer; bounded coast exhaustion commits `COAST_EXHAUSTED` to REWIND
    away from the limb or HOLD at the limb, exactly once via `loss_handled`.
-4. On each committed edge the destination node's reference and policy apply
+5. On each committed edge the destination node's reference and policy apply
    the same tick and no second transition fires.
 
 ## Errors and faults

@@ -489,6 +489,8 @@ def test_mode_flags_request_safe_without_moving(
     assert outcome.outcome.faults == (FaultCode.INFERENCE_NAN,)
     assert outcome.outcome.system_request is SystemRequestIntent.SAFE
     assert isinstance(outcome.outcome.reference, InhibitReference)
+    assert outcome.outcome.policy.imaging.acquisition_enabled is False
+    assert outcome.outcome.policy.inference.enabled is False
 
 
 def test_stale_context_and_duplicate_frames_do_not_refresh(
@@ -530,12 +532,21 @@ def test_stale_context_and_duplicate_frames_do_not_refresh(
 def test_stale_feedback_inhibits(
     params: GraphParameters, tick: TickBuilder, key: ActivationKey
 ) -> None:
-    """Stale or invalid feedback inhibits motion with no transition."""
+    """Stale or missing feedback inhibits motion and keeps imaging enabled."""
     state = operate.initial_state(tick(0.0, key), params)
     new_state, outcome = operate.step(state, tick(1.0, key, encoder_t_s=0.0, health=_STALE), params)
     assert new_state == state
     assert isinstance(outcome.outcome.reference, InhibitReference)
+    assert outcome.outcome.reference.reason == "stale_feedback"
     assert outcome.transition is None
+    assert outcome.outcome.policy.imaging.acquisition_enabled is True
+    assert outcome.outcome.policy.inference.enabled is True
+    missing_state, missing = operate.step(state, tick(0.02, key, encoder_angle_rad=None), params)
+    assert missing_state == state
+    assert isinstance(missing.outcome.reference, InhibitReference)
+    assert missing.outcome.reference.reason == "stale_feedback"
+    assert missing.outcome.policy.imaging.acquisition_enabled is True
+    assert missing.outcome.policy.inference.enabled is True
 
 
 def test_contained_requests_safe(
@@ -546,6 +557,8 @@ def test_contained_requests_safe(
     new_state, outcome = operate.step(state, tick(0.02, key, health=_CONTAINED), params)
     assert new_state == state
     assert outcome.outcome.system_request is SystemRequestIntent.SAFE
+    assert outcome.outcome.policy.imaging.acquisition_enabled is False
+    assert outcome.outcome.policy.inference.enabled is False
 
 
 def test_same_inputs_same_outputs(

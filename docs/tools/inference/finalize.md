@@ -50,7 +50,9 @@ Callers pass IoU, accuracy, latency, calibration count, and scene limit.
 ## Constraints
 
 The live gate needs onnxruntime. INT8 calibration reads the train split of the
-same pack the run trained on.
+same pack the run trained on. The acceptance gate's expected model input shape
+uses the channel count and spatial dimensions saved in the training config, so
+it matches both the standard three-band run and explicitly configured inputs.
 
 ## Related documents
 

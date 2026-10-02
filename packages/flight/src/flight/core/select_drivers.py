@@ -168,8 +168,8 @@ def select_drivers(
 
         inf = config.inference
         bands = len(inf.input_bands)
-        height = inf.input_height_px
-        width = inf.input_width_px
+        tile_height = inf.input_height_px // inf.tile_rows
+        tile_width = inf.input_width_px // inf.tile_cols
         detector = OnnxDetector(
             segmentor_model_path=resolve_quantized_path(inf.segmentor_model_path, inf.use_int8),
             classifier_model_path=resolve_quantized_path(inf.classifier_model_path, inf.use_int8),
@@ -177,9 +177,12 @@ def select_drivers(
             min_blob_area_px=config.controller.vision.min_blob_area_px,
             logit_threshold=inf.classifier_logit_threshold,
             latency_budget_ms=config.fault.inference_timeout_ms,
-            expected_input_shape=(1, bands, height, width),
-            expected_segmentor_output_shape=(1, 1, height, width),
-            expected_classifier_output_shape=(1, 1),
+            grid=(inf.tile_rows, inf.tile_cols),
+            gsd_reference_m=inf.gsd_reference_m,
+            expected_input_shape=(None, bands, tile_height, tile_width),
+            expected_gsd_shape=(None, 2),
+            expected_segmentor_output_shape=(None, 1, tile_height, tile_width),
+            expected_classifier_output_shape=(None, 1),
         )
 
     # --- link (station transport) ---

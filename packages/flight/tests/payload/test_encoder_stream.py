@@ -1,6 +1,7 @@
 """Tests for PayloadApp encoder-stream retention and consumption bookkeeping."""
 
 import math
+from dataclasses import replace
 
 import numpy as np
 from flight.hal.drivers_sim import SimGimbal, SimIssEphemeris, SimSensor
@@ -28,7 +29,8 @@ class _MemStorage:
 
 def _build_app(detector: DetectorBackend) -> PayloadApp:
     """Assemble a PayloadApp over sim drivers and a fresh bus."""
-    cfg = PactConfig()
+    base = PactConfig()
+    cfg = replace(base, inference=replace(base.inference, tile_rows=1, tile_cols=1))
     bus = MessageBus()
     clock = ManualClock()
     gimbal = SimGimbal(clock=clock, cfg=cfg.gimbal, inner_dt_s=cfg.controller.inner.dt_s)

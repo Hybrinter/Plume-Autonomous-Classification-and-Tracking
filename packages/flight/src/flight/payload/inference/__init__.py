@@ -5,14 +5,22 @@ from flight.payload.inference.classifier import (
     ClassifierDecision,
     OnnxClassifier,
     ScriptedClassifier,
+    TileClassifierBackend,
 )
 from flight.payload.inference.detector import (
     Detector,
     DetectorBackend,
     OnnxDetector,
     ScriptedDetector,
+    TiledScore,
+    infer_tiles,
 )
-from flight.payload.inference.segmentor import OnnxSegmentor, ScriptedSegmentor, SegmentorBackend
+from flight.payload.inference.segmentor import (
+    OnnxSegmentor,
+    ScriptedSegmentor,
+    SegmentorBackend,
+    TileSegmentorBackend,
+)
 from flight.payload.inference.verify import (
     check_inference_latency,
     compute_sha256,
@@ -32,8 +40,12 @@ __all__ = [
     "ScriptedDetector",
     "ScriptedSegmentor",
     "SegmentorBackend",
+    "TileClassifierBackend",
+    "TileSegmentorBackend",
+    "TiledScore",
     "check_inference_latency",
     "compute_sha256",
+    "infer_tiles",
     "verify_io_contract",
     "verify_model_hash",
 ]

@@ -1,130 +1,74 @@
-"""Flight frame, grid, and tile geometry used while a dataset is built.
+"""Dataset adapters for flight frame and tile geometry.
 
-Contains:
-  - FRAME_H_PX, FRAME_W_PX, GRID_ROWS, GRID_COLS, TILE_H_PX, TILE_W_PX.
-  - GSD_REFERENCE_M, INPUT_BANDS.
-  - frame_hw, grid_hw, tile_hw.
-  - slice_frame, stitch_tiles.
-
-H is along-track and W is lateral. The 1544 by 2064 frame divides into an
-8 by 8 grid of 193 by 258 tiles. ``GSD_REFERENCE_M`` is re-exported from
-``flight.payload.gimbal.footprint`` so build and inference share one
-reference. The frame and grid constants stay local until flight tiling is
-the source of the same numbers.
+The flight inference configuration is the source of frame, grid, band, and
+reference-GSD defaults. Tiling work is delegated to the flight preprocessing
+contract; this module keeps the established tools API and exceptions.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from flight.payload.gimbal.footprint import GSD_REFERENCE_M
+from flight.libs.config import InferenceConfig
+from flight.libs.types import Err
+from flight.payload.preprocess.tiling import slice_frame as _flight_slice_frame
+from flight.payload.preprocess.tiling import stitch_tiles as _flight_stitch_tiles
 
-__all__ = [
-    "FRAME_H_PX",
-    "FRAME_W_PX",
-    "GRID_COLS",
-    "GRID_ROWS",
-    "GSD_REFERENCE_M",
-    "INPUT_BANDS",
-    "TILE_H_PX",
-    "TILE_W_PX",
-    "frame_hw",
-    "grid_hw",
-    "slice_frame",
-    "stitch_tiles",
-    "tile_hw",
-]
-
-FRAME_H_PX = 1544
-FRAME_W_PX = 2064
-GRID_ROWS = 8
-GRID_COLS = 8
+_DEFAULT = InferenceConfig()
+FRAME_H_PX = _DEFAULT.input_height_px
+FRAME_W_PX = _DEFAULT.input_width_px
+GRID_ROWS = _DEFAULT.tile_rows
+GRID_COLS = _DEFAULT.tile_cols
 TILE_H_PX = FRAME_H_PX // GRID_ROWS
 TILE_W_PX = FRAME_W_PX // GRID_COLS
-INPUT_BANDS: tuple[str, ...] = ("BLUE", "GREEN", "RED")
+GSD_REFERENCE_M = _DEFAULT.gsd_reference_m
+INPUT_BANDS = _DEFAULT.input_bands
 
 
 def frame_hw() -> tuple[int, int]:
-    """Return the flight frame size as ``(height, width)``.
-
-    Returns:
-        tuple[int, int]: ``(1544, 2064)``.
-    """
+    """Return the configured flight frame size as ``(height, width)``."""
     return (FRAME_H_PX, FRAME_W_PX)
 
 
 def grid_hw() -> tuple[int, int]:
-    """Return the tile grid as ``(rows, cols)``.
-
-    Returns:
-        tuple[int, int]: ``(8, 8)``.
-    """
+    """Return the configured tile grid as ``(rows, cols)``."""
     return (GRID_ROWS, GRID_COLS)
 
 
 def tile_hw() -> tuple[int, int]:
-    """Return one flight tile as ``(height, width)``.
-
-    Returns:
-        tuple[int, int]: ``(193, 258)``.
-    """
+    """Return one configured flight tile as ``(height, width)``."""
     return (TILE_H_PX, TILE_W_PX)
 
 
 def slice_frame(frame: np.ndarray) -> np.ndarray:
-    """Cut a flight frame into 64 tiles in row-major order.
-
-    Args:
-        frame: np.ndarray[(1, C, 1544, 2064)] batch of one frame.
-
-    Returns:
-        np.ndarray[(64, C, 193, 258)]: Tiles. Index ``row * 8 + col``.
+    """Slice one flight frame using flight tiling and preserve the tools API.
 
     Raises:
-        ValueError: If the array is not a single 1544 by 2064 frame.
+        ValueError: If the frame does not match the configured flight layout.
     """
-    if frame.ndim != 4 or frame.shape[0] != 1:
-        raise ValueError(f"frame must have shape (1, C, H, W); got {frame.shape}")
-    _batch, channels, height, width = frame.shape
-    if (height, width) != (FRAME_H_PX, FRAME_W_PX):
-        raise ValueError(f"frame must be {FRAME_H_PX}x{FRAME_W_PX}; got {height}x{width}")
-    tiles = np.empty((GRID_ROWS * GRID_COLS, channels, TILE_H_PX, TILE_W_PX), dtype=frame.dtype)
-    index = 0
-    for row in range(GRID_ROWS):
-        row_slice = slice(row * TILE_H_PX, (row + 1) * TILE_H_PX)
-        for col in range(GRID_COLS):
-            col_slice = slice(col * TILE_W_PX, (col + 1) * TILE_W_PX)
-            tiles[index] = frame[0, :, row_slice, col_slice]
-            index += 1
-    return tiles
+    result = _flight_slice_frame(frame, grid_hw())
+    if isinstance(result, Err):
+        raise ValueError(f"flight frame tiling rejected frame shape {frame.shape}: {result.error}")
+    if frame.shape[-2:] != frame_hw():
+        raise ValueError(
+            f"flight frame layout must be {FRAME_H_PX}x{FRAME_W_PX}; "
+            f"got {frame.shape[-2]}x{frame.shape[-1]}"
+        )
+    return result.value
 
 
 def stitch_tiles(tiles: np.ndarray) -> np.ndarray:
-    """Paste 64 tiles back into a flight frame.
-
-    Args:
-        tiles: np.ndarray[(64, C, 193, 258)] in row-major order.
-
-    Returns:
-        np.ndarray[(1544, 2064)] when ``C`` is 1, otherwise
-        np.ndarray[(C, 1544, 2064)].
+    """Stitch flight tiles and preserve the tools single-channel squeeze.
 
     Raises:
-        ValueError: If the leading dimension is not 64 or the tile size differs
-            from 193 by 258.
+        ValueError: If tiles do not match the configured flight layout.
     """
-    if tiles.ndim != 4 or tiles.shape[0] != GRID_ROWS * GRID_COLS:
-        raise ValueError(f"tiles must have shape (64, C, H, W); got {tiles.shape}")
-    _count, channels, height, width = tiles.shape
-    if (height, width) != (TILE_H_PX, TILE_W_PX):
-        raise ValueError(f"tile must be {TILE_H_PX}x{TILE_W_PX}; got {height}x{width}")
-    frame = np.empty((channels, FRAME_H_PX, FRAME_W_PX), dtype=tiles.dtype)
-    index = 0
-    for row in range(GRID_ROWS):
-        row_slice = slice(row * TILE_H_PX, (row + 1) * TILE_H_PX)
-        for col in range(GRID_COLS):
-            col_slice = slice(col * TILE_W_PX, (col + 1) * TILE_W_PX)
-            frame[:, row_slice, col_slice] = tiles[index]
-            index += 1
-    if channels == 1:
+    result = _flight_stitch_tiles(tiles, grid_hw())
+    if isinstance(result, Err):
+        raise ValueError(f"flight tile stitching rejected shape {tiles.shape}: {result.error}")
+    frame = result.value
+    expected_hw = (TILE_H_PX * GRID_ROWS, TILE_W_PX * GRID_COLS)
+    if frame.shape[-2:] != expected_hw:
+        raise ValueError(f"flight tile stitching returned unexpected shape {frame.shape}")
+    if frame.shape[0] == 1:
         return np.asarray(frame[0])
     return frame

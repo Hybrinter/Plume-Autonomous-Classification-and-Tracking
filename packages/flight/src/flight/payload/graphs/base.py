@@ -20,7 +20,14 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 from flight.libs.messages import RoutedCommandMsg, TelemetryEventMsg
-from flight.libs.types import CommandId, Err, FaultCode, Ok, Result
+from flight.libs.types import (
+    CommandId,
+    Err,
+    FaultCode,
+    MessageType,
+    Ok,
+    Result,
+)
 from flight.payload.gimbal.request import ControlReference
 from flight.payload.records import (
     ActivationKey,
@@ -28,7 +35,7 @@ from flight.payload.records import (
     HealthSample,
     IssSample,
 )
-from flight.payload.tracking import EncoderSample
+from flight.payload.tracking import EncoderSample, PredictorReferenceChange
 
 __all__ = [
     "ActivationDecision",
@@ -64,6 +71,7 @@ __all__ = [
     "accept_activation",
     "command_target",
     "resolve_policy",
+    "transition_event",
     "validate_policy",
     "validate_spec",
 ]
@@ -324,6 +332,9 @@ class TickInputs:
         effect_results: Completed effect results for this tick.
         verification: Initialization verification result, or None.
         stow_complete: Bounded-stow completion evidence for this tick.
+        reference_change: Explicit predictor-reference replacement; when
+            supplied it takes precedence over the derived TRACKING CoG
+            rebase, or None.
     """
 
     now_s: float
@@ -337,6 +348,7 @@ class TickInputs:
     effect_results: tuple[EffectResult, ...] = ()
     verification: InitVerificationResult | None = None
     stow_complete: bool = False
+    reference_change: PredictorReferenceChange | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -662,6 +674,42 @@ def command_target[NodeT: Enum](
     if len(matches) != 1:
         return Err(FaultCode.COMMAND_INVALID)
     return Ok(matches[0].target)
+
+
+def transition_event(
+    graph_id: GraphId,
+    source: Enum,
+    target: Enum,
+    trigger: EdgeTrigger,
+    timestamp_utc: str,
+) -> tuple[TelemetryEventMsg, ...]:
+    """Build the compact node-transition telemetry event for one commit.
+
+    Inputs:
+        graph_id: Owning graph.
+        source, target: Committed edge endpoints.
+        trigger: Trigger that committed the edge.
+        timestamp_utc: ISO stamp; empty emits no event.
+
+    Outputs:
+        tuple[TelemetryEventMsg, ...]: One node_transition event, or empty.
+    """
+    if not timestamp_utc:
+        return ()
+    return (
+        TelemetryEventMsg(
+            msg_type=MessageType.TELEMETRY_EVENT,
+            timestamp_utc=timestamp_utc,
+            subsystem="payload",
+            event_name="node_transition",
+            payload={
+                "graph": graph_id.value,
+                "from": source.value,
+                "to": target.value,
+                "reason": trigger.value,
+            },
+        ),
+    )
 
 
 def accept_activation(

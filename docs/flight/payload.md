@@ -16,12 +16,14 @@ and gimbal control.
 | --- | --- | --- |
 | [`app`](payload/app.md) | app shell | Acquire, preprocess, detect, enqueue vision; inner/outer catch-up |
 | [`control`](payload/control.md) | pure module | Cascaded elevation inner and outer loops |
+| [`records`](payload/records.md) | pure module | Compact observation and activation-context value records |
 
 | [`calibration_io`](payload/calibration_io.md) | module | Loads checksummed mosaic calibration artifacts at startup |
 | [`blobs`](payload/blobs.md) | module | Connected-component blob extraction from a probability mask |
 | [`preprocess`](payload/preprocess.md) | package | Pure functions from raw mosaic to inference tensor |
 | [`inference`](payload/inference.md) | package | Classifier, segmentor, detector composer, and artifact verification |
 | [`gimbal`](payload/gimbal.md) | package | Pure elevation FSM, inner/outer laws, pointing math, and safety gates |
+| [`graphs`](payload/graphs.md) | package | Typed pure payload graph contracts (inert foundations) |
 | [`tracking`](payload/tracking.md) | package | Residual Kalman filter and blob association |
 
 ## Package interface

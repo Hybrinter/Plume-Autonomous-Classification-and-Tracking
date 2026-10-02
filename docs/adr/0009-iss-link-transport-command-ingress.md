@@ -1,6 +1,7 @@
 # ADR 0009: ISS link transport + authenticated command ingress
 
 **Status:** Accepted (2026-06-13)
+**Superseded-by:** ADR-FLIGHT-0008 (EXIT_SAFE execution acknowledgements)
 
 **Implements:** spec Section 6 (link transport + command ingress, Phase 6A) of
 `docs/superpowers/specs/2026-06-09-pact-flight-final-state-design.md`.

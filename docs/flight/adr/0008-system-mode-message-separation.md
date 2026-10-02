@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-10-02
 **Topic:** interface
-**Supersedes:** none
+**Supersedes:** ADR-REPO-0006 (SAFE transition contract), ADR-REPO-0008 (SAFE transition contract), ADR-REPO-0009 (EXIT_SAFE execution acknowledgements)
 **Superseded-by:** none
 **Related:** ADR-FLIGHT-0007
 

@@ -2,15 +2,15 @@
 
 arbiter -- TRACKING / REWIND / FAST_REWIND / SAFE mode selection;
 inner -- PI + computed torque;
-outer -- scene match, smear clip, and RateDecision;
-scene -- CoG / boresight / none selection and residual-reference identity;
+outer -- smear clip, stopping governor, and RateDecision primitives;
+scene -- CoG / boresight scene prediction entry points;
 position -- STOW/HOME/GOTO rate into the inner PI;
 rate_fit -- causal polynomial encoder-rate estimator;
 intersect -- pinhole CoG and boresight height-ellipsoid intersect;
 predictor -- co-rotating elevation and unactuated azimuth rates;
 geo -- mount / LVLH / WGS-84 helpers;
 pointing -- pinhole boresight error;
-request -- typed pose command from the pure core;
+request -- typed pose command and mode-free control references;
 safety -- confidence and area gates.
 """
 
@@ -23,7 +23,12 @@ from flight.payload.gimbal.intersect import (
     intersect_boresight,
     intersect_cog,
 )
-from flight.payload.gimbal.outer import RateDecision, clip_rate, outer_rate, smear_cap_rad_s
+from flight.payload.gimbal.outer import (
+    RateDecision,
+    clip_rate,
+    rate_decision,
+    smear_cap_rad_s,
+)
 from flight.payload.gimbal.pointing import (
     boresight_error_deg,
     pinhole_error_rad,
@@ -32,43 +37,59 @@ from flight.payload.gimbal.pointing import (
 from flight.payload.gimbal.position import position_rate
 from flight.payload.gimbal.predictor import LosPrediction, predict_los
 from flight.payload.gimbal.rate_fit import fit_rate, fit_rate_timed
-from flight.payload.gimbal.request import GimbalRequest
+from flight.payload.gimbal.request import (
+    ControlReference,
+    GimbalRequest,
+    InhibitReference,
+    PoseReference,
+    RateReference,
+    StowReference,
+    TravelEnvelope,
+    validate_reference,
+)
 from flight.payload.gimbal.safety import apply_confidence_gate, apply_min_area_gate
 from flight.payload.gimbal.scene import (
     SceneEstimate,
     SceneSource,
-    acquire_resets_residual,
-    select_scene,
+    boresight_scene,
+    cog_scene,
 )
 
 __all__ = [
     "ArbiterState",
     "CameraGeometry",
+    "ControlReference",
     "GimbalArbiter",
     "GimbalRequest",
+    "InhibitReference",
     "InnerResult",
     "IntegrityResult",
     "LosPrediction",
+    "PoseReference",
     "RateDecision",
+    "RateReference",
     "RayHit",
     "SceneEstimate",
     "SceneSource",
-    "acquire_resets_residual",
+    "StowReference",
+    "TravelEnvelope",
     "apply_confidence_gate",
     "apply_min_area_gate",
     "boresight_error_deg",
+    "boresight_scene",
     "check_integrity",
     "clip_rate",
+    "cog_scene",
     "fit_rate",
     "fit_rate_timed",
     "inner_step",
     "intersect_boresight",
     "intersect_cog",
-    "outer_rate",
     "pinhole_error_rad",
     "position_rate",
     "predict_los",
-    "select_scene",
+    "rate_decision",
     "smear_cap_rad_s",
     "target_displacement_px",
+    "validate_reference",
 ]

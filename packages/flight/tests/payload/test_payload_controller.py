@@ -7,7 +7,13 @@ import numpy as np
 from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, SensorConfig
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
-from flight.payload.control import IssSample, PayloadController, VisionSample
+from flight.payload.control import (
+    IssSample,
+    OuterTick,
+    PayloadController,
+    VisionSample,
+    _acquire_resets_residual,
+)
 from flight.payload.gimbal.arbiter import ArbiterState
 from flight.payload.gimbal.intersect import CameraGeometry, intersect_cog
 from flight.payload.gimbal.predictor import predict_los
@@ -848,3 +854,208 @@ def test_rewind_promotes_to_fast_rewind_after_sharp_window() -> None:
     pointing = [event for event in tick.telemetry if event.event_name == "pointing"]
     assert pointing
     assert pointing[0].payload["gimbal_state"] == GimbalState.FAST_REWIND.value
+
+
+def test_acquire_resets_on_cold_first_blob() -> None:
+    """The first blob from a cold aggregate resets the residual."""
+    assert _acquire_resets_residual(
+        previous_mode=GimbalState.TRACKING,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=False,
+        previous_blob_ids=frozenset(),
+        new_blob_ids=frozenset({2}),
+    )
+
+
+def test_acquire_resets_from_rewind() -> None:
+    """A blob that enters TRACKING from REWIND always resets the residual."""
+    assert _acquire_resets_residual(
+        previous_mode=GimbalState.REWIND,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=False,
+        previous_blob_ids=frozenset({2}),
+        new_blob_ids=frozenset({2}),
+    )
+
+
+def test_acquire_resets_from_fast_rewind() -> None:
+    """A blob that enters TRACKING from FAST_REWIND always resets the residual."""
+    assert _acquire_resets_residual(
+        previous_mode=GimbalState.FAST_REWIND,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=False,
+        previous_blob_ids=frozenset({2}),
+        new_blob_ids=frozenset({2}),
+    )
+
+
+def test_acquire_resets_on_unmatched_blob_ids() -> None:
+    """A TRACKING blob set with no overlapping blob_id is a new object."""
+    assert _acquire_resets_residual(
+        previous_mode=GimbalState.TRACKING,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=True,
+        previous_blob_ids=frozenset({2}),
+        new_blob_ids=frozenset({3}),
+    )
+
+
+def test_acquire_keeps_residual_on_iou_match() -> None:
+    """Overlapping blob IDs while already TRACKING keep the residual."""
+    assert not _acquire_resets_residual(
+        previous_mode=GimbalState.TRACKING,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=True,
+        previous_blob_ids=frozenset({2}),
+        new_blob_ids=frozenset({2}),
+    )
+
+
+def test_acquire_keeps_residual_on_single_miss() -> None:
+    """An empty frame while still TRACKING does not reset the residual."""
+    assert not _acquire_resets_residual(
+        previous_mode=GimbalState.TRACKING,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=True,
+        previous_blob_ids=frozenset({2}),
+        new_blob_ids=frozenset(),
+    )
+
+
+def test_acquire_keeps_residual_after_miss_cleared_ids() -> None:
+    """A reappearing blob after an empty previous set is still a coast, not a new object."""
+    assert not _acquire_resets_residual(
+        previous_mode=GimbalState.TRACKING,
+        new_mode=GimbalState.TRACKING,
+        previous_aggregate_live=True,
+        previous_blob_ids=frozenset(),
+        new_blob_ids=frozenset({2}),
+    )
+
+
+def _rewind_controller_tick(
+    controller: PayloadController,
+    gimbal_state: GimbalState,
+    theta_g_rad: float,
+    *,
+    exposure_us: float = 1000.0,
+    residual_x: np.ndarray | None = None,
+) -> OuterTick:
+    """One outer tick from a planted rewind-hunt arbiter state."""
+    cold = controller.initial_state()
+    residual = cold.residual
+    if residual_x is not None:
+        residual = replace(residual, x=residual_x, has_measurement=True)
+    state = replace(
+        cold,
+        arbiter=ArbiterState(
+            gimbal_state=gimbal_state,
+            tracked_blobs=(),
+            current_target_id=None,
+            miss_count=0,
+            aggregate_live=False,
+            last_observation_s=None,
+            loss_handled=True,
+            rewind_entered_s=0.0,
+        ),
+        residual=residual,
+        target=replace(cold.target, last_exposure_us=exposure_us),
+    )
+    return controller.outer_step(state, 0.1, _encoder(0.1, theta_g_rad), None, _iss(), False, False)
+
+
+def test_rewind_decision_composes_nom_plus_smear_and_ignores_residual() -> None:
+    """REWIND requests scene=nom, relative=omega_sharp, and ignores omega_t_res."""
+    from flight.payload.gimbal import smear_cap_rad_s
+
+    controller = _controller()
+    theta_g = math.radians(20.0)
+    exposure_us = 1000.0
+    sharp = smear_cap_rad_s(
+        exposure_us, controller.preprocessing.max_motion_smear_px, controller.ifov_band_deg_per_px
+    )
+    planted_res = np.array([0.15, math.radians(9.0)], dtype=np.float64)
+    tick = _rewind_controller_tick(controller, GimbalState.REWIND, theta_g, residual_x=planted_res)
+    decision = tick.state.last_rate_decision
+    assert decision is not None
+    nom = tick.state.target.last_omega_t_nom
+    assert abs(decision.scene_rate_rad_s - nom) < 1e-12
+    assert abs(decision.requested_relative_rate_rad_s - sharp) < 1e-12
+    assert abs(decision.requested_rate_rad_s - (nom + sharp)) < 1e-12
+    assert abs(decision.commanded_rate_rad_s - (nom + sharp)) < 1e-12
+    assert abs(decision.scene_rate_rad_s - (nom + float(planted_res[1]))) > 1e-3
+
+
+def test_rewind_at_sci_max_returns_to_tracking_with_zero_decision() -> None:
+    """A hunt that reaches the upper science limb leaves the hunt and commands 0."""
+    controller = _controller()
+    theta_g = math.radians(controller.gimbal.el_science_max_deg)
+    tick = _rewind_controller_tick(controller, GimbalState.REWIND, theta_g)
+    assert tick.state.arbiter.gimbal_state is GimbalState.TRACKING
+    decision = tick.state.last_rate_decision
+    assert decision is not None
+    assert decision.commanded_rate_rad_s == 0.0
+    assert decision.requested_relative_rate_rad_s == 0.0
+    assert decision.scene_rate_rad_s == 0.0
+    assert decision.science_limited is False
+    assert decision.hardware_limited is False
+
+
+def test_fast_rewind_decision_uses_hardware_rate_without_nominal() -> None:
+    """FAST_REWIND requests relative=requested=omega_hw; omega_t_nom is not added."""
+    controller = _controller()
+    theta_g = math.radians(20.0)
+    tick = _rewind_controller_tick(controller, GimbalState.FAST_REWIND, theta_g)
+    decision = tick.state.last_rate_decision
+    assert decision is not None
+    cap = math.radians(controller.gimbal.max_hw_slew_rate_deg_per_s)
+    nom = tick.state.target.last_omega_t_nom
+    assert abs(decision.requested_relative_rate_rad_s - cap) < 1e-12
+    assert abs(decision.requested_rate_rad_s - cap) < 1e-12
+    assert abs(decision.requested_rate_rad_s - (nom + cap)) > 1e-6
+    assert abs(decision.commanded_rate_rad_s - cap) < 1e-12
+    assert decision.hardware_limited is False
+    assert decision.science_limited is False
+
+
+def test_cold_tracking_decision_is_zero_without_flags() -> None:
+    """Cold TRACKING composes an all-zero decision with no limit flags."""
+    controller = _controller()
+    tick = controller.outer_step(
+        controller.initial_state(), 0.02, _encoder(0.02), None, None, False, False
+    )
+    decision = tick.state.last_rate_decision
+    assert decision is not None
+    assert decision.commanded_rate_rad_s == 0.0
+    assert decision.requested_relative_rate_rad_s == 0.0
+    assert decision.scene_rate_rad_s == 0.0
+    assert decision.hardware_limited is False
+    assert decision.science_limited is False
+
+
+def test_tracking_live_decision_clips_only_relative_term() -> None:
+    """Live TRACKING records scene=nom+res and relative=clip(Kp*e, omega_sharp)."""
+    from flight.payload.gimbal import clip_rate, smear_cap_rad_s
+
+    controller = _controller()
+    iss = _iss()
+    state, sample = controller.ingest_inference(
+        controller.initial_state(),
+        _result(1, centroid=(_BORESIGHT_X, _BORESIGHT_Y - 70.0)),
+        0.0,
+        1000.0,
+        iss,
+    )
+    tick = controller.outer_step(state, 0.02, _encoder(0.0), sample, iss, False, False)
+    decision = tick.state.last_rate_decision
+    assert decision is not None
+    sharp = smear_cap_rad_s(
+        1000.0, controller.preprocessing.max_motion_smear_px, controller.ifov_band_deg_per_px
+    )
+    res = float(tick.state.residual.x[1])
+    e_hat = float(tick.state.residual.x[0])
+    assert abs(decision.scene_rate_rad_s - (tick.state.target.last_omega_t_nom + res)) < 1e-12
+    expected_rel = clip_rate(controller.cfg.outer.Kp * e_hat, sharp)
+    assert abs(decision.requested_relative_rate_rad_s - expected_rel) < 1e-12
+    assert abs(decision.requested_rate_rad_s - (decision.scene_rate_rad_s + expected_rel)) < 1e-12
+    assert decision.commanded_rate_rad_s > 0.0

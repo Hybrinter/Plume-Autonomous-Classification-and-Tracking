@@ -57,7 +57,8 @@ TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
    checks and simulation. It is not an outer residual-estimator input.
 3. `outer_step` updates CoG from vision while TRACKING. It cold-starts the
    residual on TRACKING acquire. An identity reset drops the stored CoG unless
-   this frame wrote a new intersect. It then calls `select_scene`. Residual
+   this frame wrote a new intersect. It then calls `cog_scene` or
+   `boresight_scene`. Residual
    encoder, nominal, and vision events run only in TRACKING. REWIND and
    FAST_REWIND freeze the residual and set `TargetState.r_cog_ecef_m` to `None`.
 4. Residual replay uses encoder angle displacement, encoder uncertainty, and
@@ -65,19 +66,21 @@ TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
    has an exact encoder sample or a valid bracket. TRACKING acquire seeds the
    checkpoint at shutter when the sample carries a shutter encoder angle. A
    missing shutter angle leaves the checkpoint angle unset.
-5. `select_scene` supplies nominal elevation rate of a frozen ECEF CoG in
-   TRACKING, or of the boresight height-proxy hit in REWIND and FAST_REWIND.
+5. `cog_scene` supplies the nominal elevation rate of a frozen ECEF CoG in
+   TRACKING; `boresight_scene` supplies the boresight height-proxy hit in
+   REWIND and FAST_REWIND.
    Missing ISS is
    unknown navigation. It is not a zero-rate scene. An IoU-matched CoG
    replacement rebases residual rate with the old CoG at the current ISS time.
    ISS motion between ticks is not a reference jump.
-6. The tracking/rewind path calls `outer_rate` and stores
+6. The tracking/rewind path composes the scene and relative terms at the
+   caller and calls `rate_decision`; it stores
    `RateDecision.commanded_rate_rad_s` on `ControlState.commanded_rate_rad_s`.
    It also stores the `RateDecision` on `last_rate_decision`. The pose path
    leaves `last_rate_decision` empty. TRACKING matches
    `omega_t_nom + omega_t_res` and smear-caps only `Kp * e`. REWIND matches
    boresight-ground `omega_el` and hunts at `+omega_sharp`. FAST_REWIND hunts at
-   `+omega_hw`. Residual
+   `+omega_hw` without the nominal term. Residual
    is ignored and is not fed boresight rates. Visual tracking can run without
    navigation. The pose path writes a float `r` from `position_rate`.
 7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.

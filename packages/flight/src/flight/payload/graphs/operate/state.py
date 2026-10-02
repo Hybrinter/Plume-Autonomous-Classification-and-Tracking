@@ -88,7 +88,7 @@ class State:
         node: Current node.
         tracked_blobs: Gated, IoU-matched blobs from the last accepted sample.
         aggregate_live: Accepted aggregate present or inside bounded coast.
-        last_observation_s: Shutter time of the last accepted aggregate.
+        last_observation_s: Newest shutter time among accepted aggregates.
         miss_count: Consecutive accepted samples with no blob while tracking.
         loss_handled: True after coast exhaustion was committed once.
         rewind_entered_s: Monotonic time the hunt began, kept through
@@ -199,9 +199,9 @@ def bookkeep_vision(
 ) -> State:
     """Apply one accepted (or absent) vision sample to shared bookkeeping.
 
-    An accepted sample with blobs clears the miss counter, refreshes liveness
-    from the shutter time, and stores the matched ancestry. An accepted empty
-    sample advances the miss count without refreshing the observation time.
+    An accepted sample with blobs clears the miss counter, keeps the newest
+    shutter time, and stores the matched ancestry. An accepted empty sample
+    advances the miss count without refreshing the observation time.
     A rejected or absent sample changes neither. The seen-window prunes by the
     larger of the observation-age ceiling and the residual history horizon.
 
@@ -224,7 +224,9 @@ def bookkeep_vision(
         sample = vision.sample
         if sample.blobs:
             miss_count = 0
-            last_observation_s = sample.t_s
+            last_observation_s = (
+                sample.t_s if last_observation_s is None else max(last_observation_s, sample.t_s)
+            )
             loss_handled = False
             tracked = sample.blobs
         else:

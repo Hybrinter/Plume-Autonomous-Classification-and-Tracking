@@ -155,6 +155,53 @@ def test_coast_exhaustion_away_from_limb_rewinds(
     assert outcome.outcome.reference.rate_rad_s > 0.0
 
 
+def test_delayed_plume_keeps_newest_observation_time(
+    params: GraphParameters,
+    tick: TickBuilder,
+    vision: VisionBuilder,
+    blob: BlobBuilder,
+    key: ActivationKey,
+) -> None:
+    """A late plume inside the replay window does not age the live aggregate."""
+    from flight.payload.tracking.residual import ObservationDisposition
+
+    theta = math.radians(20.0)
+    plume = blob(1, (612.0, 442.0))
+    state = operate.initial_state(tick(0.0, key, encoder_angle_rad=theta), params)
+    first = vision(0.0, key, blobs=(plume,), theta_g_rad=theta)
+    state, _ = operate.step(state, tick(0.0, key, encoder_angle_rad=theta, vision=first), params)
+    for t_s in (0.02, 0.04):
+        state, _ = operate.step(state, tick(t_s, key, encoder_angle_rad=theta), params)
+    newer_t = 0.06
+    newer = vision(newer_t, key, blobs=(plume,), theta_g_rad=theta)
+    state, _ = operate.step(
+        state, tick(newer_t, key, encoder_angle_rad=theta, vision=newer), params
+    )
+    assert state.last_observation_s == newer_t
+    delayed_t = 0.04
+    delayed = vision(delayed_t, key, blobs=(plume,), theta_g_rad=theta)
+    arrival = 0.08
+    age_limit = params.config.controller.arbiter.max_observation_age_s
+    assert arrival - delayed_t <= params.residual_filter.rewind_horizon_s
+    assert arrival - delayed_t <= age_limit
+    state, _ = operate.step(
+        state, tick(arrival, key, encoder_angle_rad=theta, vision=delayed), params
+    )
+    assert state.last_observation_s == newer_t
+    assert state.vision_disposition is ObservationDisposition.ACCEPTED
+    assert any(
+        obs.frame_id == delayed.sample.frame_id
+        for obs in state.residual_history.vision_observations
+    )
+    now = delayed_t + age_limit
+    assert now - newer_t < age_limit
+    state, outcome = operate.step(state, tick(now, key, encoder_angle_rad=theta), params)
+    assert state.node is operate.OperateNode.TRACKING
+    assert outcome.transition is None
+    assert state.aggregate_live is True
+    assert state.last_observation_s == newer_t
+
+
 def test_coast_exhaustion_at_limb_holds(
     params: GraphParameters,
     tick: TickBuilder,

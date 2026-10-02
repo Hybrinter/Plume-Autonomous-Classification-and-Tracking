@@ -121,7 +121,7 @@ def _sidecar(tmp_path: Path, name: str, kind: str, arch: str) -> tuple[Path, Mod
         sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(),
         dataset_hash="b" * 64,
         band_names=("BLUE", "GREEN", "RED"),
-        input_shape=(None, 3, None, None),
+        input_shape=(None, 3, 193, 258),
         gsd_input_shape=(None, 2),
         output_shape=(None, 1) if kind == "classifier" else (None, 1, None, None),
         gsd_reference_m=15.87,
@@ -193,7 +193,7 @@ def _run_sidecar(run: Path, **overrides: object) -> Path:
         "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
         "dataset_hash": "c" * 64,
         "band_names": ("BLUE", "GREEN", "RED"),
-        "input_shape": (None, 3, None, None),
+        "input_shape": (None, 3, 193, 258),
         "gsd_input_shape": (None, 2),
         "output_shape": (None, 1),
         "gsd_reference_m": 15.87,
@@ -220,7 +220,19 @@ def test_flight_promotable_strict_pass(tmp_path: Path, monkeypatch: pytest.Monke
     run = _run(tmp_path)
     _run_sidecar(run)
     monkeypatch.setattr(pair_module, "open_session", lambda *_a, **_k: Ok(object()))
+    monkeypatch.setattr(pair_module, "_flight_loader_ok", lambda *_a, **_k: True)
     assert flight_promotable(run)
+
+
+def test_flight_promotable_rejects_dynamic_research_shapes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dynamic spatial research artifacts are not flight eligible."""
+    run = _run(tmp_path)
+    _run_sidecar(run, input_shape=(None, 3, None, None))
+    monkeypatch.setattr(pair_module, "open_session", lambda *_a, **_k: Ok(object()))
+    monkeypatch.setattr(pair_module, "_flight_loader_ok", lambda *_a, **_k: False)
+    assert not flight_promotable(run)
 
 
 def test_flight_promotable_rejects_sdk_absent(tmp_path: Path) -> None:
@@ -314,7 +326,7 @@ def test_flight_promotable_artifact_path(tmp_path: Path, monkeypatch: pytest.Mon
         sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(),
         dataset_hash="c" * 64,
         band_names=("BLUE", "GREEN", "RED"),
-        input_shape=(None, 3, None, None),
+        input_shape=(None, 3, 193, 258),
         gsd_input_shape=(None, 2),
         output_shape=(None, 1),
         gsd_reference_m=15.87,
@@ -325,6 +337,7 @@ def test_flight_promotable_artifact_path(tmp_path: Path, monkeypatch: pytest.Mon
     )
     write_manifest(elsewhere / "model.json", manifest)
     monkeypatch.setattr(pair_module, "open_session", lambda *_a, **_k: Ok(object()))
+    monkeypatch.setattr(pair_module, "_flight_loader_ok", lambda *_a, **_k: True)
     assert flight_promotable(run, artifact_path=artifact)
 
 

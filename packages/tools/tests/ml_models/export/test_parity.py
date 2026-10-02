@@ -13,12 +13,14 @@ from typing import cast
 import numpy as np
 import pytest
 import torch
-from flight.libs.types import Ok
+from flight.libs.config import InferenceConfig, PactConfig
+from flight.libs.types import FaultCode, Ok, Result
 from flight.payload.gimbal.footprint import GSD_REFERENCE_M, to_model_gsd
+from flight.payload.inference.onnx_session import load_onnx_session
 from tools.ml_models.arch.film import CONDITIONING_ID, GsdFilm
 from tools.ml_models.arch.registry import build
 from tools.ml_models.export.export import ExportConfig, export
-from tools.ml_models.export.manifest import load_manifest, sidecar_path
+from tools.ml_models.export.manifest import ModelManifest, load_manifest, sidecar_path
 from tools.ml_models.export.session import Session, open_session
 
 onnx = pytest.importorskip("onnx", reason="onnx SDK not installed")
@@ -120,7 +122,7 @@ def test_dynamic_spatial_parity(tmp_path: Path, height: int, width: int) -> None
     """Dynamic spatial dims accept varied tile sizes."""
     ckpt, model = _checkpoint(tmp_path)
     artifact = tmp_path / "model.onnx"
-    result = export(ExportConfig(str(ckpt), str(artifact)))
+    result = export(ExportConfig(str(ckpt), str(artifact), dynamic_spatial=True))
     assert isinstance(result, Ok), result
     manifest = load_manifest(sidecar_path(artifact))
     session_result = open_session(artifact, manifest)
@@ -162,7 +164,7 @@ def test_segmentor_dynamic_spatial_parity(tmp_path: Path, height: int, width: in
     """Dynamic spatial dims hold for the segmentor with a nonzero FiLM."""
     ckpt, model = _checkpoint(tmp_path, "segmentor", "dilatenet_w16", perturb_film=True)
     artifact = tmp_path / "seg.onnx"
-    result = export(ExportConfig(str(ckpt), str(artifact)))
+    result = export(ExportConfig(str(ckpt), str(artifact), dynamic_spatial=True))
     assert isinstance(result, Ok), result
     manifest = load_manifest(sidecar_path(artifact))
     session_result = open_session(artifact, manifest)
@@ -210,7 +212,7 @@ def test_export_manifest_contents(tmp_path: Path) -> None:
     assert isinstance(result, Ok), result
     manifest = load_manifest(sidecar_path(artifact))
     assert manifest.sha256 == hashlib.sha256(artifact.read_bytes()).hexdigest()
-    assert manifest.input_shape == (None, 3, None, None)
+    assert manifest.input_shape == (None, 3, 193, 258)
     assert manifest.gsd_input_shape == (None, 2)
     assert manifest.output_shape == (None, 1)
     assert manifest.gsd_min_m == FULL_COVERAGE[0]
@@ -219,6 +221,144 @@ def test_export_manifest_contents(tmp_path: Path) -> None:
     raw = json.loads(sidecar_path(artifact).read_text())
     assert raw["schema"] == 2
     assert raw["partial_gsd"] is False
+
+
+def test_exported_pair_loads_with_flight_metadata_and_config(tmp_path: Path) -> None:
+    """A generated fixed-tile pair loads and stages with its configured metadata."""
+    import json
+
+    from flight.core.model_deploy import ModelDeployService, parse_manifest
+    from flight.libs.bus import MessageBus
+    from flight.libs.messages import ModelStagedMsg, RoutedCommandMsg
+    from flight.libs.time import ManualClock
+    from flight.libs.types import MessageType, ModelDeployState
+    from tools.ml_models.dataset.build import build_synthetic
+    from tools.ml_models.export.accept import accept_artifact
+    from tools.ml_models.export.manifest import acceptance_path
+    from tools.ml_models.export.pair import write_pair_manifest
+
+    inference = InferenceConfig()
+    artifacts: dict[str, Path] = {}
+    manifests: dict[str, ModelManifest] = {}
+    dataset = tmp_path / "synthetic"
+    build_synthetic(dataset, n=9)
+    for kind, arch, filename in (
+        ("classifier", "pactnet", "classifier.onnx"),
+        ("segmentor", "dilatenet_w16", "segmentor.onnx"),
+    ):
+        checkpoint, _model = _checkpoint(tmp_path, kind, arch)
+        artifact = tmp_path / filename
+        result = export(ExportConfig(str(checkpoint), str(artifact), dynamic_spatial=False))
+        assert isinstance(result, Ok), result
+        manifest = load_manifest(sidecar_path(artifact))
+        tile_hw = (
+            inference.input_height_px // manifest.grid[0],
+            inference.input_width_px // manifest.grid[1],
+        )
+        assert manifest.tile_hw == tile_hw == (193, 258)
+        assert manifest.gsd_reference_m == inference.gsd_reference_m
+        expected_input = (None, len(inference.input_bands), *tile_hw)
+        expected_output = (None, 1) if kind == "classifier" else (None, 1, *tile_hw)
+        session = load_onnx_session(
+            str(artifact),
+            expected_sha256=manifest.sha256,
+            expected_input_shape=expected_input,
+            expected_output_shape=expected_output,
+            expected_gsd_shape=(None, 2),
+        )
+        assert set(node.name for node in session.get_inputs()) == {"image", "gsd"}
+        acceptance = accept_artifact(
+            artifact,
+            manifest,
+            [dataset],
+            min_iou=0.0,
+            min_accuracy=0.0,
+            max_latency_ms=1000.0,
+        )
+        assert acceptance["accepted"] is True
+        acceptance_path(artifact).write_text(
+            json.dumps({"accepted": True, "sha256": manifest.sha256}), encoding="utf-8"
+        )
+        artifacts[kind] = artifact
+        manifests[kind] = manifest
+    assert (
+        manifests["classifier"].band_names
+        == manifests["segmentor"].band_names
+        == inference.input_bands
+    )
+    assert manifests["classifier"].gsd_reference_m == manifests["segmentor"].gsd_reference_m
+
+    pair_path = tmp_path / "pair.json"
+    pair_result = write_pair_manifest(
+        sidecar_path(artifacts["classifier"]),
+        sidecar_path(artifacts["segmentor"]),
+        pair_path,
+    )
+    assert isinstance(pair_result, Ok), pair_result
+    pair_blob = pair_path.read_bytes()
+    parsed = parse_manifest(pair_blob)
+    assert parsed is not None
+    assert parsed.grid == (inference.tile_rows, inference.tile_cols)
+    assert parsed.frame_hw == (inference.input_height_px, inference.input_width_px)
+    assert parsed.tile_hw == (
+        inference.input_height_px // inference.tile_rows,
+        inference.input_width_px // inference.tile_cols,
+    )
+
+    class _Storage:
+        def read(self, _entry_id: str) -> Result[bytes, FaultCode]:
+            return Ok(pair_blob)
+
+    bus = MessageBus()
+    service = ModelDeployService.from_config(
+        PactConfig(),
+        bus,
+        ManualClock(),
+        _Storage(),
+    )
+    bus.publish(
+        ModelStagedMsg(
+            msg_type=MessageType.MODEL_STAGED,
+            timestamp_utc="t",
+            entry_id="pair-entry",
+            sha256=hashlib.sha256(pair_blob).hexdigest(),
+            version="",
+        )
+    )
+    service.tick()
+    assert service.state.state is ModelDeployState.STAGED
+    bus.publish(
+        RoutedCommandMsg(
+            msg_type=MessageType.ROUTED_COMMAND,
+            timestamp_utc="t",
+            target="model_deploy",
+            command_id="ACTIVATE_MODEL",
+            params={"version": parsed.version},
+            source="ground",
+            seq=1,
+        )
+    )
+    service.tick()
+    assert service.state.state.name == ModelDeployState.ACTIVE.name
+    assert service.state.active_version == parsed.version
+
+
+def test_dynamic_spatial_research_export_fails_flight_shape_gate(tmp_path: Path) -> None:
+    """A valid dynamic research graph does not satisfy configured flight tiles."""
+    inference = InferenceConfig()
+    checkpoint, _model = _checkpoint(tmp_path)
+    artifact = tmp_path / "dynamic.onnx"
+    result = export(ExportConfig(str(checkpoint), str(artifact), dynamic_spatial=True))
+    assert isinstance(result, Ok), result
+    manifest = load_manifest(sidecar_path(artifact))
+    with pytest.raises(ValueError, match="model I/O contract verification failed"):
+        load_onnx_session(
+            str(artifact),
+            expected_sha256=manifest.sha256,
+            expected_input_shape=(None, len(inference.input_bands), 193, 258),
+            expected_output_shape=(None, 1),
+            expected_gsd_shape=(None, 2),
+        )
 
 
 def test_export_refuses_existing_files(tmp_path: Path) -> None:

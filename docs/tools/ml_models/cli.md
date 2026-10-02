@@ -59,7 +59,9 @@ classifier/segmentor pair manifests.
 - `--checkpoint`: trained conditioned checkpoint. Required.
 - `--out`: destination ONNX artifact. Required.
 - `--allow-partial-gsd`: accept short coverage and record the gap in the sidecar.
-- `--dynamic-spatial` / `--no-dynamic-spatial`: dynamic H/W axes, default on.
+- `--dynamic-spatial` / `--no-dynamic-spatial`: varying image sizes for research,
+  default off. Flight exports use the configured tile size. Dynamic spatial
+  exports cannot pass flight promotion or pairing.
 
 `accept` options:
 

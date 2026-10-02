@@ -177,8 +177,8 @@ def export_command(
     ] = False,
     dynamic_spatial: Annotated[
         bool,
-        typer.Option(help="Export dynamic height/width axes."),
-    ] = True,
+        typer.Option(help="Allow varying image sizes for research exports."),
+    ] = False,
 ) -> None:
     """Export a conditioned checkpoint as a validated two-input ONNX artifact."""
     from flight.libs.types import Err

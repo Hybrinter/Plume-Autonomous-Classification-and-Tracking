@@ -1,7 +1,7 @@
 """Export a trained conditioned checkpoint as a two-input ONNX artifact.
 
 Traces ``model(image, gsd)`` at the 193x258 flight tile with a dynamic batch
-(and dynamic spatial dims by default), verifies the declared graph metadata,
+(fixed flight spatial dims by default), verifies the declared graph metadata,
 records actual training GSD coverage in the JSON sidecar, and publishes both
 files through private sibling temporaries linked into place. Existing outputs
 are never overwritten — including files created concurrently between the
@@ -44,7 +44,7 @@ class ExportConfig:
     checkpoint_path: str
     output_path: str
     opset: int = 17
-    dynamic_spatial: bool = True
+    dynamic_spatial: bool = False
     allow_partial_gsd: bool = False
 
 
@@ -104,10 +104,46 @@ def _verify_graph(path: Path, kind: str) -> tuple[tuple[int | None, ...], ...]:
             raise ValueError("batch dims must share one named symbol")
     elif not all(dim is None for dim in batch_dims):
         raise ValueError("batch dims must be dynamic on every I/O tensor")
-    result = verify_conditioned_shapes(image, gsd, output, _TRACE_CHANNELS, TILE_HW, kind)
+    # The flight validator's tile argument means an exact spatial extent.
+    # Export accepts dynamic spatial axes, so validate those separately and
+    # ask the shared validator for the batch/channel/GSD/output contract.
+    if any(dim not in (None, expected) for dim, expected in zip(image[2:], TILE_HW, strict=True)):
+        raise ValueError("image spatial dimensions must be dynamic or match the flight tile")
+    if kind == "segmentor":
+        if any(
+            dim not in (None, expected) for dim, expected in zip(output[2:], TILE_HW, strict=True)
+        ):
+            raise ValueError(
+                "segmentor output spatial dimensions must be dynamic or match the flight tile"
+            )
+        if any(
+            image_dim is not None and output_dim is not None and image_dim != output_dim
+            for image_dim, output_dim in zip(image[2:], output[2:], strict=True)
+        ):
+            raise ValueError("segmentor output spatial dimensions must match image dimensions")
+    result = verify_conditioned_shapes(image, gsd, output, _TRACE_CHANNELS, None, kind)
     if isinstance(result, Err):
         raise ValueError(f"exported graph violates the flight contract ({result.error.value})")
     return image, gsd, output
+
+
+def _refine_shape_metadata(path: Path) -> None:
+    """Propagate truthful Resize output dimensions into ONNX value metadata.
+
+    PyTorch's legacy exporter can leave the segmentor's one-channel output and
+    fixed-tile spatial dimensions symbolic even when they are derivable from
+    the graph. ONNX data propagation resolves those dimensions for fixed tiles
+    and preserves symbols for dynamic research exports.
+    """
+    import onnx
+
+    try:
+        proto = onnx.load(str(path))
+        refined = onnx.shape_inference.infer_shapes(proto, data_prop=True)
+        onnx.checker.check_model(refined)
+        onnx.save(refined, str(path))
+    except Exception as exc:  # noqa: BLE001 - surface SDK graph errors as export errors.
+        raise ValueError(f"ONNX shape inference failed: {exc}") from exc
 
 
 def _private_sibling(dest: Path) -> Path:
@@ -201,6 +237,7 @@ def _export(cfg: ExportConfig) -> Path:
             dynamo=False,
             dynamic_axes=dynamic_axes,
         )
+        _refine_shape_metadata(tmp_artifact)
         image_shape, gsd_shape, output_shape = _verify_graph(tmp_artifact, kind)
         sha256 = hashlib.sha256(tmp_artifact.read_bytes()).hexdigest()
         manifest = ModelManifest(

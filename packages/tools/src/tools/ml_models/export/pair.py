@@ -198,7 +198,7 @@ def flight_promotable(
         if not _manifest_matches_run(manifest, summary, inference):
             continue
         opened = open_session(artifact, manifest)
-        if isinstance(opened, Ok):
+        if isinstance(opened, Ok) and _flight_loader_ok(artifact, manifest, inference):
             return True
     return False
 
@@ -214,6 +214,31 @@ def _acceptance_ok(artifact: Path, manifest: ModelManifest) -> bool:
         and report.get("accepted") is True
         and report.get("sha256") == manifest.sha256
     )
+
+
+def _flight_loader_ok(artifact: Path, manifest: ModelManifest, inference: InferenceConfig) -> bool:
+    """Require the production flight loader to accept configured image shapes and hash."""
+    rows, cols = inference.tile_rows, inference.tile_cols
+    if manifest.grid != (rows, cols):
+        return False
+    if inference.input_height_px % rows or inference.input_width_px % cols:
+        return False
+    tile_hw = (inference.input_height_px // rows, inference.input_width_px // cols)
+    expected_input = (None, len(inference.input_bands), *tile_hw)
+    expected_output = (None, 1) if manifest.kind == "classifier" else (None, 1, *tile_hw)
+    try:
+        from flight.payload.inference.onnx_session import load_onnx_session
+
+        load_onnx_session(
+            str(artifact),
+            expected_sha256=manifest.sha256,
+            expected_input_shape=expected_input,
+            expected_output_shape=expected_output,
+            expected_gsd_shape=(None, 2),
+        )
+    except Exception:  # noqa: BLE001 - SDK and malformed-graph failures mean ineligible.
+        return False
+    return True
 
 
 def _artifact_entry(manifest: ModelManifest) -> dict[str, object]:
@@ -257,6 +282,8 @@ def _write_pair_manifest(
         opened = open_session(artifact, manifest)
         if isinstance(opened, Err):
             raise ValueError(f"{artifact.name} failed session validation: {opened.error}")
+        if not _flight_loader_ok(artifact, manifest, InferenceConfig()):
+            raise ValueError(f"{artifact.name} failed configured flight loader validation")
     shared = (
         "gsd_reference_m",
         "conditioning",

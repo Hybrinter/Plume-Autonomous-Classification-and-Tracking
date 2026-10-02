@@ -31,11 +31,14 @@ accepted and neither copies to active deployment files.
    artifact_path=None)` requires the metadata gate plus an exported artifact
    — the given path or any `*.onnx` beneath the run directory — whose sidecar
    matches the run's kind, arch, bands, reference, normalization,
-   conditioning, dataset hash, and GSD bounds, and which `open_session`
-   validates. Without a loadable graph it returns `False`.
+   conditioning, dataset hash, and GSD bounds, and which both `open_session`
+   and the production flight ONNX loader validate against configured tile
+   shapes and the artifact hash. Dynamic-spatial research exports therefore
+   remain ineligible for flight promotion.
 3. `write_pair_manifest` loads both sidecars, requires one classifier and one
    segmentor, requires a passing `.acceptance.json` tied to each artifact
-   SHA-256, validates both actual graphs via `open_session`, and requires
+   SHA-256, validates both actual graphs via `open_session` and the production
+   flight ONNX loader against configured tile shapes, and requires
    matching conditioning, encoding, bands, normalization, reference,
    tile/grid/frame, and coverage altitude, and requires the default flight
    `gsd_reference_m`. Actual coverage must span `required_gsd_coverage()`

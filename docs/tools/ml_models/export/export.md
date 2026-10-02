@@ -15,7 +15,7 @@ overwritten.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ExportConfig` | dataclass | `checkpoint_path`, `output_path`, `opset=17`, `dynamic_spatial=True`, `allow_partial_gsd=False` |
+| `ExportConfig` | dataclass | `checkpoint_path`, `output_path`, `opset=17`, `dynamic_spatial=False`, `allow_partial_gsd=False` |
 | `export` | function | `Result[Path, str]` export entry |
 
 ## Behavior
@@ -30,8 +30,9 @@ overwritten.
 3. Requires actual training GSD coverage to span `required_gsd_coverage()`
    unless `allow_partial_gsd`; `partial_gsd` records the gap regardless.
 4. Traces `model(image, gsd)` at `(1, 3, 193, 258)` with zeros GSD, opset 17,
-   `dynamo=False`, dynamic batch always, and dynamic spatial dims when
-   `dynamic_spatial` (including segmentor logits).
+   `dynamo=False`, dynamic batch always, and fixed flight tile dimensions by
+   default. `dynamic_spatial=True` is available for research exports; these
+   artifacts remain valid exports but do not pass flight promotion or pairing.
 5. Validates the emitted graph metadata (unique `image`/`gsd` names, one
    shared dynamic batch symbol, `tensor(float)` dtypes, shapes) with onnx,
    computes the artifact SHA-256, writes the sidecar to a sibling temporary,
@@ -54,7 +55,7 @@ None.
 
 ## Configuration
 
-`ExportConfig` fields: `checkpoint_path`, `output_path`, `opset` (17), `dynamic_spatial` (true), `allow_partial_gsd` (false).
+`ExportConfig` fields: `checkpoint_path`, `output_path`, `opset` (17), `dynamic_spatial` (false), `allow_partial_gsd` (false).
 
 ## Constraints
 

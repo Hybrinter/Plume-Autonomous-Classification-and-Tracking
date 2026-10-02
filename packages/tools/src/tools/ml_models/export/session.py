@@ -196,7 +196,7 @@ def open_session(
         gsd_shape,
         output_shape,
         len(manifest.band_names),
-        manifest.tile_hw,
+        None,
         manifest.kind,
     )
     if isinstance(contract, Err):

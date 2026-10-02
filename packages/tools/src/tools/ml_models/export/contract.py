@@ -70,7 +70,7 @@ def required_gsd_coverage(
             ephemeris.wgs84_a_m,
             ephemeris.wgs84_f,
             camera,
-            grid=(8, 8),
+            grid=(cfg.inference.tile_rows, cfg.inference.tile_cols),
         )
         if grid is None:
             return None

@@ -36,11 +36,12 @@ every app, and runs them under the thread scheduler until shutdown.
 4. Select `RealClock` or `ManualClock` from `drivers.clock`.
 5. Subscribe to `HeartbeatMsg` before the scheduler starts.
 6. Call `build_flight_system` to wire apps.
-7. Register nine apps on the scheduler in fixed order: payload, fault, iss_iface, thermal,
-   electrical, command_router, storage, downlink, model_deploy.
+7. Register ten apps on the scheduler in fixed order: payload, fault, iss_iface, thermal,
+   electrical, command_router, storage, downlink, model_deploy, system_modes.
 8. Start the scheduler.
-9. Run the startup health gate for `watchdog_interval_s * 3.0` seconds. Publish
-   `ModeChangeMsg(SAFE)` when any monitored subsystem misses a first heartbeat.
+9. Run the startup health gate for `watchdog_interval_s * 3.0` seconds. On success, publish
+   `SystemModeRequestMsg(INIT)`. When any monitored subsystem misses a first heartbeat,
+   publish `SystemModeRequestMsg(SAFE)` and `ModeChangeMsg(SAFE)`.
 10. Register a SIGTERM handler that sets a shutdown event.
 11. Call `scheduler.supervise` until SIGTERM or `KeyboardInterrupt`.
 12. Call `scheduler.stop` in a `finally` block.
@@ -50,7 +51,8 @@ every app, and runs them under the thread scheduler until shutdown.
 Startup raises `SystemExit` for config load failure, calibration load failure, uplink key
 load failure, or real-sensor exposure/gain command failure.
 
-The startup health gate publishes `ModeChangeMsg(SAFE)` with `requested_by="startup_health_gate"`
+The startup health gate publishes `SystemModeRequestMsg(SAFE)` and `ModeChangeMsg(SAFE)` with
+`requested_by="startup_health_gate"`
 when heartbeats are incomplete.
 
 The scheduler publishes `FaultEventMsg(PROCESS_DIED)` when an app thread exhausts restart

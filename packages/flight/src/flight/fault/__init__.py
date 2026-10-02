@@ -6,6 +6,7 @@ from flight.fault.policy import (
     decide_mode_change,
     enter_safe_mode,
     exit_safe_mode,
+    safe_mode_request,
 )
 from flight.fault.watchdog import WatchdogEntry, build_entries, check_heartbeats
 
@@ -18,4 +19,5 @@ __all__ = [
     "decide_mode_change",
     "enter_safe_mode",
     "exit_safe_mode",
+    "safe_mode_request",
 ]

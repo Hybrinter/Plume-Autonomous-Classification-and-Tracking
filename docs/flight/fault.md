@@ -6,26 +6,28 @@
 ## Purpose
 
 The fault package runs FDIR for the flight software. It watches subsystem heartbeats, routes
-`FaultEventMsg` values to mode changes, and publishes the SAFE latch state. Producing subsystems
+`FaultEventMsg` values to mode changes, requests SAFE from the system-mode authority, and publishes
+the SAFE latch state. Producing subsystems
 raise their own faults; this package routes them and emits `WATCHDOG_EXPIRE` when heartbeats stop.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`app`](fault/app.md) | module | FDIR app shell: bus I/O, watchdog cycle, SAFE exit handling |
+| [`app`](fault/app.md) | module | FDIR app shell: bus I/O, watchdog cycle, SAFE latch release |
 | [`watchdog`](fault/watchdog.md) | pure module | Heartbeat miss counting and `WATCHDOG_EXPIRE` emission |
 | [`policy`](fault/policy.md) | pure module | SAFE-triggering fault set and mode-change message construction |
 
 ## Package interface
 
 Re-exports `FaultApp`, `WatchdogEntry`, `build_entries`, `check_heartbeats`, `SAFE_TRIGGERING_FAULTS`,
-`decide_mode_change`, `enter_safe_mode`, and `exit_safe_mode`.
+`decide_mode_change`, `enter_safe_mode`, `exit_safe_mode`, and `safe_mode_request`.
 
 ## Interactions
 
-The fault app subscribes to `HeartbeatMsg`, `FaultEventMsg`, and `RoutedCommandMsg`. It publishes
-`ModeChangeMsg`, `SafetyStateMsg`, and `CommandAckMsg`. The composition root passes the monitored
+The fault app subscribes to `HeartbeatMsg`, `FaultEventMsg`, and `SystemModeActivatedMsg`. It
+publishes `ModeChangeMsg`, `SystemModeRequestMsg`, and `SafetyStateMsg`. The system-mode authority
+owns `EXIT_SAFE`. The composition root passes the monitored
 subsystem name tuple from `MONITORED_SUBSYSTEMS`. The fault app does not use HAL drivers.
 
 ## Constraints
@@ -39,6 +41,7 @@ subsystem name tuple from `MONITORED_SUBSYSTEMS`. The fault app does not use HAL
 
 - [`flight.core.composition`](core/composition.md)
 - [`flight.payload`](payload.md)
+- [`flight.system_modes`](system_modes.md)
 - [`flight.iss_iface`](iss_iface.md)
 - [`flight.thermal`](thermal.md)
 - [`flight.electrical`](electrical.md)

@@ -37,6 +37,7 @@ from flight.libs.types import (
     MessageType,
     ModelDeployState,
     SystemMode,
+    TransitionDecision,
 )
 
 # Schema version stamped on every bus envelope (spec Section 7). Bumped when a message's
@@ -252,6 +253,92 @@ class SafetyStateMsg:
     active_faults: tuple[FaultCode, ...]  # SAFE-triggering faults seen this tick (sorted)
     safe_latched: bool  # True once a SAFE-triggering fault latched SAFE, until EXIT_SAFE
     safe_reason: FaultCode  # the fault that latched SAFE (NONE when not latched)
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True)
+class ActivationKey:
+    """Identity of one system-mode activation: authority session epoch plus sequence.
+
+    The epoch is created once by the composition root. The sequence increases by one for
+    each accepted transition within that epoch. A snapshot replay keeps the same key.
+    """
+
+    epoch: str  # composition-root-provided authority session epoch
+    sequence: int  # authority-owned activation sequence within the epoch
+
+
+@dataclass(frozen=True)
+class CommandCorrelation:
+    """Ground-command identity carried by a mode request so the authority can ACK it."""
+
+    source: str  # command origin (echoed from the routed command)
+    seq: int  # per-source sequence number (echoed from the routed command)
+    command_id: str  # command opcode (echoed from the routed command)
+
+
+@dataclass(frozen=True)
+class SystemModeRequestMsg:
+    """A request to the system-mode authority. A request never changes behavior by itself."""
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_REQUEST
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    request_id: str  # requester-unique request identifier
+    requested_mode: SystemMode  # the mode the requester asks for
+    requested_by: str  # requesting subsystem or operator
+    reason: str  # human-readable reason for the request
+    correlation: CommandCorrelation | None = None  # set when a ground command caused it
+    origin_activation: ActivationKey | None = None  # activation the requester acted under
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True)
+class SystemModeTransitionMsg:
+    """Audit record of one authority decision (accepted or denied). Never selects behavior."""
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_TRANSITION
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    transition_id: str  # authority-unique transition identifier
+    request_id: str  # the request this decision answers
+    epoch: str  # authority session epoch
+    previous_mode: SystemMode | None  # active mode before the decision (None before boot)
+    requested_mode: SystemMode  # the mode that was requested
+    resulting_mode: SystemMode | None  # active mode after the decision (None before boot)
+    decision: TransitionDecision  # ACCEPTED or DENIED
+    reason: str  # decision reason (denial cause or acceptance note)
+    activation_sequence: int | None  # sequence of the new activation (None when denied)
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True)
+class SystemModeActivatedMsg:
+    """The authoritative active system mode. The only message that selects mode behavior.
+
+    recovery_authorized is True only on the activation that an accepted EXIT_SAFE produced;
+    the fault app releases its SAFE latch only on such an activation.
+    """
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_ACTIVATED
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    key: ActivationKey  # (epoch, sequence) identity of this activation
+    previous_mode: SystemMode | None  # active mode before this activation (None at boot)
+    active_mode: SystemMode  # the now-active system mode
+    reason: str  # why the authority activated this mode
+    request_id: str  # the request that produced this activation
+    recovery_authorized: bool = False  # True only for an accepted EXIT_SAFE
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True)
+class SystemModeSyncRequestMsg:
+    """A subscriber asks the authority to replay the current activation snapshot."""
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_SYNC_REQUEST
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    request_id: str  # subscriber-unique sync request identifier
+    subscriber: str  # subsystem asking for the snapshot
+    expected_epoch: str | None  # epoch the subscriber last saw (None after a cold start)
+    last_sequence: int | None  # last activation sequence the subscriber applied
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 

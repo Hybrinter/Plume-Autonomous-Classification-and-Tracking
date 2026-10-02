@@ -12,7 +12,7 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `MONITORED_SUBSYSTEMS` | constant | Eight heartbeat-emitting subsystem names |
+| `MONITORED_SUBSYSTEMS` | constant | Nine heartbeat-emitting subsystem names |
 | `Drivers` | class | Frozen bundle of HAL drivers, ISS ephemeris, and detector backend |
 | `SystemApps` | class | Frozen bundle of all constructed apps and core services |
 | `default_bus_policy` | function | Per-message-type queue bounds and overflow rules |
@@ -24,21 +24,22 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 
 - Output: queue policy for each registered message type.
 
-**`build_apps(config, bus, clock, drivers, monitored, calib, uplink_key) -> SystemApps`**
+**`build_apps(config, bus, clock, drivers, monitored, calib, uplink_key, epoch) -> SystemApps`**
 
 - Inputs: `PactConfig`, shared `MessageBus`, `Clock`, `Drivers`, monitored subsystem names,
-  `MosaicCalibration`, uplink HMAC key bytes.
+  `MosaicCalibration`, uplink HMAC key bytes, system-mode authority session epoch.
 - Output: wired `SystemApps`.
 
 ## Behavior
 
 1. `default_bus_policy` assigns `NEVER_DROP` (max 1024) to command, fault, ack, mode,
-   upload, and storage-write message types.
+   system-mode, upload, and storage-write message types.
 2. `default_bus_policy` assigns `DROP_OLDEST` (max 8192) to telemetry, inference, link,
    heartbeat, product, downlink, model-deploy, and safety message types.
 3. `build_apps` constructs `StorageService` first.
 4. `build_apps` constructs payload, fault, iss_iface, thermal, electrical, command_router,
-   downlink, and model_deploy apps via each app's `from_config`.
+   downlink, model_deploy, and system_modes apps via each app's `from_config`. The
+   system_modes app receives `epoch`.
 5. `build_apps` passes `drivers.ephemeris` into `PayloadApp.from_config` with the gimbal,
    sensor, and detector.
 6. `build_apps` passes the same storage instance to payload, iss_iface, and model_deploy.
@@ -53,7 +54,8 @@ None at the library level. Driver construction errors occur in the caller.
 modules.
 
 Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEventMsg`,
-`ModeChangeMsg`, `ModelStagedMsg`, `UploadChunkMsg`, `StorageWriteMsg`,
+`ModeChangeMsg`, `ModelStagedMsg`, `UploadChunkMsg`, `StorageWriteMsg`, `SystemModeRequestMsg`,
+`SystemModeTransitionMsg`, `SystemModeActivatedMsg`, `SystemModeSyncRequestMsg`,
 `TelemetryEventMsg`, `ProcessedFrameMsg`, `InferenceResultMsg`, `LinkStateMsg`,
 `GimbalCommandMsg`, `HeartbeatMsg`, `ProductRefMsg`,
 `DownlinkItemMsg`, `ModelDeployStateMsg`, `SafetyStateMsg`.
@@ -67,7 +69,7 @@ Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEven
 - Imports HAL protocols and apps only. No concrete driver imports.
 - `MONITORED_SUBSYSTEMS` is
   `("payload", "iss_iface", "thermal", "electrical", "command_router", "storage", "downlink",
-  "model_deploy")`.
+  "model_deploy", "system_modes")`.
 - The fault app receives the `monitored` tuple. It does not monitor itself.
 - `Drivers.ephemeris` is the injected `IssEphemeris` (sim circular Keplerian or real stub).
 

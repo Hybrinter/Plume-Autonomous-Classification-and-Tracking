@@ -46,6 +46,9 @@ from flight.payload.control import ControlState
 from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
 
+# Fixed system-mode authority epoch so SIL activation keys are deterministic.
+SIL_EPOCH = "sil"
+
 
 @dataclass(frozen=True)
 class ValidationSystem:
@@ -111,7 +114,9 @@ def build_validation_system(
     bus = MessageBus()
     drivers = select_drivers(config, clock, sim_inputs)
     calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
-    apps = build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    apps = build_apps(
+        config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key, SIL_EPOCH
+    )
     return ValidationSystem(
         apps=apps,
         bus=bus,

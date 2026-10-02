@@ -7,7 +7,7 @@ sim/sil). The caller constructs the Drivers bundle and owns the bus and clock.
 
 Contains:
   - Drivers: the bundle of injected HAL drivers + the detector backend.
-  - SystemApps: the five constructed subsystem apps.
+  - SystemApps: the constructed subsystem apps and core services.
   - MONITORED_SUBSYSTEMS: the heartbeat-emitting subsystems the FDIR watchdog watches.
   - build_apps: construct every app from config + bus + clock + drivers.
 """
@@ -51,6 +51,10 @@ from flight.libs.messages import (
     RoutedCommandMsg,
     SafetyStateMsg,
     StorageWriteMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
+    SystemModeSyncRequestMsg,
+    SystemModeTransitionMsg,
     TelemetryEventMsg,
     UploadChunkMsg,
 )
@@ -58,6 +62,7 @@ from flight.libs.time import Clock
 from flight.payload.app import PayloadApp
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import MosaicCalibration
+from flight.system_modes.app import SystemModesApp
 from flight.thermal.app import ThermalApp
 
 # The subsystems that run persistent loops and emit heartbeats; the FDIR watchdog
@@ -71,6 +76,7 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "storage",
     "downlink",
     "model_deploy",
+    "system_modes",
 )
 
 
@@ -101,6 +107,10 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
         ModelStagedMsg,
         UploadChunkMsg,
         StorageWriteMsg,
+        SystemModeRequestMsg,
+        SystemModeTransitionMsg,
+        SystemModeActivatedMsg,
+        SystemModeSyncRequestMsg,
     ):
         policy[never_type] = never
     for drop_type in (
@@ -154,6 +164,7 @@ class SystemApps:
     storage: StorageService
     downlink: DownlinkManager
     model_deploy: ModelDeployService
+    system_modes: SystemModesApp
 
 
 def build_apps(
@@ -164,6 +175,7 @@ def build_apps(
     monitored: tuple[str, ...],
     calib: MosaicCalibration,
     uplink_key: bytes,
+    epoch: str,
 ) -> SystemApps:
     """Construct every subsystem app wired to the shared bus and clock.
 
@@ -179,6 +191,8 @@ def build_apps(
         uplink_key: The shared HMAC-SHA256 secret for authenticating inbound TC packets.
             Loaded from disk by the composition root and injected here so build_apps
             and the apps themselves stay key-file-agnostic.
+        epoch: The system-mode authority session epoch, created once by the composition
+            root (a fixed value in deterministic SIL/test roots).
 
     Returns:
         A SystemApps with all five apps constructed.
@@ -206,4 +220,5 @@ def build_apps(
         storage=storage,
         downlink=DownlinkManager.from_config(config, bus, clock),
         model_deploy=ModelDeployService.from_config(config, bus, clock, storage),
+        system_modes=SystemModesApp.from_config(config, bus, clock, epoch),
     )

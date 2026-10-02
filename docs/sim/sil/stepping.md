@@ -42,7 +42,7 @@ catch-up and before acquire.
    feedback. Encoder samples from catch-up and this read share shutter time `now`
    with the due frame stamp.
 5. Apply payload pose commands from the prior cycle (`handle_commands`).
-6. Run iss_iface and command_router ticks.
+6. Run iss_iface, command_router, and system_modes ticks.
 7. Run thermal and electrical handle-commands and sample.
 8. Run model_deploy, storage, and downlink ticks.
 9. Publish one `HeartbeatMsg` per name in `MONITORED_SUBSYSTEMS`.

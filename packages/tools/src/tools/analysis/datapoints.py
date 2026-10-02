@@ -88,7 +88,7 @@ MESSAGE_TYPES: tuple[type, ...] = (
     LinkStateMsg,
 )
 
-# The nine heartbeat-emitting subsystems the FDIR watchdog monitors (mirrors MONITORED_SUBSYSTEMS).
+# The heartbeat-emitting subsystems the FDIR watchdog monitors (mirrors MONITORED_SUBSYSTEMS).
 MONITORED: tuple[str, ...] = (
     "payload",
     "iss_iface",
@@ -98,6 +98,7 @@ MONITORED: tuple[str, ...] = (
     "storage",
     "downlink",
     "model_deploy",
+    "system_modes",
 )
 
 

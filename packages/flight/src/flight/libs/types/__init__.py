@@ -6,7 +6,7 @@ submodules, so the internal split stays refactorable.
 Exports:
 - Enumerations: AckStatus, Band, CommandId, DownlinkPriority, FaultCode,
   FrameUsabilityTag, GimbalCommandMode, GimbalState, LinkState, MessageType,
-  ModelDeployState, ParamKind, SystemMode.
+  ModelDeployState, ParamKind, SystemMode, TransitionDecision.
 - Result types: Err, Ok, Result.
 - Frame types: MosaicFrame.
 """
@@ -25,6 +25,7 @@ from flight.libs.types.enums import (
     ModelDeployState,
     ParamKind,
     SystemMode,
+    TransitionDecision,
 )
 from flight.libs.types.frames import MosaicFrame
 from flight.libs.types.result import Err, Ok, Result
@@ -47,4 +48,5 @@ __all__ = [
     "ParamKind",
     "Result",
     "SystemMode",
+    "TransitionDecision",
 ]

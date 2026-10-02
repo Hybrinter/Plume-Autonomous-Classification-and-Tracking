@@ -3,7 +3,15 @@
 from flight.fault.app import FaultApp
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import FaultEventMsg, HeartbeatMsg, ModeChangeMsg
+from flight.libs.messages import (
+    ActivationKey,
+    FaultEventMsg,
+    HeartbeatMsg,
+    ModeChangeMsg,
+    SafetyStateMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
+)
 from flight.libs.time import ManualClock
 from flight.libs.types import FaultCode, MessageType, SystemMode
 
@@ -82,3 +90,118 @@ def test_benign_fault_not_routed() -> None:
     bus.publish(_fault(FaultCode.COMM_TIMEOUT))
     app.tick(entries, now=1.0)
     assert mode_sub.empty()
+
+
+def _activation(
+    mode: SystemMode, sequence: int, recovery: bool = False, epoch: str = "e"
+) -> SystemModeActivatedMsg:
+    """Build an authority activation."""
+    return SystemModeActivatedMsg(
+        msg_type=MessageType.SYSTEM_MODE_ACTIVATED,
+        timestamp_utc="t",
+        key=ActivationKey(epoch, sequence),
+        previous_mode=None,
+        active_mode=mode,
+        reason="test",
+        request_id=f"r{sequence}",
+        recovery_authorized=recovery,
+    )
+
+
+def _latest_safety(sub: object) -> SafetyStateMsg:
+    """Drain a SafetyStateMsg subscription and return the newest message."""
+    last = None
+    while not sub.empty():  # type: ignore[attr-defined]
+        last = sub.get_nowait()  # type: ignore[attr-defined]
+    assert isinstance(last, SafetyStateMsg)
+    return last
+
+
+def test_safe_fault_requests_safe_from_authority() -> None:
+    """A SAFE-triggering fault latches immediately and sends one SAFE request."""
+    app, bus = _app()
+    requests = bus.subscribe(SystemModeRequestMsg)
+    safety = bus.subscribe(SafetyStateMsg)
+    entries = app.initial_entries()
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    bus.publish(_fault(FaultCode.CAMERA_STALL))
+    app.tick(entries, now=1.0)
+    request = requests.get_nowait()
+    assert request.requested_mode is SystemMode.SAFE
+    assert request.requested_by == "fault"
+    assert requests.empty()  # one request per tick
+    assert _latest_safety(safety).safe_latched
+
+
+def test_no_safe_request_once_authority_is_safe() -> None:
+    """While the authority reports SAFE, further SAFE faults latch but do not re-request."""
+    app, bus = _app()
+    requests = bus.subscribe(SystemModeRequestMsg)
+    entries = app.initial_entries()
+    bus.publish(_activation(SystemMode.SAFE, 1))
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    app.tick(entries, now=1.0)
+    assert requests.empty()
+    assert app.safety.safe_latched
+
+
+def test_recovery_activation_releases_latch_when_clear() -> None:
+    """A recovery-authorized activation clears the latch and publishes ModeChangeMsg(IDLE)."""
+    app, bus = _app()
+    modes = bus.subscribe(ModeChangeMsg)
+    entries = app.initial_entries()
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    entries = app.tick(entries, now=1.0)
+    bus.publish(_activation(SystemMode.SAFE, 1))
+    bus.publish(_heartbeat("payload", 0))
+    entries = app.tick(entries, now=2.0)
+    while not modes.empty():
+        modes.get_nowait()
+    bus.publish(_activation(SystemMode.IDLE, 2, recovery=True))
+    bus.publish(_heartbeat("payload", 1))
+    app.tick(entries, now=3.0)
+    assert not app.safety.safe_latched
+    assert app.safety.safe_reason is FaultCode.NONE
+    assert modes.get_nowait().new_mode is SystemMode.IDLE
+
+
+def test_recovery_activation_refused_if_fault_fires_same_tick() -> None:
+    """A recovery activation does not clear the latch when a SAFE fault fires that tick."""
+    app, bus = _app()
+    requests = bus.subscribe(SystemModeRequestMsg)
+    entries = app.initial_entries()
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    entries = app.tick(entries, now=1.0)
+    while not requests.empty():
+        requests.get_nowait()
+    bus.publish(_activation(SystemMode.IDLE, 2, recovery=True))
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    app.tick(entries, now=2.0)
+    assert app.safety.safe_latched
+    assert requests.get_nowait().requested_mode is SystemMode.SAFE  # re-request SAFE
+
+
+def test_non_recovery_activation_does_not_release_latch() -> None:
+    """Only a recovery-authorized activation may clear the latch."""
+    app, bus = _app()
+    entries = app.initial_entries()
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    entries = app.tick(entries, now=1.0)
+    bus.publish(_activation(SystemMode.IDLE, 2))
+    bus.publish(_heartbeat("payload", 0))
+    app.tick(entries, now=2.0)
+    assert app.safety.safe_latched
+
+
+def test_stale_recovery_replay_is_ignored() -> None:
+    """A replayed recovery activation older than the last applied key cannot clear the latch."""
+    app, bus = _app()
+    entries = app.initial_entries()
+    bus.publish(_activation(SystemMode.IDLE, 2, recovery=True))
+    bus.publish(_activation(SystemMode.SAFE, 3))
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    entries = app.tick(entries, now=1.0)
+    bus.publish(_activation(SystemMode.IDLE, 2, recovery=True))  # snapshot replay of old key
+    bus.publish(_heartbeat("payload", 0))
+    app.tick(entries, now=2.0)
+    assert app.safety.safe_latched

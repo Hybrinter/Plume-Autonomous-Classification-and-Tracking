@@ -75,7 +75,7 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
     ),
     CommandId.EXIT_SAFE: CommandSpec(
         CommandId.EXIT_SAFE,
-        "fault",
+        "system_modes",
         (ParamSpec("phase", ParamKind.STR),),
         hazardous=True,
     ),
@@ -104,6 +104,12 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("el_deg", ParamKind.FLOAT),),
         hazardous=False,
     ),
+    CommandId.SET_MODE: CommandSpec(
+        CommandId.SET_MODE,
+        "system_modes",
+        (ParamSpec("mode", ParamKind.STR),),
+        hazardous=False,
+    ),
 }
 
 
@@ -111,7 +117,7 @@ def routable_targets() -> frozenset[str]:
     """Return the set of subsystem targets any command in the dictionary may be routed to.
 
     Returns:
-        A frozenset of canonical target names (e.g. "core", "thermal", "fault"). The command
+        A frozenset of canonical target names (e.g. "core", "thermal", "system_modes"). The command
         router treats a CommandMsg whose target is outside this set as unroutable (loud NACK +
         COMMAND_UNROUTABLE fault). Derived from the dictionary so adding a command keeps the
         router's routable set in sync automatically.

@@ -4,7 +4,7 @@
 **Date:** 2026-09-17
 **Topic:** feature-add
 **Supersedes:** none
-**Superseded-by:** none
+**Superseded-by:** ADR-FLIGHT-0007 (GimbalState arbiter model)
 **Related:** ADR-FLIGHT-0004
 
 ## Context

@@ -5,35 +5,44 @@
 
 ## Purpose
 
-The graphs package holds the typed pure contracts for payload mode graphs:
-specs, directed edges, imaging and inference policies, tick inputs, outcomes,
-effect identities, and activation-key bookkeeping. The package `__init__`
-carries no exports and no mode mapping.
+The graphs package holds the pure payload mode graphs: the `IDLE`, `STOW`,
+`SAFE`, `INIT`, and `OPERATE` graph implementations, their shared typed
+contracts in `base`, the config projection in `parameters`, and the closed
+`runtime` dispatch. The package `__init__` carries no exports and no mode
+mapping.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
 | [`base`](graphs/base.md) | pure module | Typed graph specs, policies, inputs, outcomes, and activation helpers |
+| [`parameters`](graphs/parameters.md) | pure module | `GraphParameters` config projection and feedback freshness |
+| [`idle`](graphs/idle.md) | pure module | One-node pose-hold IDLE graph |
+| [`safe`](graphs/safe.md) | pure module | One-node inhibition-only SAFE graph |
+| [`stow`](graphs/stow.md) | package | Bounded move plus verified hold |
+| [`init`](graphs/init.md) | package | Effect chain plus verification-wait readiness |
+| [`operate`](graphs/operate.md) | package | Tracking, hunts, and hold with command edges |
+| [`runtime`](graphs/runtime.md) | pure module | Closed-union dispatch over the five graphs |
 
 ## Package interface
 
-`flight.payload.graphs.base` defines `GraphId`, `Edge`, `GraphSpec`,
-`EdgeTrigger`, policy records and limits, `resolve_policy`, `validate_policy`,
-`validate_spec`, `command_target`, effect and outcome records, `TickInputs`,
-and `accept_activation`/`ActivationState`/`ActivationSnapshot`.
+Each graph module or package exposes `spec(params)`, `initial_state(inputs,
+params)`, and `step(state, inputs, params)`. `runtime` dispatches over the
+closed state union and applies commands only on OPERATE.
 
 ## Interactions
 
-These contracts are inert foundations: no module here executes a graph step or
-drives hardware, and no shell wiring to them exists yet. Activation mapping at
-the shell boundary arrives with the runtime cutover. Shared gimbal and
-tracking primitives never import this package.
+These are pure graph implementations, not live shell wiring: no module maps
+system activations onto live graphs yet, and `PayloadApp` still runs the
+existing controller. Activation mapping arrives with the runtime cutover.
+Shared gimbal and tracking primitives never import this package.
 
 ## Constraints
 
 All modules are pure: no I/O, no bus access, no clock reads, no `SystemMode`
 imports, no callable dispatch tables, and no general statechart machinery.
+Guard exclusivity lives in the concrete graphs; the base layer validates only
+topology and directed command edges.
 
 ## Related documents
 

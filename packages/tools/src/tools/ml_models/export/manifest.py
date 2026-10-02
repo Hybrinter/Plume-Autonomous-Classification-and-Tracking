@@ -149,11 +149,23 @@ class ModelManifest:
             self.gsd_input_shape,
             self.output_shape,
             len(BAND_NAMES),
-            self.tile_hw,
+            None,
             self.kind,
         )
         if isinstance(result, Err):
             raise ValueError(f"declared shapes violate the flight contract ({result.error.value})")
+        if any(
+            dim not in (None, expected)
+            for dim, expected in zip(self.input_shape[2:], self.tile_hw, strict=True)
+        ):
+            raise ValueError("image spatial dimensions must be dynamic or match the flight tile")
+        if self.kind == "segmentor" and any(
+            dim not in (None, expected)
+            for dim, expected in zip(self.output_shape[2:], self.tile_hw, strict=True)
+        ):
+            raise ValueError(
+                "segmentor output spatial dimensions must be dynamic or match the flight tile"
+            )
         return self
 
 

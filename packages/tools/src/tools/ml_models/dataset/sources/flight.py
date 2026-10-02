@@ -1,4 +1,4 @@
-"""Labeled flight tile directory.
+"""Ground-side reader and fixture writer for the flight tile import format.
 
 Contains:
   - FlightTileWrite: one tile accepted by the writer.
@@ -6,7 +6,9 @@ Contains:
     and ``masks/``.
   - FlightTileDir: ``RawSource`` reader.
 
-On-disk images are uint16 ``(3, 193, 258)`` in ``input_bands`` order. Masks are
+This module describes imported finished tiles; it does not implement onboard
+frame collection or storage policy. On-disk images are uint16 ``(3, 193,
+258)`` in ``input_bands`` order. Masks are
 uint8 ``(193, 258)``. A missing ``group_id`` in ``index.jsonl`` defaults to
 ``frame_id``.
 """
@@ -21,7 +23,13 @@ from pathlib import Path
 
 import numpy as np
 
-from tools.ml_models.dataset.geometry import INPUT_BANDS, tile_hw
+from tools.ml_models.dataset.geometry import (
+    GRID_COLS,
+    GRID_ROWS,
+    GSD_REFERENCE_M,
+    INPUT_BANDS,
+    tile_hw,
+)
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 
 _SOURCE_KEYS: tuple[str, ...] = ("band_names", "bit_depth", "source_ref", "gsd_reference_m")
@@ -52,7 +60,7 @@ class FlightTileWrite:
         label: Classification target.
         theta_g_deg: Gimbal elevation at the shutter, in degrees.
         gsd: Pixel GSD at the tile center.
-        image: np.ndarray[uint16, (3, 193, 258)].
+        image: np.ndarray[uint16, (len(INPUT_BANDS), 193, 258)].
         mask: np.ndarray[uint8, (193, 258)] or ``(1, 193, 258)``. None when
             the tile has no mask.
         group_id: Split group. None stores ``frame_id``.
@@ -80,7 +88,7 @@ def write_flight_tile_dir(
     band_names: tuple[str, ...] = INPUT_BANDS,
     bit_depth: int = 12,
     source_ref: str = "",
-    gsd_reference_m: float = 15.87,
+    gsd_reference_m: float = GSD_REFERENCE_M,
 ) -> None:
     """Write a flight tile directory.
 
@@ -228,8 +236,9 @@ class FlightTileDir:
             if not image_path.is_file():
                 raise ValueError(f"missing tile array {image_path}")
             image = np.load(image_path)
-            if image.dtype != np.uint16 or image.shape != (3, height, width):
-                raise ValueError(f"{ref.tile_id} image must be uint16 (3, {height}, {width})")
+            expected_shape = (len(INPUT_BANDS), height, width)
+            if image.dtype != np.uint16 or image.shape != expected_shape:
+                raise ValueError(f"{ref.tile_id} image must be uint16 {expected_shape}")
             mask: np.ndarray | None = None
             if ref.has_mask:
                 mask_path = self._root / "masks" / f"{ref.tile_id}.npy"
@@ -272,8 +281,11 @@ def _validate_write(
         raise ValueError(f"tile_id must be a unique file stem; got {tile.tile_id!r}")
     if not tile.frame_id:
         raise ValueError("frame_id must be non-empty")
-    if not (0 <= tile.row < 8 and 0 <= tile.col < 8):
-        raise ValueError(f"row and col must lie in 0..7; got {tile.row}, {tile.col}")
+    if not (0 <= tile.row < GRID_ROWS and 0 <= tile.col < GRID_COLS):
+        raise ValueError(
+            f"row must lie in 0..{GRID_ROWS - 1} and col in 0..{GRID_COLS - 1}; "
+            f"got {tile.row}, {tile.col}"
+        )
     if not math.isfinite(tile.label) or not math.isfinite(tile.theta_g_deg):
         raise ValueError("label and theta_g_deg must be finite")
     if not isinstance(tile.gsd_nominal, bool):
@@ -282,8 +294,9 @@ def _validate_write(
         raise ValueError("gsd lateral_m must be finite and > 0")
     if not math.isfinite(tile.gsd.along_m) or tile.gsd.along_m <= 0.0:
         raise ValueError("gsd along_m must be finite and > 0")
-    if tile.image.dtype != np.uint16 or tile.image.shape != (3, height, width):
-        raise ValueError(f"image must be uint16 (3, {height}, {width})")
+    expected_shape = (len(INPUT_BANDS), height, width)
+    if tile.image.dtype != np.uint16 or tile.image.shape != expected_shape:
+        raise ValueError(f"image must be uint16 {expected_shape}")
     if tile.mask is not None:
         _mask_hw(tile.mask, height, width)
     if tile.group_id is not None and not tile.group_id:
@@ -349,8 +362,10 @@ def _load_index(path: Path) -> tuple[RawTileRef, ...]:
         group_raw = raw.get("group_id", frame_id)
         group_id = _require_str(group_raw, "group_id")
         row, col = _require_int(raw["row"], "row"), _require_int(raw["col"], "col")
-        if row >= 8 or col >= 8:
-            raise ValueError("flight grid indices must lie in 0..7")
+        if row >= GRID_ROWS or col >= GRID_COLS:
+            raise ValueError(
+                f"flight grid indices must lie in row 0..{GRID_ROWS - 1}, col 0..{GRID_COLS - 1}"
+            )
         theta_g_deg = _require_float(raw["theta_g_deg"], "theta_g_deg")
         gsd_nominal = _require_bool(raw.get("gsd_nominal", False), "gsd_nominal")
         nearest = min(_ELEVATION_BINS, key=lambda elevation: abs(theta_g_deg - elevation))

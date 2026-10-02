@@ -62,7 +62,10 @@ Frame-scoped messages also carry `frame_id: int` (uint32 monotonic counter).
 1. Producers construct a frozen dataclass with `msg_type` and `timestamp_utc` set.
 2. Producers call `MessageBus.publish(msg)`.
 3. Subscribers receive messages by exact class match.
-4. Large numpy arrays are typed `object`. Shape and dtype comments document the contract.
+4. The local-only `ProcessedFrameMsg.tile_gsd_m` is a row-major `(tile_count, 2)` metres array
+   consumed inside `PayloadApp.process_frame`; `ProcessedFrameMsg` is never published.
+   Published `InferenceResultMsg` carries only compact tuples for tile logits, positive decisions,
+   and tile GSD pairs.
 5. `utc_now_iso()` formats UTC with a trailing `Z` suffix.
 6. `BlobMeta` embeds in `InferenceResultMsg.blobs` with tracker ID, bbox, centroid, area,
    confidence, and persistence count.
@@ -119,6 +122,7 @@ None in this module. Message producers read subsystem config for thresholds and 
 - Timestamp format uses trailing `Z`, not `+00:00`.
 - There is no bus message for raw sensor frames. Use `MosaicFrame` from `flight.libs.types`.
 - Array fields typed `object` must be treated as immutable after publish.
+- `ProcessedFrameMsg.tile_gsd_m` remains local to the co-located preprocessing/inference call.
 - `TelemetryEventMsg.payload` holds JSON-serializable primitives only.
 
 ## Related documents

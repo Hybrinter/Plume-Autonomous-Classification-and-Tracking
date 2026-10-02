@@ -164,6 +164,7 @@ def test_export_never_overwrites_concurrent_output(
         return (None, 3, None, None), (None, 2), (None, 1)
 
     monkeypatch.setattr(torch.onnx, "export", _fake_trace)
+    monkeypatch.setattr(export_module, "_refine_shape_metadata", lambda _path: None)
     monkeypatch.setattr(export_module, "_verify_graph", _fake_verify)
     result = export(ExportConfig(str(ckpt), str(artifact)))
     assert isinstance(result, Err)
@@ -193,6 +194,7 @@ def test_export_rolls_back_own_artifact_on_sidecar_race(
         return (None, 3, None, None), (None, 2), (None, 1)
 
     monkeypatch.setattr(torch.onnx, "export", _fake_trace)
+    monkeypatch.setattr(export_module, "_refine_shape_metadata", lambda _path: None)
     monkeypatch.setattr(export_module, "_verify_graph", _fake_verify)
     result = export(ExportConfig(str(ckpt), str(artifact)))
     assert isinstance(result, Err)

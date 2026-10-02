@@ -16,7 +16,7 @@ The flight software is a **Python-only `uv` workspace** under `packages/`, built
 
 | Capability | Description |
 |-----------|-------------|
-| **Plume detection** | A binary ONNX classifier gates a U-Net-class ONNX segmentor. The classifier skips segmentation on empty frames. The segmentor produces a plume probability mask; blobs are extracted for tracking. Raw 2×2 mosaic frames are demosaiced into BLUE/GREEN/RED/NIR bands (≈ Sentinel-2 B2/B3/B4/B8) in pure preprocessing. |
+| **Plume detection** | The full RGB prism frame is split into an 8×8 grid. A GSD-conditioned ONNX classifier gates segmentation per tile. The detector stitches probabilities into a full-frame mask and extracts blobs for tracking. Calibration, normalization, tiling, and footprint geometry live in flight. |
 | **Closed-loop pointing** | Cascaded elevation torque loop: inner PI + computed torque at ~1 ms, outer residual filter + co-rotating predictor at ~20 ms. Arbiter modes are TRACKING / REWIND / FAST_REWIND / SAFE. |
 | **ISS command path** | Authenticated CCSDS command ingress (CRC + per-source sequence dedup + HMAC-SHA256 + command-dictionary validation); every command yields an ACCEPTED or REJECTED ack. |
 | **FDIR / SAFE** | Heartbeat watchdog + fault-to-mode policy; SAFE-triggering faults latch the system into a single SAFE mode (stow + quiesce), exited only by ground command. |
@@ -152,10 +152,19 @@ pact-tools inference export \
   --out artifacts/segmentor.onnx
 ```
 
-Factory flight graphs are `data/models/active_classifier.onnx` (ShuffleNetV2-x0.5)
-and `data/models/active_segmentor.onnx` (DilateNet-w32). `config/default.toml`
-`[inference]` points at those paths. `pact-tools inference finalize --promote`
-copies a passed artifact there.
+Flight expects dynamic-batch `image` and `gsd` inputs, with 193×258 image tiles
+for the default 1544×2064 frame and 8×8 grid. GSD is lateral/along-track metres
+encoded as `ln(gsd / gsd_reference_m)`. The checked-in factory graphs at
+`data/models/active_classifier.onnx` and `data/models/active_segmentor.onnx`
+use the previous single-input contract and are rejected by the new loader.
+Compatible trained artifacts are required for `compute=real`; scripted SIL
+exercises the tiled path without those artifacts. The commands above belong
+to the legacy ground workflow and do not produce the new flight pair.
+
+Training-example collection, configurable negative/positive balancing,
+training-example storage, and downlink are deferred. Flight owns these
+future collection responsibilities; ground owns preparation and training
+after positive and negative examples are compiled.
 
 Use `python -m tools` as an alias for `pact-tools`.
 

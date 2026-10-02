@@ -26,8 +26,9 @@ blob each frame.
 - Output: list of `(3, 1544, 2064)` uint16 buffers in RED, GREEN, BLUE order, with
   exposure and gain metadata.
 
-**`plume_detector() -> ScriptedDetector`**
+**`plume_detector(grid=(8, 8), gsd_reference_m=15.87) -> ScriptedDetector`**
 
+- Inputs: configured tile grid and GSD reference passed through to the detector.
 - Output: detector whose mask is the full frame. The unit rectangle is the old 50 px
   box scaled onto this frame and centered on the plume. Confidence gate 0.55, minimum
   blob area 15 px.
@@ -41,7 +42,7 @@ blob each frame.
 3. It stores the three planes as a channel-major buffer. Wire order is RED, GREEN, BLUE.
 4. It assigns `frame_id` values 1 through `num_frames` with fixed timestamp metadata.
 5. `plume_detector` fills a 1544 x 2064 float mask with one rectangle at unit probability
-   above boresight.
+   above boresight and uses the configured row/column tile grid and GSD reference.
 
 ## Errors and faults
 
@@ -53,7 +54,8 @@ None.
 
 ## Configuration
 
-None. Frame size matches `SensorConfig` width and height.
+Production SIL/GSE passes the matching `InferenceConfig` grid and GSD reference. Frame size
+matches `SensorConfig` width and height.
 
 ## Constraints
 

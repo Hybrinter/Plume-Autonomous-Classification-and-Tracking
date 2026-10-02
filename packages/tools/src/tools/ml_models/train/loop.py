@@ -40,6 +40,7 @@ from tools.ml_models.arch.film import CONDITIONING_ID, IGNORED_CONDITIONING_ID, 
 from tools.ml_models.arch.registry import build as build_model
 from tools.ml_models.arch.registry import resolve_arch
 from tools.ml_models.dataset.build import build_synthetic
+from tools.ml_models.dataset.geometry import tile_hw
 from tools.ml_models.dataset.loader import make_loader
 from tools.ml_models.dataset.manifest import DatasetManifest, check_compatible, load_manifest
 from tools.ml_models.train.config import TrainConfig, config_digest, write_train_config_toml
@@ -47,8 +48,7 @@ from tools.ml_models.train.evaluate import evaluate
 from tools.ml_models.train.losses import build_loss
 from tools.ml_models.train.provenance import training_provenance
 
-EXPORT_HEIGHT_PX = 193
-EXPORT_WIDTH_PX = 258
+EXPORT_HEIGHT_PX, EXPORT_WIDTH_PX = tile_hw()
 
 # Validation metrics that improve by shrinking; every other metric maximises.
 _MINIMIZE_METRICS = frozenset({"bce", "brier"})

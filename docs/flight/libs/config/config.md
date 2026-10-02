@@ -93,9 +93,10 @@ Nested tables under `[controller]`:
 
 `segmentor_model_path`, `classifier_model_path`, `segmentor_rollback_model_path`,
 `classifier_rollback_model_path`, `classifier_logit_threshold`, `input_bands`, input
-dimensions (`1544 x 2064`), INT8 flag, `latency_budget_ms` (4 ms expected
-detect), and `gsd_reference_m` (15.87 m, the reference of the model GSD log
-encoding). `input_bands` is BLUE, GREEN, RED.
+dimensions (`1544 x 2064`), tile grid (`tile_rows` and `tile_cols`, both 8),
+`gsd_reference_m` (15.87 m, the reference for model GSD log encoding), INT8 flag,
+and `latency_budget_ms` (4 ms expected detect). The configured grid must divide the
+full input dimensions. `input_bands` is BLUE, GREEN, RED.
 
 ### CommsConfig
 

@@ -95,6 +95,32 @@ status = "verified"
 # --- FSW code-complete capabilities (2026-06-14): command path, data system,
 # --- model lifecycle, platform robustness, config integrity. -----------------------------
 [[requirement]]
+id = "REQ-AIML-COMP-001"
+statement = "Flight classifies row-major GSD-conditioned tiles, segments only positives, and stitches probabilities into full-frame coordinates before blob extraction."
+method = "unit"
+venue = "unit"
+modules = ["REQ-AIML-COMP-001"]
+evidence = [
+    "packages/flight/tests/payload/inference/test_tiled_detector.py",
+    "packages/flight/tests/payload/inference/test_onnx_backends.py",
+]
+status = "verified"
+
+[[requirement]]
+id = "REQ-AIML-PREP-002"
+statement = "Flight calibrates and normalizes prism band planes and provides reversible row-major tiling plus finite per-tile GSD encoding."
+method = "unit"
+venue = "unit"
+modules = ["REQ-AIML-PREP-002"]
+evidence = [
+    "packages/flight/tests/payload/preprocess/test_preprocess_mosaic_calibration.py",
+    "packages/flight/tests/payload/preprocess/test_preprocess_normalize.py",
+    "packages/flight/tests/payload/preprocess/test_tiling.py",
+    "packages/flight/tests/payload/gimbal/test_footprint.py",
+]
+status = "verified"
+
+[[requirement]]
 id = "REQ-COMM-CMD-001"
 statement = "Validated commands are routed to the target subsystem; hazardous commands require an ARM/EXECUTE two-step with an inhibit re-check at actuation."
 method = "SIL"
@@ -167,6 +193,8 @@ venue = "unit"
 modules = ["REQ-AIML-HIGH-004"]
 evidence = [
     "packages/flight/tests/payload/inference/test_model_verify.py",
+    "packages/flight/tests/payload/inference/test_onnx_session.py",
+    "packages/flight/tests/payload/inference/test_tiled_detector.py",
     "packages/tools/tests/ml_models/export/test_accept.py",
 ]
 status = "verified"

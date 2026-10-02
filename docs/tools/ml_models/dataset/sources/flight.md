@@ -5,9 +5,11 @@
 
 ## Purpose
 
-This module reads and writes a labeled flight tile directory: a
+This ground-side module reads and writes a labeled flight tile import
+directory: a
 `source.json` sidecar, an `index.jsonl` row list, and `tiles/` and
-`masks/` arrays.
+`masks/` arrays. The writer creates fixtures and compiled import examples; it
+does not implement onboard frame collection or storage policy.
 
 ## Public interface
 
@@ -20,7 +22,7 @@ This module reads and writes a labeled flight tile directory: a
 ## Inputs and outputs
 
 `write_flight_tile_dir(dest, tiles, band_names=INPUT_BANDS, bit_depth=12,
-source_ref="", gsd_reference_m=15.87)` creates `dest` with `source.json`,
+source_ref="", gsd_reference_m=GSD_REFERENCE_M)` creates `dest` with `source.json`,
 `index.jsonl`, `tiles/<tile_id>.npy`, and `masks/<tile_id>.npy`.
 
 `source.json` keys are `band_names`, `bit_depth`, `source_ref`, and
@@ -38,10 +40,13 @@ index order, reading one `.npy` at a time.
 
 1. The writer refuses an existing `dest`, a `bit_depth` below 1, a
    non-positive `gsd_reference_m`, and an empty tile list.
-2. Tile images are uint16 `(3, 193, 258)` in `band_names` order. Masks
+2. Frame dimensions, grid limits, GSD reference, and default bands follow
+   flight `InferenceConfig`. Tile images are uint16 `(3, 193, 258)` in
+   `band_names` order. Masks
    are uint8 `(193, 258)` or `(1, 193, 258)` and stored as `(193, 258)`.
 3. A `tile_id` must be a file stem: non-empty, unique, not `.` or `..`,
-   and free of path separators. `row` and `col` must lie in 0..7.
+   and free of path separators. `row` and `col` must be within the configured
+   flight grid.
 4. A missing `group_id` in `index.jsonl` defaults to `frame_id`.
 5. `grid_rc` is the `(row, col)` pair. `theta_g_deg` passes through to
    the ref, and `bin_id` is `elevation{nearest}` for the nearest of
@@ -53,7 +58,7 @@ index order, reading one `.npy` at a time.
 ## Errors and faults
 
 `FileExistsError` when `dest` exists. `ValueError` on a `tile_id` that is
-not a file stem, a grid index outside 0..7, a non-finite label or
+not a file stem, a grid index outside the configured flight grid, a non-finite label or
 `theta_g_deg`, non-positive GSD, wrong image or mask dtype and shape, an
 empty `group_id`, a malformed `source.json` or `index.jsonl`, a duplicate
 `tile_id`, an empty index, or a missing or mistyped array file.
@@ -65,13 +70,14 @@ None.
 
 ## Configuration
 
-Writer defaults: `band_names` `INPUT_BANDS`, `bit_depth` 12,
-`source_ref` empty, `gsd_reference_m` 15.87. There is no TOML file.
+Writer defaults: `band_names` and `gsd_reference_m` come from flight
+`InferenceConfig`, `bit_depth` is 12, and `source_ref` is empty. There is no
+TOML file.
 
 ## Constraints
 
-Tile size is fixed at the flight 193 by 258. This module does not import
-torch.
+The imported finished-tile format follows flight geometry. This module does
+not import torch.
 
 ## Related documents
 

@@ -6,7 +6,8 @@
 ## Purpose
 
 The inference package provides swappable onboard inference backends. A binary classifier
-gates a segmentor. The detector composer runs both networks and then blob extraction.
+gates the segmentor per tile. The detector stitches the tile probabilities into
+a full-frame mask and then extracts blobs.
 Verification helpers check artifact hash, I/O contract, and latency.
 
 ## Contents
@@ -18,27 +19,34 @@ Verification helpers check artifact hash, I/O contract, and latency.
 | [`detector`](inference/detector.md) | module | Composer of classifier, segmentor, and blob extraction |
 | [`artifact_path`](inference/artifact_path.md) | module | FP32 path to INT8 sibling when `use_int8` is true |
 | [`onnx_session`](inference/onnx_session.md) | module | Lazy onnxruntime session load with hash and shape checks |
-| [`contract`](inference/contract.md) | module | Two-input conditioned-graph shape verifier |
 | [`verify`](inference/verify.md) | module | Hash, I/O contract, and latency verification |
+| [`contract`](inference/contract.md) | module | Named image/GSD dynamic-batch graph contract |
 
 ## Package interface
 
 Re-exports: `ClassifierBackend`, `ClassifierDecision`, `Detector`, `DetectorBackend`,
 `OnnxClassifier`, `OnnxDetector`, `OnnxSegmentor`, `ScriptedClassifier`,
 `ScriptedDetector`, `ScriptedSegmentor`, `SegmentorBackend`,
+`TileClassifierBackend`, `TileSegmentorBackend`, `TiledScore`, `infer_tiles`,
 `check_inference_latency`, `compute_sha256`, `verify_io_contract`, `verify_model_hash`.
 
 ## Interactions
 
 The payload app calls `DetectorBackend.detect` and publishes the returned
 `InferenceResultMsg`. Verification helpers run at ONNX load time. Latency is checked
-per frame inside `Detector.detect`. Blob extraction lives in `flight.payload.blobs`.
+per frame inside `Detector.detect`. Geometry and tiling run before inference;
+blob extraction lives in `flight.payload.blobs`.
 
 ## Constraints
 
 `onnxruntime` imports lazily inside session load. Importing the package does not
 require the SDK. Hash and shape verification failures at startup raise `ValueError`
-in the composition root. A negative classifier skips the segmentor.
+in the composition root. Classifier-negative tiles skip the segmentor. ONNX
+graphs receive float32 `image` and encoded `gsd` inputs with dynamic batch axes.
+The production detector defaults to an 8 by 8 grid. The standalone scripted
+detector defaults to one tile for small SIL fixtures. The payload app keeps the
+sensor frame full-resolution until it is split for inference.
+Old single-input factory graphs do not satisfy this contract.
 
 ## Related documents
 

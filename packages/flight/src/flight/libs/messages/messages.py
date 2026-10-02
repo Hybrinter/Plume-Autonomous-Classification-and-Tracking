@@ -88,12 +88,12 @@ class BlobMeta:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ProcessedFrameMsg:
     """Preprocessed, band-selected, calibrated tensor from preprocessing to inference.
 
     tensor shape: (1, C, H, W) float32 NCHW, bands per InferenceConfig.input_bands
-    (BLUE/GREEN/RED/NIR), H/W = sensor size / 2.
+    (BLUE/GREEN/RED by default), H/W = configured full band-plane size.
     """
 
     msg_type: MessageType  # must be MessageType.PROCESSED_FRAME
@@ -101,10 +101,11 @@ class ProcessedFrameMsg:
     frame_id: int  # uint32 monotonic frame counter
     tensor: object  # np.ndarray[float32, (1, C, H, W)]
     quality_flags: frozenset[FrameUsabilityTag]
+    tile_gsd_m: object | None = None  # np.ndarray[float32, (rows * cols, 2)]; local only
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InferenceResultMsg:
     """Segmentation output from inference to controller and storage.
 
@@ -120,6 +121,9 @@ class InferenceResultMsg:
     inference_ms: float  # wall-clock inference duration in ms
     mode_flags: int  # uint8 bitmask; semantics defined in config
     quality_flags: frozenset[FrameUsabilityTag] = frozenset()
+    tile_logits: tuple[float, ...] = ()
+    tile_positive: tuple[bool, ...] = ()
+    tile_gsd_m: tuple[tuple[float, float], ...] = ()
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 

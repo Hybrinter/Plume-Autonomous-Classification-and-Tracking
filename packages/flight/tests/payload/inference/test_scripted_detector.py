@@ -64,7 +64,8 @@ def test_negative_classifier_skips_segmentor() -> None:
     assert float(np.asarray(result.value.mask).max()) == 0.0
 
 
-def test_detector_preserves_quality_for_science_qualification() -> None:
+@pytest.mark.parametrize("has_gsd", [False, True])
+def test_detector_preserves_quality_for_science_qualification(has_gsd: bool) -> None:
     """Image quality follows inference without becoming a control safety flag."""
     frame = _processed_frame()
     frame = ProcessedFrameMsg(
@@ -73,10 +74,14 @@ def test_detector_preserves_quality_for_science_qualification() -> None:
         frame_id=frame.frame_id,
         tensor=frame.tensor,
         quality_flags=frozenset({FrameUsabilityTag.MOTION_SMEAR}),
+        tile_gsd_m=np.full((1, 2), 15.87, dtype=np.float32) if has_gsd else None,
     )
     result = ScriptedDetector(np.zeros((20, 20), dtype=np.float32)).detect(frame)
     assert isinstance(result, Ok)
-    assert result.value.quality_flags == frozenset({FrameUsabilityTag.MOTION_SMEAR})
+    expected_flags = frozenset({FrameUsabilityTag.MOTION_SMEAR})
+    if not has_gsd:
+        expected_flags |= frozenset({FrameUsabilityTag.GSD_NOMINAL})
+    assert result.value.quality_flags == expected_flags
     assert result.value.mode_flags == 0
 
 

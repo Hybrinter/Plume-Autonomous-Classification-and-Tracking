@@ -95,7 +95,9 @@ def build_frames(num_frames: int, seed: int = 0) -> list[MosaicFrame]:
     return frames
 
 
-def plume_detector() -> ScriptedDetector:
+def plume_detector(
+    grid: tuple[int, int] = (8, 8), gsd_reference_m: float = 15.87
+) -> ScriptedDetector:
     """Build a ScriptedDetector whose fixed mask yields one strong, stable off-center blob.
 
     Returns:
@@ -110,4 +112,10 @@ def plume_detector() -> ScriptedDetector:
     x0 = int(round(_PLUME_X - _MASK_HALF_X))
     x1 = int(round(_PLUME_X + _MASK_HALF_X))
     mask[y0:y1, x0:x1] = 1.0
-    return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
+    return ScriptedDetector(
+        mask,
+        confidence_gate=0.55,
+        min_blob_area_px=15,
+        grid=grid,
+        gsd_reference_m=gsd_reference_m,
+    )

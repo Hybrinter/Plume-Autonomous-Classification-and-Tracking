@@ -29,6 +29,8 @@ are deliberately absent rather than falsely marked verified.
 | REQ-COMM-HIGH-001 | Downlink gated by AOS visibility | SIL | sil-link-real | test_sil_closed_loop; scenario:ingress_auth_accept | verified |
 | REQ-AIML-GIMB-001 | Autonomous closed-loop pointing toward plume | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
 | REQ-GIMB-HIGH-001 | Closed-loop pointing keeps the plume in the full band-plane field of view | SIL | sil | test_sil_closed_loop; scenario:closed_loop_pointing | verified |
+| REQ-AIML-COMP-001 | GSD-conditioned tile classification, gated segmentation, and full-frame stitching | unit | unit | test_tiled_detector; test_onnx_backends | verified |
+| REQ-AIML-PREP-002 | Calibrated/normalized prism planes, reversible tiling, and finite GSD encoding | unit | unit | test_preprocess_mosaic_calibration; test_preprocess_normalize; test_tiling; test_footprint | verified |
 | REQ-GIMB-HIGH-003 | Envelope clips and the light integrity detector (NaN, encoder freeze) force a stow | SIL | sil | test_integrity; test_sil_closed_loop | verified |
 | REQ-COMM-CMD-001 | Command routing + ARM/EXECUTE two-step + inhibit re-check | SIL | sil | test_routing; test_sil_command_router; scenario:command_route_exec | verified |
 | REQ-SAFE-EXIT-001 | Single latched SAFE; ground EXIT_SAFE gated on fault clear | SIL | sil | test_sil_command_router | verified |

@@ -29,7 +29,7 @@ def _drivers() -> Drivers:
         sensor=SimSensor([]),
         gimbal=SimGimbal(clock=clock),
         ephemeris=SimIssEphemeris(clock=clock),
-        detector=ScriptedDetector(np.zeros((256, 256), dtype=np.float32)),
+        detector=ScriptedDetector(np.zeros((256, 256), dtype=np.float32), grid=(8, 8)),
         station=SimStationLink([]),
         thermal_sensor=SimScalarSensor([20.0]),
         power_sensor=SimScalarSensor([10.0]),

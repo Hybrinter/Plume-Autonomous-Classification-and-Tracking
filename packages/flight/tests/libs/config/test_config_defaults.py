@@ -101,3 +101,16 @@ def test_config_defaults_match_default_toml() -> None:
         _compare_defaults(section, defaults, toml_section, mismatches)
 
     assert not mismatches, "config default divergence:\n" + "\n".join(mismatches)
+
+
+def test_inference_grid_defaults_and_divisibility() -> None:
+    """Inference config sets the standard tile grid and rejects non-dividing grids."""
+    import pytest
+    from pydantic import ValidationError
+
+    defaults = InferenceConfig()
+    assert (defaults.tile_rows, defaults.tile_cols, defaults.gsd_reference_m) == (8, 8, 15.87)
+    with pytest.raises(ValidationError, match="must divide"):
+        InferenceConfig(input_height_px=10, input_width_px=16, tile_rows=3, tile_cols=4)
+    with pytest.raises(ValidationError):
+        InferenceConfig(gsd_reference_m=float("inf"))

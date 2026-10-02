@@ -45,6 +45,7 @@ import torch
 from torch import nn
 
 from tools.ml_models.arch.blocks import conv_norm_relu
+from tools.ml_models.arch.film import GsdFilm, resolve_gsd
 from tools.ml_models.arch.grammar import ModifierFlags, parse_modifiers
 
 COMPACT_PREFIX = "pactnet"
@@ -144,33 +145,41 @@ class PactNet(nn.Module):
             stages.append(_conv_block(widths[index - 1], widths[index], 2, separable=separable))
             stages.append(_conv_block(widths[index], widths[index], 1, separable=separable))
         self.features = nn.Sequential(*stages)
+        self.stem_film = GsdFilm(widths[0])
+        self.head_film = GsdFilm(widths[-1])
         self.dropout = nn.Dropout(_HEAD_DROPOUT)
         self.head = nn.Conv2d(widths[-1], 1, kernel_size=1)
 
-    def spatial(self, x: torch.Tensor) -> torch.Tensor:
+    def spatial(self, x: torch.Tensor, gsd: torch.Tensor | None = None) -> torch.Tensor:
         """Map a band stack to one logit per strided cell.
 
         Args:
             x: Input of shape ``(N, C, H, W)``.
+            gsd: Encoded GSD of shape ``(N, 2)``. None uses the reference
+                encoding, which preserves the legacy single-input path.
 
         Returns:
             torch.Tensor: Logits of shape ``(N, 1, h, w)``.
         """
-        features = self.features(x)
-        logits: torch.Tensor = self.head(self.dropout(features))
+        gsd = resolve_gsd(x, gsd)
+        features = self.stem_film(self.features[0](x), gsd)
+        features = self.features[1:](features)
+        logits: torch.Tensor = self.head(self.dropout(self.head_film(features, gsd)))
         return logits
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, gsd: torch.Tensor | None = None) -> torch.Tensor:
         """Map a band stack to one logit per sample.
 
         Args:
             x: Input of shape ``(N, C, H, W)``.
+            gsd: Encoded GSD of shape ``(N, 2)``. None uses the reference
+                encoding, which preserves the legacy single-input path.
 
         Returns:
             torch.Tensor: Logits of shape ``(N, 1)``. The value is the maximum
             of :meth:`spatial` over the strided feature cells.
         """
-        logits: torch.Tensor = self.spatial(x).amax(dim=(2, 3))
+        logits: torch.Tensor = self.spatial(x, gsd).amax(dim=(2, 3))
         return logits
 
 

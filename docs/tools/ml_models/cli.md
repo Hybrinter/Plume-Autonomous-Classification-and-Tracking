@@ -6,7 +6,8 @@
 ## Purpose
 
 This module is the `python -m tools.ml_models` command line. It builds a
-finished dataset from a raw tile source.
+finished dataset from a raw tile source and trains models on finished
+datasets.
 
 ## Public interface
 
@@ -16,6 +17,7 @@ finished dataset from a raw tile source.
 | `app` | Typer application | `tools.ml_models` command group |
 | `dataset_app` | Typer application | `dataset` subgroup under `app` |
 | `build_command` | function | `dataset build` command |
+| `train_command` | function | `train` command |
 | `main` | function | Module entry point returning an exit code |
 
 ## Inputs and outputs
@@ -36,6 +38,18 @@ finished dataset from a raw tile source.
 - `--n`: synthetic tile count, default 12.
 - `--seed`: synthetic image seed, default 0.
 
+`train` options:
+
+- `--config`: optional `TrainConfig` TOML file; defaults apply when omitted.
+- `--kind`: `classifier` or `segmentor`.
+- `--arch`: architecture grammar name; empty selects the kind default.
+- `--dataset`: finished dataset directory, repeatable.
+- `--dataset-weight`: sampling weight per dataset, repeatable.
+- `--run-dir`: run root directory.
+- `--run-id`: run directory name under `--run-dir`.
+- `--device`: torch device; default is CUDA when available, else CPU.
+- `--epochs`, `--batch-size`, `--max-steps`: loop controls.
+
 `main(argv=None) -> int` returns a process exit code.
 
 ## Behavior
@@ -46,7 +60,11 @@ finished dataset from a raw tile source.
    then calls `build_zenodo`. `--bin-id` selects named bins from
    `DEFAULT_BINS`; an unknown or repeated name is rejected.
 4. `synthetic` calls `build_synthetic` with `n` and `seed`.
-5. `main` runs `app` under the program name `tools.ml_models` and converts
+5. `train` loads the optional `--config` TOML, applies the option overlay
+   through `apply_train_mapping`, and calls `loop.train`. An `Ok` result
+   echoes the run directory path; an `Err` becomes `typer.BadParameter`.
+   The train modules import lazily inside the command.
+6. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 
 ## Errors and faults
@@ -56,9 +74,11 @@ finished dataset from a raw tile source.
 `--bin-id` is unknown or repeated. Filesystem and contract failures
 (`OSError`, `ValueError`) from the spec load or the build surface as
 `typer.BadParameter`, so a bad spec, source directory, archive, or
-destination prints a concise parameter error message. Build error cases
-are listed under
-[`tools.ml_models.dataset.build`](dataset/build.md).
+destination prints a concise parameter error message. `train` maps
+configuration and run failures to `typer.BadParameter` the same way.
+Build error cases are listed under
+[`tools.ml_models.dataset.build`](dataset/build.md); run errors under
+[`tools.ml_models.train.loop`](train/loop.md).
 
 ## Messages
 
@@ -66,8 +86,10 @@ None.
 
 ## Configuration
 
-An optional `BuildSpec` TOML file; see
-[`tools.ml_models.dataset.spec`](dataset/spec.md).
+An optional `BuildSpec` TOML file for `dataset build`; see
+[`tools.ml_models.dataset.spec`](dataset/spec.md). An optional
+`TrainConfig` TOML file for `train`; see
+[`tools.ml_models.train.config`](train/config.md).
 
 ## Constraints
 
@@ -80,4 +102,6 @@ tools CLI mounts this application as `ml-models`.
 - [`tools.ml_models.dataset`](dataset.md)
 - [`tools.ml_models.dataset.build`](dataset/build.md)
 - [`tools.ml_models.dataset.spec`](dataset/spec.md)
+- [`tools.ml_models.train`](train.md)
+- [`tools.ml_models.train.loop`](train/loop.md)
 - [`tools.cli`](../cli.md)

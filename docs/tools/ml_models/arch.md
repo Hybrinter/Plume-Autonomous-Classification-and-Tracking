@@ -20,6 +20,7 @@ modules.
 | [`dilated`](arch/dilated.md) | module | Dilated fully-convolutional `dilatenet` segmentor |
 | [`classifier`](arch/classifier.md) | module | torchvision backbones with a 3-channel stem |
 | [`compact`](arch/compact.md) | module | Compact `pactnet` classifier family |
+| [`film`](arch/film.md) | module | GSD FiLM conditioning and the `IgnoreGsd` adapter |
 | [`stem`](arch/stem.md) | module | Band-count surgery for pretrained stems |
 | [`registry`](arch/registry.md) | module | Kind plus grammar name to a builder |
 

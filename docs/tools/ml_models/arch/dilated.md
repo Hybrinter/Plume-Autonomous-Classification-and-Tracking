@@ -34,9 +34,10 @@ one. Example: four blocks give `(1, 2, 4, 8)`. Raises `ValueError` when
 `parse_dilated(name) -> DilatedSpec`. Raises `ValueError` on an unknown family,
 modifier token, or unsupported output stride.
 
-`DilatedSegmentor.forward(x)` maps `(N, C, H, W)` to `(N, 1, H, W)` logits.
-Height and width come from the input tensor. A bilinear resize restores full
-resolution after the head.
+`DilatedSegmentor.forward(x, gsd=None)` maps `(N, C, H, W)` to
+`(N, 1, H, W)` logits. Height and width come from the input tensor. A
+bilinear resize restores full resolution after the head. The `gsd` argument
+takes the `(N, 2)` encoding; None selects the reference GSD.
 
 `build_dilated_segmentor(spec, in_channels=3, out_channels=1) -> DilatedSegmentor`.
 
@@ -55,9 +56,11 @@ resolution after the head.
    stride 4; a third strided block is added when the output stride is 8.
 8. Each dilated block applies a 3x3 convolution at the scheduled rate without
    further downsampling.
-9. A 1x1 head emits `out_channels` logits. No sigmoid in the graph.
-10. The head logits are bilinearly resized to the input height and width.
-11. Modifiers combine in any order. Example: `dilatenet_w32_d6_s8_full`.
+9. A `GsdFilm` modulates the stem output and a second modulates the body
+   output ahead of the head. A fresh network is an identity under any GSD.
+10. A 1x1 head emits `out_channels` logits. No sigmoid in the graph.
+11. The head logits are bilinearly resized to the input height and width.
+12. Modifiers combine in any order. Example: `dilatenet_w32_d6_s8_full`.
 
 ## Errors and faults
 

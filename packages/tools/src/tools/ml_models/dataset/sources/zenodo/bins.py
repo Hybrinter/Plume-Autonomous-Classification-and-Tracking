@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from flight.libs.config import EphemerisConfig, SensorConfig
-from flight.payload.gimbal.footprint import GsdPair, nominal_iss_state, pixel_gsd
+from flight.payload.gimbal.footprint import GsdPair, nominal_iss_state, pixel_gsd, tile_gsd_grid
 from flight.payload.gimbal.intersect import CameraGeometry
 
 from tools.ml_models.dataset.raw import BinSpec
@@ -50,6 +50,28 @@ def make_bins(
         )
         if pair is None:
             raise ValueError("reference GSD ray missed Earth")
+        if elevation == FLIGHT_ELEVATIONS_DEG[-1]:
+            grid = tile_gsd_grid(
+                math.radians(elevation),
+                r,
+                v,
+                utc,
+                utc,
+                ephemeris.omega_earth_rad_s,
+                ephemeris.wgs84_a_m,
+                ephemeris.wgs84_f,
+                camera,
+            )
+            if grid is None:
+                raise ValueError("reference tile GSD grid missed Earth")
+            # The endpoint must cover frame edges, even after output-size rounding.
+            lateral_max = float(grid[..., 0].max())
+            along_max = float(grid[..., 1].max())
+            width = math.floor(EXTENT_M / lateral_max)
+            height = math.floor(EXTENT_M / along_max)
+            if min(height, width) < 1:
+                raise ValueError("reference tile footprint exceeds source extent")
+            pair = GsdPair(EXTENT_M / width, EXTENT_M / height)
         bins.append(
             BinSpec(
                 f"elevation{int(elevation)}",

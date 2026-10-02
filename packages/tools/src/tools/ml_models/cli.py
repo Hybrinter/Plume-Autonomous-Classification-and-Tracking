@@ -85,6 +85,82 @@ def build_command(
         raise typer.BadParameter(str(exc)) from exc
 
 
+@app.command("train")
+def train_command(
+    config: Annotated[
+        Path | None,
+        typer.Option(help="TrainConfig TOML. Defaults apply when omitted."),
+    ] = None,
+    kind: Annotated[
+        str | None,
+        typer.Option(help="Model task: classifier or segmentor."),
+    ] = None,
+    arch: Annotated[
+        str | None,
+        typer.Option(help="Architecture grammar name. Empty selects the kind default."),
+    ] = None,
+    dataset: Annotated[
+        list[str] | None,
+        typer.Option(help="Finished dataset directory (repeatable)."),
+    ] = None,
+    dataset_weight: Annotated[
+        list[float] | None,
+        typer.Option(help="Sampling weight per dataset (repeatable)."),
+    ] = None,
+    run_dir: Annotated[
+        str | None,
+        typer.Option(help="Run root directory."),
+    ] = None,
+    run_id: Annotated[
+        str | None,
+        typer.Option(help="Run directory name under --run-dir."),
+    ] = None,
+    device: Annotated[
+        str | None,
+        typer.Option(help="Torch device. Default: cuda when available else cpu."),
+    ] = None,
+    epochs: Annotated[int | None, typer.Option(help="Epoch count.")] = None,
+    batch_size: Annotated[int | None, typer.Option(help="Rows per batch.")] = None,
+    max_steps: Annotated[
+        int | None,
+        typer.Option(help="Global optimizer-step cap."),
+    ] = None,
+) -> None:
+    """Train a GSD-conditioned model on finished datasets."""
+    from flight.libs.types import Err
+
+    from tools.ml_models.train.config import apply_train_mapping, load_train_config
+    from tools.ml_models.train.loop import train
+
+    overlay: dict[str, object] = {}
+    for key, value in (
+        ("kind", kind),
+        ("arch", arch),
+        ("run_dir", run_dir),
+        ("run_id", run_id),
+        ("device", device),
+        ("epochs", epochs),
+        ("batch_size", batch_size),
+        ("max_steps", max_steps),
+    ):
+        if value is not None:
+            overlay[key] = value
+    if dataset is not None:
+        overlay["datasets"] = tuple(dataset)
+    if dataset_weight is not None:
+        overlay["dataset_weights"] = tuple(dataset_weight)
+    try:
+        cfg = apply_train_mapping(
+            load_train_config(str(config) if config is not None else None), overlay
+        )
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    result = train(cfg)
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(result.value))
+
+
 def _select_bins(bin_ids: list[str] | None) -> tuple[BinSpec, ...] | None:
     """Resolve repeatable ``--bin-id`` names against ``DEFAULT_BINS``.
 

@@ -62,6 +62,7 @@ from tools.ml_models.arch.dilated import (
     parse_dilated,
 )
 from tools.ml_models.arch.encoder_unet import RESNET_ENCODERS, build_encoder_segmentor
+from tools.ml_models.arch.film import IgnoreGsd
 from tools.ml_models.arch.grammar import ModifierFlags, parse_modifiers
 from tools.ml_models.arch.unet import build_segmentor
 
@@ -286,13 +287,20 @@ def resolve_arch(kind: str, arch: str) -> str:
 def build(kind: str, arch: str, in_channels: int) -> nn.Module:
     """Construct the untrained network for ``kind`` and ``arch``.
 
+    The conditioned flight families (``pactnet`` and ``dilatenet``) return the
+    graph itself, callable as ``model(image, gsd)``. Every other registered
+    architecture keeps its single-input forward inside an
+    :class:`~tools.ml_models.arch.film.IgnoreGsd` wrapper, so all builds accept
+    the training loop's two-argument call.
+
     Args:
         kind: ``classifier`` or ``segmentor``.
         arch: Architecture name. Empty string selects the default.
         in_channels: Input band count.
 
     Returns:
-        nn.Module: Untrained graph that emits logits.
+        nn.Module: Untrained graph that emits logits, callable as
+        ``model(image, gsd)``.
 
     Raises:
         ValueError: If the kind is unknown or the name does not parse.
@@ -304,27 +312,31 @@ def build(kind: str, arch: str, in_channels: int) -> nn.Module:
                 case CompactSpec() as compact:
                     return build_compact_classifier(compact, in_channels=in_channels)
                 case BackboneSpec() as backbone:
-                    return build_backbone_spec(backbone, in_channels=in_channels)
+                    return IgnoreGsd(build_backbone_spec(backbone, in_channels=in_channels))
         case "segmentor":
             match parse_segmentor(name):
                 case DilatedSpec() as dilated:
                     return build_dilated_segmentor(dilated, in_channels=in_channels, out_channels=1)
                 case UNetSpec() as unet:
-                    return build_segmentor(
-                        in_channels=in_channels,
-                        out_channels=1,
-                        base_width=unet.base_width,
-                        depth=unet.depth,
-                        separable=unet.separable,
+                    return IgnoreGsd(
+                        build_segmentor(
+                            in_channels=in_channels,
+                            out_channels=1,
+                            base_width=unet.base_width,
+                            depth=unet.depth,
+                            separable=unet.separable,
+                        )
                     )
                 case EncoderUNetSpec() as encoder:
-                    return build_encoder_segmentor(
-                        encoder.encoder,
-                        in_channels=in_channels,
-                        out_channels=1,
-                        pretrained=encoder.pretrained,
-                        decoder_width=encoder.decoder_width,
-                        separable=encoder.separable,
+                    return IgnoreGsd(
+                        build_encoder_segmentor(
+                            encoder.encoder,
+                            in_channels=in_channels,
+                            out_channels=1,
+                            pretrained=encoder.pretrained,
+                            decoder_width=encoder.decoder_width,
+                            separable=encoder.separable,
+                        )
                     )
         case _:
             raise ValueError(f"unknown train kind {kind!r}")

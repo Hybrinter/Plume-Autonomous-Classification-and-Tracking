@@ -30,10 +30,10 @@ widths. Each stage doubles the channel count up to a ceiling of 256.
 `parse_compact(name) -> CompactSpec`. Raises `ValueError` on an unknown family
 or modifier token.
 
-`PactNet.spatial(x)` maps `(N, C, H, W)` to `(N, 1, h, w)` logits.
+`PactNet.spatial(x, gsd=None)` maps `(N, C, H, W)` to `(N, 1, h, w)` logits.
 
-`PactNet.forward(x)` returns `spatial(x).amax(dim=(2, 3))` with shape `(N, 1)`.
-No sigmoid is applied.
+`PactNet.forward(x, gsd=None)` returns `spatial(x, gsd).amax(dim=(2, 3))` with
+shape `(N, 1)`. No sigmoid is applied.
 
 `build_compact_classifier(spec, in_channels=3) -> PactNet`.
 
@@ -47,9 +47,12 @@ No sigmoid is applied.
 5. The stem convolution is always dense. Later stages honour the `separable`
    flag.
 6. Each stage after the stem applies a strided block and a 1x1-stride block.
-7. Dropout applies on the feature map. A 1x1 convolution emits one logit per
+7. A `GsdFilm` modulates the stem output and a second modulates the body
+   output ahead of the head. With a None `gsd`, `resolve_gsd` supplies the
+   reference encoding; a fresh network is then an exact identity.
+8. Dropout applies on the feature map. A 1x1 convolution emits one logit per
    cell. `forward` returns the maximum over those cells.
-8. Modifiers combine in any order. Example: `pactnet_w32_d5_full`.
+9. Modifiers combine in any order. Example: `pactnet_w32_d5_full`.
 
 ## Errors and faults
 
@@ -62,7 +65,10 @@ None.
 ## Configuration
 
 `in_channels` defaults to 3 (BLUE, GREEN, RED). Head dropout is fixed at 0.2
-and applies on the feature map. The maximum stage width is 256.
+and applies on the feature map. The maximum stage width is 256. The `gsd`
+argument takes the `(N, 2)` encoding from
+[`tools.ml_models.dataset.preprocess`](../dataset/preprocess.md); None selects
+the reference GSD.
 
 ## Constraints
 

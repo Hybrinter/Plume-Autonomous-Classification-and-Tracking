@@ -70,11 +70,13 @@ classifier_logit_threshold = 0.0
 input_bands = ["BLUE", "GREEN", "RED"]
 input_height_px = 1544
 input_width_px = 2064
-use_int8 = false
-# Derived expected detect wall (Orin Nano Super, mixed knee: cls FP16 + seg INT8).
-latency_budget_ms = 4.0
-# Reference for the ln(GSD/reference) conditioning input; paraxial nadir at 460 km.
+tile_rows = 8
+tile_cols = 8
+# Paraxial nadir GSD at 460 km; reference for model GSD log encoding.
 gsd_reference_m = 15.87
+use_int8 = false
+# Retained estimate from the earlier full-frame study; tiled timing needs measurement.
+latency_budget_ms = 4.0
 
 [comms]
 max_downlink_rate_bps = 5000000

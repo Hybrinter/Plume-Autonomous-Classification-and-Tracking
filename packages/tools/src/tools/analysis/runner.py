@@ -214,25 +214,53 @@ def _fault(code: FaultCode, subsystem: str, detail: str) -> FaultEventMsg:
 
 
 def _stage_model_action(version: str, channels: int) -> SystemAction:
-    """Build an action that stores a pair-manifest blob and announces ModelStagedMsg.
+    """Build an action that stores a conditioned pair manifest and announces staging.
 
     Drives the model-deploy stage path: persist the pair bundle through StorageWriter and
-    publish ModelStagedMsg (the message iss_iface emits after reassembly). model_deploy
-    validates digest plus both network contracts exactly as in flight.
+    publish ModelStagedMsg (the message iss_iface emits after reassembly). Match the tiled,
+    GSD-conditioned model contract used by the upload integration scenario.
     """
     inf = PactConfig().inference
-    height, width = inf.input_height_px, inf.input_width_px
+
+    def entry(kind: str) -> dict[str, object]:
+        bands = list(inf.input_bands)
+        while len(bands) < channels:
+            bands.append(f"EXTRA_{len(bands)}")
+        tile_h = inf.input_height_px // inf.tile_rows
+        tile_w = inf.input_width_px // inf.tile_cols
+        return {
+            "arch": "pactnet" if kind == "classifier" else "dilatenet",
+            "sha256": "a" * 64,
+            "input_names": ["image", "gsd"],
+            "input_types": {"image": "float32", "gsd": "float32"},
+            "output_type": "float32",
+            "input_shape": [None, channels, tile_h, tile_w],
+            "gsd_input_shape": [None, 2],
+            "output_shape": ([None, 1] if kind == "classifier" else [None, 1, tile_h, tile_w]),
+            "gsd_reference_m": inf.gsd_reference_m,
+            "norm": "unit",
+            "conditioning": "film-log-gsd-v1",
+            "gsd_encoding": "ln_metres_over_reference_lateral_along",
+            "band_names": bands[:channels],
+            "gsd_min_m": [10.0, 10.0],
+            "gsd_max_m": [50.0, 50.0],
+        }
+
     blob = json.dumps(
         {
             "version": version,
-            "classifier": {
-                "input_shape": [1, channels, height, width],
-                "output_shape": [1, 1],
-            },
-            "segmentor": {
-                "input_shape": [1, channels, height, width],
-                "output_shape": [1, 1, height, width],
-            },
+            "grid": [inf.tile_rows, inf.tile_cols],
+            "frame_hw": [inf.input_height_px, inf.input_width_px],
+            "tile_hw": [
+                inf.input_height_px // inf.tile_rows,
+                inf.input_width_px // inf.tile_cols,
+            ],
+            "gsd_reference_m": inf.gsd_reference_m,
+            "norm": "unit",
+            "conditioning": "film-log-gsd-v1",
+            "gsd_encoding": "ln_metres_over_reference_lateral_along",
+            "classifier": entry("classifier"),
+            "segmentor": entry("segmentor"),
         },
         sort_keys=True,
     ).encode("utf-8")
@@ -323,11 +351,11 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             title="Power over-limit -> SAFE",
             description=(
                 "A power draw above the 55 W limit self-reports POWER_OVER_LIMIT; FDIR "
-                "latches SAFE and the arbiter safes the gimbal."
+                "latches SAFE and the gimbal completes its commanded stow before capture ends."
             ),
             category="power",
-            steps=12,
-            num_frames=12,
+            steps=18,
+            num_frames=18,
             power_readings=(30.0, 30.0, 80.0),
         ),
         ScenarioSpec(
@@ -399,7 +427,8 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             name="model_lifecycle",
             title="Model upload -> activate -> rollback",
             description=(
-                "Stages a contract-valid classifier+segmentor pair (step 2) and activates it "
+                "Stages a contract-valid tiled, GSD-conditioned classifier+segmentor pair "
+                "(step 2) and activates it "
                 "(step 3) so it becomes ACTIVE with the factory pair retained for rollback; "
                 "then stages a contract-invalid pair (step 5) and activates it (step 6), which "
                 "fails the I/O-contract sanity check and auto-rolls-back (ROLLBACK_AVAILABLE) "
@@ -409,8 +438,8 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             steps=12,
             num_frames=12,
             actions=(
-                Action(2, _stage_model_action("v2", 4)),
-                Action(5, _stage_model_action("v3_bad", 3)),
+                Action(2, _stage_model_action("v2", 3)),
+                Action(5, _stage_model_action("v3_bad", 4)),
             ),
             injections=(
                 Injection(3, _command("ACTIVATE_MODEL", "model_deploy", {"version": "v2"}, seq=1)),

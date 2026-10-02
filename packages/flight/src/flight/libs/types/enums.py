@@ -147,6 +147,7 @@ class FrameUsabilityTag(enum.Enum):
     SATURATED = "SATURATED"
     MOTION_SMEAR = "MOTION_SMEAR"
     INCOMPLETE_METADATA = "INCOMPLETE_METADATA"
+    GSD_NOMINAL = "GSD_NOMINAL"
 
 
 class MessageType(enum.Enum):

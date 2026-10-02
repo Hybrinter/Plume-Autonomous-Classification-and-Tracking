@@ -16,12 +16,14 @@ _skip_export = pytest.mark.skipif(
     not (_HAS_ONNX and _HAS_ORT), reason="onnx and onnxruntime extras not installed"
 )
 
+
 pytestmark = pytest.mark.slow
 
 
+@pytest.mark.parametrize("in_channels", (3, 4))
 @_skip_export
-def test_finalize_writes_eval_export_and_report(tmp_path: Path) -> None:
-    """A one-epoch synthetic run produces eval.json, ONNX, and finalize.json."""
+def test_finalize_writes_eval_export_and_report(tmp_path: Path, in_channels: int) -> None:
+    """Finalization accepts three-band defaults and explicit four-band runs."""
     run = train(
         TrainConfig(
             kind="segmentor",
@@ -30,6 +32,7 @@ def test_finalize_writes_eval_export_and_report(tmp_path: Path) -> None:
             synthetic_samples=8,
             input_height_px=32,
             input_width_px=32,
+            in_channels=in_channels,
             run_dir=str(tmp_path / "runs"),
             seed=0,
         )

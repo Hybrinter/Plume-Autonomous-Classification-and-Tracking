@@ -57,6 +57,7 @@ from flight.libs.types import (
     DownlinkPriority,
     Err,
     FaultCode,
+    FrameUsabilityTag,
     GimbalCommandMode,
     GimbalState,
     MessageType,
@@ -66,7 +67,9 @@ from flight.libs.types import (
     SystemMode,
 )
 from flight.payload.control import ControlState, IssSample, PayloadController, VisionSample
+from flight.payload.gimbal.footprint import nominal_iss_state, tile_gsd_grid
 from flight.payload.gimbal.integrity import check_integrity
+from flight.payload.gimbal.intersect import CameraGeometry
 from flight.payload.gimbal.request import GimbalRequest
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
@@ -466,12 +469,24 @@ class PayloadApp:
             self.preprocessing_cfg,
         )
 
+        shutter_t_s = raw.timestamp_s if raw.timestamp_s else now
+        shutter_theta = self._encoder_angle_at(shutter_t_s)
+        if shutter_theta is not None and not math.isfinite(shutter_theta):
+            shutter_theta = None
+        iss, eph_err = self._read_iss_at(shutter_t_s)
+        if eph_err is not None:
+            self._publish_fault(eph_err, "ephemeris read failed")
+        tile_gsd, gsd_nominal = self._tile_gsd_for_frame(iss, shutter_theta)
+        if gsd_nominal:
+            quality_flags = quality_flags | frozenset({FrameUsabilityTag.GSD_NOMINAL})
+
         processed = ProcessedFrameMsg(
             msg_type=MessageType.PROCESSED_FRAME,
             timestamp_utc=raw.timestamp_utc,
             frame_id=raw.frame_id,
             tensor=selected.value[np.newaxis, ...],
             quality_flags=quality_flags,
+            tile_gsd_m=tile_gsd,
         )
 
         detect_result = self.detector.detect(processed)
@@ -482,16 +497,13 @@ class PayloadApp:
         self.bus.publish(inference)
         self._store_mask_product(inference)
 
-        iss, eph_err = self._read_iss_at(raw.timestamp_s if raw.timestamp_s else now)
-        if eph_err is not None:
-            self._publish_fault(eph_err, "ephemeris read failed")
         new_state, sample = self.controller.ingest_inference(
             state,
             inference,
             raw.timestamp_s,
             raw.exposure_us,
             iss,
-            theta_g_rad=self._encoder_angle_at(raw.timestamp_s),
+            theta_g_rad=shutter_theta,
         )
         self.vision_queue.append(sample)
         outcome = TickOutcome(
@@ -501,6 +513,82 @@ class PayloadApp:
             gimbal_state=new_state.arbiter.gimbal_state,
         )
         return new_state, outcome
+
+    def _tile_gsd_for_frame(
+        self, iss: IssSample | None, shutter_theta_rad: float | None
+    ) -> tuple[np.ndarray, bool]:
+        """Compute per-tile ground sampling distance, marking all reference fallbacks.
+
+        The detector consumes row-major (tile_count, 2) lateral/along-track metres.
+        Missing shutter angle or ephemeris uses the last finite encoder angle and a
+        circular reference orbit derived from configured mean motion when possible.
+        If those rays miss, the model reference GSD is supplied and tagged nominal.
+        """
+        cfg = self.inference_cfg
+        ephemeris_cfg = self.controller.eph
+        grid = (cfg.tile_rows, cfg.tile_cols)
+        camera = CameraGeometry(
+            width_px=self.sensor_cfg.width_px,
+            height_px=self.sensor_cfg.height_px,
+            pixel_pitch_m=self.sensor_cfg.pixel_um * 1.0e-6,
+            focal_length_m=self.sensor_cfg.optics.focal_length_mm * 1.0e-3,
+        )
+
+        theta = shutter_theta_rad
+        state_r: tuple[float, float, float] | None = None
+        state_v: tuple[float, float, float] | None = None
+        utc_s = self.clock.utc_s()
+        epoch_utc_s = ephemeris_cfg.epoch_utc_s
+        is_nominal = False
+        if iss is not None and theta is not None:
+            state_r, state_v, utc_s = iss.r_m, iss.v_m_s, iss.utc_s
+        else:
+            is_nominal = True
+            if theta is None:
+                finite_samples = [
+                    sample
+                    for sample in self.encoder_stream.samples
+                    if math.isfinite(sample.angle_rad)
+                ]
+                if finite_samples:
+                    theta = max(finite_samples, key=lambda sample: sample.t_s).angle_rad
+            if theta is not None and math.isfinite(theta):
+                mean_motion_rad_s = ephemeris_cfg.mean_motion_rev_per_day * 2.0 * math.pi / 86_400.0
+                if math.isfinite(mean_motion_rad_s) and mean_motion_rad_s > 0.0:
+                    semi_major_m = (ephemeris_cfg.mu_m3_s2 / mean_motion_rad_s**2) ** (1.0 / 3.0)
+                    altitude_m = semi_major_m - ephemeris_cfg.wgs84_a_m
+                    nominal = nominal_iss_state(
+                        altitude_m,
+                        ephemeris_cfg.wgs84_a_m,
+                        ephemeris_cfg.mu_m3_s2,
+                    )
+                    if nominal is not None:
+                        state_r, state_v, epoch_utc_s = nominal
+                        utc_s = epoch_utc_s
+
+        grid_values: np.ndarray | None = None
+        if (
+            theta is not None
+            and math.isfinite(theta)
+            and state_r is not None
+            and state_v is not None
+        ):
+            grid_values = tile_gsd_grid(
+                theta,
+                state_r,
+                state_v,
+                utc_s,
+                epoch_utc_s,
+                ephemeris_cfg.omega_earth_rad_s,
+                ephemeris_cfg.wgs84_a_m,
+                ephemeris_cfg.wgs84_f,
+                camera,
+                grid=grid,
+            )
+        if grid_values is None:
+            is_nominal = True
+            grid_values = np.full((*grid, 2), cfg.gsd_reference_m, dtype=np.float32)
+        return grid_values.reshape(cfg.tile_rows * cfg.tile_cols, 2), is_nominal
 
     def advance_outer(
         self,

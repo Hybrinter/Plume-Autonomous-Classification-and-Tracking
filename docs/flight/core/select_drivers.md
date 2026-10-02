@@ -47,8 +47,11 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
    `OnnxDetector` from the paths returned by `resolve_quantized_path` on
    `inference.segmentor_model_path` and `inference.classifier_model_path`.
    `use_int8` true selects `<stem>.int8.onnx`. The logit threshold and
-   `fault.inference_timeout_ms` (20 ms) feed the detect-time fault threshold.
-   The I/O contract is `(1, C, H, W)` from `len(BAND_ORDER)` and `input_*_px`.
+   `fault.inference_timeout_ms` feeds the detect-time fault threshold. The model
+   contract uses a dynamic tile batch: image `(None, C, tile_h, tile_w)`, GSD
+   `(None, 2)`, classifier `(None, 1)`, and segmentor
+   `(None, 1, tile_h, tile_w)`. Grid and reference GSD come from
+   `InferenceConfig`.
 6. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
 7. Return the assembled `Drivers` dataclass.
 

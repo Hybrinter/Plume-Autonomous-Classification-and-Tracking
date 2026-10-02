@@ -13,6 +13,7 @@ import typer
 # internal
 from tools.analysis.cli import app as analysis_app
 from tools.inference.cli import app as inference_app
+from tools.ml_models.cli import app as ml_models_app
 
 app = typer.Typer(
     help="PACT engineering utilities outside the flight image.",
@@ -20,6 +21,7 @@ app = typer.Typer(
 )
 app.add_typer(inference_app, name="inference")
 app.add_typer(analysis_app, name="analysis")
+app.add_typer(ml_models_app, name="ml-models")
 
 
 def main(argv: list[str] | None = None) -> int:

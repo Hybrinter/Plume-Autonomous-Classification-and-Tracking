@@ -88,6 +88,20 @@ def verify_io_contract(
     return Err(FaultCode.MODEL_CORRUPT)
 
 
+def verify_conditioned_io_contract(
+    image: Shape,
+    gsd: Shape,
+    output: Shape,
+    channels: int,
+    tile_hw: tuple[int, int] | None,
+    kind: str,
+) -> Result[None, FaultCode]:
+    """Validate a conditioned graph using the canonical flight shape rules."""
+    from flight.payload.inference.contract import verify_conditioned_shapes
+
+    return verify_conditioned_shapes(image, gsd, output, channels, tile_hw, kind)
+
+
 def check_inference_latency(elapsed_ms: float, budget_ms: float) -> Result[None, FaultCode]:
     """Check a per-frame inference time against the configured budget.
 

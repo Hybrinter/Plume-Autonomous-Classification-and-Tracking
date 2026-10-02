@@ -170,8 +170,18 @@ class InferenceConfig:
     input_bands: tuple[str, ...] = Field(default=("BLUE", "GREEN", "RED"), min_length=1)
     input_height_px: int = Field(default=1544, gt=0)
     input_width_px: int = Field(default=2064, gt=0)
+    tile_rows: int = Field(default=8, ge=1)
+    tile_cols: int = Field(default=8, ge=1)
+    gsd_reference_m: float = Field(default=15.87, gt=0.0, allow_inf_nan=False)
     use_int8: bool = False
     latency_budget_ms: float = Field(default=4.0, gt=0.0)
+
+    @model_validator(mode="after")
+    def _tile_grid_divides_input(self) -> Self:
+        """Reject tile grids that do not divide the full sensor frame."""
+        if self.input_height_px % self.tile_rows or self.input_width_px % self.tile_cols:
+            raise ValueError("tile_rows and tile_cols must divide the inference input dimensions")
+        return self
 
 
 @dataclass(frozen=True, config=_SCHEMA)

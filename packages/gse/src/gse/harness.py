@@ -210,7 +210,10 @@ class InProcessBackend:
         self._link_real = config.drivers.link == "real"
 
         frames = build_frames(scenario.scene.num_frames, scenario.scene.seed)
-        detector = plume_detector()
+        detector = plume_detector(
+            grid=(config.inference.tile_rows, config.inference.tile_cols),
+            gsd_reference_m=config.inference.gsd_reference_m,
+        )
 
         if self._link_real:
             tcp_port, udp_port = _free_port_pair()

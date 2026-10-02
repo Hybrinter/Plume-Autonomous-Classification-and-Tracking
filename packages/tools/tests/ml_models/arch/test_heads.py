@@ -1,4 +1,4 @@
-"""PactNet spatial head, full-frame shapes, and ShuffleNet batch norm."""
+"""PactNet spatial head, flight tile shapes, and ShuffleNet batch norm."""
 
 import gc
 
@@ -20,13 +20,13 @@ def test_default_heads_on_small_tile() -> None:
         assert dilate(tile).shape == (1, 1, 76, 76)
 
 
-def test_default_heads_on_flight_frame() -> None:
-    """Default pactnet, dilatenet, and U-Net run at 1544x2064."""
-    frame = (1, 3, 1544, 2064)
+def test_default_heads_on_flight_tiles() -> None:
+    """Default model image branches support the flight tile and a multi-tile batch."""
+    frame = (2, 3, 193, 258)
     pact = build("classifier", "pactnet", 3).eval()
     with torch.inference_mode():
         logits = pact(torch.zeros(*frame))
-        assert logits.shape == (1, 1)
+        assert logits.shape == (2, 1)
     del logits
     del pact
     gc.collect()
@@ -34,7 +34,7 @@ def test_default_heads_on_flight_frame() -> None:
     dilate = build("segmentor", "dilatenet", 3).eval()
     with torch.inference_mode():
         mask = dilate(torch.zeros(*frame))
-        assert mask.shape == (1, 1, 1544, 2064)
+        assert mask.shape == (2, 1, 193, 258)
     del mask
     del dilate
     gc.collect()
@@ -42,7 +42,7 @@ def test_default_heads_on_flight_frame() -> None:
     unet = build_segmentor().eval()
     with torch.inference_mode():
         mask = unet(torch.zeros(*frame))
-        assert mask.shape == (1, 1, 1544, 2064)
+        assert mask.shape == (2, 1, 193, 258)
     del mask
     del unet
     gc.collect()

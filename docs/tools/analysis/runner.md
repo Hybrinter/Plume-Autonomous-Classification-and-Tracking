@@ -48,6 +48,13 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
 3. Pre-step runs actions first, then publishes injection messages on the bus.
 4. `record_run` owns the stepping loop after the hook fires.
 
+`power_over_limit_safe` captures 18 steps: the power fault latches SAFE, and the
+remaining steps let the simulated gimbal travel to its configured stow pose so the stow
+switch can be observed. `model_lifecycle` uses the flight model manifest contract: dynamic
+tile batches, image and GSD inputs, tile output shapes, grid, GSD reference, normalization,
+conditioning, encoding, and band names. It stages the valid three-band pair before attempting
+an invalid four-band pair.
+
 Built-in scenarios include: nominal tracking, thermal hot-sample telemetry, power SAFE,
 gimbal runaway, watchdog inject, EXIT_SAFE recovery, hazardous ARM/EXECUTE,
 model lifecycle, storage eviction, downlink AOS budget, and signed command

@@ -15,6 +15,7 @@ controller modules as the specification.
 | --- | --- |
 | [`design/single-axis-elevation-controller.md`](design/single-axis-elevation-controller.md) | Single-axis elevation gimbal controller |
 | [`design/simulated-environment.md`](design/simulated-environment.md) | Simulated world models vs HAL driver selection |
+| [`design/ml-dataset-flight-ground-cleanup.md`](design/ml-dataset-flight-ground-cleanup.md) | ML dataset collection, ground preparation, and migration review |
 
 ## Constraints
 

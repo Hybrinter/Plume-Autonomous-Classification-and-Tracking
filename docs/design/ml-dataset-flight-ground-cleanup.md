@@ -208,7 +208,9 @@ products continue through the current storage path during this pass.
 | 104 | Ground analysis and legacy cutover; full-frame scoring calls flight's classifier/segmentor gate and stitching |
 
 Each layer retains its existing branch history and incorporates its updated
-parent. The first open pull request targets the merged main branch. Ground
+parent. GitHub's native stack preserves PR 100's base at the already-merged
+PR 99 and rejects direct retargeting; that base tree matches current main,
+which is incorporated into the updated head. Ground
 augmentation, group splitting, finished dataset shards, training, and reports
 stay in tools because they operate after examples are compiled. Ground raw
 directory writers are import/fixture helpers, not onboard collection services.

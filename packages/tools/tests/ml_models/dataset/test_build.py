@@ -1,5 +1,6 @@
 """Tests for the finished-dataset build."""
 
+import json
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -7,14 +8,21 @@ from pathlib import Path
 import numpy as np
 import pytest
 from tools.ml_models.cli import main
-from tools.ml_models.dataset.augment import ELEMENT_NAMES, SHAPE_PRESERVING
+from tools.ml_models.dataset.augment import ELEMENT_NAMES, SHAPE_PRESERVING, apply_dihedral
 from tools.ml_models.dataset.build import build_dataset, build_flight
+from tools.ml_models.dataset.loader import ShardDataset
 from tools.ml_models.dataset.manifest import check_compatible, load_manifest
-from tools.ml_models.dataset.preprocess import quantize_unit, to_unit
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 from tools.ml_models.dataset.sources.flight import FlightTileWrite, write_flight_tile_dir
 from tools.ml_models.dataset.spec import BuildSpec
-from tools.ml_models.dataset.store import RowRecord, read_images, read_rows
+from tools.ml_models.dataset.split import SplitRecipe, assign_group_splits
+from tools.ml_models.dataset.store import (
+    RowRecord,
+    read_gsd,
+    read_images,
+    read_masks,
+    read_rows,
+)
 
 
 class MemorySource:
@@ -25,16 +33,14 @@ class MemorySource:
         tiles: tuple[RawTile, ...],
         *,
         band_names: tuple[str, ...] = ("BLUE", "GREEN", "RED"),
-        extent_m: tuple[float, float] | None = None,
+        domain: str = "unit",
         bins: tuple[BinSpec, ...] = (),
         boom: bool = False,
     ) -> None:
         self.name = "memory"
         self.band_names = band_names
-        self.domain = "dn"
-        self.bit_depth = 12
+        self.domain = domain
         self.source_ref = "test"
-        self.extent_m = extent_m
         self.bins = bins
         self._tiles = tiles
         self._boom = boom
@@ -69,11 +75,12 @@ def _tile(
     label: float = 1.0,
     has_mask: bool = False,
     bin_id: str = "",
-    fill: int = 100,
+    fill: float = 0.5,
+    channels: int = 3,
 ) -> RawTile:
     """Build one raw tile of the requested spatial size."""
     height, width = shape
-    image = np.full((3, height, width), fill, dtype=np.uint16)
+    image = np.full((channels, height, width), fill, dtype=np.float32)
     mask = None
     if has_mask:
         mask = np.zeros((1, height, width), dtype=np.uint8)
@@ -85,6 +92,8 @@ def _tile(
             label=label,
             has_mask=has_mask,
             gsd=gsd,
+            height=height,
+            width=width,
             frame_id=group_id,
             grid_rc=(0, 0),
             bin_id=bin_id,
@@ -128,9 +137,19 @@ def _rows_by_split(dest: Path, task: str) -> dict[str, list[RowRecord]]:
     return found
 
 
+def _shard_dirs(dest: Path, task: str) -> list[Path]:
+    """Return every shard directory for one task across all splits."""
+    found: list[Path] = []
+    for split_name in ("train", "val", "test"):
+        split_dir = dest / task / split_name
+        if split_dir.is_dir():
+            found.extend(sorted(split_dir.iterdir()))
+    return found
+
+
 def test_split_is_shared_by_tasks_and_bins(tmp_path: Path) -> None:
     """One group lands in one split for both tasks and both bins."""
-    source = MemorySource(_paired_bins(), extent_m=(80.0, 80.0))
+    source = MemorySource(_paired_bins())
     dest = tmp_path / "ds"
     manifest = build_dataset(source, dest, BuildSpec())
     classifier = _rows_by_split(dest, "classifier")
@@ -152,7 +171,7 @@ def test_split_is_shared_by_tasks_and_bins(tmp_path: Path) -> None:
 
 def test_train_augmentation_is_four_elements_when_nonsquare(tmp_path: Path) -> None:
     """Val and test stay unaugmented. A 4 by 8 train tile keeps four elements."""
-    source = MemorySource(_paired_bins(), extent_m=(80.0, 80.0))
+    source = MemorySource(_paired_bins())
     dest = tmp_path / "ds"
     build_dataset(source, dest, BuildSpec())
     rows = _rows_by_split(dest, "classifier")
@@ -168,7 +187,7 @@ def test_train_augmentation_is_eight_elements_when_square(tmp_path: Path) -> Non
     gsd = GsdPair(10.0, 10.0)
     tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8), has_mask=True) for index in range(3))
     dest = tmp_path / "ds"
-    build_dataset(MemorySource(tiles, extent_m=(80.0, 80.0)), dest, BuildSpec())
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
     rows = _rows_by_split(dest, "classifier")
     assert {row.element for row in rows["train"]} == set(ELEMENT_NAMES)
     train_ids = {row.tile_id for row in rows["train"]}
@@ -178,8 +197,8 @@ def test_train_augmentation_is_eight_elements_when_square(tmp_path: Path) -> Non
 def test_hash_is_deterministic(tmp_path: Path) -> None:
     """Two builds of the same source share a content hash."""
     tiles = _paired_bins()
-    first = build_dataset(MemorySource(tiles, extent_m=(80.0, 80.0)), tmp_path / "a", BuildSpec())
-    second = build_dataset(MemorySource(tiles, extent_m=(80.0, 80.0)), tmp_path / "b", BuildSpec())
+    first = build_dataset(MemorySource(tiles), tmp_path / "a", BuildSpec())
+    second = build_dataset(MemorySource(tiles), tmp_path / "b", BuildSpec())
     assert first.dataset_hash == second.dataset_hash
     assert load_manifest(tmp_path / "a" / "dataset.json").dataset_hash == first.dataset_hash
 
@@ -187,7 +206,7 @@ def test_hash_is_deterministic(tmp_path: Path) -> None:
 def test_failure_leaves_no_destination(tmp_path: Path) -> None:
     """A stream error removes the partial directory and does not create dest."""
     dest = tmp_path / "ds"
-    source = MemorySource(_paired_bins(), extent_m=(80.0, 80.0), boom=True)
+    source = MemorySource(_paired_bins(), boom=True)
     with pytest.raises(RuntimeError, match="boom"):
         build_dataset(source, dest, BuildSpec())
     assert not dest.exists()
@@ -201,7 +220,7 @@ def test_failed_build_preserves_other_partial_directories(tmp_path: Path) -> Non
     marker = other / "keep.txt"
     marker.write_text("keep", encoding="utf-8")
     dest = tmp_path / "ds"
-    source = MemorySource(_paired_bins(), extent_m=(80.0, 80.0), boom=True)
+    source = MemorySource(_paired_bins(), boom=True)
     with pytest.raises(RuntimeError, match="boom"):
         build_dataset(source, dest, BuildSpec())
     assert not dest.exists()
@@ -215,19 +234,21 @@ def test_nonbinary_label_is_rejected(tmp_path: Path) -> None:
         _tile(f"t{index}", f"g{index}", GsdPair(10.0, 10.0), (8, 8), label=0.5)
         for index in range(3)
     )
-    source = MemorySource(tiles, extent_m=(80.0, 80.0))
+    source = MemorySource(tiles)
     with pytest.raises(ValueError, match="binary"):
         build_dataset(source, tmp_path / "ds", BuildSpec())
 
 
-def test_nonfinite_extent_is_rejected(tmp_path: Path) -> None:
-    """A non-finite source extent fails the size rule."""
-    tiles = tuple(
-        _tile(f"t{index}", f"g{index}", GsdPair(10.0, 10.0), (8, 8)) for index in range(3)
-    )
-    source = MemorySource(tiles, extent_m=(float("nan"), 80.0))
-    with pytest.raises(ValueError, match="extent_m"):
-        build_dataset(source, tmp_path / "ds", BuildSpec())
+def test_invalid_indexed_dimensions_are_rejected(tmp_path: Path) -> None:
+    """Indexed height and width must be positive integers."""
+    gsd = GsdPair(10.0, 10.0)
+    tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(3))
+    bad = replace(tiles[0], ref=replace(tiles[0].ref, height=0))
+    with pytest.raises(ValueError, match="indexed height"):
+        build_dataset(MemorySource((bad, *tiles[1:])), tmp_path / "ds", BuildSpec())
+    bad = replace(tiles[0], ref=replace(tiles[0].ref, width=-2))
+    with pytest.raises(ValueError, match="indexed width"):
+        build_dataset(MemorySource((bad, *tiles[1:])), tmp_path / "ds2", BuildSpec())
 
 
 def test_nonbinary_mask_is_rejected(tmp_path: Path) -> None:
@@ -238,7 +259,7 @@ def test_nonbinary_mask_is_rejected(tmp_path: Path) -> None:
         assert tile.mask is not None
         tile.mask[0, 0, 0] = 2
         tiles.append(tile)
-    source = MemorySource(tuple(tiles), extent_m=(80.0, 80.0))
+    source = MemorySource(tuple(tiles))
     with pytest.raises(ValueError, match="binary pixels"):
         build_dataset(source, tmp_path / "ds", BuildSpec())
 
@@ -251,14 +272,58 @@ def test_nonfinite_image_is_rejected(tmp_path: Path) -> None:
         image=np.full((3, 8, 8), np.nan, dtype=np.float32),
     )
     rest = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(1, 3))
-    source = MemorySource((bad, *rest), extent_m=(80.0, 80.0))
+    source = MemorySource((bad, *rest))
     with pytest.raises(ValueError, match="non-finite"):
         build_dataset(source, tmp_path / "ds", BuildSpec())
 
 
+@pytest.mark.parametrize(
+    "image",
+    [
+        np.full((3, 8, 8), 100, dtype=np.uint16),
+        np.full((3, 8, 8), 0.5, dtype=np.float64),
+        np.full((3, 8, 8), 0.5, dtype=np.complex128),
+        np.full((3, 8, 8), 0.5, dtype=object),
+        np.full((3, 8, 8), np.inf, dtype=np.float32),
+        np.full((3, 8, 8), 1.5, dtype=np.float32),
+        np.full((3, 8, 8), -0.25, dtype=np.float32),
+        np.full((4, 8, 8), 0.5, dtype=np.float32),
+        np.full((3, 8, 9), 0.5, dtype=np.float32),
+    ],
+    ids=[
+        "uint16",
+        "float64",
+        "complex",
+        "object",
+        "inf",
+        "above-one",
+        "below-zero",
+        "channel-mismatch",
+        "shape-mismatch",
+    ],
+)
+def test_prepared_image_contract_is_enforced(tmp_path: Path, image: np.ndarray) -> None:
+    """Non-unit, non-float32, or mis-shaped images are rejected, not fixed."""
+    gsd = GsdPair(10.0, 10.0)
+    bad = replace(_tile("t0", "g0", gsd, (8, 8)), image=image)
+    rest = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(1, 3))
+    source = MemorySource((bad, *rest))
+    with pytest.raises(ValueError):
+        build_dataset(source, tmp_path / "ds", BuildSpec())
+
+
+def test_non_unit_domain_is_rejected(tmp_path: Path) -> None:
+    """A source that still declares DN pixels cannot build."""
+    tiles = tuple(
+        _tile(f"t{index}", f"g{index}", GsdPair(10.0, 10.0), (8, 8)) for index in range(3)
+    )
+    with pytest.raises(ValueError, match="domain"):
+        build_dataset(MemorySource(tiles, domain="dn"), tmp_path / "ds", BuildSpec())
+
+
 def test_stream_ref_must_match_index(tmp_path: Path) -> None:
     """A streamed row whose ref differs from its index row is rejected."""
-    source = MutatedRefSource(_paired_bins(), extent_m=(80.0, 80.0))
+    source = MutatedRefSource(_paired_bins())
     with pytest.raises(ValueError, match="order mismatch"):
         build_dataset(source, tmp_path / "ds", BuildSpec())
 
@@ -268,7 +333,7 @@ def test_anisotropic_square_tile_keeps_axis_preserving_elements(tmp_path: Path) 
     gsd = GsdPair(10.0, 20.0)
     tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8), has_mask=True) for index in range(3))
     dest = tmp_path / "ds"
-    build_dataset(MemorySource(tiles, extent_m=(80.0, 160.0)), dest, BuildSpec())
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
     rows = _rows_by_split(dest, "classifier")
     assert {row.element for row in rows["train"]} == set(SHAPE_PRESERVING)
 
@@ -277,61 +342,145 @@ def test_existing_destination_is_unchanged(tmp_path: Path) -> None:
     """A second build refuses to replace a finished dataset."""
     tiles = _paired_bins()
     dest = tmp_path / "ds"
-    first = build_dataset(MemorySource(tiles, extent_m=(80.0, 80.0)), dest, BuildSpec())
+    first = build_dataset(MemorySource(tiles), dest, BuildSpec())
     with pytest.raises(FileExistsError):
-        build_dataset(MemorySource(tiles, extent_m=(80.0, 80.0)), dest, BuildSpec())
+        build_dataset(MemorySource(tiles), dest, BuildSpec())
     assert load_manifest(dest / "dataset.json").dataset_hash == first.dataset_hash
 
 
 def test_band_mismatch_is_rejected(tmp_path: Path) -> None:
-    """Source bands must equal the spec's input bands."""
+    """Source bands must equal an explicit spec band list."""
     tiles = tuple(
         _tile(f"t{index}", f"g{index}", GsdPair(10.0, 10.0), (8, 8)) for index in range(3)
     )
-    source = MemorySource(tiles, band_names=("NIR", "RED", "GREEN"), extent_m=(80.0, 80.0))
+    source = MemorySource(tiles, band_names=("NIR", "RED", "GREEN"))
     with pytest.raises(ValueError, match="band_names"):
-        build_dataset(source, tmp_path / "ds", BuildSpec())
+        build_dataset(source, tmp_path / "ds", BuildSpec(input_bands=("BLUE", "GREEN", "RED")))
+
+
+def test_manifest_bands_resolve_from_source(tmp_path: Path) -> None:
+    """A spec without input_bands records the source band list."""
+    tiles = tuple(
+        _tile(f"t{index}", f"g{index}", GsdPair(10.0, 10.0), (8, 8), channels=2)
+        for index in range(3)
+    )
+    dest = tmp_path / "ds"
+    manifest = build_dataset(MemorySource(tiles, band_names=("A", "B")), dest, BuildSpec())
+    assert manifest.band_names == ("A", "B")
+    manifest = load_manifest(dest / "dataset.json")
+    assert manifest.band_names == ("A", "B")
+    shard = next((dest / "classifier" / "train").iterdir())
+    dataset = ShardDataset(shard, manifest.gsd_reference_m, "classifier", channels=2)
+    image, _gsd, _target = dataset[0]
+    assert image.shape == (2, 8, 8)
 
 
 def test_nonpositive_gsd_is_rejected(tmp_path: Path) -> None:
     """A zero GSD component is rejected."""
     tiles = tuple(_tile(f"t{index}", f"g{index}", GsdPair(0.0, 10.0), (8, 8)) for index in range(3))
     with pytest.raises(ValueError, match="gsd"):
-        build_dataset(MemorySource(tiles, extent_m=(80.0, 80.0)), tmp_path / "ds", BuildSpec())
+        build_dataset(MemorySource(tiles), tmp_path / "ds", BuildSpec())
 
 
-def test_inconsistent_size_is_rejected(tmp_path: Path) -> None:
-    """Pixel size must match round(extent / gsd)."""
+def test_stream_shape_mismatch_is_rejected(tmp_path: Path) -> None:
+    """Pixel size must match the indexed dimensions."""
     gsd = GsdPair(10.0, 10.0)
-    tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(3))
-    source = MemorySource(tiles, extent_m=(100.0, 100.0))
-    with pytest.raises(ValueError, match="inconsistent"):
+    bad = replace(
+        _tile("t0", "g0", gsd, (8, 8)),
+        ref=replace(_tile("t0", "g0", gsd, (8, 8)).ref, height=10, width=10),
+    )
+    rest = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(1, 3))
+    source = MemorySource((bad, *rest))
+    with pytest.raises(ValueError, match="indexed size"):
         build_dataset(source, tmp_path / "ds", BuildSpec())
 
 
-def test_uint16_round_trip(tmp_path: Path) -> None:
-    """Stored pixels equal round(unit * 65535) for the identity element."""
+def test_unit_pixels_preserved_exactly(tmp_path: Path) -> None:
+    """A non-grid-aligned float32 survives build -> npy -> loader exactly."""
     gsd = GsdPair(10.0, 10.0)
-    tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8), fill=4095) for index in range(3))
+    marker = _tile("t0", "g0", gsd, (8, 8))
+    marker.image[0, 3, 4] = np.float32(0.1234567)
+    marker.image[1, 0, 0] = np.float32(0.0)
+    marker.image[2, 7, 7] = np.float32(1.0)
+    tiles = (marker,) + tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(1, 3))
+    source_image = marker.image.copy()
     dest = tmp_path / "ds"
-    build_dataset(MemorySource(tiles, extent_m=(80.0, 80.0)), dest, BuildSpec())
-    rows = _rows_by_split(dest, "classifier")
-    identity = next(
-        row for row in rows["train"] + rows["val"] + rows["test"] if row.element == "id"
-    )
-    shard = dest / "classifier"
-    stored = None
-    for split_name in ("train", "val", "test"):
-        directory = shard / split_name / "8x8"
-        if not directory.is_dir():
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
+    np.testing.assert_array_equal(marker.image, source_image)
+    found = False
+    for shard in _shard_dirs(dest, "classifier"):
+        rows = read_rows(shard)
+        index = next(
+            (i for i, row in enumerate(rows) if row.tile_id == "t0" and row.element == "id"),
+            None,
+        )
+        if index is None:
             continue
-        shard_rows = read_rows(directory)
-        for index, row in enumerate(shard_rows):
-            if row.tile_id == identity.tile_id and row.element == "id":
-                stored = read_images(directory)[index]
-    assert stored is not None
-    expected = quantize_unit(to_unit(tiles[0].image, "dn", 12))
-    np.testing.assert_array_equal(stored, expected)
+        found = True
+        stored = read_images(shard)[index]
+        np.testing.assert_array_equal(stored, source_image)
+        assert stored.dtype == np.float32
+        dataset = ShardDataset(shard, 15.87, "classifier", channels=3)
+        image, _g, _t = dataset[index]
+        np.testing.assert_array_equal(image.numpy(), source_image)
+        assert float(image[0, 3, 4]) == float(np.float32(0.1234567))
+    assert found
+
+
+def test_augmented_rows_only_permute_pixels(tmp_path: Path) -> None:
+    """Flips and rotations permute stored pixels and aligned masks."""
+    gsd = GsdPair(10.0, 10.0)
+    image = np.arange(3 * 8 * 8, dtype=np.float32).reshape(3, 8, 8) / np.float32(255.0)
+    mask = np.zeros((1, 8, 8), dtype=np.uint8)
+    mask[0, :4, :] = 1
+    tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8), has_mask=True) for index in range(3))
+    index = assign_group_splits([tile.ref.group_id for tile in tiles], SplitRecipe())
+    train_row = index.train[0]
+    marker = replace(tiles[train_row], image=image, mask=mask)
+    tiles = tuple(marker if position == train_row else tile for position, tile in enumerate(tiles))
+    dest = tmp_path / "ds"
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
+    seen = 0
+    for shard in _shard_dirs(dest, "segmentor"):
+        rows = read_rows(shard)
+        images = read_images(shard)
+        masks = read_masks(shard)
+        assert masks is not None
+        for row_index, row in enumerate(rows):
+            if row.tile_id != marker.ref.tile_id:
+                continue
+            seen += 1
+            np.testing.assert_array_equal(images[row_index], apply_dihedral(image, row.element))
+            np.testing.assert_array_equal(
+                masks[row_index], apply_dihedral(mask, row.element).astype(np.uint8)
+            )
+    assert seen == len(ELEMENT_NAMES)
+
+
+def test_indexed_shape_is_not_derived_from_gsd(tmp_path: Path) -> None:
+    """Stored GSD is the row's measured value, not extent over pixels."""
+    gsd = GsdPair(12.34, 56.78)
+    tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(3))
+    dest = tmp_path / "ds"
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
+    for shard in _shard_dirs(dest, "classifier"):
+        assert shard.name == "8x8"
+        stored = read_gsd(shard)
+        np.testing.assert_allclose(stored[0], [12.34, 56.78], rtol=1e-6)
+
+
+def test_schema1_dataset_is_rejected(tmp_path: Path) -> None:
+    """A schema-1 manifest fails with a rebuild message, before image reads."""
+    dest = tmp_path / "ds"
+    build_dataset(MemorySource(_paired_bins()), dest, BuildSpec())
+    path = dest / "dataset.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema"] = 1
+    payload["image_scale"] = 65535
+    del payload["image_dtype"]
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="schema 1.*rebuild|rebuild.*schema"):
+        load_manifest(path)
 
 
 def test_check_compatible_requires_shared_reference_and_bands(tmp_path: Path) -> None:
@@ -339,18 +488,18 @@ def test_check_compatible_requires_shared_reference_and_bands(tmp_path: Path) ->
     gsd = GsdPair(10.0, 10.0)
     tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(3))
     base = build_dataset(
-        MemorySource(tiles, extent_m=(80.0, 80.0)),
+        MemorySource(tiles),
         tmp_path / "base",
         BuildSpec(),
     )
     other = build_dataset(
-        MemorySource(tiles, extent_m=(80.0, 80.0)),
+        MemorySource(tiles),
         tmp_path / "other",
         BuildSpec(gsd_reference_m=20.0),
     )
     alt_tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(3))
     alt = build_dataset(
-        MemorySource(alt_tiles, band_names=("A", "B", "C"), extent_m=(80.0, 80.0)),
+        MemorySource(alt_tiles, band_names=("A", "B", "C")),
         tmp_path / "alt",
         BuildSpec(input_bands=("A", "B", "C")),
     )
@@ -394,7 +543,7 @@ def _flight_tile(index: int, **overrides: object) -> FlightTileWrite:
         "label": 1.0,
         "theta_g_deg": 15.0,
         "gsd": GsdPair(15.87, 15.87),
-        "image": np.full((3, 193, 258), 10, dtype=np.uint16),
+        "image": np.full((3, 193, 258), 0.5, dtype=np.float32),
     }
     fields.update(overrides)
     return FlightTileWrite(**fields)  # type: ignore[arg-type]
@@ -408,6 +557,40 @@ def test_build_flight_rejects_nominal_rows(tmp_path: Path) -> None:
         build_flight(source_dir, tmp_path / "ds")
 
 
+def test_build_flight_round_trip_preserves_pixels_and_metadata(tmp_path: Path) -> None:
+    """Flight import pixels, GSD, groups, and nominal tags reach the dataset."""
+    image = np.full((3, 193, 258), np.float32(0.1234567), dtype=np.float32)
+    source_dir = tmp_path / "flight-src"
+    write_flight_tile_dir(
+        source_dir,
+        [
+            _flight_tile(0, image=image.copy(), frame_id="f0", group_id="g0"),
+            _flight_tile(1, frame_id="f1", group_id="g1"),
+            _flight_tile(2, frame_id="f2", group_id="g2"),
+            _flight_tile(3, frame_id="f3", group_id="g3"),
+        ],
+        source_ref="flight-test",
+    )
+    dest = tmp_path / "ds"
+    manifest = build_flight(source_dir, dest)
+    assert manifest.source == "flight"
+    assert manifest.source_ref == "flight-test"
+    assert manifest.image_dtype == "float32"
+    found = False
+    for shard in _shard_dirs(dest, "classifier"):
+        rows = read_rows(shard)
+        index = next(
+            (i for i, row in enumerate(rows) if row.tile_id == "f0-0-0" and row.element == "id"),
+            None,
+        )
+        if index is None:
+            continue
+        found = True
+        np.testing.assert_array_equal(read_images(shard)[index], image)
+        assert rows[index].bin_id == "elevation15"
+    assert found
+
+
 def _research_tile(tile_id: str, group_id: str, **ref_overrides: object) -> RawTile:
     """One 4x8 research-source tile with overridable ref fields."""
     fields: dict[str, object] = {
@@ -416,6 +599,8 @@ def _research_tile(tile_id: str, group_id: str, **ref_overrides: object) -> RawT
         "label": 1.0,
         "has_mask": False,
         "gsd": GsdPair(10.0, 20.0),
+        "height": 4,
+        "width": 8,
         "frame_id": group_id,
         "grid_rc": (0, 0),
         "bin_id": "",
@@ -423,7 +608,7 @@ def _research_tile(tile_id: str, group_id: str, **ref_overrides: object) -> RawT
     fields.update(ref_overrides)
     return RawTile(
         ref=RawTileRef(**fields),  # type: ignore[arg-type]
-        image=np.full((3, 4, 8), 5, dtype=np.uint16),
+        image=np.full((3, 4, 8), 0.25, dtype=np.float32),
         mask=None,
     )
 
@@ -433,7 +618,7 @@ def test_research_source_records_nominal_flag(tmp_path: Path) -> None:
     tiles = tuple(_research_tile(f"t{index}", f"g{index}") for index in range(3)) + (
         _research_tile("t-nominal", "g0", theta_g_deg=30.0, gsd_nominal=True),
     )
-    source = MemorySource(tiles, extent_m=(80.0, 80.0))
+    source = MemorySource(tiles)
     dest = tmp_path / "ds"
     build_dataset(source, dest, BuildSpec())
     rows = [
@@ -452,6 +637,6 @@ def test_build_rejects_non_finite_theta(tmp_path: Path) -> None:
     tiles = tuple(_research_tile(f"t{index}", f"g{index}") for index in range(3)) + (
         _research_tile("t-bad", "g0", theta_g_deg=float("nan")),
     )
-    source = MemorySource(tiles, extent_m=(80.0, 80.0))
+    source = MemorySource(tiles)
     with pytest.raises(ValueError, match="theta_g_deg"):
         build_dataset(source, tmp_path / "ds", BuildSpec())

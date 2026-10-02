@@ -14,7 +14,6 @@ from tools.ml_models.dataset.sources.zenodo.archive import build_index, iter_sta
 from tools.ml_models.dataset.sources.zenodo.bands import coerce_descriptions, verify_band_order
 from tools.ml_models.dataset.sources.zenodo.bins import (
     DEFAULT_BINS,
-    EXTENT_M,
     NATIVE_SIDE,
     actual_gsd,
     bin_hw,
@@ -34,9 +33,7 @@ class ZenodoSource:
     name = "zenodo"
     band_names = INPUT_BANDS
     domain = "unit"
-    bit_depth = 12
     source_ref = "10.5281/zenodo.4250706"
-    extent_m: tuple[float, float] | None = (EXTENT_M, EXTENT_M)
 
     def __init__(
         self,
@@ -61,6 +58,8 @@ class ZenodoSource:
                 label=float(tile.positive),
                 has_mask=tile.polygons is not None,
                 gsd=actual_gsd(item),
+                height=bin_hw(item)[0],
+                width=bin_hw(item)[1],
                 frame_id=None,
                 grid_rc=None,
                 bin_id=item.bin_id,

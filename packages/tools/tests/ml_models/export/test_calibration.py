@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from tools.ml_models.dataset.build import build_dataset
-from tools.ml_models.dataset.preprocess import to_model_gsd
+from tools.ml_models.dataset.gsd import to_model_gsd
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 from tools.ml_models.dataset.spec import BuildSpec
 from tools.ml_models.dataset.store import RowRecord, read_gsd, read_rows
@@ -21,10 +21,8 @@ class MemorySource:
     def __init__(self, tiles: tuple[RawTile, ...]) -> None:
         self.name = "memory"
         self.band_names: tuple[str, ...] = ("BLUE", "GREEN", "RED")
-        self.domain = "dn"
-        self.bit_depth = 12
+        self.domain = "unit"
         self.source_ref = "test"
-        self.extent_m: tuple[float, float] | None = (80.0, 80.0)
         self.bins: tuple[BinSpec, ...] = ()
         self._tiles = tiles
 
@@ -47,13 +45,15 @@ def _tile(group: str, index: int, gsd: GsdPair) -> RawTile:
         label=float(index % 2),
         has_mask=False,
         gsd=gsd,
+        height=height,
+        width=width,
         frame_id=group,
         grid_rc=(0, 0),
         bin_id="",
     )
     return RawTile(
         ref=ref,
-        image=np.full((3, height, width), index + 1, dtype=np.uint16),
+        image=np.full((3, height, width), (index + 1) / 10.0, dtype=np.float32),
         mask=None,
     )
 

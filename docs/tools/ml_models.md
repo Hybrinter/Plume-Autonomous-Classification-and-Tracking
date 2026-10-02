@@ -28,9 +28,8 @@ for model workflows.
 
 ## Interactions
 
-`tools.ml_models.dataset.preprocess` calls
-`flight.payload.preprocess.normalize.normalize_dn` and
-`flight.payload.gimbal.footprint` supplies the GSD encoding. The package
+`tools.ml_models.dataset.gsd` delegates GSD encoding to
+`flight.payload.gimbal.footprint`. The package
 does not publish on the bus. `tools.ml_models.dataset` and
 `tools.ml_models.arch` do not import `flight.payload.inference`,
 `flight.core`, or `tools.analysis`. `tools.ml_models.arch` does not

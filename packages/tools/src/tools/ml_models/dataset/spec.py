@@ -14,11 +14,11 @@ import tomllib
 from pathlib import Path
 from typing import Self
 
+from flight.payload.gimbal.footprint import GSD_REFERENCE_M
 from pydantic import ConfigDict, model_validator
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from tools.ml_models.dataset.augment import AugmentRecipe
-from tools.ml_models.dataset.geometry import GSD_REFERENCE_M, INPUT_BANDS
 from tools.ml_models.dataset.split import SplitRecipe
 
 TASK_NAMES: tuple[str, ...] = ("classifier", "segmentor")
@@ -34,7 +34,9 @@ class BuildSpec:
         augment: Train-only dihedral elements. Intersected with the elements
             legal for each tile's height and width.
         tasks: Non-empty subset of ``classifier`` and ``segmentor``.
-        input_bands: Required channel names. Must equal the source band list.
+        input_bands: Optional expected channel names. When set, the source
+            band list must equal it; when None, the manifest records the
+            source bands.
         gsd_reference_m: Reference metres used by ``to_model_gsd``.
         weight_table_id: Class-weight table identifier. Empty when unused.
     """
@@ -42,7 +44,7 @@ class BuildSpec:
     split: SplitRecipe = SplitRecipe()
     augment: AugmentRecipe = AugmentRecipe()
     tasks: tuple[str, ...] = TASK_NAMES
-    input_bands: tuple[str, ...] = INPUT_BANDS
+    input_bands: tuple[str, ...] | None = None
     gsd_reference_m: float = GSD_REFERENCE_M
     weight_table_id: str = ""
 
@@ -56,7 +58,7 @@ class BuildSpec:
             raise ValueError(f"unknown tasks {unknown}")
         if len(set(self.tasks)) != len(self.tasks):
             raise ValueError("tasks must be unique")
-        if len(self.input_bands) < 1:
+        if self.input_bands is not None and len(self.input_bands) < 1:
             raise ValueError("input_bands must be non-empty")
         if not _finite_positive(self.gsd_reference_m):
             raise ValueError(f"gsd_reference_m must be finite and > 0; got {self.gsd_reference_m}")
@@ -96,7 +98,7 @@ def load_build_spec(path: str | Path) -> BuildSpec:
     split = _split_from_table(raw.get("split", {}))
     augment = _augment_from_table(raw.get("augment", {}))
     tasks = _string_tuple(raw.get("tasks", TASK_NAMES), "tasks")
-    bands = _string_tuple(raw.get("input_bands", INPUT_BANDS), "input_bands")
+    bands = _string_tuple(raw["input_bands"], "input_bands") if "input_bands" in raw else None
     reference = raw.get("gsd_reference_m", GSD_REFERENCE_M)
     weight = raw.get("weight_table_id", "")
     if isinstance(reference, bool) or not isinstance(reference, int | float):

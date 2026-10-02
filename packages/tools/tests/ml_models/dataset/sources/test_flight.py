@@ -6,24 +6,34 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from tools.ml_models.dataset.geometry import tile_hw
+from flight.libs.config import InferenceConfig
+from tools.ml_models.dataset.build import build_dataset
 from tools.ml_models.dataset.raw import GsdPair
 from tools.ml_models.dataset.sources.flight import (
+    SCHEMA_VERSION,
     FlightTileDir,
     FlightTileWrite,
     write_flight_tile_dir,
 )
+from tools.ml_models.dataset.spec import BuildSpec
+from tools.ml_models.dataset.store import read_images, read_rows
+
+_DEFAULT = InferenceConfig()
+_TILE_HW = (
+    _DEFAULT.input_height_px // _DEFAULT.tile_rows,
+    _DEFAULT.input_width_px // _DEFAULT.tile_cols,
+)
 
 
-def _image(value: int) -> np.ndarray:
-    """Return a constant uint16 flight tile."""
-    height, width = tile_hw()
-    return np.full((3, height, width), value, dtype=np.uint16)
+def _image(value: float) -> np.ndarray:
+    """Return a constant float32 unit flight tile."""
+    height, width = _TILE_HW
+    return np.full((3, height, width), value, dtype=np.float32)
 
 
 def test_layout_round_trip(tmp_path: Path) -> None:
     """Writer output reads back with the same pixels, mask, and group."""
-    height, width = tile_hw()
+    height, width = _TILE_HW
     mask = np.zeros((height, width), dtype=np.uint8)
     mask[0, 0] = 1
     tiles = [
@@ -35,7 +45,7 @@ def test_layout_round_trip(tmp_path: Path) -> None:
             label=1.0,
             theta_g_deg=15.0,
             gsd=GsdPair(16.5, 17.1),
-            image=_image(10),
+            image=_image(0.1),
             mask=mask,
             group_id="group-a",
         ),
@@ -47,7 +57,7 @@ def test_layout_round_trip(tmp_path: Path) -> None:
             label=0.0,
             theta_g_deg=5.0,
             gsd=GsdPair(15.87, 15.87),
-            image=_image(20),
+            image=_image(0.2),
             mask=None,
             group_id=None,
         ),
@@ -55,16 +65,144 @@ def test_layout_round_trip(tmp_path: Path) -> None:
     dest = tmp_path / "flight"
     write_flight_tile_dir(dest, tiles, source_ref="flight-test")
     source = FlightTileDir(dest)
+    assert source.domain == "unit"
+    assert source.tile_hw == _TILE_HW
+    assert source.grid == (_DEFAULT.tile_rows, _DEFAULT.tile_cols)
     refs = source.index()
     assert refs[0].group_id == "group-a"
     assert refs[0].grid_rc == (0, 1)
+    assert refs[0].height == height
+    assert refs[0].width == width
     assert refs[1].group_id == "frame-b"
     loaded = list(source.iter_tiles())
-    np.testing.assert_array_equal(loaded[0].image, _image(10))
+    np.testing.assert_array_equal(loaded[0].image, _image(0.1))
     assert loaded[0].mask is not None
     assert loaded[0].mask[0, 0, 0] == 1
     assert loaded[1].mask is None
     assert not (dest / "masks" / "t1.npy").is_file()
+
+
+def test_header_records_schema2_unit_layout(tmp_path: Path) -> None:
+    """source.json records schema 2, unit domain, and float32 images."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(
+        dest,
+        [
+            FlightTileWrite(
+                tile_id="t0",
+                frame_id="frame-a",
+                row=0,
+                col=0,
+                label=1.0,
+                theta_g_deg=15.0,
+                gsd=GsdPair(15.87, 15.87),
+                image=_image(0.5),
+            )
+        ],
+    )
+    payload = json.loads((dest / "source.json").read_text(encoding="utf-8"))
+    assert payload["schema"] == SCHEMA_VERSION
+    assert payload["domain"] == "unit"
+    assert payload["image_dtype"] == "float32"
+    assert payload["tile_hw"] == list(_TILE_HW)
+    assert payload["grid"] == [_DEFAULT.tile_rows, _DEFAULT.tile_cols]
+    assert payload["band_names"] == list(_DEFAULT.input_bands)
+    assert "bit_depth" not in payload
+
+
+def test_old_header_is_rejected(tmp_path: Path) -> None:
+    """A pre-schema-2 source.json fails with a rewrite message."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(
+        dest,
+        [
+            FlightTileWrite(
+                tile_id="t0",
+                frame_id="frame-a",
+                row=0,
+                col=0,
+                label=1.0,
+                theta_g_deg=15.0,
+                gsd=GsdPair(15.87, 15.87),
+                image=_image(0.5),
+            )
+        ],
+    )
+    path = dest / "source.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    old = {
+        "band_names": payload["band_names"],
+        "bit_depth": 12,
+        "source_ref": payload["source_ref"],
+        "gsd_reference_m": payload["gsd_reference_m"],
+    }
+    path.write_text(json.dumps(old) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="schema"):
+        FlightTileDir(dest)
+
+
+def test_stored_image_outside_unit_range_is_rejected_on_read(tmp_path: Path) -> None:
+    """A tampered tile array fails the reader's finite unit-domain check."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile()])
+    path = dest / "tiles" / "t0.npy"
+    image = np.load(path)
+    for value in (np.nan, np.inf, -0.25, 1.5):
+        bad = image.copy()
+        bad[0, 0, 0] = np.float32(value)
+        np.save(path, bad)
+        with pytest.raises(ValueError, match="finite inside"):
+            list(FlightTileDir(dest).iter_tiles())
+    np.save(path, image)
+
+
+def test_recorded_layout_drives_reader_and_generic_build(tmp_path: Path) -> None:
+    """A nondefault header, not InferenceConfig, sets bands and tile size."""
+    images = [np.full((1, 4, 7), 0.25 * (index + 1), dtype=np.float32) for index in range(3)]
+    tiles = [
+        FlightTileWrite(
+            tile_id=f"t{index}",
+            frame_id=f"frame-{index}",
+            row=index,
+            col=index % 2,
+            label=float(index % 2),
+            theta_g_deg=15.0,
+            gsd=GsdPair(15.87, 15.87),
+            image=images[index],
+        )
+        for index in range(3)
+    ]
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, tiles, band_names=("BLUE",), tile_hw=(4, 7), grid=(3, 2))
+    source = FlightTileDir(dest)
+    assert source.band_names == ("BLUE",)
+    assert source.tile_hw == (4, 7)
+    assert source.grid == (3, 2)
+    refs = source.index()
+    assert [(ref.height, ref.width) for ref in refs] == [(4, 7)] * 3
+    assert [ref.grid_rc for ref in refs] == [(0, 0), (1, 1), (2, 0)]
+    for tile in source.iter_tiles():
+        assert tile.image.shape == (1, 4, 7)
+    dataset_dir = tmp_path / "ds"
+    manifest = build_dataset(source, dataset_dir, BuildSpec())
+    assert manifest.band_names == ("BLUE",)
+    shard_dirs = [
+        shard
+        for split_name in ("train", "val", "test")
+        if (dataset_dir / "classifier" / split_name).is_dir()
+        for shard in (dataset_dir / "classifier" / split_name).iterdir()
+    ]
+    assert {shard.name for shard in shard_dirs} == {"4x7"}
+    found = False
+    for shard in shard_dirs:
+        rows = read_rows(shard)
+        stored = read_images(shard)
+        assert stored.shape[1:] == (1, 4, 7)
+        for index, row in enumerate(rows):
+            if row.tile_id == "t0" and row.element == "id":
+                found = True
+                np.testing.assert_array_equal(stored[index], images[0])
+    assert found
 
 
 def test_missing_group_id_defaults_to_frame(tmp_path: Path) -> None:
@@ -81,7 +219,7 @@ def test_missing_group_id_defaults_to_frame(tmp_path: Path) -> None:
                 label=1.0,
                 theta_g_deg=0.0,
                 gsd=GsdPair(15.87, 15.87),
-                image=_image(1),
+                image=_image(0.1),
             )
         ],
     )
@@ -102,7 +240,7 @@ def test_traversal_tile_id_is_rejected_on_write(tmp_path: Path) -> None:
         label=1.0,
         theta_g_deg=15.0,
         gsd=GsdPair(15.87, 15.87),
-        image=_image(10),
+        image=_image(0.1),
     )
     with pytest.raises(ValueError, match="file stem"):
         write_flight_tile_dir(tmp_path / "flight", [tile])
@@ -111,7 +249,7 @@ def test_traversal_tile_id_is_rejected_on_write(tmp_path: Path) -> None:
 
 
 def test_grid_indices_outside_grid_are_rejected_on_write(tmp_path: Path) -> None:
-    """row and col must lie in 0..7 on write."""
+    """row and col must lie inside the recorded grid on write."""
     tile = FlightTileWrite(
         tile_id="t0",
         frame_id="frame-a",
@@ -120,12 +258,35 @@ def test_grid_indices_outside_grid_are_rejected_on_write(tmp_path: Path) -> None
         label=1.0,
         theta_g_deg=15.0,
         gsd=GsdPair(15.87, 15.87),
-        image=_image(10),
+        image=_image(0.1),
     )
     with pytest.raises(ValueError, match="0..7"):
         write_flight_tile_dir(tmp_path / "flight", [tile])
     with pytest.raises(ValueError, match="0..7"):
         write_flight_tile_dir(tmp_path / "flight2", [replace(tile, row=0, col=-1)])
+
+
+def test_non_unit_image_is_rejected_on_write(tmp_path: Path) -> None:
+    """uint16, float64, and out-of-range float32 images cannot be written."""
+    base = FlightTileWrite(
+        tile_id="t0",
+        frame_id="frame-a",
+        row=0,
+        col=0,
+        label=1.0,
+        theta_g_deg=15.0,
+        gsd=GsdPair(15.87, 15.87),
+        image=_image(0.5),
+    )
+    height, width = _TILE_HW
+    bad_images: tuple[np.ndarray, ...] = (
+        np.zeros((3, height, width), dtype=np.uint16),
+        np.full((3, height, width), 0.5, dtype=np.float64),
+        np.full((3, height, width), 1.5, dtype=np.float32),
+    )
+    for index, image in enumerate(bad_images):
+        with pytest.raises(ValueError):
+            write_flight_tile_dir(tmp_path / f"flight{index}", [replace(base, image=image)])
 
 
 def test_index_rows_must_use_stems_and_grid_bounds(tmp_path: Path) -> None:
@@ -142,7 +303,7 @@ def test_index_rows_must_use_stems_and_grid_bounds(tmp_path: Path) -> None:
                 label=1.0,
                 theta_g_deg=15.0,
                 gsd=GsdPair(15.87, 15.87),
-                image=_image(10),
+                image=_image(0.1),
             )
         ],
     )
@@ -169,7 +330,7 @@ def _single_tile(theta_g_deg: float = 15.0, **overrides: object) -> FlightTileWr
         "label": 1.0,
         "theta_g_deg": theta_g_deg,
         "gsd": GsdPair(15.87, 15.87),
-        "image": _image(1),
+        "image": _image(0.1),
     }
     fields.update(overrides)
     return FlightTileWrite(**fields)  # type: ignore[arg-type]

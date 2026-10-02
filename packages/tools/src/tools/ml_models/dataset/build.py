@@ -1,7 +1,7 @@
 """Build a finished dataset from any raw tile source.
 
 Contains:
-  - build_dataset: validate, split, normalize, augment, and write shards.
+  - build_dataset: validate, split, augment, and write shards.
   - build_flight, build_zenodo: source-specific wrappers.
 
 The build writes a sibling temporary directory and renames it onto ``dest``
@@ -21,7 +21,6 @@ from pathlib import Path
 import numpy as np
 
 from tools.ml_models.dataset.augment import apply_dihedral, legal_elements
-from tools.ml_models.dataset.geometry import tile_hw
 from tools.ml_models.dataset.manifest import (
     SCHEMA_VERSION,
     BinRecord,
@@ -30,7 +29,6 @@ from tools.ml_models.dataset.manifest import (
     compute_dataset_hash,
     write_manifest,
 )
-from tools.ml_models.dataset.preprocess import IMAGE_SCALE, quantize_unit, to_unit
 from tools.ml_models.dataset.raw import BinSpec, RawSource, RawTile, RawTileRef
 from tools.ml_models.dataset.sources.flight import FlightTileDir
 from tools.ml_models.dataset.spec import BuildSpec
@@ -196,12 +194,12 @@ def _build_into(source: RawSource, dest: Path, spec: BuildSpec) -> DatasetManife
     if len(refs) < 1:
         raise ValueError("source index is empty")
     _require_unique_ids(refs)
-    heights, widths, laterals, alongs = _geometry_table(source, refs)
+    heights, widths, laterals, alongs = _indexed_geometry(refs)
     split_names = _split_names(refs, spec)
     planned = _plan(refs, spec, split_names, heights, widths, laterals, alongs)
     if not planned:
         raise ValueError("no rows selected for the requested tasks")
-    writers = _open_writers(dest, planned)
+    writers = _open_writers(dest, planned, len(source.band_names))
     try:
         _fill(source, refs, planned, heights, widths, writers)
         for writer in writers.values():
@@ -216,7 +214,7 @@ def _build_into(source: RawSource, dest: Path, spec: BuildSpec) -> DatasetManife
 
 
 def _require_bands(source: RawSource, spec: BuildSpec) -> None:
-    """Raise ValueError when the source bands differ from the spec.
+    """Raise ValueError when the source bands or domain break the contract.
 
     Args:
         source: Raw source.
@@ -226,14 +224,14 @@ def _require_bands(source: RawSource, spec: BuildSpec) -> None:
         None.
 
     Raises:
-        ValueError: On a band mismatch or an unknown domain.
+        ValueError: On a band mismatch or a non-unit domain.
     """
-    if tuple(source.band_names) != tuple(spec.input_bands):
+    if source.domain != "unit":
+        raise ValueError(f"source domain must be 'unit'; got {source.domain!r}")
+    if spec.input_bands is not None and tuple(source.band_names) != tuple(spec.input_bands):
         raise ValueError(
             f"band_names {tuple(source.band_names)} != input_bands {tuple(spec.input_bands)}"
         )
-    if source.domain not in ("dn", "unit"):
-        raise ValueError(f"unknown domain {source.domain!r}")
 
 
 def _require_unique_ids(refs: tuple[RawTileRef, ...]) -> None:
@@ -257,14 +255,12 @@ def _require_unique_ids(refs: tuple[RawTileRef, ...]) -> None:
             raise ValueError(f"group_id must be non-empty for {ref.tile_id}")
 
 
-def _geometry_table(
-    source: RawSource,
+def _indexed_geometry(
     refs: tuple[RawTileRef, ...],
 ) -> tuple[list[int], list[int], list[float], list[float]]:
-    """Return expected H, W, and stored GSD for each index row.
+    """Return the indexed H, W, and stored GSD for each index row.
 
     Args:
-        source: Raw source. ``extent_m`` selects the size rule.
         refs: Source index.
 
     Returns:
@@ -272,8 +268,8 @@ def _geometry_table(
         lateral metres, and along-track metres.
 
     Raises:
-        ValueError: If a GSD component is not finite and positive, or the
-            rounded size is below 1.
+        ValueError: If a GSD component is not finite and positive, a label is
+            not binary, or an indexed dimension is not a positive integer.
     """
     heights: list[int] = []
     widths: list[int] = []
@@ -283,12 +279,15 @@ def _geometry_table(
         _require_gsd(ref)
         if not math.isfinite(ref.label) or ref.label not in (0.0, 1.0):
             raise ValueError(f"label must be binary for {ref.tile_id}")
-        height, width = _expected_hw(source, ref)
-        lateral, along = _stored_gsd(source, ref, height, width)
-        heights.append(height)
-        widths.append(width)
-        laterals.append(lateral)
-        alongs.append(along)
+        for name, value in (("height", ref.height), ("width", ref.width)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(
+                    f"indexed {name} must be an integer >= 1 for {ref.tile_id}; got {value}"
+                )
+        heights.append(ref.height)
+        widths.append(ref.width)
+        laterals.append(ref.gsd.lateral_m)
+        alongs.append(ref.gsd.along_m)
     return heights, widths, laterals, alongs
 
 
@@ -307,54 +306,6 @@ def _require_gsd(ref: RawTileRef) -> None:
     for name, value in (("lateral", ref.gsd.lateral_m), ("along", ref.gsd.along_m)):
         if not math.isfinite(value) or value <= 0.0:
             raise ValueError(f"{name} gsd must be finite and > 0 for {ref.tile_id}; got {value}")
-
-
-def _expected_hw(source: RawSource, ref: RawTileRef) -> tuple[int, int]:
-    """Return the pixel size required for one tile.
-
-    Args:
-        source: Raw source.
-        ref: Source row.
-
-    Returns:
-        tuple[int, int]: ``(height, width)``.
-
-    Raises:
-        ValueError: If ``extent_m`` rounds to an empty tile.
-
-    Notes:
-        A missing extent means the flight tile size. A present extent is
-        ``(lateral_m, along_m)`` and the size is ``round(extent / gsd)``.
-    """
-    if source.extent_m is None:
-        return tile_hw()
-    lateral_extent, along_extent = source.extent_m
-    if any(not math.isfinite(value) or value <= 0 for value in source.extent_m):
-        raise ValueError(f"extent_m must be positive; got {source.extent_m}")
-    width = int(round(lateral_extent / ref.gsd.lateral_m))
-    height = int(round(along_extent / ref.gsd.along_m))
-    if height < 1 or width < 1:
-        raise ValueError(f"rounded size for {ref.tile_id} is {height}x{width}")
-    return (height, width)
-
-
-def _stored_gsd(source: RawSource, ref: RawTileRef, height: int, width: int) -> tuple[float, float]:
-    """Return the GSD written to ``gsd.npy``.
-
-    Args:
-        source: Raw source.
-        ref: Source row.
-        height: Expected H.
-        width: Expected W.
-
-    Returns:
-        tuple[float, float]: Lateral and along-track metres. When the source
-        has an extent, the values are ``extent / pixels`` after rounding.
-    """
-    if source.extent_m is None:
-        return (ref.gsd.lateral_m, ref.gsd.along_m)
-    lateral_extent, along_extent = source.extent_m
-    return (lateral_extent / width, along_extent / height)
 
 
 def _split_names(refs: tuple[RawTileRef, ...], spec: BuildSpec) -> list[str]:
@@ -456,13 +407,14 @@ def _elements_for(split_name: str, height: int, width: int, spec: BuildSpec) -> 
 
 
 def _open_writers(
-    dest: Path, planned: list[_Planned]
+    dest: Path, planned: list[_Planned], channels: int
 ) -> dict[tuple[str, str, int, int], ShardWriter]:
     """Allocate one writer per shard.
 
     Args:
         dest: Dataset root.
         planned: Output rows.
+        channels: Source channel count.
 
     Returns:
         dict[tuple[str, str, int, int], ShardWriter]: Keyed by task, split, H, W.
@@ -480,6 +432,7 @@ def _open_writers(
             count,
             height,
             width,
+            channels=channels,
             with_masks=task == "segmentor",
         )
     return writers
@@ -518,9 +471,8 @@ def _fill(
         if index >= len(refs):
             raise ValueError("iter_tiles yielded more rows than index")
         _require_tile(tile, refs[index], heights[index], widths[index], source)
-        unit = to_unit(tile.image, source.domain, source.bit_depth)
         for item in by_index.get(index, []):
-            _append_planned(writers, item, tile, unit)
+            _append_planned(writers, item, tile)
         seen += 1
     if seen != len(refs):
         raise ValueError("iter_tiles ended before the index")
@@ -552,9 +504,13 @@ def _require_tile(
         raise ValueError(f"iter_tiles order mismatch at {ref.tile_id}: got {tile.ref.tile_id}")
     expected = (len(source.band_names), height, width)
     if tile.image.shape != expected:
-        raise ValueError(
-            f"{ref.tile_id} shape {tile.image.shape} is inconsistent with gsd size {expected}"
-        )
+        raise ValueError(f"{ref.tile_id} shape {tile.image.shape} != indexed size {expected}")
+    if tile.image.dtype != np.float32:
+        raise ValueError(f"{ref.tile_id} image must be float32; got {tile.image.dtype}")
+    if not np.all(np.isfinite(tile.image)):
+        raise ValueError(f"{ref.tile_id} image contains non-finite pixels")
+    if not np.all((tile.image >= 0.0) & (tile.image <= 1.0)):
+        raise ValueError(f"{ref.tile_id} image values must lie in [0, 1]")
     if ref.has_mask:
         if tile.mask is None or tile.mask.shape != (1, height, width):
             raise ValueError(f"{ref.tile_id} mask must be (1, {height}, {width})")
@@ -562,28 +518,24 @@ def _require_tile(
             raise ValueError(f"{ref.tile_id} mask must contain binary pixels")
     elif tile.mask is not None:
         raise ValueError(f"{ref.tile_id} has a mask but has_mask is false")
-    if not np.all(np.isfinite(tile.image)):
-        raise ValueError(f"{ref.tile_id} image contains non-finite pixels")
 
 
 def _append_planned(
     writers: dict[tuple[str, str, int, int], ShardWriter],
     item: _Planned,
     tile: RawTile,
-    unit: np.ndarray,
 ) -> None:
-    """Quantize one augmented row into its shard.
+    """Copy one augmented row into its shard.
 
     Args:
         writers: Open shard writers.
         item: Planned output row.
-        tile: Source tile.
-        unit: np.ndarray[float32, (3, H, W)] in ``[0, 1]``.
+        tile: Source tile whose image is float32 ``(C, H, W)`` in ``[0, 1]``.
 
     Returns:
         None.
     """
-    image = quantize_unit(apply_dihedral(unit, item.element))
+    image = apply_dihedral(tile.image, item.element)
     mask: np.ndarray | None = None
     if item.task == "segmentor":
         if tile.mask is None:
@@ -627,7 +579,8 @@ def _manifest(
         dataset_hash: Content hash of the shard files.
 
     Returns:
-        DatasetManifest: Identity with ``norm`` ``unit`` and ``image_scale`` 65535.
+        DatasetManifest: Identity with ``norm`` ``unit`` and ``image_dtype``
+        ``float32``.
     """
     counts: dict[tuple[str, str, int, int], list[int]] = {}
     laterals = [item.lateral_m for item in planned]
@@ -663,9 +616,9 @@ def _manifest(
         source=source.name,
         source_ref=source.source_ref,
         weight_table_id=spec.weight_table_id,
-        band_names=tuple(spec.input_bands),
+        band_names=tuple(source.band_names),
         norm="unit",
-        image_scale=IMAGE_SCALE,
+        image_dtype="float32",
         gsd_reference_m=spec.gsd_reference_m,
         split=spec.split,
         augment=spec.augment,

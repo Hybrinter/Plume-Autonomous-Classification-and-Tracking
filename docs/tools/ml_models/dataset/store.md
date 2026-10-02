@@ -22,12 +22,15 @@ This module writes and reads one finished-dataset shard: preallocated
 
 ## Inputs and outputs
 
-`ShardWriter(directory, count, height, width, with_masks=...)` creates the
-directory and allocates `images.npy` uint16 `(N, 3, H, W)`, `gsd.npy`
+`ShardWriter(directory, count, height, width, *, channels,
+with_masks=...)` creates the
+directory and allocates `images.npy` float32 `(N, C, H, W)`, `gsd.npy`
 float32 `(N, 2)`, `labels.npy` float32 `(N, 1)`, and `masks.npy` uint8
-`(N, 1, H, W)` when `with_masks` is True.
+`(N, 1, H, W)` when `with_masks` is True. `channels` is a required
+keyword.
 
-`ShardWriter.append(image, gsd_m, label, mask, row)` writes the next row.
+`ShardWriter.append(image, gsd_m, label, mask, row)` writes the next row;
+`image` is float32 `(C, H, W)`.
 `ShardWriter.close()` flushes the arrays and writes `rows.jsonl`.
 `ShardWriter.abort()` drops the memmap handles without writing rows.
 
@@ -45,7 +48,8 @@ The readers return `np.ndarray` arrays, or `tuple[RowRecord, ...]` for
 
 ## Errors and faults
 
-`ValueError` on a non-positive shard shape, a full shard, or an array with
+`ValueError` on a non-positive shard shape, a full shard, a `channels`
+below 1, or an array with
 the wrong dtype or shape. `RuntimeError` when a classifier shard receives
 a mask, a segmentor shard misses one, or `close` runs before the shard is
 full. `read_rows` raises `ValueError` when a line is not an object with

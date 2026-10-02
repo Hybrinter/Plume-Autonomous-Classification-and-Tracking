@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from tools.ml_models.dataset.store import RowRecord, ShardWriter, read_rows
+from tools.ml_models.dataset.store import RowRecord, ShardWriter, read_images, read_rows
 
 
 def _write_one_row(
@@ -15,12 +15,53 @@ def _write_one_row(
     with_masks: bool = False,
 ) -> Path:
     """Write a single-row shard and return its ``rows.jsonl`` path."""
-    writer = ShardWriter(shard_dir, 1, 4, 8, with_masks=with_masks)
-    image = np.zeros((3, 4, 8), dtype=np.uint16)
+    writer = ShardWriter(shard_dir, 1, 4, 8, channels=3, with_masks=with_masks)
+    image = np.zeros((3, 4, 8), dtype=np.float32)
     mask = np.zeros((1, 4, 8), dtype=np.uint8) if with_masks else None
     writer.append(image, np.array([10.0, 20.0], dtype=np.float32), 1.0, mask, row)
     writer.close()
     return shard_dir / "rows.jsonl"
+
+
+def test_writer_allocates_explicit_channel_count(tmp_path: Path) -> None:
+    """A non-three-channel shard stores float32 (N, C, H, W) images."""
+    writer = ShardWriter(tmp_path / "shard", 1, 4, 8, channels=1, with_masks=False)
+    row = RowRecord(
+        tile_id="t0",
+        group_id="g0",
+        frame_id="f0",
+        grid_rc=(0, 0),
+        bin_id="",
+        element="id",
+    )
+    image = np.full((1, 4, 8), 0.5, dtype=np.float32)
+    writer.append(image, np.array([10.0, 20.0], dtype=np.float32), 1.0, None, row)
+    writer.close()
+    stored = read_images(tmp_path / "shard")
+    assert stored.dtype == np.float32
+    np.testing.assert_array_equal(stored[0], image)
+
+
+def test_writer_rejects_wrong_image_dtype(tmp_path: Path) -> None:
+    """A uint16 image cannot enter a float32 shard."""
+    writer = ShardWriter(tmp_path / "shard", 1, 4, 8, channels=3, with_masks=False)
+    row = RowRecord(
+        tile_id="t0",
+        group_id="g0",
+        frame_id="f0",
+        grid_rc=(0, 0),
+        bin_id="",
+        element="id",
+    )
+    with pytest.raises(ValueError, match="float32"):
+        writer.append(
+            np.zeros((3, 4, 8), dtype=np.uint16),
+            np.array([10.0, 20.0], dtype=np.float32),
+            1.0,
+            None,
+            row,
+        )
+    writer.abort()
 
 
 def test_writer_always_emits_angle_and_nominal(tmp_path: Path) -> None:

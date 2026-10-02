@@ -7,10 +7,9 @@ Contains:
   - FlightTileDir: ``RawSource`` reader.
 
 This module describes imported finished tiles; it does not implement onboard
-frame collection or storage policy. On-disk images are uint16 ``(3, 193,
-258)`` in ``input_bands`` order. Masks are
-uint8 ``(193, 258)``. A missing ``group_id`` in ``index.jsonl`` defaults to
-``frame_id``.
+frame collection or storage policy. On-disk images are float32 unit pixels
+``(C, H, W)`` in ``band_names`` order. Masks are uint8 ``(H, W)``. A missing
+``group_id`` in ``index.jsonl`` defaults to ``frame_id``.
 """
 
 from __future__ import annotations
@@ -22,17 +21,28 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from flight.libs.config import InferenceConfig
 
-from tools.ml_models.dataset.geometry import (
-    GRID_COLS,
-    GRID_ROWS,
-    GSD_REFERENCE_M,
-    INPUT_BANDS,
-    tile_hw,
-)
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 
-_SOURCE_KEYS: tuple[str, ...] = ("band_names", "bit_depth", "source_ref", "gsd_reference_m")
+SCHEMA_VERSION = 2
+_DEFAULT = InferenceConfig()
+_DEFAULT_TILE_HW = (
+    _DEFAULT.input_height_px // _DEFAULT.tile_rows,
+    _DEFAULT.input_width_px // _DEFAULT.tile_cols,
+)
+_DEFAULT_GRID = (_DEFAULT.tile_rows, _DEFAULT.tile_cols)
+
+_SOURCE_KEYS: tuple[str, ...] = (
+    "schema",
+    "domain",
+    "image_dtype",
+    "band_names",
+    "tile_hw",
+    "grid",
+    "source_ref",
+    "gsd_reference_m",
+)
 _INDEX_REQUIRED: tuple[str, ...] = (
     "tile_id",
     "frame_id",
@@ -60,8 +70,8 @@ class FlightTileWrite:
         label: Classification target.
         theta_g_deg: Gimbal elevation at the shutter, in degrees.
         gsd: Pixel GSD at the tile center.
-        image: np.ndarray[uint16, (len(INPUT_BANDS), 193, 258)].
-        mask: np.ndarray[uint8, (193, 258)] or ``(1, 193, 258)``. None when
+        image: np.ndarray[float32, (len(band_names), H, W)] unit pixels.
+        mask: np.ndarray[uint8, (H, W)] or ``(1, H, W)``. None when
             the tile has no mask.
         group_id: Split group. None stores ``frame_id``.
         gsd_nominal: True when ``gsd`` is nominal orbit geometry rather than
@@ -85,10 +95,11 @@ def write_flight_tile_dir(
     dest: str | Path,
     tiles: tuple[FlightTileWrite, ...] | list[FlightTileWrite],
     *,
-    band_names: tuple[str, ...] = INPUT_BANDS,
-    bit_depth: int = 12,
+    band_names: tuple[str, ...] = _DEFAULT.input_bands,
+    tile_hw: tuple[int, int] = _DEFAULT_TILE_HW,
+    grid: tuple[int, int] = _DEFAULT_GRID,
     source_ref: str = "",
-    gsd_reference_m: float = GSD_REFERENCE_M,
+    gsd_reference_m: float = _DEFAULT.gsd_reference_m,
 ) -> None:
     """Write a flight tile directory.
 
@@ -96,7 +107,8 @@ def write_flight_tile_dir(
         dest: New directory.
         tiles: Tiles in index order.
         band_names: Channel names stored in ``source.json``.
-        bit_depth: ADC depth stored in ``source.json``.
+        tile_hw: ``(height, width)`` stored in ``source.json``.
+        grid: ``(rows, cols)`` stored in ``source.json``.
         source_ref: Provenance string.
         gsd_reference_m: Reference metres stored in ``source.json``.
 
@@ -110,8 +122,10 @@ def write_flight_tile_dir(
     root = Path(dest)
     if root.exists():
         raise FileExistsError(f"flight tile directory exists: {root}")
-    if bit_depth < 1:
-        raise ValueError(f"bit_depth must be >= 1; got {bit_depth}")
+    height, width = _positive_pair(tile_hw, "tile_hw")
+    grid_rows, grid_cols = _positive_pair(grid, "grid")
+    if len(band_names) < 1:
+        raise ValueError("band_names must be non-empty")
     if not math.isfinite(gsd_reference_m) or gsd_reference_m <= 0.0:
         raise ValueError("gsd_reference_m must be finite and > 0")
     if len(tiles) < 1:
@@ -120,8 +134,12 @@ def write_flight_tile_dir(
     (root / "tiles").mkdir()
     (root / "masks").mkdir()
     source_payload = {
+        "schema": SCHEMA_VERSION,
+        "domain": "unit",
+        "image_dtype": "float32",
         "band_names": list(band_names),
-        "bit_depth": bit_depth,
+        "tile_hw": [height, width],
+        "grid": [grid_rows, grid_cols],
         "source_ref": source_ref,
         "gsd_reference_m": gsd_reference_m,
     }
@@ -131,9 +149,8 @@ def write_flight_tile_dir(
     )
     lines: list[str] = []
     seen: set[str] = set()
-    height, width = tile_hw()
     for tile in tiles:
-        _validate_write(tile, height, width, seen)
+        _validate_write(tile, band_names, height, width, grid_rows, grid_cols, seen)
         seen.add(tile.tile_id)
         group_id = tile.frame_id if tile.group_id is None else tile.group_id
         np.save(root / "tiles" / f"{tile.tile_id}.npy", tile.image)
@@ -167,17 +184,16 @@ class FlightTileDir:
     Attributes:
         name: Always ``flight``.
         band_names: From ``source.json``.
-        domain: Always ``dn``.
-        bit_depth: From ``source.json``.
+        domain: Always ``unit``.
         source_ref: From ``source.json``.
-        extent_m: Always None. Tiles are the flight size.
         bins: Always empty.
+        tile_hw: Recorded ``(height, width)``.
+        grid: Recorded ``(rows, cols)``.
         gsd_reference_m: From ``source.json``.
     """
 
     name = "flight"
-    domain = "dn"
-    extent_m: tuple[float, float] | None = None
+    domain = "unit"
     bins: tuple[BinSpec, ...] = ()
 
     def __init__(self, root: str | Path) -> None:
@@ -192,14 +208,21 @@ class FlightTileDir:
         """
         self._root = Path(root)
         payload = _read_object(self._root / "source.json")
+        if payload.get("schema") != SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported flight tile source schema {payload.get('schema')!r}; "
+                f"rewrite the tile directory with schema {SCHEMA_VERSION}"
+            )
         extra = sorted(set(payload) - set(_SOURCE_KEYS))
         if extra or any(key not in payload for key in _SOURCE_KEYS):
             raise ValueError(f"source.json keys must be {_SOURCE_KEYS}")
+        if payload["domain"] != "unit":
+            raise ValueError("domain must be 'unit'")
+        if payload["image_dtype"] != "float32":
+            raise ValueError("image_dtype must be 'float32'")
         self.band_names = _string_tuple(payload["band_names"], "band_names")
-        bit_depth = payload["bit_depth"]
-        if isinstance(bit_depth, bool) or not isinstance(bit_depth, int) or bit_depth < 1:
-            raise ValueError("bit_depth must be an integer >= 1")
-        self.bit_depth = bit_depth
+        self.tile_hw = _positive_pair(payload["tile_hw"], "tile_hw")
+        self.grid = _positive_pair(payload["grid"], "grid")
         source_ref = payload["source_ref"]
         if not isinstance(source_ref, str):
             raise ValueError("source_ref must be a string")
@@ -210,7 +233,7 @@ class FlightTileDir:
         if not math.isfinite(float(reference)) or float(reference) <= 0.0:
             raise ValueError("gsd_reference_m must be finite and > 0")
         self.gsd_reference_m = float(reference)
-        self._refs = _load_index(self._root / "index.jsonl")
+        self._refs = _load_index(self._root / "index.jsonl", self.tile_hw, self.grid)
 
     def index(self) -> tuple[RawTileRef, ...]:
         """Return the index in file order.
@@ -228,17 +251,19 @@ class FlightTileDir:
 
         Raises:
             ValueError: If an image or a required mask is missing or has the
-                wrong shape.
+                wrong dtype or shape.
         """
-        height, width = tile_hw()
+        height, width = self.tile_hw
         for ref in self._refs:
             image_path = self._root / "tiles" / f"{ref.tile_id}.npy"
             if not image_path.is_file():
                 raise ValueError(f"missing tile array {image_path}")
             image = np.load(image_path)
-            expected_shape = (len(INPUT_BANDS), height, width)
-            if image.dtype != np.uint16 or image.shape != expected_shape:
-                raise ValueError(f"{ref.tile_id} image must be uint16 {expected_shape}")
+            expected_shape = (len(self.band_names), height, width)
+            if image.dtype != np.float32 or image.shape != expected_shape:
+                raise ValueError(f"{ref.tile_id} image must be float32 {expected_shape}")
+            if not np.all(np.isfinite(image)) or not np.all((image >= 0.0) & (image <= 1.0)):
+                raise ValueError(f"{ref.tile_id} image values must be finite inside [0, 1]")
             mask: np.ndarray | None = None
             if ref.has_mask:
                 mask_path = self._root / "masks" / f"{ref.tile_id}.npy"
@@ -253,16 +278,22 @@ class FlightTileDir:
 
 def _validate_write(
     tile: FlightTileWrite,
+    band_names: tuple[str, ...],
     height: int,
     width: int,
+    grid_rows: int,
+    grid_cols: int,
     seen: set[str],
 ) -> None:
     """Raise ValueError when a tile cannot be written.
 
     Args:
         tile: Tile to store.
+        band_names: Recorded channel names.
         height: Required H.
         width: Required W.
+        grid_rows: Recorded grid rows.
+        grid_cols: Recorded grid columns.
         seen: Tile ids already written.
 
     Returns:
@@ -281,9 +312,9 @@ def _validate_write(
         raise ValueError(f"tile_id must be a unique file stem; got {tile.tile_id!r}")
     if not tile.frame_id:
         raise ValueError("frame_id must be non-empty")
-    if not (0 <= tile.row < GRID_ROWS and 0 <= tile.col < GRID_COLS):
+    if not (0 <= tile.row < grid_rows and 0 <= tile.col < grid_cols):
         raise ValueError(
-            f"row must lie in 0..{GRID_ROWS - 1} and col in 0..{GRID_COLS - 1}; "
+            f"row must lie in 0..{grid_rows - 1} and col in 0..{grid_cols - 1}; "
             f"got {tile.row}, {tile.col}"
         )
     if not math.isfinite(tile.label) or not math.isfinite(tile.theta_g_deg):
@@ -294,9 +325,11 @@ def _validate_write(
         raise ValueError("gsd lateral_m must be finite and > 0")
     if not math.isfinite(tile.gsd.along_m) or tile.gsd.along_m <= 0.0:
         raise ValueError("gsd along_m must be finite and > 0")
-    expected_shape = (len(INPUT_BANDS), height, width)
-    if tile.image.dtype != np.uint16 or tile.image.shape != expected_shape:
-        raise ValueError(f"image must be uint16 {expected_shape}")
+    expected_shape = (len(band_names), height, width)
+    if tile.image.dtype != np.float32 or tile.image.shape != expected_shape:
+        raise ValueError(f"image must be float32 {expected_shape}")
+    if not np.all(np.isfinite(tile.image)) or not np.all((tile.image >= 0.0) & (tile.image <= 1.0)):
+        raise ValueError("image values must be finite inside [0, 1]")
     if tile.mask is not None:
         _mask_hw(tile.mask, height, width)
     if tile.group_id is not None and not tile.group_id:
@@ -326,11 +359,15 @@ def _mask_hw(mask: np.ndarray, height: int, width: int) -> np.ndarray:
     raise ValueError(f"mask must be {(height, width)} or {(1, height, width)}; got {mask.shape}")
 
 
-def _load_index(path: Path) -> tuple[RawTileRef, ...]:
+def _load_index(
+    path: Path, tile_hw: tuple[int, int], grid: tuple[int, int]
+) -> tuple[RawTileRef, ...]:
     """Parse ``index.jsonl`` into raw refs.
 
     Args:
         path: JSONL path.
+        tile_hw: Recorded ``(height, width)`` copied onto each ref.
+        grid: Recorded ``(rows, cols)`` bounding grid indices.
 
     Returns:
         tuple[RawTileRef, ...]: One ref per non-empty line.
@@ -339,6 +376,8 @@ def _load_index(path: Path) -> tuple[RawTileRef, ...]:
         OSError / json.JSONDecodeError: On a missing or malformed file.
         ValueError: If a row is missing a field or has the wrong type.
     """
+    height, width = tile_hw
+    grid_rows, grid_cols = grid
     refs: list[RawTileRef] = []
     seen: set[str] = set()
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -362,9 +401,9 @@ def _load_index(path: Path) -> tuple[RawTileRef, ...]:
         group_raw = raw.get("group_id", frame_id)
         group_id = _require_str(group_raw, "group_id")
         row, col = _require_int(raw["row"], "row"), _require_int(raw["col"], "col")
-        if row >= GRID_ROWS or col >= GRID_COLS:
+        if row >= grid_rows or col >= grid_cols:
             raise ValueError(
-                f"flight grid indices must lie in row 0..{GRID_ROWS - 1}, col 0..{GRID_COLS - 1}"
+                f"flight grid indices must lie in row 0..{grid_rows - 1}, col 0..{grid_cols - 1}"
             )
         theta_g_deg = _require_float(raw["theta_g_deg"], "theta_g_deg")
         gsd_nominal = _require_bool(raw.get("gsd_nominal", False), "gsd_nominal")
@@ -379,6 +418,8 @@ def _load_index(path: Path) -> tuple[RawTileRef, ...]:
                     lateral_m=_require_positive(raw["gsd_lateral_m"], "gsd_lateral_m"),
                     along_m=_require_positive(raw["gsd_along_m"], "gsd_along_m"),
                 ),
+                height=height,
+                width=width,
                 frame_id=frame_id,
                 grid_rc=(row, col),
                 bin_id=f"elevation{nearest}",
@@ -436,6 +477,28 @@ def _string_tuple(value: object, name: str) -> tuple[str, ...]:
             raise ValueError(f"{name} must be a non-empty list of strings")
         items.append(item)
     return tuple(items)
+
+
+def _positive_pair(value: object, name: str) -> tuple[int, int]:
+    """Return a pair of positive integers.
+
+    Args:
+        value: Candidate two-element list.
+        name: Field name used in the error.
+
+    Returns:
+        tuple[int, int]: Parsed pair.
+
+    Raises:
+        ValueError: If the value is not a pair of integers >= 1.
+    """
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        raise ValueError(f"{name} must be a pair of integers >= 1")
+    first, second = value
+    for item in (first, second):
+        if isinstance(item, bool) or not isinstance(item, int) or item < 1:
+            raise ValueError(f"{name} must be a pair of integers >= 1")
+    return (first, second)
 
 
 def _require_str(value: object, name: str) -> str:

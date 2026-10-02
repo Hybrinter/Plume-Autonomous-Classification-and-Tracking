@@ -35,16 +35,13 @@ class MemorySource:
         tiles: tuple[RawTile, ...],
         *,
         band_names: tuple[str, ...] = ("BLUE", "GREEN", "RED"),
-        extent_m: tuple[float, float] = (80.0, 80.0),
         source_ref: str = "test",
         bins: tuple[BinSpec, ...] = (),
     ) -> None:
         self.name = "memory"
         self.band_names = band_names
-        self.domain = "dn"
-        self.bit_depth = 12
+        self.domain = "unit"
         self.source_ref = source_ref
-        self.extent_m: tuple[float, float] | None = extent_m
         self.bins = bins
         self._tiles = tiles
 
@@ -69,7 +66,8 @@ def _tile(
 ) -> RawTile:
     """Build one small raw tile."""
     height, width = shape
-    image = np.arange(3 * height * width, dtype=np.uint16).reshape(3, height, width) % 1024
+    image = np.arange(3 * height * width, dtype=np.float32).reshape(3, height, width) % 1024
+    image = image / np.float32(1024.0)
     mask = None
     if has_mask:
         mask = np.zeros((1, height, width), dtype=np.uint8)
@@ -81,6 +79,8 @@ def _tile(
             label=label,
             has_mask=has_mask,
             gsd=gsd,
+            height=height,
+            width=width,
             frame_id=group_id,
             grid_rc=None,
             bin_id=bin_id,
@@ -132,7 +132,6 @@ def _build(
     spec: BuildSpec,
     *,
     band_names: tuple[str, ...] = ("BLUE", "GREEN", "RED"),
-    extent_m: tuple[float, float] = (80.0, 80.0),
     source_ref: str = "test",
     bins: tuple[BinSpec, ...] = (),
 ) -> Path:
@@ -141,7 +140,6 @@ def _build(
         MemorySource(
             tiles,
             band_names=band_names,
-            extent_m=extent_m,
             source_ref=source_ref,
             bins=bins,
         ),
@@ -158,7 +156,6 @@ def _two_datasets(tmp_path: Path) -> tuple[Path, Path]:
         tmp_path / "b",
         _groups("b", GsdPair(2.0, 4.0), (40, 20)),
         _spec(),
-        extent_m=(40.0, 160.0),
     )
     return first, second
 
@@ -208,7 +205,7 @@ def test_tiny_train_over_two_datasets(tmp_path: Path) -> None:
     model.load_state_dict(checkpoint["state_dict"])
     model.eval()
     shard_dir = next((first / "segmentor" / "val").iterdir())
-    dataset = ShardDataset(shard_dir, provenance["gsd_reference_m"], "segmentor")
+    dataset = ShardDataset(shard_dir, provenance["gsd_reference_m"], "segmentor", channels=3)
     images, gsd, targets = next(iter(DataLoader(dataset, batch_size=2)))
     with torch.no_grad():
         output: torch.Tensor = model(images, gsd)

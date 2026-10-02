@@ -15,7 +15,7 @@ them for model work. Each source writes its own dataset root: shards of
 | --- | --- | --- |
 | [`raw`](dataset/raw.md) | module | Raw tile contract: refs, tiles, and the source protocol |
 | [`geometry`](dataset/geometry.md) | module | Flight frame, grid, and tile geometry |
-| [`preprocess`](dataset/preprocess.md) | module | Unit-interval conversion, uint16 quantization, model GSD |
+| [`gsd`](dataset/gsd.md) | module | Model GSD log-ratio encoding |
 | [`augment`](dataset/augment.md) | module | Offline dihedral element names and application |
 | [`split`](dataset/split.md) | module | Group-wise train, val, and test indices |
 | [`store`](dataset/store.md) | module | Shard writer and per-file readers |
@@ -35,15 +35,14 @@ import each module by name.
 `build` consumes a `RawSource` from `sources` (including the `zenodo`
 archive adapter) and writes shards through
 `store`, then writes `dataset.json` through `manifest`. `build` calls
-`preprocess`, `augment`, `split`, and `geometry`. `preprocess` calls
-`flight.payload.preprocess.normalize.normalize_dn`. `loader` reads
-`manifest` and the shard files and returns torch tensors. No module
+`augment` and `split`. `loader` reads `manifest` and the shard files,
+encodes GSD through `gsd`, and returns torch tensors. No module
 publishes on the bus.
 
 ## Constraints
 
 - `loader` is the only module in this package that imports torch.
-- Stored images are uint16 on the 65535 grid, shaped `(N, 3, H, W)`.
+- Stored images are float32 unit pixels, shaped `(N, C, H, W)`.
 - Stored GSD is float32 metres, shaped `(N, 2)`. Labels are float32
   `(N, 1)`. Segmentor masks are uint8 `(N, 1, H, W)`.
 - A build writes to a sibling `.<name>.partial-*` directory and renames it
@@ -58,4 +57,4 @@ publishes on the bus.
 - [`tools.ml_models.dataset.loader`](dataset/loader.md)
 - [`tools.ml_models.dataset.manifest`](dataset/manifest.md)
 - [`tools.ml_models.dataset.sources`](dataset/sources.md)
-- [`flight.payload.preprocess.normalize`](../../flight/payload/preprocess/normalize.md)
+- [`flight.payload.gimbal.footprint`](../../flight/payload/gimbal/footprint.md)

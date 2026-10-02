@@ -29,7 +29,6 @@ from tools.ml_models.dataset.geometry import (
     tile_hw,
 )
 from tools.ml_models.dataset.manifest import load_manifest
-from tools.ml_models.dataset.preprocess import dequantize_unit
 from tools.ml_models.dataset.store import read_rows
 from tools.ml_models.train.metrics import classifier_metrics, compute_dice, compute_iou
 
@@ -192,7 +191,7 @@ def evaluate_flight_frames(
             ):
                 raise ValueError("test frame has invalid or repeated tile coordinates")
             frames[row.frame_id][r * grid_cols + c] = (
-                dequantize_unit(images[index]),
+                np.asarray(images[index], dtype=np.float32),
                 np.asarray(gsds[index]),
                 float(labels[index, 0]),
                 row.tile_id,

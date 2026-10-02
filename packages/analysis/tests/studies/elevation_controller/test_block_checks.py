@@ -14,7 +14,7 @@ from flight.libs.time import ManualClock
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType, Ok
 from flight.payload.control import PayloadController, VisionSample
 from flight.payload.gimbal.inner import inner_step
-from flight.payload.gimbal.outer import outer_rate
+from flight.payload.gimbal.outer import clip_rate, rate_decision, smear_cap_rad_s
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.gimbal.rate_fit import fit_rate
 from flight.payload.gimbal.request import GimbalRequest
@@ -270,53 +270,50 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
     hw = math.radians(10.0)
     oracle_13us = 1.0 * ifov_rad / 13e-6
     assert oracle_13us > hw
-    r_13 = outer_rate(
+    rel_13 = clip_rate(8.0 * math.radians(4.0), oracle_13us)
+    r_13 = rate_decision(
         0.0,
-        0.0,
-        math.radians(4.0),
-        8.0,
-        GimbalState.TRACKING,
-        True,
+        rel_13,
+        rel_13,
+        oracle_13us,
         math.radians(10.0),
+        0.0,
         math.radians(45.0),
         hw,
-        13.0,
-        1.0,
-        ifov,
+        math.inf,
+        math.inf,
     )
     assert abs(abs(r_13.commanded_rate_rad_s) - hw) < 1e-12
     t_exp = 2000e-6
     oracle = 1.0 * ifov_rad / t_exp
+    sharp = smear_cap_rad_s(2000.0, 1.0, ifov)
     nom = math.radians(1.0)
-    r_long = outer_rate(
+    rel_long = clip_rate(8.0 * math.radians(4.0), sharp)
+    r_long = rate_decision(
         nom,
-        0.0,
-        math.radians(4.0),
-        8.0,
-        GimbalState.TRACKING,
-        True,
+        rel_long,
+        nom + rel_long,
+        sharp,
         math.radians(10.0),
+        0.0,
         math.radians(45.0),
         hw,
-        2000.0,
-        1.0,
-        ifov,
+        math.inf,
+        math.inf,
     )
     assert oracle < hw
     assert abs(r_long.commanded_rate_rad_s - (nom + oracle)) < 1e-12
-    r_rewind = outer_rate(
+    r_rewind = rate_decision(
         nom,
-        math.radians(9.0),
-        0.0,
-        8.0,
-        GimbalState.REWIND,
-        False,
+        sharp,
+        nom + sharp,
+        sharp,
         math.radians(10.0),
+        0.0,
         math.radians(45.0),
         hw,
-        2000.0,
-        1.0,
-        ifov,
+        math.inf,
+        math.inf,
     )
     assert abs(r_rewind.commanded_rate_rad_s - (nom + oracle)) < 1e-12
 

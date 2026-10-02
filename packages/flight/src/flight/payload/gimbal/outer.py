@@ -1,10 +1,10 @@
-"""Tracking elevation rate law: scene match plus smear-capped relative rate (pure, SI).
+"""Elevation rate-law primitives: smear cap, clips, and RateDecision (pure, SI).
 
-r = sat(omega_scene + clip(relative; omega_sharp); omega_hw). TRACKING matches
-omega_t_nom + omega_t_res and smear-caps only K_p * e_hat. REWIND matches the
-boresight-ground nom and smear-caps the hunt. FAST_REWIND commands the hardware
-slew. Azimuth rate stays on LosPrediction and pointing telemetry; it is not an
-outer_rate input and does not shrink the elevation smear cap. outer_rate returns
+Callers compose the scene and relative terms; rate_decision applies the
+hardware slew clip, the stopping governor, and the science-window guards and
+records the limit flags. r = sat(omega_scene + clip(relative; omega_sharp);
+omega_hw). Azimuth rate stays on LosPrediction and pointing telemetry; it is not
+an input here and does not shrink the elevation smear cap. rate_decision returns
 a RateDecision; commanded_rate_rad_s is the absolute gimbal rate for set_rate.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001, REQ-GIMB-HIGH-003.
@@ -15,8 +15,6 @@ from __future__ import annotations
 # stdlib
 import math
 from dataclasses import dataclass
-
-from flight.libs.types import GimbalState
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,7 +206,7 @@ def finish(
     return limited
 
 
-def _rate_decision(
+def rate_decision(
     scene_rate_rad_s: float,
     requested_relative_rate_rad_s: float,
     requested_rate_rad_s: float,
@@ -255,103 +253,4 @@ def _rate_decision(
         smear_limit_rad_s=smear_limit_rad_s,
         hardware_limited=hw_clipped != requested_rate_rad_s,
         science_limited=commanded != hw_clipped,
-    )
-
-
-def outer_rate(
-    omega_t_nom: float,
-    omega_t_res: float,
-    e_hat: float,
-    k_p: float,
-    mode: GimbalState,
-    live: bool,
-    theta_g_rad: float,
-    theta_sci_max_rad: float,
-    omega_hw_rad_s: float,
-    exposure_us: float,
-    max_motion_smear_px: float,
-    ifov_band_deg_per_px: float,
-    theta_sci_min_rad: float = 0.0,
-    max_decel_rad_s2: float = math.inf,
-    rate_loop_bandwidth_s: float = math.inf,
-) -> RateDecision:
-    """Compute the absolute elevation rate reference as a RateDecision.
-
-    Inputs:
-        omega_t_nom: Co-rotating predictor elevation rate, rad/s.
-        omega_t_res: Residual-rate estimate, rad/s. Ignored in REWIND and FAST_REWIND.
-        e_hat: Residual-filter elevation error, rad.
-        k_p: Outer proportional gain, 1/s.
-        mode: Arbiter mode.
-        live: True when the arbiter has a current target this tick.
-        theta_g_rad: Current elevation, rad.
-        theta_sci_max_rad: Science-limb elevation, rad.
-        omega_hw_rad_s: Hardware slew cap, rad/s.
-        exposure_us: Live (or last) exposure for the elevation smear cap.
-        max_motion_smear_px: Along-track smear budget, pixels.
-        ifov_band_deg_per_px: Band-plane IFOV, deg/px.
-        theta_sci_min_rad: Science-window lower bound, rad.
-        max_decel_rad_s2: Stopping-distance deceleration, rad/s².
-        rate_loop_bandwidth_s: Rate-loop bandwidth used in the stopping governor.
-
-    Outputs:
-        RateDecision: Scene, requested, and commanded rates with limit flags.
-            commanded_rate_rad_s is the absolute gimbal rate reference r.
-    """
-    omega_sharp = smear_cap_rad_s(exposure_us, max_motion_smear_px, ifov_band_deg_per_px)
-
-    if mode.is_rewind_hunt():
-        if theta_g_rad >= theta_sci_max_rad - 1e-9:
-            return RateDecision(
-                scene_rate_rad_s=omega_t_nom,
-                requested_relative_rate_rad_s=0.0,
-                requested_rate_rad_s=0.0,
-                commanded_rate_rad_s=0.0,
-                smear_limit_rad_s=omega_sharp,
-                hardware_limited=False,
-                science_limited=True,
-            )
-        if mode is GimbalState.FAST_REWIND:
-            requested_relative = omega_hw_rad_s
-            requested = omega_hw_rad_s
-        else:
-            requested_relative = omega_sharp
-            requested = omega_t_nom + requested_relative
-        return _rate_decision(
-            omega_t_nom,
-            requested_relative,
-            requested,
-            omega_sharp,
-            theta_g_rad,
-            theta_sci_min_rad,
-            theta_sci_max_rad,
-            omega_hw_rad_s,
-            max_decel_rad_s2,
-            rate_loop_bandwidth_s,
-        )
-
-    if mode is GimbalState.TRACKING and live:
-        omega_scene = omega_t_nom + omega_t_res
-        omega_rel = clip_rate(k_p * e_hat, omega_sharp)
-        return _rate_decision(
-            omega_scene,
-            omega_rel,
-            omega_scene + omega_rel,
-            omega_sharp,
-            theta_g_rad,
-            theta_sci_min_rad,
-            theta_sci_max_rad,
-            omega_hw_rad_s,
-            max_decel_rad_s2,
-            rate_loop_bandwidth_s,
-        )
-
-    return RateDecision(
-        scene_rate_rad_s=0.0,
-        requested_relative_rate_rad_s=0.0,
-        requested_rate_rad_s=0.0,
-        commanded_rate_rad_s=0.0,
-        smear_limit_rad_s=omega_sharp,
-        hardware_limited=False,
-        science_limited=False,
     )

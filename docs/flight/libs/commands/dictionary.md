@@ -42,6 +42,12 @@ parameters against that schema.
 | `GIMBAL_STOW` | `payload` | none | no |
 | `GIMBAL_HOME` | `payload` | none | no |
 | `GIMBAL_GOTO` | `payload` | `el_deg: float` | no |
+| `GIMBAL_HOLD` | `payload` | none | no |
+| `GIMBAL_RESUME` | `payload` | none | no |
+
+`GIMBAL_HOLD` and `GIMBAL_RESUME` are declared graph-vocabulary commands. The
+current payload app has no handler for them and rejects them as unsupported;
+execution arrives with the runtime cutover.
 
 ## Inputs and outputs
 

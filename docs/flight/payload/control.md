@@ -15,8 +15,6 @@ predictor events, vision replay, and the rate law.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `VisionSample` | dataclass | Frame ID, shutter time, error, centroid, exposure, blobs, and ISS |
-| `IssSample` | dataclass | ISS ECI state for the predictor |
 | `EncoderState` | dataclass | Timestamped encoder samples, last angle, and measured rate |
 | `InnerControlState` | dataclass | Inner PI integrator, last inner time, and last torque |
 | `IntegrityState` | dataclass | Freeze strike counter |
@@ -36,9 +34,9 @@ predictor events, vision replay, and the rate law.
 
 `from_config` takes controller, sensor, gimbal, ephemeris, and preprocessing
 slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
-`outer_step` takes an `EncoderSample`, optional `VisionSample`, optional
-`IssSample`, SAFE flags, and an optional explicit
-`PredictorReferenceChange`.
+`outer_step` takes an `EncoderSample`, an optional `VisionSample`, an optional
+`IssSample` (both defined in `flight.payload.records`), SAFE flags, and an
+optional explicit `PredictorReferenceChange`.
 
 `OuterTick.state.residual_history` contains the bounded event history.
 `OuterTick.state.residual` is the snapshot of `estimate_at` at the last

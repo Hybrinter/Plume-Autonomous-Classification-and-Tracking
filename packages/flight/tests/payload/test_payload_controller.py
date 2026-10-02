@@ -8,15 +8,14 @@ from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, 
 from flight.libs.messages import BlobMeta, InferenceResultMsg
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType
 from flight.payload.control import (
-    IssSample,
     OuterTick,
     PayloadController,
-    VisionSample,
     _acquire_resets_residual,
 )
 from flight.payload.gimbal.arbiter import ArbiterState
 from flight.payload.gimbal.intersect import CameraGeometry, intersect_cog
 from flight.payload.gimbal.predictor import predict_los
+from flight.payload.records import IssSample, VisionSample
 from flight.payload.tracking import EncoderSample
 
 _SENSOR = SensorConfig()

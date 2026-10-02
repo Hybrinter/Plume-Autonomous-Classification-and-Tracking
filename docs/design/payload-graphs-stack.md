@@ -819,6 +819,12 @@ to prove an architecture refactor.
 
 ## Execution receipts
 
+PR 4 publication: director review accepted; implementation commit `63bde2b`, branch
+`devin/payload-graphs-04-pure-graphs`, predecessor `7d42c1b`.
+Published PR: https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/111 .
+The table's readiness entry records the pre-publication gate; this receipt confirms publication.
+PR 5 is next. Actual authority integration and teammate contract confirmation remain pending.
+
 | PR | Branch | Base | Status | Evidence | Blockers |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `devin/payload-graphs-01-design-contract` | `main` @ `37aa8f8` | accepted and published; commit `031f9ed` | PR https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/108; `check_docs.py --strict` ok and `check_adr.py --strict` ok after preserving stale ignored source caches outside the source tree; raw logs retained | teammate interface agreement pending (external gate before authority integration) |

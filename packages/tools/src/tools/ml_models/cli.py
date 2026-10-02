@@ -161,6 +161,138 @@ def train_command(
     typer.echo(str(result.value))
 
 
+@app.command("export")
+def export_command(
+    checkpoint: Annotated[
+        Path,
+        typer.Option(..., help="Trained conditioned checkpoint (.pt)."),
+    ],
+    out: Annotated[
+        Path,
+        typer.Option(..., help="Destination ONNX artifact path."),
+    ],
+    allow_partial_gsd: Annotated[
+        bool,
+        typer.Option(help="Record a GSD coverage gap instead of rejecting it."),
+    ] = False,
+    dynamic_spatial: Annotated[
+        bool,
+        typer.Option(help="Allow varying image sizes for research exports."),
+    ] = False,
+) -> None:
+    """Export a conditioned checkpoint as a validated two-input ONNX artifact."""
+    from flight.libs.types import Err
+
+    from tools.ml_models.export.export import ExportConfig, export
+
+    result = export(
+        ExportConfig(
+            checkpoint_path=str(checkpoint),
+            output_path=str(out),
+            allow_partial_gsd=allow_partial_gsd,
+            dynamic_spatial=dynamic_spatial,
+        )
+    )
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(result.value))
+
+
+@app.command("accept")
+def accept_command(
+    artifact: Annotated[Path, typer.Option(..., help="ONNX artifact to gate.")],
+    manifest: Annotated[
+        Path,
+        typer.Option(..., help="Model sidecar JSON for the artifact."),
+    ],
+    dataset: Annotated[
+        list[str],
+        typer.Option(help="Finished dataset directory (repeatable, >=1)."),
+    ],
+    min_iou: Annotated[
+        float, typer.Option(help="Minimum per-source mean IoU for segmentors.")
+    ] = 0.5,
+    min_accuracy: Annotated[
+        float, typer.Option(help="Minimum per-source accuracy for classifiers.")
+    ] = 0.9,
+    max_latency_ms: Annotated[
+        float,
+        typer.Option(help="Worst allowed batch-one CPU latency in milliseconds."),
+    ] = 20.0,
+) -> None:
+    """Gate an artifact on the finished test split and write an acceptance report."""
+    import json
+
+    from tools.ml_models.export.accept import accept_artifact
+    from tools.ml_models.export.manifest import acceptance_path, load_manifest
+
+    if not dataset:
+        raise typer.BadParameter("accept requires at least one --dataset")
+    report_path = acceptance_path(artifact)
+    if report_path.exists():
+        raise typer.BadParameter(f"refusing to overwrite {report_path}")
+    try:
+        model_manifest = load_manifest(manifest)
+        report = accept_artifact(
+            artifact,
+            model_manifest,
+            dataset,
+            min_iou=min_iou,
+            min_accuracy=min_accuracy,
+            max_latency_ms=max_latency_ms,
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    payload = {
+        "sha256": model_manifest.sha256,
+        "datasets": [str(path) for path in dataset],
+        "dataset_hashes": _dataset_hashes(report),
+        "min_iou": min_iou,
+        "min_accuracy": min_accuracy,
+        **report,
+    }
+    try:
+        with report_path.open("x", encoding="utf-8") as stream:
+            stream.write(json.dumps(payload, indent=2) + "\n")
+    except OSError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(str(report_path))
+    if not report["accepted"]:
+        raise typer.Exit(code=1)
+
+
+def _dataset_hashes(report: dict[str, object]) -> list[str]:
+    """Return the dataset hash of every source in an evaluation report."""
+    evaluation = report["evaluation"]
+    assert isinstance(evaluation, dict)
+    entries = evaluation["datasets"]
+    assert isinstance(entries, list)
+    return [str(entry["dataset_hash"]) for entry in entries if isinstance(entry, dict)]
+
+
+@app.command("pair")
+def pair_command(
+    classifier_sidecar: Annotated[Path, typer.Option(..., help="Classifier model sidecar JSON.")],
+    segmentor_sidecar: Annotated[Path, typer.Option(..., help="Segmentor model sidecar JSON.")],
+    out: Annotated[Path, typer.Option(..., help="Destination pair manifest JSON.")],
+    allow_partial_gsd: Annotated[
+        bool,
+        typer.Option(help="Record a GSD coverage gap instead of rejecting it."),
+    ] = False,
+) -> None:
+    """Write a combined manifest for an accepted classifier/segmentor pair."""
+    from flight.libs.types import Err
+
+    from tools.ml_models.export.pair import write_pair_manifest
+
+    result = write_pair_manifest(
+        classifier_sidecar, segmentor_sidecar, out, allow_partial_gsd=allow_partial_gsd
+    )
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(out))
+
+
 def _select_bins(bin_ids: list[str] | None) -> tuple[BinSpec, ...] | None:
     """Resolve repeatable ``--bin-id`` names against ``DEFAULT_BINS``.
 

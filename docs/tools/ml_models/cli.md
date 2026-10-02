@@ -6,8 +6,9 @@
 ## Purpose
 
 This module is the `python -m tools.ml_models` command line. It builds a
-finished dataset from a raw tile source and trains models on finished
-datasets.
+finished dataset from a raw tile source, trains models on finished
+datasets, exports two-input ONNX artifacts, gates acceptance, and writes
+classifier/segmentor pair manifests.
 
 ## Public interface
 
@@ -18,6 +19,9 @@ datasets.
 | `dataset_app` | Typer application | `dataset` subgroup under `app` |
 | `build_command` | function | `dataset build` command |
 | `train_command` | function | `train` command |
+| `export_command` | function | `export` command |
+| `accept_command` | function | `accept` command |
+| `pair_command` | function | `pair` command |
 | `main` | function | Module entry point returning an exit code |
 
 ## Inputs and outputs
@@ -50,6 +54,31 @@ datasets.
 - `--device`: torch device; default is CUDA when available, else CPU.
 - `--epochs`, `--batch-size`, `--max-steps`: loop controls.
 
+`export` options:
+
+- `--checkpoint`: trained conditioned checkpoint. Required.
+- `--out`: destination ONNX artifact. Required.
+- `--allow-partial-gsd`: accept short coverage and record the gap in the sidecar.
+- `--dynamic-spatial` / `--no-dynamic-spatial`: varying image sizes for research,
+  default off. Flight exports use the configured tile size. Dynamic spatial
+  exports cannot pass flight promotion or pairing.
+
+`accept` options:
+
+- `--artifact`: ONNX artifact. Required.
+- `--manifest`: model sidecar JSON. Required.
+- `--dataset`: finished dataset directory, repeatable; at least one.
+- `--min-iou`: segmentor per-source mean-IoU threshold, default 0.5.
+- `--min-accuracy`: classifier per-source accuracy threshold, default 0.9.
+- `--max-latency-ms`: worst batch-one CPU latency in milliseconds, default
+  20.0. These timings are not the on-board 64-tile budget.
+
+`pair` options:
+
+- `--classifier-sidecar`, `--segmentor-sidecar`: model sidecars. Required.
+- `--out`: destination pair manifest JSON. Required.
+- `--allow-partial-gsd`: emit the manifest and record the coverage gap.
+
 `main(argv=None) -> int` returns a process exit code.
 
 ## Behavior
@@ -76,9 +105,12 @@ datasets.
 `typer.BadParameter`, so a bad spec, source directory, archive, or
 destination prints a concise parameter error message. `train` maps
 configuration and run failures to `typer.BadParameter` the same way.
+`export` and `pair` map `Err` results to `typer.BadParameter`. `accept`
+writes the acceptance report and exits nonzero when a gate fails.
 Build error cases are listed under
 [`tools.ml_models.dataset.build`](dataset/build.md); run errors under
-[`tools.ml_models.train.loop`](train/loop.md).
+[`tools.ml_models.train.loop`](train/loop.md); export errors under
+[`tools.ml_models.export.export`](export/export.md).
 
 ## Messages
 

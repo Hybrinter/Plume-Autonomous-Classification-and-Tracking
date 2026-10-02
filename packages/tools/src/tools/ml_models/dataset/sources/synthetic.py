@@ -13,11 +13,11 @@ from collections.abc import Iterator
 
 import numpy as np
 
-from tools.ml_models.dataset.geometry import INPUT_BANDS, tile_hw
+from tools.ml_models.dataset.geometry import GRID_COLS, GSD_REFERENCE_M, INPUT_BANDS, tile_hw
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 
 _WINDOW: tuple[GsdPair, ...] = (
-    GsdPair(15.87, 15.87),
+    GsdPair(GSD_REFERENCE_M, GSD_REFERENCE_M),
     GsdPair(16.5, 17.1),
     GsdPair(18.6, 22.0),
     GsdPair(23.3, 35.8),
@@ -121,7 +121,7 @@ def _generate(n: int, seed: int, label: float | None) -> tuple[RawTile, ...]:
                     has_mask=mask is not None,
                     gsd=gsd,
                     frame_id=group,
-                    grid_rc=(index // 8, index % 8),
+                    grid_rc=(index // GRID_COLS, index % GRID_COLS),
                     bin_id="",
                 ),
                 image=image,

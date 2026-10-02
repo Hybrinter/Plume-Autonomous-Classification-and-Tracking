@@ -14,9 +14,9 @@ stored value back onto the DN grid.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
+from flight.libs.types import Err
+from flight.payload.gimbal.footprint import to_model_gsd as _flight_to_model_gsd
 from flight.payload.preprocess.normalize import normalize_dn
 
 IMAGE_SCALE = 65535
@@ -85,15 +85,7 @@ def to_model_gsd(gsd_m: np.ndarray, reference_m: float) -> np.ndarray:
         ValueError: If the reference or any GSD component is not finite and
             greater than 0.
     """
-    if not math.isfinite(reference_m) or reference_m <= 0.0:
-        raise ValueError(f"gsd reference must be finite and > 0; got {reference_m}")
-    values = np.asarray(gsd_m, dtype=np.float32)
-    if (
-        values.ndim < 1
-        or values.shape[-1] != 2
-        or values.size == 0
-        or not np.all(np.isfinite(values))
-        or np.any(values <= 0.0)
-    ):
-        raise ValueError("gsd metres must be finite and > 0")
-    return np.asarray(np.log(values / np.float32(reference_m))).astype(np.float32)
+    result = _flight_to_model_gsd(np.asarray(gsd_m), reference_m)
+    if isinstance(result, Err):
+        raise ValueError(f"flight GSD encoding rejected input: {result.error}")
+    return result.value

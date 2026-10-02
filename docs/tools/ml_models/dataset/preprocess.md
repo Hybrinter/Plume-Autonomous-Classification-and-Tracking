@@ -30,9 +30,9 @@ Domain `dn` passes the image and bit depth through
 `dequantize_unit(image) -> np.ndarray[float32, (C, H, W)]` divides by
 65535.
 
-`to_model_gsd(gsd_m, reference_m) -> np.ndarray[float32, (..., 2)]` takes
-lateral then along-track metres along a trailing length-2 axis and returns
-the log ratio to the reference.
+`to_model_gsd(gsd_m, reference_m) -> np.ndarray[float32, (..., 2)]` delegates
+to the flight GSD encoder, takes lateral then along-track metres along a
+trailing length-2 axis, and returns the log ratio to the reference.
 
 ## Behavior
 
@@ -41,15 +41,15 @@ the log ratio to the reference.
    value is at most 0.5 / 65535. Normalized float values are not exactly
    preserved. A 12-bit integer DN can be recovered exactly by rounding the
    stored value back onto the DN grid.
-3. `to_model_gsd` requires a trailing length-2 axis and rejects a
-   non-positive or non-finite reference and any non-positive or
-   non-finite GSD component.
+3. DN normalization uses flight `normalize_dn`; GSD encoding uses the flight
+   footprint contract. Their `Result` errors become `ValueError` for the
+   dataset tools API.
 
 ## Errors and faults
 
 `ValueError` on an unknown domain, a `bit_depth` below 1, or a GSD input
-that lacks a trailing length-2 axis, is empty, or holds a component that is
-not finite and greater than 0.
+that the flight GSD encoder rejects, including an invalid reference or a GSD
+component that is not finite and greater than 0.
 
 ## Messages
 

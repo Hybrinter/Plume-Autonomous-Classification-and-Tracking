@@ -1,46 +1,46 @@
 # tools.ml_models.dataset.geometry
 
 **Source:** `packages/tools/src/tools/ml_models/dataset/geometry.py`
+
 **Kind:** module
 
 ## Purpose
 
-This module holds the flight frame, grid, and tile geometry constants used
-while a dataset is built, plus frame-to-tile slicing helpers.
+This module adapts the flight-owned inference geometry and tiling contract to
+the established dataset tools API. Default frame dimensions, grid, tile size,
+GSD reference, and input bands come from `InferenceConfig`.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `FRAME_H_PX` / `FRAME_W_PX` | constant | Flight frame 1544 by 2064 |
-| `GRID_ROWS` / `GRID_COLS` | constant | Tile grid 8 by 8 |
-| `TILE_H_PX` / `TILE_W_PX` | constant | Flight tile 193 by 258 |
-| `GSD_REFERENCE_M` | constant | Reference GSD of 15.87 metres |
-| `INPUT_BANDS` | constant | `BLUE`, `GREEN`, `RED` channel order |
-| `frame_hw` / `grid_hw` / `tile_hw` | function | Return the sizes above as tuples |
-| `slice_frame` | function | Cut one frame into 64 tiles |
-| `stitch_tiles` | function | Paste 64 tiles back into a frame |
+| `FRAME_H_PX` / `FRAME_W_PX` | constant | Configured flight frame dimensions |
+| `GRID_ROWS` / `GRID_COLS` | constant | Configured flight tile grid |
+| `TILE_H_PX` / `TILE_W_PX` | constant | Derived flight tile dimensions |
+| `GSD_REFERENCE_M` | constant | Configured flight reference GSD |
+| `INPUT_BANDS` | constant | Configured flight channel order |
+| `frame_hw` / `grid_hw` / `tile_hw` | function | Return the flight sizes |
+| `slice_frame` | function | Delegate slicing to flight tiling |
+| `stitch_tiles` | function | Delegate stitching and squeeze one channel |
 
 ## Inputs and outputs
 
-`slice_frame(frame) -> np.ndarray` takes `(1, C, 1544, 2064)` and returns
-`(64, C, 193, 258)` in row-major order. Index `row * 8 + col` selects the
-tile at grid `(row, col)`.
-
-`stitch_tiles(tiles) -> np.ndarray` takes `(64, C, 193, 258)` and returns
-`(1544, 2064)` when `C` is 1, otherwise `(C, 1544, 2064)`.
+`slice_frame(frame) -> np.ndarray` takes `(1, C, H, W)` and returns row-major
+tiles `(rows * cols, C, tile_h, tile_w)`. `stitch_tiles(tiles) -> np.ndarray`
+returns `(C, H, W)`, or `(H, W)` for a single channel.
 
 ## Behavior
 
-1. H is along-track and W is lateral.
-2. `slice_frame` copies each tile out of the single-frame batch.
-3. `stitch_tiles` writes each tile into its grid position and drops the
-   channel axis when `C` is 1.
+1. Flight `InferenceConfig` supplies the default frame dimensions, grid,
+   reference GSD, and band order.
+2. Flight preprocessing validates and performs the tile copy operations.
+3. Flight `Result` errors become `ValueError` for compatibility with callers
+   of the tools API.
 
 ## Errors and faults
 
-`ValueError` when `slice_frame` does not receive a single 1544 by 2064
-frame, or when `stitch_tiles` does not receive 64 tiles of 193 by 258.
+`ValueError` when flight tiling rejects an input or returns an unexpected
+layout.
 
 ## Messages
 
@@ -48,15 +48,17 @@ None.
 
 ## Configuration
 
-The constants are fixed at module level. There is no TOML file.
+The public module constants are aliases derived from a default
+`InferenceConfig`. The dataset build specification can still override its
+input bands and GSD reference for a specific dataset.
 
 ## Constraints
 
-The constants stay local to this module until flight tiling publishes the
-same numbers. This module does not import torch.
+This module does not import torch. Flight remains the source of live tiling
+behavior.
 
 ## Related documents
 
 - [`tools.ml_models.dataset`](../dataset.md)
 - [`tools.ml_models.dataset.build`](build.md)
-- [`tools.ml_models.dataset.sources.flight`](sources/flight.md)
+- [`flight.payload.preprocess.tiling`](../../../../flight/payload/preprocess/tiling.md)

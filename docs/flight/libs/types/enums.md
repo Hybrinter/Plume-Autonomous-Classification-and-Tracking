@@ -103,6 +103,7 @@ across subsystems.
 | `SATURATED` | Saturation detected |
 | `MOTION_SMEAR` | Motion smear detected |
 | `INCOMPLETE_METADATA` | Missing metadata |
+| `GSD_NOMINAL` | Per-tile GSD uses reference geometry |
 
 ### MessageType
 

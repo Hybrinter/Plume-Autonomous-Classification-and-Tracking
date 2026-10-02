@@ -2,6 +2,8 @@
 
 H is along-track, W is lateral. Image down points look-back, so positive
 elevation produces smaller footprints toward the bottom of the frame.
+
+Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 """
 
 from __future__ import annotations
@@ -118,6 +120,12 @@ def tile_gsd_grid(
     Pixel coordinates use the same frame-edge convention as intersect_cog.
     A tile spans [col*width, (col+1)*width] with center at the midpoint.
     """
+    if (
+        not isinstance(grid, tuple)
+        or len(grid) != 2
+        or any(not isinstance(value, int) or isinstance(value, bool) for value in grid)
+    ):
+        return None
     rows, cols = grid
     if rows < 1 or cols < 1 or camera.height_px % rows or camera.width_px % cols:
         return None
@@ -166,6 +174,8 @@ def to_model_gsd(
     reference_m: float = GSD_REFERENCE_M,
 ) -> Result[np.ndarray, FaultCode]:
     """Encode (..., 2) metres as float32 ln(GSD/reference), or malformed input."""
+    if not isinstance(gsd_m, np.ndarray) or gsd_m.dtype.kind not in "fiu":
+        return Err(FaultCode.FRAME_MALFORMED)
     values = np.asarray(gsd_m, dtype=np.float64)
     if (
         not math.isfinite(reference_m)
@@ -177,4 +187,8 @@ def to_model_gsd(
         or np.any(values <= 0)
     ):
         return Err(FaultCode.FRAME_MALFORMED)
-    return Ok(np.log(values / reference_m).astype(np.float32))
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        encoded = (np.log(values) - math.log(reference_m)).astype(np.float32)
+    if not np.all(np.isfinite(encoded)):
+        return Err(FaultCode.FRAME_MALFORMED)
+    return Ok(encoded)

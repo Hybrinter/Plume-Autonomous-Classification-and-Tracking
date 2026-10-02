@@ -38,10 +38,16 @@ torque loop.
 and storage. It returns a `PayloadApp` and raises `ValueError` for invalid
 sensor or inference geometry.
 
-`process_frame` takes a `MosaicFrame` and `ControlState`. Quality flags cover
-saturation and incomplete metadata. `MOTION_SMEAR` is not raised. The method
-records valid encoder feedback, creates a frame-ID-bearing vision sample, and
-does not write a gimbal command.
+`process_frame` takes a `MosaicFrame` and `ControlState`. It computes a
+row-major per-tile GSD grid at shutter geometry before calling the detector.
+Measured GSD uses the sensor camera model, shutter encoder angle, and ISS ECI
+state. When either state is unavailable it uses the last finite encoder angle
+and a circular reference orbit derived from configured ephemeris elements; if
+the geometry still misses, it supplies the configured reference GSD. These
+fallback values carry `GSD_NOMINAL` and are not reported as measured. Quality
+flags also cover saturation and incomplete metadata. `MOTION_SMEAR` is not
+raised. The method records valid encoder feedback, creates a frame-ID-bearing
+vision sample, and does not write a gimbal command.
 
 `_smear_gimbal_rate_deg_per_s` returns a measured, encoder, or commanded
 elevation rate and a `SmearRateSource` of `MEASURED`, `ENCODER`, or
@@ -115,7 +121,7 @@ controller state and do not travel on the bus.
 | Config slice | Use |
 | --- | --- |
 | `SensorConfig` | Mosaic geometry, bit depth, IFOV, band layout |
-| `InferenceConfig` | Input bands and tensor size |
+| `InferenceConfig` | Input bands, sensor size, tile grid, and reference GSD |
 | `PreprocessingConfig` | Quality flags and smear budget |
 | `FaultConfig` | Heartbeat interval |
 | `ControllerConfig` | Vision, arbiter, inner, outer, residual, position, and integrity settings |

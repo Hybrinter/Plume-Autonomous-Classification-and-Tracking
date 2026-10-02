@@ -5,43 +5,35 @@
 
 ## Purpose
 
-This module is the single implementation of the shape formulas for the
-GSD-conditioned two-input flight graph: `image` `(N, C, H, W)` plus `gsd`
-`(N, 2)` in, conditioned logits out. Both tools-side export/session
-validation and flight consumers call this verifier; no other module restates
-the shape rules.
+This module defines the shape formulas for flight's GSD-conditioned ONNX models.
+The classifier and segmentor each consume an image tile plus its two-axis GSD
+encoding.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `Shape` | type alias | `tuple[int | None, ...]`; `None` is a dynamic dim |
-| `verify_conditioned_shapes` | function | Checks image/gsd/output shapes for a model kind |
+| `Shape` | type alias | Tensor dimensions with `None` for dynamic dimensions |
+| `verify_conditioned_shapes` | function | Checks image, GSD, and output shapes |
 
 ## Inputs and outputs
 
-`verify_conditioned_shapes(image, gsd, output, channels, tile_hw, kind)`
-returns `Result[None, FaultCode]`.
+`verify_conditioned_shapes(image, gsd, output, channels, tile_hw, kind)` returns
+`Result[None, FaultCode]`.
 
 ## Behavior
 
-1. `image` must be rank 4 with a dynamic batch (`None`), exactly `channels`
-   channels, and spatial dims that are either `None` or the `tile_hw` size.
-2. `gsd` must equal `(None, 2)`.
-3. A `classifier` output must equal `(None, 1)`; a `segmentor` output must be
-   rank 4 with head dims `(None, 1)` and spatial dims dynamic or `tile_hw`.
-4. Any other `kind` or shape returns `Err(FaultCode.MODEL_CORRUPT)`.
+- Image shape is `(None, channels, H, W)` and GSD shape is `(None, 2)`.
+- A classifier output is `(None, 1)`; a segmentor output is
+  `(None, 1, H, W)`.
+- Batch is always dynamic. When `tile_hw` is supplied, image and segmentor
+  spatial dimensions must equal it exactly. Without a tile size, spatial
+  dimensions may be dynamic but concrete image and output dimensions agree.
+- Invalid kinds, ranks, or dimensions return `Err(MODEL_CORRUPT)`.
 
 ## Errors and faults
 
-- `Err(FaultCode.MODEL_CORRUPT)` on any contract violation.
-- `Ok(None)` on conformance.
-
-## Constraints
-
-- Pure function: no I/O, no clock, no SDK imports.
-- The batch dim must be dynamic on every I/O tensor; fixed-batch graphs fail.
-- `tools.ml_models.export` re-exports this verifier; the formulas are not duplicated.
+`Err(FaultCode.MODEL_CORRUPT)` indicates a shape contract violation.
 
 ## Messages
 
@@ -49,10 +41,13 @@ None.
 
 ## Configuration
 
-None.
+None. Callers supply channel count, tile size, and model kind.
+
+## Constraints
+
+The function is pure and imports neither onnxruntime nor filesystem APIs.
 
 ## Related documents
 
-- [flight.payload.inference](inference.md)
-- [flight.payload.inference.verify](inference/verify.md)
-- [tools.ml_models.export.contract](../../tools/ml_models/export/contract.md)
+- [`flight.payload.inference.onnx_session`](onnx_session.md)
+- [`flight.payload.inference.verify`](verify.md)

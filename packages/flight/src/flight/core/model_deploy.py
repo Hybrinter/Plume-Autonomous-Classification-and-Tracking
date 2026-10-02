@@ -1,25 +1,8 @@
-"""Core model-deployment service: stage validation + ACTIVATE with automatic rollback.
+"""Core model-deployment service: pair staging, activation, and rollback.
 
-The core half of the model upload chain (spec Section 6; iss_iface owns reassembly). It consumes:
-
-  - ModelStagedMsg (a reassembled classifier+segmentor pair bundle was stored): it fetches the
-    bytes via the injected StorageReader, verifies the SHA-256 against the announced digest, and
-    parses the JSON manifest. The manifest must name both a classifier contract and a segmentor
-    contract. On success the deploy state becomes STAGED; a digest/parse failure raises
-    MODEL_CORRUPT and leaves the active pair untouched.
-  - a routed ACTIVATE_MODEL command: it runs load-validation + a first-frame sanity check on the
-    staged pair -- modeled here as verifying both I/O contracts match flight (shared input
-    (1, C, H, W); classifier output (1, 1); segmentor output (1, 1, H, W)), since onnxruntime is
-    not present in this repo. Both contracts must match. On success the staged pair becomes
-    ACTIVE (the previous pair becomes the rollback); on failure the service AUTOMATICALLY ROLLS
-    BACK -- the previously active pair stays active, the state becomes ROLLBACK_AVAILABLE, and a
-    MODEL_CORRUPT fault is raised. ModelDeployStateMsg is telemetered on every transition.
-
-Contains:
-  - ArtifactContract: one network's input/output shapes.
-  - DeployState: mutable active/rollback/staged bookkeeping + ModelDeployState.
-  - parse_manifest / contract_ok: pure pair-manifest parsing + I/O-contract validation.
-  - ModelDeployService: from_config(); tick(); run().
+It verifies uploaded pair bytes and manifest metadata, then activates only pairs
+that match the configured dynamic-batch image/GSD contract, tile geometry, and
+preprocessing metadata. Failed activation preserves the previous active pair.
 
 Satisfies: REQ-AIML-HIGH-004, REQ-COMM-MODEL-001.
 """
@@ -29,6 +12,7 @@ from __future__ import annotations
 # stdlib
 import hashlib
 import json
+import math
 import threading
 from dataclasses import dataclass
 
@@ -46,6 +30,7 @@ from flight.libs.messages import (
 )
 from flight.libs.time import Clock
 from flight.libs.types import AckStatus, Err, FaultCode, MessageType, ModelDeployState
+from flight.payload.inference.contract import verify_conditioned_shapes
 
 SUBSYSTEM = "model_deploy"
 _ACTIVATE_MODEL = "ACTIVATE_MODEL"
@@ -55,8 +40,10 @@ _ACTIVATE_MODEL = "ACTIVATE_MODEL"
 class ArtifactContract:
     """I/O tensor shapes for one network in an inference pair."""
 
-    input_shape: tuple[int, ...]
-    output_shape: tuple[int, ...]
+    input_shape: tuple[int | None, ...]
+    gsd_input_shape: tuple[int | None, ...]
+    output_shape: tuple[int | None, ...]
+    input_names: tuple[str, ...]
 
 
 @dataclass(slots=True, frozen=True)
@@ -65,6 +52,14 @@ class StagedModel:
 
     entry_id: str
     version: str
+    grid: tuple[int, int]
+    frame_hw: tuple[int, int]
+    tile_hw: tuple[int, int]
+    gsd_reference_m: float
+    norm: str
+    conditioning: str
+    gsd_encoding: str
+    band_names: tuple[str, ...]
     classifier: ArtifactContract
     segmentor: ArtifactContract
 
@@ -88,27 +83,87 @@ class DeployState:
 
 @dataclass(slots=True, frozen=True)
 class ParsedManifest:
-    """A parsed, type-coerced classifier+segmentor upload manifest."""
+    """A parsed classifier+segmentor pair manifest and flight metadata."""
 
     version: str
+    grid: tuple[int, int]
+    frame_hw: tuple[int, int]
+    tile_hw: tuple[int, int]
+    gsd_reference_m: float
+    norm: str
+    conditioning: str
+    gsd_encoding: str
+    band_names: tuple[str, ...]
     classifier: ArtifactContract
     segmentor: ArtifactContract
 
 
-def _parse_contract(raw: object) -> ArtifactContract | None:
-    """Parse one network's input_shape/output_shape object, or None if malformed."""
+def _shape(raw: object) -> tuple[int | None, ...] | None:
+    """Accept arrays of positive integer dimensions and JSON null wildcards."""
+    if not isinstance(raw, list) or not raw:
+        return None
+    if any(value is not None and (type(value) is not int or value <= 0) for value in raw):
+        return None
+    return tuple(raw)
+
+
+def _parse_contract(
+    raw: object,
+    kind: str,
+    channels: int,
+    tile_hw: tuple[int, int],
+    reference: float,
+    norm: str,
+    conditioning: str,
+    encoding: str,
+    bands: tuple[str, ...],
+) -> ArtifactContract | None:
+    """Parse and validate one conditioned network entry."""
     if not isinstance(raw, dict):
         return None
-    raw_in = raw.get("input_shape")
-    raw_out = raw.get("output_shape")
-    if not isinstance(raw_in, list) or not isinstance(raw_out, list):
+    image = _shape(raw.get("input_shape"))
+    gsd = _shape(raw.get("gsd_input_shape"))
+    output = _shape(raw.get("output_shape"))
+    names = raw.get("input_names")
+    types = raw.get("input_types")
+    digest = raw.get("sha256")
+    raw_reference = raw.get("gsd_reference_m")
+    if image is None or gsd is None or output is None:
         return None
-    try:
-        input_shape = tuple(int(v) for v in raw_in)
-        output_shape = tuple(int(v) for v in raw_out)
-    except TypeError, ValueError:
+    if (
+        not isinstance(names, list)
+        or len(names) != 2
+        or any(not isinstance(name, str) for name in names)
+        or set(names) != {"image", "gsd"}
+        or len(set(names)) != 2
+        or not isinstance(types, dict)
+        or types != {"image": "float32", "gsd": "float32"}
+        or raw.get("output_type") != "float32"
+        or type(raw_reference) not in (int, float)
+        or raw_reference != reference
+        or raw.get("norm") != norm
+        or raw.get("conditioning") != conditioning
+        or raw.get("gsd_encoding") != encoding
+        or raw.get("band_names") != list(bands)
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in digest)
+    ):
         return None
-    return ArtifactContract(input_shape, output_shape)
+    checked = verify_conditioned_shapes(image, gsd, output, channels, tile_hw, kind)
+    if isinstance(checked, Err):
+        return None
+    return ArtifactContract(image, gsd, output, ("image", "gsd"))
+
+
+def _positive_int_pair(raw: object) -> tuple[int, int] | None:
+    if (
+        not isinstance(raw, list)
+        or len(raw) != 2
+        or any(type(value) is not int or value <= 0 for value in raw)
+    ):
+        return None
+    return raw[0], raw[1]
 
 
 def parse_manifest(blob: bytes) -> ParsedManifest | None:
@@ -126,20 +181,86 @@ def parse_manifest(blob: bytes) -> ParsedManifest | None:
         data = json.loads(blob.decode("utf-8"))
     except ValueError, UnicodeDecodeError:
         return None
-    if not isinstance(data, dict) or "version" not in data:
+    if not isinstance(data, dict) or not isinstance(data.get("version"), str):
         return None
-    classifier = _parse_contract(data.get("classifier"))
-    segmentor = _parse_contract(data.get("segmentor"))
+    grid = _positive_int_pair(data.get("grid"))
+    frame_hw = _positive_int_pair(data.get("frame_hw"))
+    tile_hw = _positive_int_pair(data.get("tile_hw"))
+    reference = data.get("gsd_reference_m")
+    norm, conditioning, encoding = (
+        data.get("norm"),
+        data.get("conditioning"),
+        data.get("gsd_encoding"),
+    )
+    raw_classifier = data.get("classifier")
+    raw_bands = raw_classifier.get("band_names") if isinstance(raw_classifier, dict) else None
+    bands = (
+        tuple(raw_bands)
+        if isinstance(raw_bands, list)
+        and raw_bands
+        and all(isinstance(band, str) and band for band in raw_bands)
+        and len(set(raw_bands)) == len(raw_bands)
+        else None
+    )
+    if (
+        grid is None
+        or frame_hw is None
+        or tile_hw is None
+        or not isinstance(reference, (int, float))
+        or isinstance(reference, bool)
+        or not math.isfinite(reference)
+        or reference <= 0
+        or bands is None
+        or not isinstance(norm, str)
+        or not isinstance(conditioning, str)
+        or not isinstance(encoding, str)
+    ):
+        return None
+    channels = len(bands)
+    classifier = _parse_contract(
+        data.get("classifier"),
+        "classifier",
+        channels,
+        tile_hw,
+        float(reference),
+        norm,
+        conditioning,
+        encoding,
+        bands,
+    )
+    segmentor = _parse_contract(
+        data.get("segmentor"),
+        "segmentor",
+        channels,
+        tile_hw,
+        float(reference),
+        norm,
+        conditioning,
+        encoding,
+        bands,
+    )
     if classifier is None or segmentor is None:
         return None
-    return ParsedManifest(str(data["version"]), classifier, segmentor)
+    return ParsedManifest(
+        data["version"],
+        grid,
+        frame_hw,
+        tile_hw,
+        float(reference),
+        norm,
+        conditioning,
+        encoding,
+        bands,
+        classifier,
+        segmentor,
+    )
 
 
 def contract_ok(
-    input_shape: tuple[int, ...],
-    output_shape: tuple[int, ...],
-    expected_input: tuple[int, ...],
-    expected_output: tuple[int, ...],
+    input_shape: tuple[int | None, ...],
+    output_shape: tuple[int | None, ...],
+    expected_input: tuple[int | None, ...],
+    expected_output: tuple[int | None, ...],
 ) -> bool:
     """Return True iff the manifest I/O shapes match the flight inference contract (pure)."""
     return input_shape == expected_input and output_shape == expected_output
@@ -187,10 +308,30 @@ class ModelDeployService:
     def _expected_pair(self) -> tuple[ArtifactContract, ArtifactContract]:
         """Return (classifier, segmentor) contracts derived from the inference config."""
         h, w = self.inference_cfg.input_height_px, self.inference_cfg.input_width_px
-        shared_input = (1, len(self.inference_cfg.input_bands), h, w)
+        rows, cols = self.inference_cfg.tile_rows, self.inference_cfg.tile_cols
+        tile_hw = (h // rows, w // cols)
+        shared_input = (None, len(self.inference_cfg.input_bands), *tile_hw)
         return (
-            ArtifactContract(shared_input, (1, 1)),
-            ArtifactContract(shared_input, (1, 1, h, w)),
+            ArtifactContract(shared_input, (None, 2), (None, 1), ("image", "gsd")),
+            ArtifactContract(shared_input, (None, 2), (None, 1, *tile_hw), ("image", "gsd")),
+        )
+
+    def _metadata_matches_config(self, manifest: ParsedManifest) -> bool:
+        """Require pair geometry and preprocessing metadata to match this flight config."""
+        cfg = self.inference_cfg
+        rows, cols = cfg.tile_rows, cfg.tile_cols
+        frame_hw = (cfg.input_height_px, cfg.input_width_px)
+        if frame_hw[0] % rows or frame_hw[1] % cols:
+            return False
+        return (
+            manifest.grid == (rows, cols)
+            and manifest.frame_hw == frame_hw
+            and manifest.tile_hw == (frame_hw[0] // rows, frame_hw[1] // cols)
+            and manifest.gsd_reference_m == cfg.gsd_reference_m
+            and manifest.band_names == tuple(cfg.input_bands)
+            and manifest.norm == "unit"
+            and manifest.conditioning == "film-log-gsd-v1"
+            and manifest.gsd_encoding == "ln_metres_over_reference_lateral_along"
         )
 
     def tick(self) -> None:
@@ -219,6 +360,14 @@ class ModelDeployService:
         self.state.staged = StagedModel(
             entry_id=msg.entry_id,
             version=manifest.version,
+            grid=manifest.grid,
+            frame_hw=manifest.frame_hw,
+            tile_hw=manifest.tile_hw,
+            gsd_reference_m=manifest.gsd_reference_m,
+            norm=manifest.norm,
+            conditioning=manifest.conditioning,
+            gsd_encoding=manifest.gsd_encoding,
+            band_names=manifest.band_names,
             classifier=manifest.classifier,
             segmentor=manifest.segmentor,
         )
@@ -232,16 +381,24 @@ class ModelDeployService:
             self._ack(command, False, "no staged model to activate")
             return
         expected_classifier, expected_segmentor = self._expected_pair()
-        pair_ok = contract_ok(
-            staged.classifier.input_shape,
-            staged.classifier.output_shape,
-            expected_classifier.input_shape,
-            expected_classifier.output_shape,
-        ) and contract_ok(
-            staged.segmentor.input_shape,
-            staged.segmentor.output_shape,
-            expected_segmentor.input_shape,
-            expected_segmentor.output_shape,
+        pair_ok = (
+            self._metadata_matches_config(
+                ParsedManifest(
+                    staged.version,
+                    staged.grid,
+                    staged.frame_hw,
+                    staged.tile_hw,
+                    staged.gsd_reference_m,
+                    staged.norm,
+                    staged.conditioning,
+                    staged.gsd_encoding,
+                    staged.band_names,
+                    staged.classifier,
+                    staged.segmentor,
+                )
+            )
+            and staged.classifier == expected_classifier
+            and staged.segmentor == expected_segmentor
         )
         if pair_ok:
             self.state.rollback_version = self.state.active_version

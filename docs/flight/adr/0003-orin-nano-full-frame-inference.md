@@ -1,10 +1,10 @@
 # ADR-FLIGHT-0003: Orin Nano Super full-frame inference budgets
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-09-03
 **Topic:** interface
 **Supersedes:** ADR-FLIGHT-0002 (inference expected/timeout numbers and factory 256 ONNX contract)
-**Superseded-by:** none
+**Superseded-by:** ADR-FLIGHT-0006
 **Related:** ADR-FLIGHT-0002, ADR-REPO-0004, ADR-TOOLS-0003, ADR-TOOLS-0007
 
 ## Context

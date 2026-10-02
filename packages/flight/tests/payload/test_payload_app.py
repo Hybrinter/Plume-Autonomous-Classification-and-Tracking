@@ -7,7 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from flight.hal.drivers_sim import SimGimbal, SimIssEphemeris, SimSensor
-from flight.hal.interfaces import GimbalHealth, GimbalPosition, GimbalRateCommand
+from flight.hal.interfaces import GimbalHealth, GimbalPosition, GimbalRateCommand, IssState
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
@@ -90,9 +90,36 @@ class _FlagDetector:
         return self._inner.detect(frame)
 
 
+class _CaptureGsdDetector:
+    """Capture the local GSD metadata presented before detector execution."""
+
+    def __init__(self) -> None:
+        self.tile_gsd_m: np.ndarray | None = None
+        self.quality_flags: frozenset[FrameUsabilityTag] = frozenset()
+        self._inner = _plume_detector()
+
+    def detect(self, frame: ProcessedFrameMsg) -> Result[InferenceResultMsg, FaultCode]:
+        """Store GSD metadata then return the normal scripted result."""
+        self.tile_gsd_m = np.asarray(frame.tile_gsd_m) if frame.tile_gsd_m is not None else None
+        self.quality_flags = frame.quality_flags
+        return self._inner.detect(frame)
+
+
+class _FailedEphemeris:
+    """Ephemeris source that exercises nominal GSD fallback while reporting its fault."""
+
+    def read_state(self, now_utc_s: float) -> Result[IssState, FaultCode]:
+        del now_utc_s
+        return Err(FaultCode.EPHEMERIS_FAULT)
+
+
 def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGimbal, ManualClock]:
     """Assemble a PayloadApp over sim drivers, the given detector, and a fresh bus."""
-    cfg = PactConfig()
+    base = PactConfig()
+    cfg = replace(
+        base,
+        inference=replace(base.inference, tile_rows=1, tile_cols=1),
+    )
     bus = MessageBus()
     clock = ManualClock()
     gimbal = SimGimbal(clock=clock, cfg=cfg.gimbal, inner_dt_s=cfg.controller.inner.dt_s)
@@ -168,7 +195,8 @@ class _RateGimbal:
 
 def test_rate_mode_inner_catchup_samples_encoder_before_outer() -> None:
     """Rate-mode catch-up records encoder samples so outer ticks keep T_out cadence."""
-    cfg = PactConfig()
+    base = PactConfig()
+    cfg = replace(base, inference=replace(base.inference, tile_rows=1, tile_cols=1))
     dt_out = cfg.controller.outer.dt_s
     bus = MessageBus()
     clock = ManualClock()
@@ -218,6 +246,54 @@ def test_process_frame_passes_nchw_tensor() -> None:
 
     assert outcome.fault is None
     assert captured == [(1, 3, 1544, 2064)]
+
+
+def test_process_frame_computes_measured_tile_gsd_before_detection() -> None:
+    """Detector receives finite physical tile GSD without the nominal fallback tag."""
+    detector = _CaptureGsdDetector()
+    app, _bus, gimbal, _clock = _build_app(detector)
+    position = gimbal.read_position()
+    assert isinstance(position, Ok)
+    shutter = replace(position.value, timestamp_s=1.0)
+
+    state, outcome = app.process_frame(
+        _mosaic_frame(1), app.controller.initial_state(), now=1.0, gimbal_pos=shutter
+    )
+
+    assert outcome.fault is None
+    assert detector.tile_gsd_m is not None
+    assert detector.tile_gsd_m.shape == (1, 2)
+    assert np.isfinite(detector.tile_gsd_m).all()
+    assert np.all(detector.tile_gsd_m > 0)
+    assert FrameUsabilityTag.GSD_NOMINAL not in detector.quality_flags
+
+
+def test_ephemeris_failure_uses_tagged_gsd_fallback_and_keeps_inference_live() -> None:
+    """Missing ephemeris degrades GSD metadata and publishes a fault without stopping inference."""
+    detector = _CaptureGsdDetector()
+    app, bus, gimbal, _clock = _build_app(detector)
+    app = replace(app, ephemeris=_FailedEphemeris())
+    fault_sub = bus.subscribe(FaultEventMsg)
+    inference_sub = bus.subscribe(InferenceResultMsg)
+    position = gimbal.read_position()
+    assert isinstance(position, Ok)
+    shutter = replace(position.value, timestamp_s=1.0)
+
+    state, outcome = app.process_frame(
+        _mosaic_frame(1), app.controller.initial_state(), now=1.0, gimbal_pos=shutter
+    )
+
+    assert outcome.fault is None
+    assert detector.tile_gsd_m is not None
+    assert detector.tile_gsd_m.shape == (1, 2)
+    assert np.isfinite(detector.tile_gsd_m).all()
+    assert FrameUsabilityTag.GSD_NOMINAL in detector.quality_flags
+    assert fault_sub.get_nowait().fault_code is FaultCode.EPHEMERIS_FAULT
+    assert inference_sub.get_nowait().frame_id == 1
+    state, outer = app.advance_outer(state, now=1.0)
+    assert outer.fault is None
+    assert state.last_outer_s == pytest.approx(1.0)
+    assert state.arbiter.gimbal_state is GimbalState.TRACKING
 
 
 def test_imaging_duty_limits_tensors_and_keeps_gimbal_steps() -> None:
@@ -400,7 +476,8 @@ class _DutySensor:
 
 def test_run_drains_camera_on_skipped_opportunities() -> None:
     """Off-duty loop ticks release a waiting image and do not acquire it."""
-    cfg = PactConfig()
+    base = PactConfig()
+    cfg = replace(base, inference=replace(base.inference, tile_rows=1, tile_cols=1))
     bus = MessageBus()
     clock = ManualClock()
     stop = threading.Event()
@@ -421,7 +498,8 @@ def test_run_drains_camera_on_skipped_opportunities() -> None:
 
 def test_run_publishes_fault_when_camera_drain_fails() -> None:
     """A failed off-duty release publishes CAMERA_STALL and keeps the outer loop moving."""
-    cfg = PactConfig()
+    base = PactConfig()
+    cfg = replace(base, inference=replace(base.inference, tile_rows=1, tile_cols=1))
     bus = MessageBus()
     clock = ManualClock()
     stop = threading.Event()

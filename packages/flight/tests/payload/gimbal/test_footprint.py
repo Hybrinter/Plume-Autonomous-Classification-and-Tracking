@@ -146,6 +146,28 @@ def test_grid_rejects_indivisible_shape() -> None:
     )
 
 
+@pytest.mark.parametrize("grid", [(0, 8), (8, 0), (True, 8), (8.0, 8), (8,), [8, 8]])
+def test_grid_rejects_malformed_grid(grid: object) -> None:
+    """Invalid grid types and dimensions return None rather than raising."""
+    r, v_eci, utc = _state()
+    ephemeris = EphemerisConfig()
+    assert (
+        tile_gsd_grid(
+            0.0,
+            r,
+            v_eci,
+            utc,
+            utc,
+            ephemeris.omega_earth_rad_s,
+            ephemeris.wgs84_a_m,
+            ephemeris.wgs84_f,
+            _camera(),
+            grid=grid,  # type: ignore[arg-type]
+        )
+        is None
+    )
+
+
 def test_model_gsd_encoding_result() -> None:
     """The reference encodes to zero; malformed input is an Err."""
     encoded = to_model_gsd(np.array([15.87, 15.87]), GSD_REFERENCE_M)
@@ -154,3 +176,20 @@ def test_model_gsd_encoding_result() -> None:
     assert isinstance(to_model_gsd(np.array([-1.0, 15.87]), 15.87), Err)
     assert isinstance(to_model_gsd(np.zeros((2, 3)), 15.87), Err)
     assert isinstance(to_model_gsd(np.array([15.87, 15.87]), 0.0), Err)
+
+
+def test_model_gsd_encoding_handles_extreme_finite_values() -> None:
+    """Finite float64 extremes stay finite after log-ratio encoding to float32."""
+    values = np.array([np.nextafter(0.0, 1.0), np.finfo(np.float64).max])
+    encoded = to_model_gsd(values, 15.87)
+    assert not isinstance(encoded, Err)
+    assert np.all(np.isfinite(encoded.value))
+
+
+@pytest.mark.parametrize(
+    "values",
+    [np.array(["unknown", "unknown"]), np.array([1j, 2j]), np.array([True, True])],
+)
+def test_model_gsd_rejects_nonreal_measurements(values: np.ndarray) -> None:
+    """Nonphysical array domains return a fault without casting or raising."""
+    assert isinstance(to_model_gsd(values), Err)

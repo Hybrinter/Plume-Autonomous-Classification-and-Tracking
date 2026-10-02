@@ -74,9 +74,6 @@ def dequantize_unit(image: np.ndarray) -> np.ndarray:
 def to_model_gsd(gsd_m: np.ndarray, reference_m: float) -> np.ndarray:
     """Encode metres of GSD as a log ratio to the flight reference.
 
-    Delegates to ``flight.payload.gimbal.footprint.to_model_gsd`` so the
-    training encoding and the flight encoding share one formula.
-
     Args:
         gsd_m: np.ndarray[float32, (..., 2)] lateral then along-track metres.
         reference_m: Positive reference GSD in metres.
@@ -85,10 +82,10 @@ def to_model_gsd(gsd_m: np.ndarray, reference_m: float) -> np.ndarray:
         np.ndarray[float32, (..., 2)]: ``ln(gsd_m / reference_m)``.
 
     Raises:
-        ValueError: If the reference is not finite and greater than 0, or the
-            array lacks a trailing length-2 axis of finite positive metres.
+        ValueError: If the reference or any GSD component is not finite and
+            greater than 0.
     """
-    encoded = _flight_to_model_gsd(gsd_m, reference_m)
-    if isinstance(encoded, Err):
-        raise ValueError("gsd metres must be finite, > 0, with a trailing length-2 axis")
-    return encoded.value
+    result = _flight_to_model_gsd(np.asarray(gsd_m), reference_m)
+    if isinstance(result, Err):
+        raise ValueError(f"flight GSD encoding rejected input: {result.error}")
+    return result.value

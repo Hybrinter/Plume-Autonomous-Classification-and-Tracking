@@ -16,21 +16,48 @@ _KEY = b"sil-test-key-0000000000000000000"
 _INF = PactConfig().inference
 _H = _INF.input_height_px
 _W = _INF.input_width_px
+_ROWS, _COLS = _INF.tile_rows, _INF.tile_cols
+_TH, _TW = _H // _ROWS, _W // _COLS
 
 
 def _manifest(version: str, classifier_channels: int, segmentor_channels: int = 3) -> bytes:
-    """A pair-upload manifest. Three channels match flight; other counts fail activate."""
+    """Conditioned pair manifest. Three channels match flight; other counts fail activate."""
+
+    def entry(kind: str, channels: int) -> dict[str, object]:
+        bands = list(_INF.input_bands)
+        while len(bands) < channels:
+            bands.append(f"EXTRA_{len(bands)}")
+        bands = bands[:channels]
+        return {
+            "arch": "pactnet" if kind == "classifier" else "dilatenet",
+            "sha256": "a" * 64,
+            "input_names": ["image", "gsd"],
+            "input_types": {"image": "float32", "gsd": "float32"},
+            "output_type": "float32",
+            "input_shape": [None, channels, _TH, _TW],
+            "gsd_input_shape": [None, 2],
+            "output_shape": [None, 1] if kind == "classifier" else [None, 1, _TH, _TW],
+            "gsd_reference_m": _INF.gsd_reference_m,
+            "norm": "unit",
+            "conditioning": "film-log-gsd-v1",
+            "gsd_encoding": "ln_metres_over_reference_lateral_along",
+            "band_names": bands,
+            "gsd_min_m": [10.0, 10.0],
+            "gsd_max_m": [50.0, 50.0],
+        }
+
     return json.dumps(
         {
             "version": version,
-            "classifier": {
-                "input_shape": [1, classifier_channels, _H, _W],
-                "output_shape": [1, 1],
-            },
-            "segmentor": {
-                "input_shape": [1, segmentor_channels, _H, _W],
-                "output_shape": [1, 1, _H, _W],
-            },
+            "grid": [_ROWS, _COLS],
+            "frame_hw": [_H, _W],
+            "tile_hw": [_TH, _TW],
+            "gsd_reference_m": _INF.gsd_reference_m,
+            "norm": "unit",
+            "conditioning": "film-log-gsd-v1",
+            "gsd_encoding": "ln_metres_over_reference_lateral_along",
+            "classifier": entry("classifier", classifier_channels),
+            "segmentor": entry("segmentor", segmentor_channels),
         }
     ).encode("utf-8")
 
@@ -103,7 +130,9 @@ def test_model_upload_activate_then_rollback() -> None:
     assert system.apps.model_deploy.state.active_version == "v2"
 
     # --- bad model: upload -> stage -> activate -> auto-rollback ---
-    for pkt in _chunk_packets(_manifest("v3", classifier_channels=4), base_seq=4):
+    for pkt in _chunk_packets(
+        _manifest("v3", classifier_channels=4, segmentor_channels=4), base_seq=4
+    ):
         system.station.enqueue(pkt)
     advance(4)
     assert deploy_state() is ModelDeployState.STAGED

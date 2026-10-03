@@ -1,7 +1,11 @@
 """Tests for the Zenodo GSD bins."""
 
+import ast
+from pathlib import Path
+
 import pytest
 from tools.ml_models.dataset.raw import BinSpec
+from tools.ml_models.dataset.sources.zenodo import bins
 from tools.ml_models.dataset.sources.zenodo.bins import (
     DEFAULT_BINS,
     EXTENT_M,
@@ -11,46 +15,57 @@ from tools.ml_models.dataset.sources.zenodo.bins import (
 )
 
 
-def test_default_bins_cover_native_and_flight_elevations() -> None:
-    """Six bins: native 10 m plus boresight footprints at five elevations."""
-    assert [item.bin_id for item in DEFAULT_BINS] == [
-        "native10",
-        "elevation5",
-        "elevation15",
-        "elevation25",
-        "elevation35",
-        "elevation45",
+def test_default_bins_are_the_fixed_target_table() -> None:
+    """Native 10 m plus five fixed GSD targets, each sizing a 1200 m grid."""
+    assert [(item.bin_id, item.lateral_m, item.along_m) for item in DEFAULT_BINS] == [
+        ("native10", 10.0, 10.0),
+        ("gsd15", 15.0, 15.0),
+        ("gsd20", 20.0, 20.0),
+        ("gsd25", 25.0, 25.0),
+        ("gsd30", 30.0, 30.0),
+        ("gsd35", 35.0, 35.0),
     ]
-    native, *_rest, e45 = DEFAULT_BINS
-    assert bin_hw(native) == (NATIVE_SIDE, NATIVE_SIDE)
-    assert actual_gsd(native).lateral_m == pytest.approx(10.0)
-    assert bin_hw(e45) == (31, 50)
-    assert e45.elevation_deg == 45.0
-
-
-def test_endpoint_bin_covers_whole_grid_maxima() -> None:
-    """The 45-degree bin is sized from the whole 45-degree tile grid, so the
-    stored GSD stays at or above every frame-edge pixel GSD at 460 km."""
-    e45 = DEFAULT_BINS[-1]
-    pair = actual_gsd(e45)
-    assert pair.lateral_m >= 23.97684097
-    assert pair.along_m >= 37.97926712
-    assert pair.lateral_m == pytest.approx(24.0)
-    assert pair.along_m == pytest.approx(38.7096774)
+    assert [bin_hw(item) for item in DEFAULT_BINS] == [
+        (NATIVE_SIDE, NATIVE_SIDE),
+        (80, 80),
+        (60, 60),
+        (48, 48),
+        (40, 40),
+        (34, 34),
+    ]
 
 
 def test_actual_gsd_is_extent_over_pixels() -> None:
-    """Stored GSD reflects the rounded grid, not the nominal target."""
+    """Recorded GSD is the achieved extent over rounded output pixels."""
     for item in DEFAULT_BINS:
         height, width = bin_hw(item)
         pair = actual_gsd(item)
         assert pair.lateral_m == pytest.approx(EXTENT_M / width)
         assert pair.along_m == pytest.approx(EXTENT_M / height)
+    gsd35 = DEFAULT_BINS[-1]
+    assert bin_hw(gsd35) == (34, 34)
+    assert actual_gsd(gsd35).lateral_m == pytest.approx(1200.0 / 34)
+    assert actual_gsd(gsd35).along_m == pytest.approx(1200.0 / 34)
 
 
 def test_bins_never_upsample_native() -> None:
-    """A bin finer than 10 m is rejected."""
+    """Finer-than-10 m requests are rejected."""
     with pytest.raises(ValueError, match="coarsen"):
-        bin_hw(BinSpec("too-fine", 5.0, 5.0))
-    with pytest.raises(ValueError):
+        bin_hw(BinSpec("too-fine", 9.0, 9.0))
+    with pytest.raises(ValueError, match="coarsen"):
         bin_hw(BinSpec("bad", float("nan"), 10.0))
+    with pytest.raises(ValueError, match="coarsen"):
+        bin_hw(BinSpec("bad", float("inf"), 10.0))
+
+
+def test_bins_have_no_flight_dependencies() -> None:
+    """Bin construction stays free of flight camera, orbit, and frame code."""
+    tree = ast.parse(Path(bins.__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.split(".")[0] == "flight", alias.name
+        elif isinstance(node, ast.ImportFrom):
+            assert (node.module or "").split(".")[0] != "flight", node.module
+    assert not hasattr(bins, "make_bins")
+    assert not hasattr(bins, "FLIGHT_ELEVATIONS_DEG")

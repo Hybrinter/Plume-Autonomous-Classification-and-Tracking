@@ -13,6 +13,7 @@ counts into BLUE, GREEN, and RED reflectance planes.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `WeightTable` | dataclass | Per-color band weights with a stable `id` |
+| `OUTPUT_BANDS` | constant | `("BLUE", "GREEN", "RED")` output plane order |
 | `load_weight_table` | function | Read a weight table TOML |
 | `mix_prism` | function | `(C, H, W)` L2A counts to `(3, H, W)` reflectance |
 

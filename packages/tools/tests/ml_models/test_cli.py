@@ -1,18 +1,28 @@
 """CLI surface tests for the single-dataset ml_models commands."""
 
+import re
 from pathlib import Path
 
 import pytest
 from tools.ml_models.cli import app
 from typer.testing import CliRunner
 
+# Rich help styles each hyphen on its own, so a color terminal splits ``--dataset``.
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Return help text with terminal color codes removed."""
+    return _ANSI_ESCAPE.sub("", text)
+
 
 def test_train_help_has_no_dataset_weight_option() -> None:
     """The singular workflow exposes ``--dataset`` but no weight option."""
     result = CliRunner().invoke(app, ["train", "--help"])
     assert result.exit_code == 0
-    assert "--dataset" in result.output
-    assert "--dataset-weight" not in result.output
+    output = _plain(result.output)
+    assert "--dataset" in output
+    assert "--dataset-weight" not in output
 
 
 def test_frame_eval_command_is_removed() -> None:
@@ -20,7 +30,7 @@ def test_frame_eval_command_is_removed() -> None:
     runner = CliRunner()
     top = runner.invoke(app, ["--help"])
     assert top.exit_code == 0
-    assert "frame-eval" not in top.output
+    assert "frame-eval" not in _plain(top.output)
     assert runner.invoke(app, ["frame-eval"]).exit_code != 0
 
 

@@ -719,7 +719,7 @@ def test_blocked_acquire_under_new_activation_skips_detector_and_publish(
     app, bus, gimbal, _clock = _build_app(detector, sensor=sensor)
     inf_sub = bus.subscribe(InferenceResultMsg)
     state = _operate(app, bus, gimbal)
-    app.capture_this_opportunity()
+    app.capture_once(state, 0.5)  # spend opportunity 1 (drain); next due call captures
     outcome_box: list[object] = []
     done = threading.Event()
 

@@ -266,3 +266,14 @@ link = "real"
 clock = "real"
 ephemeris = "real"
 host = "jetson_aarch64"
+
+[payload_policy.operate]
+# Empty inheritance table: every field defaults to None (inherit).
+
+[payload_policy.tracking]
+
+[payload_policy.rewind]
+
+[payload_policy.fast_rewind]
+
+[payload_policy.hold]

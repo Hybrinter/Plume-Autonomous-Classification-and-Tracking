@@ -18,6 +18,7 @@ tracking, graphs, and gimbal control.
 | [`control`](payload/control.md) | pure module | Mode-free cascaded elevation servo loops |
 | [`state`](payload/state.md) | pure module | `PayloadState` threaded runtime record and name helpers |
 | [`records`](payload/records.md) | pure module | Compact observation and activation-context value records |
+| [`imaging`](payload/imaging.md) | pure module | Planned capture deadlines, duty floor, and inference decimation |
 | [`calibration_io`](payload/calibration_io.md) | module | Loads checksummed mosaic calibration artifacts at startup |
 | [`blobs`](payload/blobs.md) | module | Connected-component blob extraction from a probability mask |
 | [`preprocess`](payload/preprocess.md) | package | Pure functions from raw mosaic to inference tensor |

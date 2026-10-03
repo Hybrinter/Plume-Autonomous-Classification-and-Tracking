@@ -104,6 +104,52 @@ def test_step_once_duty_half_processes_due_scripted_frames() -> None:
     assert system.sensor.unread_scripted_count() == 0
 
 
+def test_step_once_early_repeat_cannot_spend_captures() -> None:
+    """A step before the capture deadline spends no opportunity through capture_once."""
+    system = build_sil_system(
+        _config(),
+        ManualClock(),
+        build_frames(2),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    inf_sub = system.bus.subscribe(InferenceResultMsg)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
+    payload_state = system.apps.payload.initial_state()
+    fault_entries = system.apps.fault.initial_entries()
+
+    payload_state, fault_entries = step_once(
+        system.apps,
+        system.sensor,
+        system.gimbal,
+        system.bus,
+        system.clock,
+        0.001,
+        payload_state,
+        fault_entries,
+    )
+    schedule = system.apps.payload.capture_shell.schedule
+    assert schedule.opportunities == 1  # first due call drains at duty 0.5
+    assert system.sensor.unread_scripted_count() == 1
+
+    payload_state, fault_entries = step_once(
+        system.apps,
+        system.sensor,
+        system.gimbal,
+        system.bus,
+        system.clock,
+        0.002,
+        payload_state,
+        fault_entries,
+    )
+    schedule = system.apps.payload.capture_shell.schedule
+    assert schedule.opportunities == 1
+    assert system.sensor.unread_scripted_count() == 1
+    assert inf_sub.empty()
+
+
 def test_inhibited_stepping_reaches_target_with_exact_encoder_stamp() -> None:
     """Unactivated stepping advances the clock to a non-grid target.
 

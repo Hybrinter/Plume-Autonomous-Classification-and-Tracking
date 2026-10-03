@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from flight.libs.types import Err, FaultCode
 from flight.payload.gimbal.request import InhibitReference, PoseReference
-from flight.payload.graphs.base import NodeOutcome, TickInputs
+from flight.payload.graphs.base import NodeOutcome, SystemRequestIntent, TickInputs
 from flight.payload.graphs.operate.state import OperateNode, State, bookkeep_vision
 from flight.payload.graphs.parameters import GraphParameters, encoder_fresh
 
@@ -34,7 +35,15 @@ def step(
         tuple[State, NodeOutcome[OperateNode]]: Updated state and the pose or
             inhibit reference under the enabled policy.
     """
-    policy = params.default_policy(enabled=True)
+    resolved = params.operating_policy(params.config.payload_policy.hold)
+    if isinstance(resolved, Err):
+        return state, NodeOutcome(
+            reference=InhibitReference(reason="invalid_policy"),
+            policy=params.default_policy(enabled=False),
+            system_request=SystemRequestIntent.SAFE,
+            faults=(FaultCode.COMMAND_INVALID,),
+        )
+    policy = resolved.value
     state = bookkeep_vision(state, inputs.vision, inputs, params)
     state = replace(state, aggregate_live=False, last_rate_decision=None)
     target = state.hold.target_rad

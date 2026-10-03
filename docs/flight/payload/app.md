@@ -34,7 +34,7 @@ detailed SIL plant path runs the inner PI and torque loop.
 | `PayloadApp.handle_commands` | method | Deterministic command-drain seam for tests |
 | `PayloadApp.advance_inner` | method | Advances the inner servo path |
 | `PayloadApp.advance_outer` | method | Ticks the graph, drains commands, commits outcomes |
-| `PayloadApp.capture_once` | method | One policy-gated acquisition cycle |
+| `PayloadApp.capture_once` | method | One planned capture cycle under the committed policy |
 | `PayloadApp.process_frame` | method | Preprocesses, detects, and queues vision |
 | `PayloadApp.sample_feedback` | method | One control-owned feedback read for the SIL root |
 | `PayloadApp.note_gimbal_feedback` | method | Records feedback on a non-capture tick |
@@ -45,7 +45,8 @@ detailed SIL plant path runs the inner PI and torque loop.
 `from_config` takes `PactConfig`, HAL drivers, `MessageBus`, `Clock`,
 calibration, storage, and the composition-root `activation_epoch`. It returns
 a `PayloadApp` and raises `ValueError` for invalid sensor or inference
-geometry.
+geometry or for a graph/node payload policy that resolves to an invalid
+combination; policy validation runs before any camera-policy HAL call.
 
 `control_tick` orders one cycle: `poll_activations`, then `advance_inner`,
 then `advance_outer`. `poll_activations` accepts epoch-matching
@@ -56,14 +57,22 @@ accepted activation inhibits motion, cold-enters the destination graph's
 declared policy, and bumps both revisions. A SAFE activation also latches
 containment.
 
+`run` calls `capture_once`, then sleeps for `capture_wait_s`. The sleep is
+the time remaining until `next_opportunity_s`, at most one outer period. No
+future deadline sleeps one outer period. A deadline already passed sleeps 0.
+
 `capture_once` stamps the capture context and the latest state atomically
-under the state lock before any settings, acquisition, or shutter work.
-`process_frame` stamps the implicit context under the same lock before
-preprocessing and detection. Stale contexts stop new product I/O, and a final
-atomic validate-and-commit publishes results only when the activation, policy
-revision, and containment generation still match. An injected `gimbal_pos`
-associates the frame for shutter/GSD geometry only - it never mutates the
-control-owned encoder history.
+under the state lock before any settings, acquisition, or shutter work, then
+hands cadence and duty to the pure `plan_capture`: `WAIT` does no I/O,
+`DRAIN` releases one buffered frame, `CAPTURE` acquires and runs
+`process_frame`. The context is rechecked before and after every potentially
+blocking HAL stage; a superseded start stops the stream and captures
+nothing. `process_frame` stamps the implicit context under the same lock
+before preprocessing and detection. Stale contexts stop new product I/O, and
+a final atomic validate-and-commit publishes results only when the
+activation, policy revision, and containment generation still match. An
+injected `gimbal_pos` associates the frame for shutter/GSD geometry only - it
+never mutates the control-owned encoder history.
 
 `sample_feedback` is the thin public seam the SIL composition root calls to
 take one final actual-clock feedback sample before a shutter binding.
@@ -107,12 +116,38 @@ take one final actual-clock feedback sample before a shutter binding.
    and a fresh valid bounded encoder sample. Evidence is consumed once; a
    replayed request ID cannot release a new latch, and unsafe evidence in the
    same drain always wins over a later clear record.
-10. `sensor.capture.duty_cycle` gates imaging. Duty 0.5 captures even
-    opportunities. A skipped opportunity calls `drain_frame` and still steps
-    the outer loop. This duty is not `gimbal.xeryon.hv_duty_fraction`.
-11. Acquisition-stop failures are observable: `_stop_acquisition` retains the
-    acquisition flag and applied settings on failure and publishes a fault;
-    `HAL.shutdown` errors publish too.
+10. The committed policy's `duty_cycle` gates imaging through
+    `plan_capture`. Duty 0.5 captures even opportunities; a `DRAIN`
+    opportunity calls `drain_frame` and a `WAIT` call touches no HAL. The
+    schedule phase resets on activation, policy-revision, or
+    containment-generation change. This duty is not
+    `gimbal.xeryon.hv_duty_fraction`.
+11. `record_capture` decimates inference to the first successful capture and
+    every `every_n_frames`-th after. A skipped frame runs no detector and
+    publishes no inference, product, or vision record - it is not a
+    plume-loss observation. `publish_products=False` keeps inference but
+    stores and references nothing; the live frame exposure still feeds
+    quality flags and GSD.
+12. Imaging policy/HAL failures set `CaptureShell.pending_fault` and publish
+    the original `FaultEventMsg`; `_poll_local_faults` consumes it once and
+    latches containment through the control owner - capture never calls the
+    gimbal. Frame-scoped acquire/drain failures report only while their
+    context is still current: a stale completion drops the fault entirely.
+    Global camera-control failures (setters, start, stop) always report;
+    their physical effects persist across activations.
+    Acquisition-stop failures retain the acquisition flag and applied
+    settings and remain observable even before activation.
+13. A changed exposure or gain applies stop, exposure, gain, start in that
+    order; an unchanged policy repeats nothing and a cadence-only revision
+    does not cycle the camera. One compact `imaging_policy` telemetry record
+    emits per applied policy revision under one context-current check - for a
+    fresh start, an already running camera, and a confirmed off policy - and
+    never for a forced stop of a still-enabled policy or a superseded
+    application.
+14. A nonfinite capture time is rejected before any setter, start, or
+    acquire. `entry_policy` supplies the activation policy: OPERATE enters on
+    TRACKING's configured override; other graphs use their declared off
+    policy.
 
 ## Errors and faults
 
@@ -123,7 +158,8 @@ take one final actual-clock feedback sample before a shutter binding.
 | `GIMBAL_ENCODER_INVALID` | Nonfinite encoder angle or timestamp |
 | Encoder fault | Feedback read error, stale timing, or clock reset |
 | Gimbal actuation fault | HAL error, stale feedback, or unconfirmed inhibition |
-| `ValueError` at startup | Invalid channel layout or inference geometry |
+| `ValueError` at startup | Invalid channel layout, inference geometry, or payload policy |
+| Imaging policy/HAL fault | Invalid resolved policy or sensor stage `Err` queues control-owned containment |
 | Camera stall | `acquire_frame` returns `Err` |
 | Camera buffer drain | `drain_frame` returns `Err` |
 | Catch-up fault | Catch-up exceeds `catchup_max_s` |
@@ -148,6 +184,7 @@ graph state and do not travel on the bus.
 | Config slice | Use |
 | --- | --- |
 | `SensorConfig` | Mosaic geometry, bit depth, IFOV, band layout, capture duty |
+| `PayloadPolicyConfig` | Graph and per-node imaging/inference policy overrides |
 | `InferenceConfig` | Input bands, sensor size, tile grid, and reference GSD |
 | `PreprocessingConfig` | Quality flags and smear budget |
 | `FaultConfig` | Heartbeat and watchdog intervals |

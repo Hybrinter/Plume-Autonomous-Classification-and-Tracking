@@ -5,7 +5,7 @@ Contains:
     tile carries the same metres-per-pixel pair flight computes.
   - BinSpec: an optional GSD bin row.
   - RawTileRef, RawTile: one indexed row and its arrays.
-  - Domain: ``dn`` or ``unit``.
+  - Domain: ``unit``.
   - RawSource: protocol for a forward-only tile stream.
 
 ``tile_hw`` is a property of each row. A source may emit more than one spatial
@@ -53,6 +53,8 @@ class RawTileRef:
         label: Classification target. Values at or above 0.5 count as positive.
         has_mask: True when the segmentor set includes this row.
         gsd: Pixel GSD at the tile center.
+        height: Image height in pixels.
+        width: Image width in pixels.
         frame_id: Flight frame id. None when the source has no frame.
         grid_rc: ``(row, col)`` on the flight grid. None when absent.
         bin_id: GSD bin name. Empty when the source has a single geometry.
@@ -67,6 +69,8 @@ class RawTileRef:
     label: float
     has_mask: bool
     gsd: GsdPair
+    height: int
+    width: int
     frame_id: str | None
     grid_rc: tuple[int, int] | None
     bin_id: str
@@ -80,7 +84,8 @@ class RawTile:
 
     Attributes:
         ref: Row identity.
-        image: np.ndarray[(3, H, W)] in the source domain.
+        image: np.ndarray[float32, (C, H, W)] in the unit interval, where
+            ``(H, W)`` is ``(ref.height, ref.width)``.
         mask: np.ndarray[(1, H, W)] or None. Present exactly when ``has_mask``.
     """
 
@@ -96,12 +101,9 @@ class RawSource(Protocol):
     Attributes:
         name: Short source name stored on the manifest.
         band_names: Channel names in image order.
-        domain: ``dn`` or ``unit``.
-        bit_depth: ADC depth used when ``domain`` is ``dn``.
+        domain: ``unit``. Prepared tiles are already float32 unit pixels.
         source_ref: DOI or other provenance string. Empty when the source
             has no external origin.
-        extent_m: ``(lateral_m, along_m)`` ground window, or None when every
-            tile is the flight 193 by 258 size.
         bins: Bin table copied onto the manifest. Empty when the source has
             no named bins.
     """
@@ -109,9 +111,7 @@ class RawSource(Protocol):
     name: str
     band_names: tuple[str, ...]
     domain: str
-    bit_depth: int
     source_ref: str
-    extent_m: tuple[float, float] | None
     bins: tuple[BinSpec, ...]
 
     def index(self) -> tuple[RawTileRef, ...]:

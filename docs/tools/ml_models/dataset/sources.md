@@ -25,8 +25,9 @@ only. Callers import `flight` or `zenodo` by module name.
 `build_dataset` accepts any `RawSource`. `build_flight` constructs a
 `FlightTileDir` from a directory. `build_zenodo` constructs a
 `ZenodoSource` from two archives and a weight table. These modules read
-geometry constants from `tools.ml_models.dataset.geometry` and row types
-from `tools.ml_models.dataset.raw`.
+row types from `tools.ml_models.dataset.raw`; `zenodo` reads band
+constants from `tools.ml_models.dataset.geometry`, and `flight` records
+header defaults from flight `InferenceConfig`.
 
 ## Constraints
 

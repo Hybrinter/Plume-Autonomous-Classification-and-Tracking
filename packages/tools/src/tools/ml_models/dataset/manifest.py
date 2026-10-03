@@ -24,7 +24,7 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 from tools.ml_models.dataset.augment import AugmentRecipe
 from tools.ml_models.dataset.split import SplitRecipe
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _SCHEMA = ConfigDict(extra="forbid")
 _HASH_CHUNK_BYTES = 8 * 1024 * 1024
 _MANIFEST_NAME = "dataset.json"
@@ -83,9 +83,9 @@ class ShardCount:
 class DatasetManifest:
     """Identity file stored as ``dataset.json``.
 
-    ``schema_version`` and ``image_scale`` use ``Field(strict=True)``; a
-    ``Field`` assignment counts as a dataclass default, so they are declared
-    after the required fields.
+    ``schema_version`` uses ``Field(strict=True)``; a ``Field`` assignment
+    counts as a dataclass default, so it is declared after the required
+    fields.
 
     Attributes:
         source: Source name.
@@ -93,6 +93,7 @@ class DatasetManifest:
         weight_table_id: Class-weight table identifier.
         band_names: Channel names.
         norm: Always ``unit``.
+        image_dtype: Always ``float32``.
         gsd_reference_m: Reference used to encode model GSD.
         split: Split recipe that produced the row assignment.
         augment: Augment recipe requested for train rows.
@@ -104,7 +105,6 @@ class DatasetManifest:
         gsd_along_max_m: Maximum stored along-track GSD.
         dataset_hash: Lowercase SHA-256 over the shard files.
         schema_version: Manifest schema. Written as JSON key ``schema``.
-        image_scale: Always 65535.
     """
 
     source: str
@@ -112,6 +112,7 @@ class DatasetManifest:
     weight_table_id: str
     band_names: tuple[str, ...]
     norm: str
+    image_dtype: str
     gsd_reference_m: float
     split: SplitRecipe
     augment: AugmentRecipe
@@ -123,17 +124,19 @@ class DatasetManifest:
     gsd_along_max_m: float
     dataset_hash: str
     schema_version: int = Field(strict=True)
-    image_scale: int = Field(strict=True)
 
     @model_validator(mode="after")
     def _bounds(self) -> Self:
-        """Reject a bad schema, norm, scale, band list, or GSD range."""
+        """Reject a bad schema, norm, dtype, band list, or GSD range."""
         if self.schema_version != SCHEMA_VERSION:
-            raise ValueError(f"unsupported schema {self.schema_version}")
+            raise ValueError(
+                f"unsupported dataset schema {self.schema_version}; "
+                f"rebuild the dataset (current schema {SCHEMA_VERSION})"
+            )
         if self.norm != "unit":
             raise ValueError(f"norm must be 'unit'; got {self.norm!r}")
-        if self.image_scale != 65535:
-            raise ValueError(f"image_scale must be 65535; got {self.image_scale}")
+        if self.image_dtype != "float32":
+            raise ValueError(f"image_dtype must be 'float32'; got {self.image_dtype!r}")
         if len(self.band_names) < 1:
             raise ValueError("band_names must be non-empty")
         if len(self.shards) < 1:
@@ -225,6 +228,11 @@ def load_manifest(
     if "schema" not in payload:
         raise ValueError("dataset.json missing schema")
     payload["schema_version"] = payload.pop("schema")
+    if payload["schema_version"] != SCHEMA_VERSION:
+        raise ValueError(
+            f"dataset schema {payload['schema_version']} is unsupported; "
+            f"rebuild the dataset (current schema {SCHEMA_VERSION})"
+        )
     manifest = TypeAdapter(DatasetManifest).validate_python(payload)
     if verify:
         digest = compute_dataset_hash(dest.parent)
@@ -300,7 +308,7 @@ def _to_payload(manifest: DatasetManifest) -> dict[str, object]:
         "weight_table_id": manifest.weight_table_id,
         "band_names": list(manifest.band_names),
         "norm": manifest.norm,
-        "image_scale": manifest.image_scale,
+        "image_dtype": manifest.image_dtype,
         "gsd_reference_m": manifest.gsd_reference_m,
         "split": {
             "seed": manifest.split.seed,

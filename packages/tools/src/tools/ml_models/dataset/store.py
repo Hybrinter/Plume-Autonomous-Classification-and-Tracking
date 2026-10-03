@@ -5,8 +5,9 @@ Contains:
   - ShardWriter: preallocated ``.npy`` memmaps plus a row list.
   - read_rows, read_images, read_gsd, read_labels, read_masks.
 
-Images are uint16 ``(N, 3, H, W)``. GSD is float32 metres ``(N, 2)``. Labels
-are float32 ``(N, 1)``. Segmentor shards also store uint8 masks ``(N, 1, H, W)``.
+Images are float32 unit pixels ``(N, C, H, W)``. GSD is float32 metres
+``(N, 2)``. Labels are float32 ``(N, 1)``. Segmentor shards also store uint8
+masks ``(N, 1, H, W)``.
 The writer fills a temporary shard directory. The caller renames the dataset
 root after every shard has been closed.
 """
@@ -73,6 +74,7 @@ class ShardWriter:
         height: int,
         width: int,
         *,
+        channels: int,
         with_masks: bool,
     ) -> None:
         """Allocate memmaps for ``count`` rows.
@@ -82,16 +84,21 @@ class ShardWriter:
             count: Row count. Must be at least 1.
             height: Tile H.
             width: Tile W.
+            channels: Image channel count. Must be at least 1.
             with_masks: When True, allocate ``masks.npy``.
 
         Raises:
-            ValueError: If ``count``, ``height``, or ``width`` is below 1.
+            ValueError: If ``count``, ``height``, ``width``, or ``channels``
+                is below 1.
         """
-        if count < 1 or height < 1 or width < 1:
-            raise ValueError(f"shard shape must be positive; got n={count} {height}x{width}")
+        if count < 1 or height < 1 or width < 1 or channels < 1:
+            raise ValueError(
+                f"shard shape must be positive; got n={count} c={channels} {height}x{width}"
+            )
         directory.mkdir(parents=True, exist_ok=False)
         self.directory = directory
         self._count = count
+        self._channels = channels
         self._height = height
         self._width = width
         self._cursor = 0
@@ -99,8 +106,8 @@ class ShardWriter:
         self._images = np.lib.format.open_memmap(
             directory / "images.npy",
             mode="w+",
-            dtype=np.uint16,
-            shape=(count, 3, height, width),
+            dtype=np.float32,
+            shape=(count, channels, height, width),
         )
         self._gsd = np.lib.format.open_memmap(
             directory / "gsd.npy",
@@ -136,7 +143,7 @@ class ShardWriter:
         """Write the next row.
 
         Args:
-            image: np.ndarray[uint16, (3, H, W)].
+            image: np.ndarray[float32, (C, H, W)] unit pixels.
             gsd_m: np.ndarray[float32, (2,)] lateral then along-track metres.
             label: Classification target.
             mask: np.ndarray[uint8, (1, H, W)] for a segmentor shard, else None.
@@ -152,9 +159,9 @@ class ShardWriter:
         """
         if self._cursor >= self._count:
             raise ValueError(f"shard {self.directory} is full")
-        if image.shape != (3, self._height, self._width) or image.dtype != np.uint16:
+        if image.shape != (self._channels, self._height, self._width) or image.dtype != np.float32:
             raise ValueError(
-                f"image must be uint16 (3, {self._height}, {self._width}); "
+                f"image must be float32 ({self._channels}, {self._height}, {self._width}); "
                 f"got {image.dtype} {image.shape}"
             )
         gsd = np.asarray(gsd_m, dtype=np.float32)
@@ -253,7 +260,7 @@ def read_images(shard_dir: Path) -> np.ndarray:
         shard_dir: Shard directory.
 
     Returns:
-        np.ndarray[uint16, (N, 3, H, W)].
+        np.ndarray[float32, (N, C, H, W)].
     """
     return np.asarray(np.load(shard_dir / "images.npy"))
 

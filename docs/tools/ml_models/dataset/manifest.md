@@ -12,7 +12,7 @@ dataset, and the content hash over its shard files.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SCHEMA_VERSION` | constant | Manifest schema version, 1 |
+| `SCHEMA_VERSION` | constant | Manifest schema version, 2 |
 | `BinRecord` | class | One named GSD bin row |
 | `ShardCount` | class | Row count for one task, split, and spatial size |
 | `DatasetManifest` | class | Parsed `dataset.json` identity |
@@ -41,10 +41,10 @@ parent directory.
 
 1. The hash digests `relative_posix_path:file_sha256` lines in sorted path
    order. Each file is read in 8 MiB chunks. `dataset.json` is excluded.
-2. `DatasetManifest` requires schema 1, `norm` `unit`, `image_scale`
-   65535, a non-empty band list, at least one shard count, finite ordered
-   GSD min/max ranges, a finite positive `gsd_reference_m`, and a
-   64-character `dataset_hash`.
+2. `DatasetManifest` requires schema 2, `norm` `unit`, `image_dtype`
+   `float32`, a non-empty band list, at least one shard count, finite
+   ordered GSD min/max ranges, a finite positive `gsd_reference_m`, and a
+   64-character `dataset_hash`. A schema other than 2 is rejected.
 3. `ShardCount` requires `n` at least 1, a positive size, and
    `n_positive` in `0..n`.
 4. `check_compatible` compares `band_names`, `norm`, and
@@ -56,8 +56,8 @@ parent directory.
 `FileNotFoundError` when `compute_dataset_hash` finds no files.
 `OSError` / `json.JSONDecodeError` on a missing or malformed file.
 `ValueError` when the payload fails the schema, the `schema` key is
-absent, the recomputed hash differs, or `check_compatible` finds a
-mismatch or an empty sequence.
+absent or a version other than 2, the recomputed hash differs, or
+`check_compatible` finds a mismatch or an empty sequence.
 
 ## Messages
 
@@ -65,7 +65,7 @@ None.
 
 ## Configuration
 
-`SCHEMA_VERSION` is 1. The schema uses pydantic dataclasses with extra
+`SCHEMA_VERSION` is 2. The schema uses pydantic dataclasses with extra
 keys forbidden. `split` and `augment` reuse the `SplitRecipe` and
 `AugmentRecipe` types.
 

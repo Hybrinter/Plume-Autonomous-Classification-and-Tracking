@@ -21,31 +21,37 @@ does not implement onboard frame collection or storage policy.
 
 ## Inputs and outputs
 
-`write_flight_tile_dir(dest, tiles, band_names=INPUT_BANDS, bit_depth=12,
-source_ref="", gsd_reference_m=GSD_REFERENCE_M)` creates `dest` with `source.json`,
+`write_flight_tile_dir(dest, tiles, band_names=..., tile_hw=..., grid=...,
+source_ref="", gsd_reference_m=...)` creates `dest` with `source.json`,
 `index.jsonl`, `tiles/<tile_id>.npy`, and `masks/<tile_id>.npy`.
 
-`source.json` keys are `band_names`, `bit_depth`, `source_ref`, and
-`gsd_reference_m`. An `index.jsonl` row carries `tile_id`, `frame_id`,
+`source.json` keys are `schema`, `domain`, `image_dtype`, `band_names`,
+`tile_hw`, `grid`, `source_ref`, and `gsd_reference_m`. `schema` is 2,
+`domain` is `unit`, and `image_dtype` is `float32`. An `index.jsonl` row
+carries `tile_id`, `frame_id`,
 `row`, `col`, `group_id`, `label`, `has_mask`, `theta_g_deg`,
 `gsd_lateral_m`, `gsd_along_m`, and the optional boolean `gsd_nominal`
 (default False).
 
-`FlightTileDir(root)` exposes `name` `flight`, `domain` `dn`, `extent_m`
-None, empty `bins`, and `gsd_reference_m` from `source.json`. `index()`
-returns the refs in file order. `iter_tiles()` yields `RawTile` rows in
-index order, reading one `.npy` at a time.
+`FlightTileDir(root)` exposes `name` `flight`, `domain` `unit`, empty
+`bins`, `band_names`, `tile_hw`, `grid`, `gsd_reference_m`, and
+`source_ref` from `source.json`. `index()`
+returns the refs in file order with the recorded `tile_hw`. `iter_tiles()`
+yields `RawTile` rows in index order, reading one `.npy` at a time and
+checking it against the recorded `(len(band_names), H, W)` shape.
 
 ## Behavior
 
-1. The writer refuses an existing `dest`, a `bit_depth` below 1, a
-   non-positive `gsd_reference_m`, and an empty tile list.
-2. Frame dimensions, grid limits, GSD reference, and default bands follow
-   flight `InferenceConfig`. Tile images are uint16 `(3, 193, 258)` in
-   `band_names` order. Masks
-   are uint8 `(193, 258)` or `(1, 193, 258)` and stored as `(193, 258)`.
+1. The writer refuses an existing `dest`, empty `band_names`, a
+   non-positive `gsd_reference_m`, a non-positive `tile_hw` or `grid`,
+   and an empty tile list.
+2. Header `band_names`, `tile_hw`, `grid`, and `gsd_reference_m` follow
+   flight `InferenceConfig` by default. Tile images are float32 unit
+   `(C, H, W)` in
+   `band_names` order with finite pixels inside `[0, 1]`. Masks
+   are uint8 `(H, W)` or `(1, H, W)` and stored as `(H, W)`.
 3. A `tile_id` must be a file stem: non-empty, unique, not `.` or `..`,
-   and free of path separators. `row` and `col` must be within the configured
+   and free of path separators. `row` and `col` must be within the recorded
    flight grid.
 4. A missing `group_id` in `index.jsonl` defaults to `frame_id`.
 5. `grid_rc` is the `(row, col)` pair. `theta_g_deg` passes through to
@@ -58,9 +64,12 @@ index order, reading one `.npy` at a time.
 ## Errors and faults
 
 `FileExistsError` when `dest` exists. `ValueError` on a `tile_id` that is
-not a file stem, a grid index outside the configured flight grid, a non-finite label or
-`theta_g_deg`, non-positive GSD, wrong image or mask dtype and shape, an
-empty `group_id`, a malformed `source.json` or `index.jsonl`, a duplicate
+not a file stem, a grid index outside the recorded flight grid, a non-finite label or
+`theta_g_deg`, non-positive GSD, a non-float32 image, an image pixel
+outside `[0, 1]`, wrong image or mask dtype and shape, an
+empty `group_id`, a malformed `source.json` or `index.jsonl`, a
+`source.json` schema other than 2, a `domain` or `image_dtype` other than
+`unit` and `float32`, a duplicate
 `tile_id`, an empty index, or a missing or mistyped array file.
 `OSError` / `json.JSONDecodeError` on a missing or malformed file.
 
@@ -70,8 +79,8 @@ None.
 
 ## Configuration
 
-Writer defaults: `band_names` and `gsd_reference_m` come from flight
-`InferenceConfig`, `bit_depth` is 12, and `source_ref` is empty. There is no
+Writer defaults: `band_names`, `tile_hw`, `grid`, and `gsd_reference_m`
+come from flight `InferenceConfig`, and `source_ref` is empty. There is no
 TOML file.
 
 ## Constraints

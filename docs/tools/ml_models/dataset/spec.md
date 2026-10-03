@@ -24,8 +24,9 @@ applies, and its TOML reader.
 - `augment`: `AugmentRecipe` for train rows. The build intersects it with
   the elements legal for each tile.
 - `tasks`: non-empty unique subset of `TASK_NAMES`. Defaults to both.
-- `input_bands`: required channel names. Must equal the source band list.
-  Defaults to `INPUT_BANDS`.
+- `input_bands`: optional expected channel names. When set, the source
+  band list must equal it. When absent or None, the manifest records the
+  source bands.
 - `gsd_reference_m`: finite positive reference used by `to_model_gsd`.
   Defaults to `GSD_REFERENCE_M`.
 - `weight_table_id`: class-weight table identifier. Empty when unused.
@@ -41,7 +42,7 @@ table takes `seed`, `train_fraction`, `val_fraction`, and
 1. The TOML root must be a table; unknown keys are rejected at the root and
    inside the `split` and `augment` tables.
 2. `tasks` must be non-empty, unique, and drawn from `TASK_NAMES`.
-3. `input_bands` must be a non-empty list of strings.
+3. `input_bands`, when present, must be a non-empty list of strings.
 4. The same spec applies to every source. Val and test rows are not
    augmented.
 
@@ -50,7 +51,7 @@ table takes `seed`, `train_fraction`, `val_fraction`, and
 `OSError` / `tomllib.TOMLDecodeError` on a missing or malformed file.
 `ValueError` when the root is not a table, a root or nested `split` /
 `augment` key is unknown, or a field has the wrong shape. `ValueError` from `BuildSpec` when the task list is
-empty, unknown, or duplicated, `input_bands` is empty, or
+empty, unknown, or duplicated, `input_bands` is present but empty, or
 `gsd_reference_m` is not finite and positive.
 
 ## Messages
@@ -60,7 +61,7 @@ None.
 ## Configuration
 
 The whole module is the `BuildSpec` TOML schema. Defaults match the
-`SplitRecipe`, `AugmentRecipe`, `INPUT_BANDS`, and `GSD_REFERENCE_M`
+`SplitRecipe`, `AugmentRecipe`, and `GSD_REFERENCE_M`
 defaults.
 
 ## Constraints

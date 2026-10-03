@@ -18,14 +18,16 @@ batches that each come from a single shard.
 
 ## Inputs and outputs
 
-`ShardDataset(shard_dir, gsd_reference_m, task)` memory-maps
+`ShardDataset(shard_dir, gsd_reference_m, task, *, channels)` memory-maps
 `images.npy`, `gsd.npy`, `labels.npy`, and `masks.npy` when present.
-`task` is `classifier` or `segmentor`.
+`task` is `classifier` or `segmentor`; `channels` is a required keyword
+and comes from the manifest band list.
 
 `ShardDataset.__getitem__(index)` returns `(image, g, target)`. `image`
-is float32 unit `(3, H, W)` from `dequantize_unit`. `g` is float32 `(2,)`
-from `to_model_gsd`. The classifier target is `(1,)`; the segmentor
-target is `(1, H, W)`.
+is an owned C-contiguous copy of the stored float32 unit `(C, H, W)` row,
+checked to be finite and inside `[0, 1]`. `g` is float32 `(2,)`
+from `to_model_gsd`. The classifier target is float32 `(1,)`; the segmentor
+target is float32 `(1, H, W)`.
 
 `make_loader(dests, task, split, batch_size, weights, seed, n_batches=n)`
 yields `n_batches` stacked batches.
@@ -46,7 +48,11 @@ yields `n_batches` stacked batches.
 
 ## Errors and faults
 
-`ValueError` on an unknown task, a segmentor shard without `masks.npy`, a
+`ValueError` on an unknown task, a non-positive `channels`, a stored array
+with the wrong dtype or layout (`images.npy` float32 `(N, C, H, W)` with
+positive dims, `gsd.npy` float32 `(N, 2)`, `labels.npy` float32 `(N, 1)`,
+`masks.npy` uint8 `(N, 1, H, W)` when present), a stored image row outside
+`[0, 1]`, a segmentor shard without `masks.npy`, a
 `batch_size` or `n_batches` below 1, an empty `dests`, incompatible
 manifests, a non-positive or wrong-length `weights`, or a dataset with no
 shard for the requested task and split. `FileNotFoundError` when an array
@@ -71,4 +77,4 @@ Shard arrays are read through `np.load` memmaps.
 - [`tools.ml_models.dataset`](../dataset.md)
 - [`tools.ml_models.dataset.store`](store.md)
 - [`tools.ml_models.dataset.manifest`](manifest.md)
-- [`tools.ml_models.dataset.preprocess`](preprocess.md)
+- [`tools.ml_models.dataset.gsd`](gsd.md)

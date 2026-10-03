@@ -40,6 +40,7 @@ def calibration_batches(
                         Path(dest) / model.kind / "train" / f"{count.height}x{count.width}",
                         model.gsd_reference_m,
                         model.kind,
+                        channels=len(manifest.band_names),
                     )
                 )
     if not shards:

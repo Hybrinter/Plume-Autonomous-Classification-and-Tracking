@@ -12,7 +12,7 @@ dataset build reads it.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `Domain` | alias | `str`; the values `dn` and `unit` |
+| `Domain` | alias | `str`; the value `unit` |
 | `GsdPair` | class | Pixel ground distance at a tile center, lateral then along-track; re-exported from `flight.payload.gimbal.footprint` |
 | `BinSpec` | class | One named GSD bin recorded on the finished dataset |
 | `RawTileRef` | class | Row identity and geometry without pixel arrays |
@@ -25,22 +25,23 @@ dataset build reads it.
 `RawSource.iter_tiles() -> Iterator[RawTile]` yields each tile once, in
 `index` order.
 
-`RawSource` attributes: `name`, `band_names`, `domain`, `bit_depth`,
-`source_ref`, `extent_m`, and `bins`. `extent_m` is a `(lateral_m,
-along_m)` ground window or None when every tile is the flight 193 by 258
-size. `bins` is empty when the source has no named bins.
+`RawSource` attributes: `name`, `band_names`, `domain`, `source_ref`, and
+`bins`. `domain` is `unit`: a source supplies prepared float32 unit
+pixels. `bins` is empty when the source has no named bins.
 
 `RawTileRef` fields: `tile_id`, `group_id`, `label`, `has_mask`, `gsd`,
-`frame_id`, `grid_rc`, `bin_id`, `theta_g_deg`, and `gsd_nominal`.
-`theta_g_deg` is the gimbal elevation in degrees or None when the source
+`height`, `width`, `frame_id`, `grid_rc`, `bin_id`, `theta_g_deg`, and
+`gsd_nominal`. `theta_g_deg` is the gimbal elevation in degrees or None when the source
 does not record one; `gsd_nominal` marks nominal orbit geometry when the
-capture did not carry a measured value. `RawTile.image` is `(3, H, W)` in the
-source domain. `RawTile.mask` is `(1, H, W)` or None and is present
+capture did not carry a measured value. `RawTile.image` is float32
+`(C, H, W)` in the unit interval, where `(H, W)` is the indexed
+`(height, width)`. `RawTile.mask` is `(1, H, W)` or None and is present
 exactly when `has_mask` is True.
 
 ## Behavior
 
-1. A source advertises its channel order, domain, and bit depth.
+1. A source advertises its channel order and unit pixel domain, and
+   indexes the actual image dimensions of every row.
 2. `index` lists every row up front. `iter_tiles` makes one forward pass in
    the same order.
 3. Labels at or above 0.5 count as positive. Rows that share a `group_id`

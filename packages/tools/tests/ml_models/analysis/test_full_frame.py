@@ -54,9 +54,9 @@ class _StubSegmentor(nn.Module):
 
 
 def _tile_image(positive: bool) -> np.ndarray:
-    """Return a uint16 tile filled for the stub classifier."""
-    fill = 65535 if positive else 0
-    return np.full((3, TILE_H_PX, TILE_W_PX), fill, dtype=np.uint16)
+    """Return a float32 unit tile filled for the stub classifier."""
+    fill = 1.0 if positive else 0.0
+    return np.full((3, TILE_H_PX, TILE_W_PX), fill, dtype=np.float32)
 
 
 def _row(
@@ -106,7 +106,12 @@ def _write_dataset(
     counts: list[ShardCount] = []
     classifier_dir = root / "classifier" / "test" / f"{TILE_H_PX}x{TILE_W_PX}"
     writer = ShardWriter(
-        classifier_dir, len(classifier_rows), TILE_H_PX, TILE_W_PX, with_masks=False
+        classifier_dir,
+        len(classifier_rows),
+        TILE_H_PX,
+        TILE_W_PX,
+        channels=3,
+        with_masks=False,
     )
     n_positive = 0
     for image, row in classifier_rows:
@@ -132,7 +137,12 @@ def _write_dataset(
     if segmentor_rows:
         segmentor_dir = root / "segmentor" / "test" / f"{TILE_H_PX}x{TILE_W_PX}"
         writer = ShardWriter(
-            segmentor_dir, len(segmentor_rows), TILE_H_PX, TILE_W_PX, with_masks=True
+            segmentor_dir,
+            len(segmentor_rows),
+            TILE_H_PX,
+            TILE_W_PX,
+            channels=3,
+            with_masks=True,
         )
         for image, mask, row in segmentor_rows:
             writer.append(image, _GSD_M, 0.0, mask, row)
@@ -153,6 +163,7 @@ def _write_dataset(
         weight_table_id="",
         band_names=INPUT_BANDS,
         norm="unit",
+        image_dtype="float32",
         gsd_reference_m=15.87,
         split=SplitRecipe(),
         augment=AugmentRecipe(),
@@ -163,8 +174,7 @@ def _write_dataset(
         gsd_along_min_m=16.0,
         gsd_along_max_m=16.0,
         dataset_hash=compute_dataset_hash(root),
-        schema_version=1,
-        image_scale=65535,
+        schema_version=2,
     )
     write_manifest(root / "dataset.json", manifest)
 

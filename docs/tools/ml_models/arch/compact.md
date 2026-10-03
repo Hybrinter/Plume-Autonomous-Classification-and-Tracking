@@ -67,7 +67,7 @@ None.
 `in_channels` defaults to 3 (BLUE, GREEN, RED). Head dropout is fixed at 0.2
 and applies on the feature map. The maximum stage width is 256. The `gsd`
 argument takes the `(N, 2)` encoding from
-[`tools.ml_models.dataset.preprocess`](../dataset/preprocess.md); None selects
+[`tools.ml_models.dataset.gsd`](../dataset/gsd.md); None selects
 the reference GSD.
 
 ## Constraints

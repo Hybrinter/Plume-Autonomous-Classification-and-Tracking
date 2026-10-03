@@ -106,7 +106,12 @@ def evaluate(
                 for shard in selected:
                     directory = Path(dest) / kind / split / f"{shard.height}x{shard.width}"
                     rows = read_rows(directory)
-                    dataset = ShardDataset(directory, manifest.gsd_reference_m, kind)
+                    dataset = ShardDataset(
+                        directory,
+                        manifest.gsd_reference_m,
+                        kind,
+                        channels=len(manifest.band_names),
+                    )
                     if len(rows) != len(dataset) or len(rows) != shard.n:
                         raise ValueError("evaluation shard count disagrees with manifest")
                     offset = 0

@@ -2,8 +2,8 @@
 
 The ``build_synthetic_dataset`` fixture returns a builder that writes a
 small planted-blob finished dataset at the flight tile size. Tiles are
-uint16 DN; a positive tile carries a bright block and every tile carries
-a mask, so any split assignment yields segmentor rows in every split.
+float32 unit pixels; a positive tile carries a bright block and every tile
+carries a mask, so any split assignment yields segmentor rows in every split.
 """
 
 from __future__ import annotations
@@ -14,18 +14,19 @@ from typing import Protocol
 
 import numpy as np
 import pytest
+from flight.libs.config import InferenceConfig
 from tools.ml_models.dataset.build import build_dataset
-from tools.ml_models.dataset.geometry import (
-    GRID_COLS,
-    GSD_REFERENCE_M,
-    INPUT_BANDS,
-    tile_hw,
-)
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 from tools.ml_models.dataset.spec import BuildSpec
 
+_DEFAULT = InferenceConfig()
+_TILE_HW = (
+    _DEFAULT.input_height_px // _DEFAULT.tile_rows,
+    _DEFAULT.input_width_px // _DEFAULT.tile_cols,
+)
+
 _WINDOW: tuple[GsdPair, ...] = (
-    GsdPair(GSD_REFERENCE_M, GSD_REFERENCE_M),
+    GsdPair(_DEFAULT.gsd_reference_m, _DEFAULT.gsd_reference_m),
     GsdPair(16.5, 17.1),
     GsdPair(18.6, 22.0),
     GsdPair(23.3, 35.8),
@@ -40,11 +41,9 @@ class _BlobSource:
     """In-memory planted-blob ``RawSource`` for finished-dataset fixtures."""
 
     name = "fixture"
-    band_names = INPUT_BANDS
-    domain = "dn"
-    bit_depth = 12
+    band_names = _DEFAULT.input_bands
+    domain = "unit"
     source_ref = ""
-    extent_m: tuple[float, float] | None = None
     bins: tuple[BinSpec, ...] = ()
 
     def __init__(self, n: int, seed: int) -> None:
@@ -64,17 +63,17 @@ class _BlobSource:
 
 def _generate(n: int, seed: int) -> tuple[RawTile, ...]:
     """Build ``n`` planted-blob tiles at the flight size."""
-    height, width = tile_hw()
+    height, width = _TILE_HW
     n_groups = 4 if n >= 4 else n
     generator = np.random.default_rng(seed)
     tiles: list[RawTile] = []
     for index in range(n):
         chosen = 1.0 if index % 2 == 0 else 0.0
         gsd = _WINDOW[index % len(_WINDOW)]
-        image = generator.integers(0, 400, size=(3, height, width), dtype=np.uint16)
+        image = generator.random((3, height, width), dtype=np.float32) * np.float32(0.2)
         blob = (slice(height // 4, height // 2), slice(width // 4, width // 2))
         if chosen >= 0.5:
-            image[:, blob[0], blob[1]] = np.uint16(3000)
+            image[:, blob[0], blob[1]] = np.float32(0.9)
         mask = np.zeros((1, height, width), dtype=np.uint8)
         if chosen >= 0.5:
             mask[0, blob[0], blob[1]] = np.uint8(1)
@@ -87,8 +86,10 @@ def _generate(n: int, seed: int) -> tuple[RawTile, ...]:
                     label=chosen,
                     has_mask=True,
                     gsd=gsd,
+                    height=height,
+                    width=width,
                     frame_id=group,
-                    grid_rc=(index // GRID_COLS, index % GRID_COLS),
+                    grid_rc=(index // _DEFAULT.tile_cols, index % _DEFAULT.tile_cols),
                     bin_id="",
                 ),
                 image=image,

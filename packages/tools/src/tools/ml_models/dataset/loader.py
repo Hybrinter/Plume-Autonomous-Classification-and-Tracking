@@ -12,7 +12,7 @@ A batch is ``(image, g, target)``. ``image`` is float32 unit ``(B, C, H, W)``.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +20,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from tools.ml_models.dataset.gsd import to_model_gsd
-from tools.ml_models.dataset.manifest import check_compatible, load_manifest, parse_shard_size
+from tools.ml_models.dataset.manifest import load_manifest
 
 Batch = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
@@ -127,11 +127,10 @@ class ShardDataset(Dataset[Batch]):
 
 
 def make_loader(
-    dests: Sequence[str | Path],
+    dataset: str | Path,
     task: str,
     split: str,
     batch_size: int,
-    weights: Sequence[float] | None,
     seed: int,
     *,
     n_batches: int,
@@ -139,58 +138,51 @@ def make_loader(
     """Yield seeded single-shard batches.
 
     Args:
-        dests: Finished dataset directories.
+        dataset: One finished dataset directory.
         task: ``classifier`` or ``segmentor``.
         split: ``train``, ``val``, or ``test``.
         batch_size: Rows per batch. A shard smaller than this is sampled with
             replacement.
-        weights: Relative dataset weights. None uses equal weights.
         seed: NumPy Generator seed.
         n_batches: Number of batches to yield.
 
     Returns:
         Iterator[Batch]: Each batch is a ``(image, g, target)`` triple collated
-        from one shard by a single-batch ``DataLoader``. The dataset is drawn
-        with probability proportional to ``weights``. The shard inside that
-        dataset is drawn with probability proportional to its row count.
+        from one shard by a single-batch ``DataLoader``. The shard is drawn
+        with probability proportional to its row count.
 
     Raises:
-        ValueError: If the datasets are incompatible, a weight is not positive,
-            or a dataset has no shard for the requested task and split.
+        ValueError: If the dataset has no shard for the requested task and
+            split, or a shard count disagrees with its manifest.
     """
     if batch_size < 1:
         raise ValueError(f"batch_size must be >= 1; got {batch_size}")
     if n_batches < 1:
         raise ValueError(f"n_batches must be >= 1; got {n_batches}")
-    if len(dests) < 1:
-        raise ValueError("make_loader requires at least one dataset")
-    manifests = [load_manifest(Path(dest) / "dataset.json") for dest in dests]
-    check_compatible(manifests)
-    grouped: list[list[ShardDataset]] = []
-    for dest, manifest in zip(dests, manifests, strict=True):
-        parent = Path(dest) / task / split
-        shards: list[ShardDataset] = []
-        if parent.is_dir():
-            for child in sorted(path for path in parent.iterdir() if path.is_dir()):
-                if parse_shard_size(child.name) is None:
-                    continue
-                shards.append(
-                    ShardDataset(
-                        child,
-                        manifest.gsd_reference_m,
-                        task,
-                        channels=len(manifest.band_names),
-                    )
-                )
-        if not shards:
-            raise ValueError(f"no {task}/{split} shards in {dest}")
-        grouped.append(shards)
-    probs = _dataset_probs(weights, len(dests))
+    if not isinstance(dataset, str | Path) or not str(dataset).strip():
+        raise ValueError("make_loader requires exactly one finished dataset")
+    root = Path(dataset)
+    manifest = load_manifest(root / "dataset.json")
+    selected = sorted(
+        (count for count in manifest.shards if count.task == task and count.split == split),
+        key=lambda count: f"{count.height}x{count.width}",
+    )
+    shards: list[ShardDataset] = []
+    for count in selected:
+        shard = ShardDataset(
+            root / task / split / f"{count.height}x{count.width}",
+            manifest.gsd_reference_m,
+            task,
+            channels=len(manifest.band_names),
+        )
+        if len(shard) != count.n:
+            raise ValueError("training shard count disagrees with manifest")
+        shards.append(shard)
+    if not shards:
+        raise ValueError(f"no {task}/{split} shards in {dataset}")
+    counts = np.asarray([len(shard) for shard in shards], dtype=np.float64)
     generator = np.random.default_rng(seed)
     for _ in range(n_batches):
-        dataset_index = int(generator.choice(len(grouped), p=probs))
-        shards = grouped[dataset_index]
-        counts = np.asarray([len(shard) for shard in shards], dtype=np.float64)
         shard_index = int(generator.choice(len(shards), p=counts / counts.sum()))
         shard = shards[shard_index]
         replace = batch_size > len(shard)
@@ -201,27 +193,3 @@ def make_loader(
             shuffle=False,
         )
         yield next(iter(loader))
-
-
-def _dataset_probs(weights: Sequence[float] | None, count: int) -> np.ndarray:
-    """Normalize dataset sampling weights.
-
-    Args:
-        weights: Relative weights, or None for equal weight.
-        count: Number of datasets.
-
-    Returns:
-        np.ndarray[float64, (count,)]: Probabilities that sum to 1.
-
-    Raises:
-        ValueError: If the length disagrees or a weight is not finite and > 0.
-    """
-    if weights is None:
-        values = np.ones(count, dtype=np.float64)
-    else:
-        if len(weights) != count:
-            raise ValueError(f"weights length {len(weights)} != dataset count {count}")
-        values = np.asarray(weights, dtype=np.float64)
-    if values.shape != (count,) or not np.all(np.isfinite(values)) or np.any(values <= 0.0):
-        raise ValueError("weights must be finite and > 0")
-    return np.asarray(values / values.sum())

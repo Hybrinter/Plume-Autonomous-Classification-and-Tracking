@@ -11,7 +11,7 @@ from tools.ml_models.cli import main
 from tools.ml_models.dataset.augment import ELEMENT_NAMES, SHAPE_PRESERVING, apply_dihedral
 from tools.ml_models.dataset.build import build_dataset, build_flight
 from tools.ml_models.dataset.loader import ShardDataset
-from tools.ml_models.dataset.manifest import check_compatible, load_manifest
+from tools.ml_models.dataset.manifest import load_manifest
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 from tools.ml_models.dataset.sources.flight import FlightTileWrite, write_flight_tile_dir
 from tools.ml_models.dataset.spec import BuildSpec
@@ -481,33 +481,6 @@ def test_schema1_dataset_is_rejected(tmp_path: Path) -> None:
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="schema 1.*rebuild|rebuild.*schema"):
         load_manifest(path)
-
-
-def test_check_compatible_requires_shared_reference_and_bands(tmp_path: Path) -> None:
-    """Datasets must share bands, unit norm, and the GSD reference."""
-    gsd = GsdPair(10.0, 10.0)
-    tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(3))
-    base = build_dataset(
-        MemorySource(tiles),
-        tmp_path / "base",
-        BuildSpec(),
-    )
-    other = build_dataset(
-        MemorySource(tiles),
-        tmp_path / "other",
-        BuildSpec(gsd_reference_m=20.0),
-    )
-    alt_tiles = tuple(_tile(f"t{index}", f"g{index}", gsd, (8, 8)) for index in range(3))
-    alt = build_dataset(
-        MemorySource(alt_tiles, band_names=("A", "B", "C")),
-        tmp_path / "alt",
-        BuildSpec(input_bands=("A", "B", "C")),
-    )
-    check_compatible([base, base])
-    with pytest.raises(ValueError, match="gsd_reference_m"):
-        check_compatible([base, other])
-    with pytest.raises(ValueError, match="band_names"):
-        check_compatible([base, alt])
 
 
 def test_cli_reports_bad_dataset_args(tmp_path: Path) -> None:

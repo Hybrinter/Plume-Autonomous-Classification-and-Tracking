@@ -6,7 +6,7 @@
 ## Purpose
 
 This module records the training-side dataset geometry and enforces that
-groups shared across dataset roots stay inside one split.
+each group stays inside one split across the dataset's task shards.
 
 ## Public interface
 
@@ -16,29 +16,32 @@ groups shared across dataset roots stay inside one split.
 
 ## Inputs and outputs
 
-`training_provenance(dests, manifests, task) -> dict[str, object]`.
-`dests` and `manifests` align element-wise and must be nonempty.
+`training_provenance(dataset, manifest, task) -> dict[str, object]`.
+`dataset` is the one finished dataset root.
 
-The returned dict carries `datasets` (path, source, source_ref,
+The returned dict carries `dataset` (path, source, source_ref,
 dataset_hash, weight_table_id, bins), `train_samples`,
 `spatial_shapes`, `gsd_bin_ids`, `gsd_min_m`, `gsd_max_m`,
 `gsd_reference_m`, `band_names`, `in_channels`, and `norm` (`unit`).
 
 ## Behavior
 
-1. Every manifest shard for the task is read; the `rows.jsonl` count must
-   equal the manifest record.
-2. Rows sharing `(source, source_ref or resolved dest, group_id)` must
-   land in one split across all datasets.
-3. Train shards must hold finite positive `(n, 2)` GSD arrays; their
-   minima and maxima bound the recorded coverage.
-4. Spatial shapes and bin ids accumulate over train shards only.
+1. Every manifest shard is read; the `rows.jsonl` count must equal the
+   manifest record.
+2. A `group_id` seen in two different splits — including across task
+   shards — is rejected as leakage.
+3. Train shards for the task must hold finite positive `(n, 2)` GSD
+   arrays. Rows marked `gsd_nominal` count toward `train_samples` but are
+   excluded from the recorded minima and maxima; at least one measured
+   train row is required.
+4. Spatial shapes and bin ids accumulate over the task's train shards
+   only.
 
 ## Errors and faults
 
-`ValueError` on a misaligned or empty dataset list, a row count
-disagreement, a group appearing in two splits, an invalid training GSD
-array, or a task with no training samples.
+`ValueError` on an empty dataset path, a row count disagreement, a group
+appearing in two splits, an invalid training GSD array, a task with no
+training samples, or a train split with only nominal-GSD rows.
 
 ## Messages
 

@@ -17,24 +17,25 @@ with its encoded GSD, matching the graph inputs exactly.
 
 ## Inputs and outputs
 
-`calibration_batches(datasets, model, samples=32)` takes finished dataset
-directories and a `ModelManifest`, and returns a list of float32 numpy
-dicts with `image` `(1, C, H, W)` and `gsd` `(1, 2)`.
+`calibration_batches(dataset, model, samples=32)` takes one finished
+dataset directory and a `ModelManifest`, and returns a list of float32
+numpy dicts with `image` `(1, C, H, W)` and `gsd` `(1, 2)`.
 
 ## Behavior
 
-1. Loads each `dataset.json` and requires `check_compatible` across the
-   manifests.
+1. Loads the `dataset.json` manifest.
 2. Requires `band_names` and `gsd_reference_m` to match the model
-   sidecar.
+   sidecar, and each train shard's spatial size to match the model
+   `input_shape` when it declares fixed H/W.
 3. Iterates `ShardDataset` rows for the model kind's train split in
-   round-robin order, using every row at most once and stopping at
-   `samples` or when every shard is exhausted.
+   round-robin order across same-root size shards, using every row at
+   most once and stopping at `samples` or when every shard is exhausted.
 
 ## Errors and faults
 
-`ValueError` when `samples` is not positive, no datasets are given, a
-dataset's preprocessing differs from the model, or no train shard exists.
+`ValueError` when `samples` is not positive, the dataset's preprocessing
+differs from the model, a train shard size disagrees with a fixed model
+input shape, or no train shard exists.
 Manifest failures surface as `OSError` or `ValueError`.
 
 ## Messages

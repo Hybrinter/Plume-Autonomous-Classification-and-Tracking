@@ -6,42 +6,39 @@
 ## Purpose
 
 This module scores complete dataset splits without training resampling.
-It reports per-dataset metrics, per-bin metrics, and a dataset-weighted
-macro combination.
+It reports whole-split metrics and per-bin metrics for one finished
+dataset.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `evaluate` | function | Score one split across finished datasets |
+| `evaluate` | function | Score one split of a finished dataset |
 
 ## Inputs and outputs
 
-`evaluate(model, dests, manifests, kind, split, batch_size, weights,
-device) -> dict[str, object]`. The model receives `(image, gsd)` pairs
-from a `DataLoader` over each `ShardDataset`.
+`evaluate(model, dataset, manifest, kind, split, batch_size, device) ->
+dict[str, object]`. The model receives `(image, gsd)` pairs from a
+`DataLoader` over each `ShardDataset`.
 
-The report carries `split`, `aggregation` (`dataset_weighted_macro`),
-`datasets` (path, source, dataset_hash, metrics, bins), and `combined`
-(all shared metric keys plus `n`).
+The report carries `split`, `dataset`, `source`, `dataset_hash`,
+`metrics` (all metric keys plus `n`), and `bins` (per-bin metric dicts).
 
 ## Behavior
 
-1. Selected manifest shards for `(task, split)` stream through a
+1. Manifest-listed shards for `(task, split)` stream through a
    `DataLoader` in file order; every row scores exactly once.
 2. Each row also lands in the bucket named by its `bin_id`
    (`unbinned` when empty).
 3. Classifier rows accumulate logits for `classifier_metrics`; segmentor
    rows accumulate per-image IoU, Dice, a blob-gate IoU at 0.55, and BCE.
-4. `combined` weights each dataset's summary by the given weights;
-   `n` sums the sample counts.
-5. The model's training flag is saved and restored around evaluation.
+4. The model's training flag is saved and restored around evaluation.
 
 ## Errors and faults
 
-`ValueError` on misaligned metadata, an empty selected split, a shard
-row-count disagreement with the manifest, non-finite or misaligned model
-outputs, or an empty evaluation sample set.
+`ValueError` on an empty selected split, a shard row-count disagreement
+with the manifest, non-finite or misaligned model outputs, or an empty
+evaluation sample set.
 
 ## Messages
 
@@ -49,13 +46,12 @@ None.
 
 ## Configuration
 
-`batch_size`, `weights`, and `device` come from `TrainConfig` through the
-training loop.
+`batch_size` and `device` come from `TrainConfig` through the training
+loop.
 
 ## Constraints
 
-Evaluation runs under `torch.no_grad`. Weights are positive and
-prevalidated by `TrainConfig`.
+Evaluation runs under `torch.no_grad`.
 
 ## Related documents
 

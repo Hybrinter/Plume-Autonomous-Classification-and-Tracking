@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -138,7 +138,7 @@ def quantize_int8(
     source: str | Path,
     dest: str | Path,
     *,
-    datasets: Sequence[str | Path],
+    dataset: str | Path,
     calib_samples: int = 32,
 ) -> Result[Path, str]:
     """Quantize a validated FP32 artifact to static QDQ INT8.
@@ -149,7 +149,7 @@ def quantize_int8(
     Args:
         source: FP32 ``.onnx`` artifact with a valid sidecar.
         dest: New destination artifact path. Must differ from ``source``.
-        datasets: Finished dataset directories supplying calibration rows.
+        dataset: The finished dataset supplying calibration rows.
         calib_samples: Maximum calibration batches.
 
     Returns:
@@ -160,7 +160,7 @@ def quantize_int8(
         if not src.is_file() or not sidecar_path(src).is_file():
             raise FileNotFoundError(f"missing {src} or {sidecar_path(src)}")
         base = load_manifest(sidecar_path(src))
-        batches = calibration_batches(datasets, base, calib_samples)
+        batches = calibration_batches(dataset, base, calib_samples)
         if not batches:
             raise ValueError("INT8 calibration produced no batches")
 

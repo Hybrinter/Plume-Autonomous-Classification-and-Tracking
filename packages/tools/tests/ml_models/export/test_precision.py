@@ -124,9 +124,9 @@ def test_int8_converts_with_calibration_batches(
     seen: dict[str, object] = {}
 
     def fake_calibration(
-        datasets: Sequence[str | Path], model: ModelManifest, samples: int
+        dataset: str | Path, model: ModelManifest, samples: int
     ) -> list[dict[str, np.ndarray]]:
-        seen["datasets"] = list(datasets)
+        seen["dataset"] = dataset
         seen["samples"] = samples
         return batches
 
@@ -136,10 +136,10 @@ def test_int8_converts_with_calibration_batches(
 
     monkeypatch.setattr(precision, "calibration_batches", fake_calibration)
     monkeypatch.setattr(precision, "_write_int8", fake_write)
-    datasets = [tmp_path / "ds-a", tmp_path / "ds-b"]
-    result = quantize_int8(source, dest, datasets=datasets, calib_samples=4)
+    dataset = tmp_path / "ds"
+    result = quantize_int8(source, dest, dataset=dataset, calib_samples=4)
     assert isinstance(result, Ok)
-    assert seen["datasets"] == datasets
+    assert seen["dataset"] == dataset
     assert seen["samples"] == 4
     assert seen["batches"] is batches
     assert dest.read_bytes() == b"int8-graph"
@@ -186,17 +186,17 @@ def test_missing_source_and_failed_validation(
     assert not list(tmp_path.glob("*.partial"))
 
 
-def test_int8_empty_calibration_and_missing_datasets(
+def test_int8_empty_calibration_and_missing_dataset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Empty dataset lists and empty batch sets return Err."""
+    """A missing dataset and an empty batch set return Err."""
     import tools.ml_models.export.precision as precision
 
     source = _source(tmp_path)
-    assert isinstance(quantize_int8(source, tmp_path / "x.onnx", datasets=[]), Err)
+    assert isinstance(quantize_int8(source, tmp_path / "x.onnx", dataset=tmp_path / "missing"), Err)
 
     monkeypatch.setattr(precision, "calibration_batches", lambda *args: [])
-    result = quantize_int8(source, tmp_path / "y.onnx", datasets=[tmp_path / "ds"])
+    result = quantize_int8(source, tmp_path / "y.onnx", dataset=tmp_path / "ds")
     assert isinstance(result, Err)
     assert "no batches" in result.error
     assert not (tmp_path / "y.onnx").exists()
@@ -295,7 +295,7 @@ def test_int8_real_sdk_quantizes_over_two_inputs(
 
     monkeypatch.setattr(precision, "calibration_batches", lambda *args: batches)
     monkeypatch.setattr(precision, "_write_int8", spy_write)
-    result = quantize_int8(source, dest, datasets=[tmp_path / "ds"], calib_samples=2)
+    result = quantize_int8(source, dest, dataset=tmp_path / "ds", calib_samples=2)
     assert isinstance(result, Ok)
     assert [set(batch) for batch in fed] == [{"image", "gsd"}] * 2
     sidecar = json.loads((tmp_path / "int8.json").read_text(encoding="utf-8"))

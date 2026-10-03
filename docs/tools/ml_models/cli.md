@@ -6,10 +6,9 @@
 ## Purpose
 
 This module is the `python -m tools.ml_models` command line. It builds a
-finished dataset from a raw tile source, trains models on finished
-datasets, exports two-input ONNX artifacts, gates acceptance, writes
-classifier/segmentor pair manifests, converts artifact precision, and
-runs the full-frame evaluation.
+finished dataset from a raw tile source, trains models on a finished
+dataset, exports two-input ONNX artifacts, gates acceptance, writes
+classifier/segmentor pair manifests, and converts artifact precision.
 
 ## Public interface
 
@@ -24,7 +23,6 @@ runs the full-frame evaluation.
 | `accept_command` | function | `accept` command |
 | `pair_command` | function | `pair` command |
 | `convert_command` | function | `convert` command |
-| `frame_eval_command` | function | `frame-eval` command |
 | `main` | function | Module entry point returning an exit code |
 
 ## Inputs and outputs
@@ -48,8 +46,8 @@ runs the full-frame evaluation.
 - `--config`: optional `TrainConfig` TOML file; defaults apply when omitted.
 - `--kind`: `classifier` or `segmentor`.
 - `--arch`: architecture grammar name; empty selects the kind default.
-- `--dataset`: finished dataset directory, repeatable.
-- `--dataset-weight`: sampling weight per dataset, repeatable.
+- `--dataset`: finished dataset directory. Exactly one; a second
+  occurrence is rejected.
 - `--run-dir`: run root directory.
 - `--run-id`: run directory name under `--run-dir`.
 - `--device`: torch device; default is CUDA when available, else CPU.
@@ -68,7 +66,7 @@ runs the full-frame evaluation.
 
 - `--artifact`: ONNX artifact. Required.
 - `--manifest`: model sidecar JSON. Required.
-- `--dataset`: finished dataset directory, repeatable; at least one.
+- `--dataset`: finished dataset directory. Exactly one. Required.
 - `--min-iou`: segmentor per-source mean-IoU threshold, default 0.5.
 - `--min-accuracy`: classifier per-source accuracy threshold, default 0.9.
 - `--max-latency-ms`: worst batch-one CPU latency in milliseconds, default
@@ -85,16 +83,9 @@ runs the full-frame evaluation.
 - `--precision`: `fp16` or `int8`. Required.
 - `--source`: source ONNX artifact with its sibling sidecar. Required.
 - `--out`: new destination ONNX artifact. Required.
-- `--dataset`: finished dataset directory, repeatable; required for
-  `int8`.
+- `--dataset`: finished dataset directory; required for `int8` and
+  refused for `fp16` beyond one occurrence.
 - `--calib-samples`: INT8 calibration sample count, default 32.
-
-`frame-eval` options:
-
-- `--dataset`: finished dataset directory. Required.
-- `--classifier-checkpoint`: conditioned classifier checkpoint. Required.
-- `--segmentor-checkpoint`: conditioned segmentor checkpoint. Required.
-- `--out`: destination report JSON. Required; must not exist.
 
 `main(argv=None) -> int` returns a process exit code.
 

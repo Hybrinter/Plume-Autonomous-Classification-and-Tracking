@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +11,7 @@ import torch
 from flight.libs.types import Err
 from torch import nn
 
-from tools.ml_models.dataset.manifest import check_compatible, load_manifest
+from tools.ml_models.dataset.manifest import load_manifest
 from tools.ml_models.export.manifest import ModelManifest
 from tools.ml_models.export.session import open_session
 from tools.ml_models.train.evaluate import evaluate
@@ -46,7 +45,7 @@ class _OnnxModel(nn.Module):
 def accept_artifact(
     artifact: str | Path,
     manifest: ModelManifest,
-    datasets: Sequence[str | Path],
+    dataset: str | Path,
     *,
     min_iou: float = 0.5,
     min_accuracy: float = 0.9,
@@ -63,34 +62,30 @@ def accept_artifact(
         or max_latency_ms <= 0
     ):
         raise ValueError("invalid acceptance thresholds")
-    manifests = [load_manifest(Path(dest) / "dataset.json") for dest in datasets]
-    check_compatible(manifests)
-    if any(
-        item.band_names != manifest.band_names or item.gsd_reference_m != manifest.gsd_reference_m
-        for item in manifests
+    if not isinstance(dataset, str | Path) or not str(dataset).strip():
+        raise ValueError("acceptance requires exactly one finished dataset")
+    dataset_manifest = load_manifest(Path(dataset) / "dataset.json")
+    if (
+        dataset_manifest.band_names != manifest.band_names
+        or dataset_manifest.norm != manifest.norm
+        or dataset_manifest.gsd_reference_m != manifest.gsd_reference_m
     ):
-        raise ValueError("acceptance datasets disagree with model preprocessing")
+        raise ValueError("acceptance dataset disagrees with model preprocessing")
+    input_hw = manifest.input_shape[2:]
+    for shard in dataset_manifest.shards:
+        if shard.task != manifest.kind or shard.split != "test":
+            continue
+        if input_hw[0] is not None and shard.height != input_hw[0]:
+            raise ValueError("dataset shard height disagrees with model input_shape")
+        if input_hw[1] is not None and shard.width != input_hw[1]:
+            raise ValueError("dataset shard width disagrees with model input_shape")
     model = _OnnxModel(Path(artifact), manifest)
-    report = evaluate(
-        model,
-        datasets,
-        manifests,
-        manifest.kind,
-        "test",
-        1,
-        (1.0,) * len(datasets),
-        "cpu",
-    )
-    reports = report["datasets"]
-    assert isinstance(reports, list)
+    report = evaluate(model, dataset, dataset_manifest, manifest.kind, "test", 1, "cpu")
+    values = report["metrics"]
+    assert isinstance(values, dict)
     metric = "accuracy" if manifest.kind == "classifier" else "mean_iou"
     threshold = min_accuracy if manifest.kind == "classifier" else min_iou
-    quality_ok = True
-    for source in reports:
-        assert isinstance(source, dict)
-        values = source["metrics"]
-        assert isinstance(values, dict)
-        quality_ok = quality_ok and float(values[metric]) >= threshold
+    quality_ok = float(values[metric]) >= threshold
     worst = max(model.latencies_ms, default=math.inf)
     latency_ok = math.isfinite(worst) and worst <= max_latency_ms
     return {

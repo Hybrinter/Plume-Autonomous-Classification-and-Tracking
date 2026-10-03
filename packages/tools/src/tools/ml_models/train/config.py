@@ -20,8 +20,7 @@ class TrainConfig:
 
     kind: Literal["classifier", "segmentor"] = "segmentor"
     arch: str = ""
-    datasets: tuple[str, ...] = ()
-    dataset_weights: tuple[float, ...] = ()
+    dataset: str = ""
     epochs: int = 1
     batch_size: int = 2
     learning_rate: float = 0.01
@@ -45,6 +44,17 @@ class TrainConfig:
     max_steps: int | None = None
     val_metric: str = ""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _single_dataset(cls, data: object) -> object:
+        if isinstance(data, dict):
+            legacy = [key for key in ("datasets", "dataset_weights") if key in data]
+            if legacy:
+                raise ValueError(
+                    f"training uses exactly one dataset; set 'dataset' instead of {sorted(legacy)}"
+                )
+        return data
+
     @model_validator(mode="after")
     def _bounds(self) -> Self:
         if min(self.epochs, self.batch_size, self.eval_interval) < 1:
@@ -57,12 +67,6 @@ class TrainConfig:
             raise ValueError("weight_decay must be finite and nonnegative")
         if not math.isfinite(self.momentum) or not 0 <= self.momentum < 1:
             raise ValueError("momentum must lie in [0,1)")
-        if self.dataset_weights and len(self.dataset_weights) != len(self.datasets):
-            raise ValueError("one dataset weight is required per dataset")
-        if any(not math.isfinite(weight) or weight <= 0 for weight in self.dataset_weights):
-            raise ValueError("dataset_weights must be finite and positive")
-        if self.dataset_weights and not math.isfinite(sum(self.dataset_weights)):
-            raise ValueError("dataset weight sum must be finite")
         if (
             not math.isfinite(self.focal_gamma)
             or self.focal_gamma < 0

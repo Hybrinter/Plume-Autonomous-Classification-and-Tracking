@@ -1,6 +1,7 @@
 """Tests for the authored TrainConfig and its TOML helpers."""
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 from tools.ml_models.train.config import (
@@ -16,7 +17,7 @@ def test_defaults_validate() -> None:
     """The default configuration is well-formed."""
     cfg = TrainConfig()
     assert cfg.kind == "segmentor"
-    assert cfg.datasets == ()
+    assert cfg.dataset == ""
 
 
 def test_unknown_key_rejected(tmp_path: Path) -> None:
@@ -43,13 +44,21 @@ def test_invalid_field_values_rejected() -> None:
         TrainConfig(kind="segmentor", val_metric="f1")
 
 
-def test_dataset_weights_must_match_datasets() -> None:
-    """One positive weight per dataset, or none at all."""
-    TrainConfig(datasets=("a", "b"), dataset_weights=(1.0, 2.0))
-    with pytest.raises(ValueError):
-        TrainConfig(datasets=("a", "b"), dataset_weights=(1.0,))
-    with pytest.raises(ValueError):
-        TrainConfig(datasets=("a",), dataset_weights=(0.0,))
+def test_legacy_plural_dataset_keys_rejected(tmp_path: Path) -> None:
+    """The old ``datasets`` and ``dataset_weights`` keys fail with guidance."""
+    cfg = TrainConfig()
+    for overlay in (
+        cast(dict[str, object], {"datasets": ("a",)}),
+        cast(dict[str, object], {"dataset_weights": (1.0,)}),
+    ):
+        with pytest.raises(ValueError, match="dataset"):
+            apply_train_mapping(cfg, overlay)
+        with pytest.raises(ValueError, match="dataset"):
+            apply_train_mapping(cfg, {"dataset": "a"} | overlay)
+    path = tmp_path / "legacy.toml"
+    path.write_text('datasets = ["a", "b"]\n')
+    with pytest.raises(ValueError, match="dataset"):
+        load_train_config(str(path))
 
 
 def test_mapping_overlay(tmp_path: Path) -> None:
@@ -72,10 +81,10 @@ def test_config_digest_excludes_output_controls() -> None:
 
 def test_toml_round_trip(tmp_path: Path) -> None:
     """A written config parses back to the same dataclass."""
-    cfg = TrainConfig(kind="classifier", epochs=2, datasets=("d1",))
+    cfg = TrainConfig(kind="classifier", epochs=2, dataset="d1")
     path = tmp_path / "cfg.toml"
     write_train_config_toml(path, cfg)
     loaded = load_train_config(str(path))
     assert loaded.kind == "classifier"
     assert loaded.epochs == 2
-    assert loaded.datasets == ("d1",)
+    assert loaded.dataset == "d1"

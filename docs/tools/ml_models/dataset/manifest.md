@@ -18,7 +18,6 @@ dataset, and the content hash over its shard files.
 | `DatasetManifest` | class | Parsed `dataset.json` identity |
 | `compute_dataset_hash` | function | SHA-256 over every file except `dataset.json` |
 | `write_manifest` / `load_manifest` | function | `dataset.json` codec |
-| `check_compatible` | function | Shared bands, norm, and GSD reference across manifests |
 | `shard_dir` | function | `<dataset>/<task>/<split>/<H>x<W>` path |
 | `parse_shard_size` | function | Parse an `<H>x<W>` directory name |
 
@@ -33,8 +32,6 @@ parent directory.
 
 `compute_dataset_hash(dataset_dir) -> str` returns a lowercase hex digest.
 
-`check_compatible(manifests)` returns None or raises.
-
 `parse_shard_size(name) -> tuple[int, int] | None`.
 
 ## Behavior
@@ -47,17 +44,13 @@ parent directory.
    64-character `dataset_hash`. A schema other than 2 is rejected.
 3. `ShardCount` requires `n` at least 1, a positive size, and
    `n_positive` in `0..n`.
-4. `check_compatible` compares `band_names`, `norm`, and
-   `gsd_reference_m` against the first manifest. Shard sizes and GSD
-   values may differ.
 
 ## Errors and faults
 
 `FileNotFoundError` when `compute_dataset_hash` finds no files.
 `OSError` / `json.JSONDecodeError` on a missing or malformed file.
 `ValueError` when the payload fails the schema, the `schema` key is
-absent or a version other than 2, the recomputed hash differs, or
-`check_compatible` finds a mismatch or an empty sequence.
+absent or a version other than 2, or the recomputed hash differs.
 
 ## Messages
 

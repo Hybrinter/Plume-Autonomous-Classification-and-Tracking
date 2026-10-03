@@ -13,33 +13,29 @@ artifacts.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `EXPORT_HEIGHT_PX` | constant | Export trace default height (193) |
-| `EXPORT_WIDTH_PX` | constant | Export trace default width (258) |
 | `train` | function | Public `Result[Path, str]` boundary |
 
 ## Inputs and outputs
 
 `train(cfg=None) -> Result[Path, str]`. `Ok` carries the run directory;
 `Err` carries the failure message. `cfg=None` uses `TrainConfig`
-defaults; `datasets` must name at least one finished dataset root.
+defaults; `dataset` must name one finished dataset root.
 
 The run directory holds `config.toml`, `checkpoints/` (`best.pt` and
 `last.pt`), `summary.json`, and `history.jsonl`.
 
 ## Behavior
 
-1. `datasets` must name at least one finished dataset; an empty list
-   fails before the run directory is created.
+1. `dataset` must name one finished dataset; an empty path fails before
+   the run directory is created.
 2. The run directory is `run_dir / (run_id or kind-digest-nanoseconds)`;
    an existing directory is rejected.
-3. Manifests load once; `check_compatible` and `training_provenance`
-   each run once. Every dataset must carry train and validation rows for
-   the task.
+3. The manifest loads once and `training_provenance` runs once. The
+   dataset must carry train and validation rows for the task.
 4. The model comes from `arch.registry.build`; the optimizer is SGD or
    AdamW with the configured rates; `cosine` schedules `T_max=epochs`.
 5. Each epoch draws `ceil(train_samples / batch_size)` batches via
-   `make_loader` at seed `cfg.seed + epoch`. Dataset weights steer
-   sampling only.
+   `make_loader` at seed `cfg.seed + epoch`.
 6. Every batch calls `model(image, gsd)`; output shape must equal the
    target shape and a non-finite loss aborts the run before backward or
    the optimizer step. `amp` applies a CUDA `GradScaler` only on a CUDA
@@ -47,13 +43,11 @@ The run directory holds `config.toml`, `checkpoints/` (`best.pt` and
 7. `evaluate` runs at `eval_interval`, the final epoch, and a
    `max_steps` stop. `val_metric` defaults to `f1` (classifier) or
    `mean_iou` (segmentor); `bce` and `brier` minimize, the rest
-   maximize. `checkpoints/best.pt` follows the combined validation
+   maximize. `checkpoints/best.pt` follows the validation
    metric only; `patience` counts evaluations without improvement.
 8. Checkpoints store kind, arch, `state_dict`, epoch, conditioning
    (`film-log-gsd-v1` for the conditioned families, `ignored` for
-   wrapped graphs), config, provenance, `dataset_weights`,
-   `dataset_hash`, and the export trace defaults. Export H/W are
-   metadata, not training resize dimensions.
+   wrapped graphs), config, provenance, and `dataset_hash`.
 9. `summary.json` joins the checkpoint metadata with the last
    evaluation report; `history.jsonl` holds one record per evaluation.
 10. `checkpoint_path` copies `checkpoints/last.pt` to a new path and
@@ -78,9 +72,10 @@ All controls come from `TrainConfig`; see
 
 ## Constraints
 
-The loader owns sampling, augmentation, and normalisation; the loop adds
-none. Dataset weights never scale the loss. `torch.manual_seed(cfg.seed)`
-fixes initialisation and batch order.
+Sources own pixel preparation, the dataset build owns augmentation, and
+the loader owns sampling and GSD encoding. The training loop adds no
+pixel conversion. `torch.manual_seed(cfg.seed)` fixes initialisation and
+batch order.
 
 ## Related documents
 

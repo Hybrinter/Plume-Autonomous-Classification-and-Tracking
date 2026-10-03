@@ -9,18 +9,13 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
 
 from tools.ml_models.dataset.build import build_flight, build_zenodo
 from tools.ml_models.dataset.raw import BinSpec
 from tools.ml_models.dataset.spec import BuildSpec, load_build_spec
-
-if TYPE_CHECKING:
-    from torch import nn
-
-    from tools.ml_models.dataset.manifest import DatasetManifest
 
 
 class SourceName(StrEnum):
@@ -102,11 +97,7 @@ def train_command(
     ] = None,
     dataset: Annotated[
         list[str] | None,
-        typer.Option(help="Finished dataset directory (repeatable)."),
-    ] = None,
-    dataset_weight: Annotated[
-        list[float] | None,
-        typer.Option(help="Sampling weight per dataset (repeatable)."),
+        typer.Option(help="Finished dataset directory. Exactly one is accepted."),
     ] = None,
     run_dir: Annotated[
         str | None,
@@ -127,12 +118,14 @@ def train_command(
         typer.Option(help="Global optimizer-step cap."),
     ] = None,
 ) -> None:
-    """Train a GSD-conditioned model on finished datasets."""
+    """Train a GSD-conditioned model on one finished dataset."""
     from flight.libs.types import Err
 
     from tools.ml_models.train.config import apply_train_mapping, load_train_config
     from tools.ml_models.train.loop import train
 
+    if dataset is not None and len(dataset) > 1:
+        raise typer.BadParameter("train takes exactly one --dataset")
     overlay: dict[str, object] = {}
     for key, value in (
         ("kind", kind),
@@ -147,9 +140,7 @@ def train_command(
         if value is not None:
             overlay[key] = value
     if dataset is not None:
-        overlay["datasets"] = tuple(dataset)
-    if dataset_weight is not None:
-        overlay["dataset_weights"] = tuple(dataset_weight)
+        overlay["dataset"] = dataset[0]
     try:
         cfg = apply_train_mapping(
             load_train_config(str(config) if config is not None else None), overlay
@@ -208,7 +199,7 @@ def accept_command(
     ],
     dataset: Annotated[
         list[str],
-        typer.Option(help="Finished dataset directory (repeatable, >=1)."),
+        typer.Option(help="Finished dataset directory. Exactly one is accepted."),
     ],
     min_iou: Annotated[
         float, typer.Option(help="Minimum per-source mean IoU for segmentors.")
@@ -227,8 +218,8 @@ def accept_command(
     from tools.ml_models.export.accept import accept_artifact
     from tools.ml_models.export.manifest import acceptance_path, load_manifest
 
-    if not dataset:
-        raise typer.BadParameter("accept requires at least one --dataset")
+    if len(dataset) != 1:
+        raise typer.BadParameter("accept takes exactly one --dataset")
     report_path = acceptance_path(artifact)
     if report_path.exists():
         raise typer.BadParameter(f"refusing to overwrite {report_path}")
@@ -237,17 +228,19 @@ def accept_command(
         report = accept_artifact(
             artifact,
             model_manifest,
-            dataset,
+            dataset[0],
             min_iou=min_iou,
             min_accuracy=min_accuracy,
             max_latency_ms=max_latency_ms,
         )
     except (OSError, ValueError, RuntimeError) as exc:
         raise typer.BadParameter(str(exc)) from exc
+    evaluation = report["evaluation"]
+    assert isinstance(evaluation, dict)
     payload = {
         "sha256": model_manifest.sha256,
-        "datasets": [str(path) for path in dataset],
-        "dataset_hashes": _dataset_hashes(report),
+        "dataset": str(dataset[0]),
+        "dataset_hash": str(evaluation["dataset_hash"]),
         "min_iou": min_iou,
         "min_accuracy": min_accuracy,
         **report,
@@ -260,15 +253,6 @@ def accept_command(
     typer.echo(str(report_path))
     if not report["accepted"]:
         raise typer.Exit(code=1)
-
-
-def _dataset_hashes(report: dict[str, object]) -> list[str]:
-    """Return the dataset hash of every source in an evaluation report."""
-    evaluation = report["evaluation"]
-    assert isinstance(evaluation, dict)
-    entries = evaluation["datasets"]
-    assert isinstance(entries, list)
-    return [str(entry["dataset_hash"]) for entry in entries if isinstance(entry, dict)]
 
 
 @app.command("pair")
@@ -314,7 +298,7 @@ def convert_command(
     out: Annotated[Path, typer.Option(..., help="New destination artifact path.")],
     dataset: Annotated[
         list[str] | None,
-        typer.Option(help="Finished dataset directory for INT8 calibration (repeatable)."),
+        typer.Option(help="Finished dataset directory for INT8 calibration. At most one."),
     ] = None,
     calib_samples: Annotated[int, typer.Option(help="Maximum INT8 calibration batches.")] = 32,
 ) -> None:
@@ -323,95 +307,17 @@ def convert_command(
 
     from tools.ml_models.export.precision import convert_fp16, quantize_int8
 
+    if dataset is not None and len(dataset) > 1:
+        raise typer.BadParameter("convert takes at most one --dataset")
     if precision == Precision.INT8:
-        if not dataset:
-            raise typer.BadParameter("int8 conversion requires at least one --dataset")
-        result = quantize_int8(source, out, datasets=dataset, calib_samples=calib_samples)
+        if dataset is None or len(dataset) != 1:
+            raise typer.BadParameter("int8 conversion requires exactly one --dataset")
+        result = quantize_int8(source, out, dataset=dataset[0], calib_samples=calib_samples)
     else:
         result = convert_fp16(source, out)
     if isinstance(result, Err):
         raise typer.BadParameter(result.error)
     typer.echo(str(result.value))
-
-
-def _load_eval_model(
-    checkpoint_path: Path,
-    kind: str,
-    dataset_manifest: DatasetManifest,
-) -> nn.Module:
-    """Load one conditioned checkpoint and check it against the dataset.
-
-    Args:
-        checkpoint_path: Trained ``.pt`` checkpoint.
-        kind: Required ``classifier`` or ``segmentor`` kind.
-        dataset_manifest: Finished dataset manifest.
-
-    Returns:
-        nn.Module: The built model in eval mode.
-
-    Raises:
-        typer.BadParameter: If kind, conditioning, bands, norm, or reference
-            disagree with the dataset.
-    """
-    import torch
-
-    from tools.ml_models.arch.registry import build
-    from tools.ml_models.export.contract import CONDITIONING_ID
-
-    checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=True)
-    provenance = checkpoint["provenance"]
-    if str(checkpoint["kind"]) != kind:
-        raise typer.BadParameter(
-            f"{checkpoint_path.name} kind {checkpoint['kind']!r} is not {kind!r}"
-        )
-    if checkpoint["conditioning"] != CONDITIONING_ID:
-        raise typer.BadParameter(f"{checkpoint_path.name} is not a conditioned checkpoint")
-    bands = tuple(str(band) for band in provenance["band_names"])
-    if bands != tuple(dataset_manifest.band_names):
-        raise typer.BadParameter(f"{checkpoint_path.name} band names differ from the dataset")
-    if provenance["norm"] != dataset_manifest.norm:
-        raise typer.BadParameter(f"{checkpoint_path.name} norm differs from the dataset")
-    if float(provenance["gsd_reference_m"]) != dataset_manifest.gsd_reference_m:
-        raise typer.BadParameter(f"{checkpoint_path.name} GSD reference differs from the dataset")
-    model = build(kind, str(checkpoint["arch"]), int(provenance["in_channels"]))
-    model.load_state_dict(checkpoint["state_dict"], strict=True)
-    model.eval()
-    return model
-
-
-@app.command("frame-eval")
-def frame_eval_command(
-    dataset: Annotated[Path, typer.Option(..., help="Finished flight dataset directory.")],
-    classifier_checkpoint: Annotated[
-        Path, typer.Option(..., help="Conditioned classifier checkpoint (.pt).")
-    ],
-    segmentor_checkpoint: Annotated[
-        Path, typer.Option(..., help="Conditioned segmentor checkpoint (.pt).")
-    ],
-    out: Annotated[Path, typer.Option(..., help="Destination report JSON.")],
-) -> None:
-    """Evaluate complete 64-tile flight frames with a conditioned model pair."""
-    import json
-
-    from tools.ml_models.analysis.full_frame import evaluate_flight_frames
-    from tools.ml_models.dataset.manifest import load_manifest
-
-    if out.exists():
-        raise typer.BadParameter(f"refusing to overwrite {out}")
-    try:
-        dataset_manifest = load_manifest(dataset / "dataset.json")
-        classifier = _load_eval_model(classifier_checkpoint, "classifier", dataset_manifest)
-        segmentor = _load_eval_model(segmentor_checkpoint, "segmentor", dataset_manifest)
-        report = evaluate_flight_frames(dataset, classifier, segmentor)
-    except (OSError, ValueError, RuntimeError, KeyError) as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    try:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        with out.open("x", encoding="utf-8") as stream:
-            stream.write(json.dumps(report, indent=2) + "\n")
-    except OSError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    typer.echo(str(out))
 
 
 def _select_bins(bin_ids: list[str] | None) -> tuple[BinSpec, ...] | None:

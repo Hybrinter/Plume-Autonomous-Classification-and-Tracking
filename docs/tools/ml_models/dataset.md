@@ -14,7 +14,6 @@ them for model work. Each source writes its own dataset root: shards of
 | Item | Type | Description |
 | --- | --- | --- |
 | [`raw`](dataset/raw.md) | module | Raw tile contract: refs, tiles, and the source protocol |
-| [`geometry`](dataset/geometry.md) | module | Flight frame, grid, and tile geometry |
 | [`gsd`](dataset/gsd.md) | module | Model GSD log-ratio encoding |
 | [`augment`](dataset/augment.md) | module | Offline dihedral element names and application |
 | [`split`](dataset/split.md) | module | Group-wise train, val, and test indices |

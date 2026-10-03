@@ -30,6 +30,7 @@ Package-local decisions for `packages/tools`. New records use files under
 | ADR-TOOLS-0011 | [0011-windows-cuda-torch-index.md](adr/0011-windows-cuda-torch-index.md) | Windows tools installs CUDA torch wheels | Accepted |
 | ADR-TOOLS-0012 | [0012-ci-omits-tools-torch.md](adr/0012-ci-omits-tools-torch.md) | Lean CI shards omit pact-tools | Accepted |
 | ADR-TOOLS-0013 | [0013-ml-models-package.md](adr/0013-ml-models-package.md) | One `tools.ml_models` package for train, export, and accept | Accepted |
-| ADR-TOOLS-0014 | [0014-finished-datasets-per-source.md](adr/0014-finished-datasets-per-source.md) | Finished datasets per source | Accepted |
-| ADR-TOOLS-0015 | [0015-gsd-film-conditioning.md](adr/0015-gsd-film-conditioning.md) | GSD FiLM conditioning in tools training | Accepted |
+| ADR-TOOLS-0014 | [0014-finished-datasets-per-source.md](adr/0014-finished-datasets-per-source.md) | Finished datasets per source | Superseded |
+| ADR-TOOLS-0015 | [0015-gsd-film-conditioning.md](adr/0015-gsd-film-conditioning.md) | GSD FiLM conditioning in tools training | Superseded |
 | ADR-TOOLS-0016 | [0016-two-input-export-contract.md](adr/0016-two-input-export-contract.md) | Two-input ONNX export contract and pair gates | Accepted |
+| ADR-TOOLS-0017 | [0017-single-source-unit-tile-workflow.md](adr/0017-single-source-unit-tile-workflow.md) | Single-source unit-tile workflow | Accepted |

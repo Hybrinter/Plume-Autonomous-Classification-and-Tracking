@@ -67,10 +67,7 @@ def _checkpoint(
                 "gsd_max_m": list(FULL_COVERAGE[1]),
                 "train_samples": 8,
             },
-            "dataset_weights": [1.0],
             "dataset_hash": hashlib.sha256(b"dataset").hexdigest(),
-            "input_height_px": 193,
-            "input_width_px": 258,
         },
         path,
     )
@@ -271,7 +268,7 @@ def test_exported_pair_loads_with_flight_metadata_and_config(
         acceptance = accept_artifact(
             artifact,
             manifest,
-            [dataset],
+            dataset,
             min_iou=0.0,
             min_accuracy=0.0,
             max_latency_ms=1000.0,
@@ -387,7 +384,7 @@ def test_full_acceptance_flow(tmp_path: Path, build_synthetic_dataset: Callable[
     report = accept_artifact(
         artifact,
         manifest,
-        [dataset],
+        dataset,
         min_iou=0.0,
         min_accuracy=0.0,
         max_latency_ms=1000.0,

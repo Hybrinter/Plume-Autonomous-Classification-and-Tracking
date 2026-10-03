@@ -1,6 +1,9 @@
 # ML dataset flight and ground cleanup
 
 **Status:** Flight processing and stacked ground workflow integrated; stack validation complete.
+Unit-float datasets, fixed Zenodo bins, single-dataset training, and shared
+unit-tile validation are implemented; onboard training-example collection
+remains deferred.
 **Date:** 2026-10-02
 
 ## Objective and evidence
@@ -54,10 +57,11 @@ here without implementing collection during this pass.
 
 | Responsibility | Owner | Ground reuse |
 | --- | --- | --- |
-| Camera calibration, quality, normalization | `flight.payload.preprocess` | Call flight functions for the same pixel domain |
-| Ray geometry and measured per-tile GSD | `flight.payload.gimbal` | Call pure footprint functions for source adaptation |
+| Camera calibration, quality, normalization | `flight.payload.preprocess` | Decode prepared unit tiles; do not repeat calibration/normalization |
+| Unit-tile layout, capture, and image contract | `flight.payload.preprocess.tile_product` | Ground ingester and fixture writer call the shared validators |
+| Ray geometry and measured per-tile GSD | `flight.payload.gimbal` | Import recorded capture GSD; do not recompute flight geometry for Zenodo |
 | Tile layout, slicing, mask stitching | Flight payload pure core | Import the flight implementation |
-| Classification gate, selected segmentation, blob extraction | `flight.payload.inference` | Evaluate through the shared runtime contract |
+| Classification gate, selected segmentation, blob extraction | `flight.payload.inference` | Keep live runtime verification; ground model evaluation is tile-only |
 | Onboard example selection and collection metadata | Flight payload pure policy plus app shell | Decode products into raw ground records |
 | Durable storage and downlink | Existing flight HAL/core/ISS paths | Ingest the delivered products |
 | Raw-source adapters, group splitting, offline augmentation, finished datasets | `tools.ml_models.dataset` | Ground-only workflow |
@@ -109,6 +113,15 @@ corrected DN, or quantized unit pixels. Persist domain, scale, band order,
 calibration identity, and processing identity explicitly. Ground preparation
 must neither apply calibration twice nor normalize a unit image as ADC DN.
 
+As-built resolution: the schema-2 flight import contract and finished
+datasets require source-prepared float32 unit pixels in `[0, 1]`; there is
+no quantization, dequantization, or further scaling in the generic ground
+build or loader. `flight.payload.preprocess.tile_product` owns the schema-2
+layout, capture, and unit-image validators; the ground flight writer and
+reader delegate to them, while labels, masks, group assignment, and file
+I/O remain ground-side. Zenodo retains its source-specific
+counts-to-reflectance scaling and camera spectral-response table.
+
 ### Selection versus ground truth
 
 The diagram selects examples using current model outputs. A stored prediction
@@ -125,6 +138,12 @@ scores complete 64-tile frames. Ordinary collected training examples may not
 provide complete frames. Define a separate complete-frame validation capture
 path or specify tile-level evaluation and report incomplete frames honestly.
 Missing tiles cannot be replaced with fabricated negatives.
+
+As-built resolution: ground evaluation is per-tile over a finished dataset's
+test shards; the generic ground full-frame evaluator is removed. Tile-level
+scores are aggregated by the evaluator, so incomplete frames need no
+fabricated negatives. A separate complete-frame validation capture path
+remains a future decision.
 
 ### Storage and link budgets
 
@@ -156,6 +175,14 @@ GSD pair consistently or be excluded under the agreed orientation convention.
 Zenodo resampling is a geometric/radiometric proxy and does not prove flight
 accuracy or latency. Keep deployment eligibility separate from measured
 performance evidence.
+
+As-built resolution: the Zenodo bins are the fixed source-owned set over the
+1200 m extent (native10, gsd15, gsd20, gsd25, gsd30, gsd35) with the actual
+GSD recorded per bin; they no longer derive from flight orbit, optics, or
+elevation geometry. The spectral-response weighting and counts-to-reflectance
+scaling are unchanged. Axis-swapping augmentation is already excluded for
+anisotropic GSD. Ground training consumes exactly one finished dataset root
+per run, with source identity and dataset hash recorded in provenance.
 
 ### Coordinated deployment
 

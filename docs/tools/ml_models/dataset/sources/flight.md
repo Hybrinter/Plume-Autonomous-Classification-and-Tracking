@@ -34,7 +34,8 @@ carries `tile_id`, `frame_id`,
 (default False).
 
 `FlightTileDir(root)` exposes `name` `flight`, `domain` `unit`, empty
-`bins`, `band_names`, `tile_hw`, `grid`, `gsd_reference_m`, and
+`bins`, `band_names`, `tile_hw`, `grid`, `gsd_reference_m`, a validated
+`UnitTileLayout` as `layout`, and
 `source_ref` from `source.json`. `index()`
 returns the refs in file order with the recorded `tile_hw`. `iter_tiles()`
 yields `RawTile` rows in index order, reading one `.npy` at a time and
@@ -42,17 +43,20 @@ checking it against the recorded `(len(band_names), H, W)` shape.
 
 ## Behavior
 
-1. The writer refuses an existing `dest`, empty `band_names`, a
-   non-positive `gsd_reference_m`, a non-positive `tile_hw` or `grid`,
-   and an empty tile list.
+1. The writer validates its typed arguments as a
+   `flight.payload.preprocess.tile_product.UnitTileLayout` before any file
+   I/O, refuses an existing `dest`, and requires a non-empty tile list.
+   Each tile is checked as a `UnitTileCapture` and a unit-tile image through
+   the same validators.
 2. Header `band_names`, `tile_hw`, `grid`, and `gsd_reference_m` follow
    flight `InferenceConfig` by default. Tile images are float32 unit
    `(C, H, W)` in
    `band_names` order with finite pixels inside `[0, 1]`. Masks
-   are uint8 `(H, W)` or `(1, H, W)` and stored as `(H, W)`.
+   are binary uint8 `(H, W)` or `(1, H, W)` and stored as `(H, W)`.
 3. A `tile_id` must be a file stem: non-empty, unique, not `.` or `..`,
    and free of path separators. `row` and `col` must be within the recorded
-   flight grid.
+   flight grid. A `label` is finite and exactly 0 or 1; no prediction is
+   thresholded into a label.
 4. A missing `group_id` in `index.jsonl` defaults to `frame_id`.
 5. `grid_rc` is the `(row, col)` pair. `theta_g_deg` passes through to
    the ref, and `bin_id` is `elevation{nearest}` for the nearest of
@@ -63,10 +67,11 @@ checking it against the recorded `(len(band_names), H, W)` shape.
 
 ## Errors and faults
 
-`FileExistsError` when `dest` exists. `ValueError` on a `tile_id` that is
-not a file stem, a grid index outside the recorded flight grid, a non-finite label or
-`theta_g_deg`, non-positive GSD, a non-float32 image, an image pixel
-outside `[0, 1]`, wrong image or mask dtype and shape, an
+`FileExistsError` when `dest` exists. `ValueError` on an invalid unit-tile
+layout or capture (the shared validators return `Err(FRAME_MALFORMED)` and
+this module translates that into `ValueError` naming the offending tile or
+row), a label other than 0 or 1, a non-binary mask,
+wrong mask dtype or shape, an
 empty `group_id`, a malformed `source.json` or `index.jsonl`, a
 `source.json` schema other than 2, a `domain` or `image_dtype` other than
 `unit` and `float32`, a duplicate
@@ -85,7 +90,10 @@ TOML file.
 
 ## Constraints
 
-The imported finished-tile format follows flight geometry. This module does
+The imported finished-tile format follows flight geometry, and layout,
+capture, and image checks are delegated to
+`flight.payload.preprocess.tile_product`. Source identity, group
+assignment, labels, and masks stay ground-side. This module does
 not import torch.
 
 ## Related documents
@@ -93,3 +101,4 @@ not import torch.
 - [`tools.ml_models.dataset.sources`](../sources.md)
 - [`tools.ml_models.dataset.raw`](../raw.md)
 - [`tools.ml_models.dataset.build`](../build.md)
+- [`flight.payload.preprocess.tile_product`](../../../../flight/payload/preprocess/tile_product.md)

@@ -19,6 +19,7 @@ an inference-ready NCHW tensor. Stages run in a fixed order inside
 | [`band_select`](preprocess/band_select.md) | module | Reorder band planes for model input |
 | [`quality`](preprocess/quality.md) | module | Per-frame usability flags |
 | [`tiling`](preprocess/tiling.md) | module | Equal row-major tile slicing and full-frame stitching |
+| [`tile_product`](preprocess/tile_product.md) | module | Shared unit-tile layout, capture, and image validation |
 
 ## Package interface
 

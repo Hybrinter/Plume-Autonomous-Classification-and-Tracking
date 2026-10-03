@@ -7,7 +7,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 from flight.libs.config import InferenceConfig
-from tools.ml_models.dataset.build import build_dataset
+from flight.libs.types import Ok
+from flight.payload.preprocess.band_select import select_bands
+from flight.payload.preprocess.normalize import normalize_dn
+from flight.payload.preprocess.tiling import slice_frame
+from tools.ml_models.dataset.augment import AugmentRecipe
+from tools.ml_models.dataset.build import build_dataset, build_flight
+from tools.ml_models.dataset.gsd import to_model_gsd
+from tools.ml_models.dataset.loader import ShardDataset
 from tools.ml_models.dataset.raw import GsdPair
 from tools.ml_models.dataset.sources.flight import (
     SCHEMA_VERSION,
@@ -16,7 +23,7 @@ from tools.ml_models.dataset.sources.flight import (
     write_flight_tile_dir,
 )
 from tools.ml_models.dataset.spec import BuildSpec
-from tools.ml_models.dataset.store import read_images, read_rows
+from tools.ml_models.dataset.store import read_gsd, read_images, read_labels, read_rows
 
 _DEFAULT = InferenceConfig()
 _TILE_HW = (
@@ -242,9 +249,9 @@ def test_traversal_tile_id_is_rejected_on_write(tmp_path: Path) -> None:
         gsd=GsdPair(15.87, 15.87),
         image=_image(0.1),
     )
-    with pytest.raises(ValueError, match="file stem"):
+    with pytest.raises(ValueError, match="invalid flight tile capture"):
         write_flight_tile_dir(tmp_path / "flight", [tile])
-    with pytest.raises(ValueError, match="file stem"):
+    with pytest.raises(ValueError, match="invalid flight tile capture"):
         write_flight_tile_dir(tmp_path / "flight2", [replace(tile, tile_id="..")])
 
 
@@ -260,9 +267,9 @@ def test_grid_indices_outside_grid_are_rejected_on_write(tmp_path: Path) -> None
         gsd=GsdPair(15.87, 15.87),
         image=_image(0.1),
     )
-    with pytest.raises(ValueError, match="0..7"):
+    with pytest.raises(ValueError, match="invalid flight tile capture"):
         write_flight_tile_dir(tmp_path / "flight", [tile])
-    with pytest.raises(ValueError, match="0..7"):
+    with pytest.raises(ValueError, match="invalid flight tile capture"):
         write_flight_tile_dir(tmp_path / "flight2", [replace(tile, row=0, col=-1)])
 
 
@@ -311,12 +318,12 @@ def test_index_rows_must_use_stems_and_grid_bounds(tmp_path: Path) -> None:
     row = json.loads(path.read_text(encoding="utf-8"))
     row["tile_id"] = "../t0"
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="file stem"):
+    with pytest.raises(ValueError, match="valid unit tile capture"):
         FlightTileDir(dest)
     row["tile_id"] = "t0"
     row["col"] = 8
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="0..7"):
+    with pytest.raises(ValueError, match="valid unit tile capture"):
         FlightTileDir(dest)
 
 
@@ -403,4 +410,111 @@ def test_theta_required_and_finite(tmp_path: Path) -> None:
         payload["theta_g_deg"] = bad
         path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         with pytest.raises(ValueError, match="theta_g_deg"):
+            FlightTileDir(dest)
+
+
+def test_normalized_frame_tile_round_trips_through_build(tmp_path: Path) -> None:
+    """A normalize/select/slice tile survives write, import, and build."""
+    frame = np.zeros((3, 8, 14), dtype=np.float32)
+    frame[:, 4, 7] = np.float32(0.0)
+    frame[:, 4, 8] = np.float32(4095.0)
+    frame[2, 6, 10] = np.float32(4095.0 * 0.1234567)
+    normalized = normalize_dn(frame, 12)
+    selected = select_bands(normalized, ("RED", "GREEN", "BLUE"), ("BLUE", "GREEN", "RED"))
+    assert isinstance(selected, Ok)
+    np.testing.assert_array_equal(selected.value[0], normalized[2])
+    sliced = slice_frame(selected.value[None], (2, 2))
+    assert isinstance(sliced, Ok)
+    tile_image = np.ascontiguousarray(sliced.value[3])
+    assert tile_image.shape == (3, 4, 7)
+    assert float(tile_image.min()) == 0.0
+    assert float(tile_image.max()) == 1.0
+    assert tile_image[0, 2, 3] == normalized[2, 6, 10] != 0.0
+
+    source_dir = tmp_path / "flight-src"
+    write_flight_tile_dir(
+        source_dir,
+        [
+            FlightTileWrite(
+                tile_id=f"tile{index}",
+                frame_id=f"frame-{index}",
+                row=1,
+                col=1,
+                label=1.0,
+                theta_g_deg=15.0,
+                gsd=GsdPair(16.5, 17.1),
+                image=tile_image,
+                group_id=f"group-{index}",
+            )
+            for index in range(3)
+        ],
+        band_names=("BLUE", "GREEN", "RED"),
+        tile_hw=(4, 7),
+        grid=(2, 2),
+    )
+    dataset_dir = tmp_path / "dataset"
+    manifest = build_flight(
+        source_dir,
+        dataset_dir,
+        BuildSpec(augment=AugmentRecipe(elements=("id",))),
+    )
+    assert manifest.band_names == ("BLUE", "GREEN", "RED")
+    assert manifest.source == "flight"
+    assert not (dataset_dir / "segmentor").exists()
+
+    expected_gsd = np.array([16.5, 17.1], dtype=np.float32)
+    expected_model_gsd = to_model_gsd(expected_gsd, manifest.gsd_reference_m)
+    found = False
+    for split in ("train", "val", "test"):
+        shard_dir = dataset_dir / "classifier" / split / "4x7"
+        if not shard_dir.is_dir():
+            continue
+        rows = read_rows(shard_dir)
+        assert {row.element for row in rows} == {"id"}
+        np.testing.assert_array_equal(
+            read_gsd(shard_dir),
+            np.broadcast_to(expected_gsd, (len(rows), 2)),
+        )
+        index = next(
+            (i for i, row in enumerate(rows) if row.tile_id == "tile0" and row.element == "id"),
+            None,
+        )
+        if index is None:
+            continue
+        found = True
+        assert rows[index].group_id == "group-0"
+        assert rows[index].frame_id == "frame-0"
+        assert rows[index].grid_rc == (1, 1)
+        np.testing.assert_array_equal(read_labels(shard_dir)[index], np.array([1.0], np.float32))
+        dataset = ShardDataset(shard_dir, manifest.gsd_reference_m, "classifier", channels=3)
+        image, encoded, target = dataset[index]
+        np.testing.assert_array_equal(image.numpy(), tile_image)
+        np.testing.assert_array_equal(encoded.numpy(), expected_model_gsd)
+        np.testing.assert_array_equal(target.numpy(), np.array([1.0], dtype=np.float32))
+    assert found
+
+
+def test_huge_header_reference_is_a_value_error(tmp_path: Path) -> None:
+    """A huge JSON integer gsd_reference_m fails cleanly, not OverflowError."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile()])
+    path = dest / "source.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["gsd_reference_m"] = 10**400
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="layout"):
+        FlightTileDir(dest)
+
+
+def test_huge_index_numbers_are_value_errors(tmp_path: Path) -> None:
+    """Huge JSON integers in GSD and theta fields fail cleanly."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile()])
+    path = dest / "index.jsonl"
+    original = json.loads(path.read_text(encoding="utf-8").strip())
+    for key in ("theta_g_deg", "gsd_lateral_m"):
+        payload = dict(original)
+        payload[key] = 10**400
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        with pytest.raises(ValueError, match=key):
             FlightTileDir(dest)

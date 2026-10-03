@@ -22,10 +22,19 @@ from pathlib import Path
 
 import numpy as np
 from flight.libs.config import InferenceConfig
+from flight.libs.types import Err
+from flight.payload.preprocess.tile_product import (
+    UNIT_TILE_SOURCE_SCHEMA,
+    UnitTileCapture,
+    UnitTileLayout,
+    validate_capture,
+    validate_layout,
+    validate_unit_tile,
+)
 
 from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = UNIT_TILE_SOURCE_SCHEMA
 _DEFAULT = InferenceConfig()
 _DEFAULT_TILE_HW = (
     _DEFAULT.input_height_px // _DEFAULT.tile_rows,
@@ -122,12 +131,16 @@ def write_flight_tile_dir(
     root = Path(dest)
     if root.exists():
         raise FileExistsError(f"flight tile directory exists: {root}")
-    height, width = _positive_pair(tile_hw, "tile_hw")
-    grid_rows, grid_cols = _positive_pair(grid, "grid")
-    if len(band_names) < 1:
-        raise ValueError("band_names must be non-empty")
-    if not math.isfinite(gsd_reference_m) or gsd_reference_m <= 0.0:
-        raise ValueError("gsd_reference_m must be finite and > 0")
+    layout = UnitTileLayout(
+        band_names=band_names,
+        tile_hw=tile_hw,
+        grid=grid,
+        gsd_reference_m=gsd_reference_m,
+    )
+    if isinstance(validate_layout(layout), Err):
+        raise ValueError(f"invalid flight tile layout {layout!r}")
+    height, width = layout.tile_hw
+    grid_rows, grid_cols = layout.grid
     if len(tiles) < 1:
         raise ValueError("flight tile directory requires at least one tile")
     root.mkdir()
@@ -150,7 +163,7 @@ def write_flight_tile_dir(
     lines: list[str] = []
     seen: set[str] = set()
     for tile in tiles:
-        _validate_write(tile, band_names, height, width, grid_rows, grid_cols, seen)
+        _validate_write(tile, layout, seen)
         seen.add(tile.tile_id)
         group_id = tile.frame_id if tile.group_id is None else tile.group_id
         np.save(root / "tiles" / f"{tile.tile_id}.npy", tile.image)
@@ -190,6 +203,7 @@ class FlightTileDir:
         tile_hw: Recorded ``(height, width)``.
         grid: Recorded ``(rows, cols)``.
         gsd_reference_m: From ``source.json``.
+        layout: Validated ``UnitTileLayout`` for the recorded layout.
     """
 
     name = "flight"
@@ -230,10 +244,16 @@ class FlightTileDir:
         reference = payload["gsd_reference_m"]
         if isinstance(reference, bool) or not isinstance(reference, int | float):
             raise ValueError("gsd_reference_m must be a number")
-        if not math.isfinite(float(reference)) or float(reference) <= 0.0:
-            raise ValueError("gsd_reference_m must be finite and > 0")
-        self.gsd_reference_m = float(reference)
-        self._refs = _load_index(self._root / "index.jsonl", self.tile_hw, self.grid)
+        self.layout = UnitTileLayout(
+            band_names=self.band_names,
+            tile_hw=self.tile_hw,
+            grid=self.grid,
+            gsd_reference_m=reference,
+        )
+        if isinstance(validate_layout(self.layout), Err):
+            raise ValueError(f"source.json layout is invalid: {self.layout!r}")
+        self.gsd_reference_m = float(self.layout.gsd_reference_m)
+        self._refs = _load_index(self._root / "index.jsonl", self.layout)
 
     def index(self) -> tuple[RawTileRef, ...]:
         """Return the index in file order.
@@ -260,78 +280,62 @@ class FlightTileDir:
                 raise ValueError(f"missing tile array {image_path}")
             image = np.load(image_path)
             expected_shape = (len(self.band_names), height, width)
-            if image.dtype != np.float32 or image.shape != expected_shape:
-                raise ValueError(f"{ref.tile_id} image must be float32 {expected_shape}")
-            if not np.all(np.isfinite(image)) or not np.all((image >= 0.0) & (image <= 1.0)):
-                raise ValueError(f"{ref.tile_id} image values must be finite inside [0, 1]")
+            if isinstance(validate_unit_tile(image, self.layout), Err):
+                raise ValueError(
+                    f"{ref.tile_id} image must be float32 {expected_shape} finite inside [0, 1]"
+                )
             mask: np.ndarray | None = None
             if ref.has_mask:
                 mask_path = self._root / "masks" / f"{ref.tile_id}.npy"
                 if not mask_path.is_file():
                     raise ValueError(f"missing mask {mask_path}")
                 stored = np.load(mask_path)
-                if stored.dtype != np.uint8 or stored.shape != (height, width):
-                    raise ValueError(f"{ref.tile_id} mask must be uint8 ({height}, {width})")
+                if (
+                    stored.dtype != np.uint8
+                    or stored.shape != (height, width)
+                    or not np.all((stored == 0) | (stored == 1))
+                ):
+                    raise ValueError(f"{ref.tile_id} mask must be binary uint8 ({height}, {width})")
                 mask = stored.reshape(1, height, width)
             yield RawTile(ref=ref, image=image, mask=mask)
 
 
-def _validate_write(
-    tile: FlightTileWrite,
-    band_names: tuple[str, ...],
-    height: int,
-    width: int,
-    grid_rows: int,
-    grid_cols: int,
-    seen: set[str],
-) -> None:
+def _validate_write(tile: FlightTileWrite, layout: UnitTileLayout, seen: set[str]) -> None:
     """Raise ValueError when a tile cannot be written.
 
     Args:
         tile: Tile to store.
-        band_names: Recorded channel names.
-        height: Required H.
-        width: Required W.
-        grid_rows: Recorded grid rows.
-        grid_cols: Recorded grid columns.
+        layout: Validated unit-tile layout.
         seen: Tile ids already written.
 
     Returns:
         None.
 
     Raises:
-        ValueError: On a bad id, grid index, GSD, image, or mask.
+        ValueError: On a duplicate id, invalid capture, image, label, or mask.
     """
-    if (
-        not tile.tile_id
-        or tile.tile_id in seen
-        or tile.tile_id in (".", "..")
-        or "/" in tile.tile_id
-        or "\\" in tile.tile_id
-    ):
+    if tile.tile_id in seen:
         raise ValueError(f"tile_id must be a unique file stem; got {tile.tile_id!r}")
-    if not tile.frame_id:
-        raise ValueError("frame_id must be non-empty")
-    if not (0 <= tile.row < grid_rows and 0 <= tile.col < grid_cols):
-        raise ValueError(
-            f"row must lie in 0..{grid_rows - 1} and col in 0..{grid_cols - 1}; "
-            f"got {tile.row}, {tile.col}"
-        )
-    if not math.isfinite(tile.label) or not math.isfinite(tile.theta_g_deg):
-        raise ValueError("label and theta_g_deg must be finite")
-    if not isinstance(tile.gsd_nominal, bool):
-        raise ValueError("gsd_nominal must be a boolean")
-    if not math.isfinite(tile.gsd.lateral_m) or tile.gsd.lateral_m <= 0.0:
-        raise ValueError("gsd lateral_m must be finite and > 0")
-    if not math.isfinite(tile.gsd.along_m) or tile.gsd.along_m <= 0.0:
-        raise ValueError("gsd along_m must be finite and > 0")
-    expected_shape = (len(band_names), height, width)
-    if tile.image.dtype != np.float32 or tile.image.shape != expected_shape:
-        raise ValueError(f"image must be float32 {expected_shape}")
-    if not np.all(np.isfinite(tile.image)) or not np.all((tile.image >= 0.0) & (tile.image <= 1.0)):
-        raise ValueError("image values must be finite inside [0, 1]")
+    capture = UnitTileCapture(
+        tile_id=tile.tile_id,
+        frame_id=tile.frame_id,
+        grid_rc=(tile.row, tile.col),
+        theta_g_deg=tile.theta_g_deg,
+        gsd=tile.gsd,
+        gsd_nominal=tile.gsd_nominal,
+    )
+    if isinstance(validate_capture(capture, layout), Err):
+        raise ValueError(f"invalid flight tile capture {capture!r}")
+    if isinstance(tile.label, bool) or tile.label not in (0.0, 1.0):
+        raise ValueError(f"label must be finite and exactly 0 or 1; got {tile.label!r}")
+    height, width = layout.tile_hw
+    expected_shape = (len(layout.band_names), height, width)
+    if isinstance(validate_unit_tile(tile.image, layout), Err):
+        raise ValueError(f"image must be float32 {expected_shape} finite inside [0, 1]")
     if tile.mask is not None:
-        _mask_hw(tile.mask, height, width)
+        mask = _mask_hw(tile.mask, height, width)
+        if not np.all((mask == 0) | (mask == 1)):
+            raise ValueError("mask must contain binary pixels")
     if tile.group_id is not None and not tile.group_id:
         raise ValueError("group_id must be non-empty when set")
 
@@ -359,28 +363,25 @@ def _mask_hw(mask: np.ndarray, height: int, width: int) -> np.ndarray:
     raise ValueError(f"mask must be {(height, width)} or {(1, height, width)}; got {mask.shape}")
 
 
-def _load_index(
-    path: Path, tile_hw: tuple[int, int], grid: tuple[int, int]
-) -> tuple[RawTileRef, ...]:
+def _load_index(path: Path, layout: UnitTileLayout) -> tuple[RawTileRef, ...]:
     """Parse ``index.jsonl`` into raw refs.
 
     Args:
         path: JSONL path.
-        tile_hw: Recorded ``(height, width)`` copied onto each ref.
-        grid: Recorded ``(rows, cols)`` bounding grid indices.
+        layout: Validated unit-tile layout the captures are checked against.
 
     Returns:
         tuple[RawTileRef, ...]: One ref per non-empty line.
 
     Raises:
         OSError / json.JSONDecodeError: On a missing or malformed file.
-        ValueError: If a row is missing a field or has the wrong type.
+        ValueError: If a row is missing a field, has the wrong type, or fails
+            the shared capture contract.
     """
-    height, width = tile_hw
-    grid_rows, grid_cols = grid
+    height, width = layout.tile_hw
     refs: list[RawTileRef] = []
     seen: set[str] = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line:
             continue
         raw = json.loads(line)
@@ -392,8 +393,6 @@ def _load_index(
         if extra or missing:
             raise ValueError(f"index.jsonl keys invalid; missing {missing} extra {extra}")
         tile_id = _require_str(raw["tile_id"], "tile_id")
-        if tile_id in (".", "..") or "/" in tile_id or "\\" in tile_id:
-            raise ValueError("tile_id must be a file stem")
         if tile_id in seen:
             raise ValueError(f"duplicate tile_id {tile_id}")
         seen.add(tile_id)
@@ -401,23 +400,35 @@ def _load_index(
         group_raw = raw.get("group_id", frame_id)
         group_id = _require_str(group_raw, "group_id")
         row, col = _require_int(raw["row"], "row"), _require_int(raw["col"], "col")
-        if row >= grid_rows or col >= grid_cols:
-            raise ValueError(
-                f"flight grid indices must lie in row 0..{grid_rows - 1}, col 0..{grid_cols - 1}"
-            )
         theta_g_deg = _require_float(raw["theta_g_deg"], "theta_g_deg")
         gsd_nominal = _require_bool(raw.get("gsd_nominal", False), "gsd_nominal")
+        label = _require_float(raw["label"], "label")
+        if label not in (0.0, 1.0):
+            raise ValueError(f"index.jsonl label must be exactly 0 or 1; got {label!r}")
+        has_mask = _require_bool(raw["has_mask"], "has_mask")
+        capture = UnitTileCapture(
+            tile_id=tile_id,
+            frame_id=frame_id,
+            grid_rc=(row, col),
+            theta_g_deg=theta_g_deg,
+            gsd=GsdPair(
+                lateral_m=_require_float(raw["gsd_lateral_m"], "gsd_lateral_m"),
+                along_m=_require_float(raw["gsd_along_m"], "gsd_along_m"),
+            ),
+            gsd_nominal=gsd_nominal,
+        )
+        if isinstance(validate_capture(capture, layout), Err):
+            raise ValueError(
+                f"index.jsonl line {line_number} is not a valid unit tile capture: {raw!r}"
+            )
         nearest = min(_ELEVATION_BINS, key=lambda elevation: abs(theta_g_deg - elevation))
         refs.append(
             RawTileRef(
                 tile_id=tile_id,
                 group_id=group_id,
-                label=_require_float(raw["label"], "label"),
-                has_mask=_require_bool(raw["has_mask"], "has_mask"),
-                gsd=GsdPair(
-                    lateral_m=_require_positive(raw["gsd_lateral_m"], "gsd_lateral_m"),
-                    along_m=_require_positive(raw["gsd_along_m"], "gsd_along_m"),
-                ),
+                label=label,
+                has_mask=has_mask,
+                gsd=capture.gsd,
                 height=height,
                 width=width,
                 frame_id=frame_id,
@@ -570,26 +581,10 @@ def _require_float(value: object, name: str) -> float:
     """
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{name} must be a number")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{name} must be finite") from exc
     if not math.isfinite(number):
         raise ValueError(f"{name} must be finite")
-    return number
-
-
-def _require_positive(value: object, name: str) -> float:
-    """Return a finite float greater than 0.
-
-    Args:
-        value: Candidate number.
-        name: Field name.
-
-    Returns:
-        float: The value.
-
-    Raises:
-        ValueError: If the value is not finite and greater than 0.
-    """
-    number = _require_float(value, name)
-    if number <= 0.0:
-        raise ValueError(f"{name} must be > 0")
     return number

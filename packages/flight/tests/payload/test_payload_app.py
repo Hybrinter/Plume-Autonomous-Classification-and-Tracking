@@ -36,6 +36,7 @@ from flight.libs.types import (
 )
 from flight.payload.app import PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
+from flight.payload.imaging import CaptureDecision, plan_capture
 from flight.payload.inference import DetectorBackend, ScriptedDetector
 from flight.payload.preprocess import SmearRateSource
 from flight.payload.state import PayloadState, graph_name_of, node_name_of
@@ -361,7 +362,7 @@ def test_ephemeris_failure_uses_tagged_gsd_fallback_and_keeps_inference_live() -
 
 
 def test_imaging_duty_limits_tensors_and_keeps_gimbal_steps() -> None:
-    """N acquire opportunities publish floor(N * duty) tensors and still step the gimbal."""
+    """N due opportunities publish floor(N * duty) tensors and still step the gimbal."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     inf_sub = bus.subscribe(InferenceResultMsg)
     state = _operate(app, bus, gimbal)
@@ -372,7 +373,14 @@ def test_imaging_duty_limits_tensors_and_keeps_gimbal_steps() -> None:
         position = gimbal.read_position()
         assert isinstance(position, Ok)
         shutter = replace(position.value, timestamp_s=now)
-        if app.capture_this_opportunity():
+        context = app._capture_context(app._latest(state))
+        assert context is not None
+        plan = plan_capture(
+            app.capture_shell.schedule, state.policy, context, now, app.params.policy_limits
+        )
+        assert isinstance(plan, Ok)
+        app.capture_shell.schedule = plan.value.schedule
+        if plan.value.decision is CaptureDecision.CAPTURE:
             state, outcome = app.process_frame(
                 _mosaic_frame(frame_id), state, now, gimbal_pos=shutter
             )
@@ -525,10 +533,10 @@ class _DutySensor:
             self._stop.set()
 
     def acquire_frame(self) -> Result[MosaicFrame, FaultCode]:
-        """Count a capture opportunity and stall before any mosaic is built."""
+        """Count a capture opportunity and return a valid scripted frame."""
         self.acquires += 1
         self._finish_opportunity()
-        return Err(FaultCode.CAMERA_STALL)
+        return Ok(_mosaic_frame(self.acquires))
 
     def drain_frame(self) -> Result[None, FaultCode]:
         """Count an off-duty opportunity and optionally fail the release."""
@@ -577,7 +585,7 @@ def test_run_drains_camera_on_skipped_opportunities() -> None:
     app.run(stop)
     assert sensor.starts == 1
     assert sensor.stops == 1
-    assert app.imaging_duty.opportunities == 4
+    assert app.capture_shell.schedule.opportunities == 4
     assert sensor.drains == 2
     assert sensor.acquires == 2
 

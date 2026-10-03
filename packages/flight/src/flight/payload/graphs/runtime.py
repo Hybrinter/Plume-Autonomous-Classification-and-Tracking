@@ -12,10 +12,11 @@ Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001, REQ-AIML-GIMB-008.
 from __future__ import annotations
 
 from flight.libs.messages import RoutedCommandMsg
-from flight.libs.types import Err, FaultCode, Result
+from flight.libs.types import Err, FaultCode, Ok, Result
 from flight.payload.graphs import idle, init, operate, safe, stow
 from flight.payload.graphs.base import (
     CommandOutcome,
+    EffectivePolicy,
     GraphId,
     GraphOutcome,
     GraphSpec,
@@ -91,6 +92,32 @@ def spec(
             return init.spec(params)
         case GraphId.OPERATE:
             return operate.spec(params)
+
+
+def entry_policy(
+    graph_id: GraphId,
+    params: GraphParameters,
+) -> Result[EffectivePolicy, FaultCode]:
+    """Resolve the imaging/inference policy in force when a graph activates.
+
+    OPERATE activates on TRACKING, so its entry policy resolves the graph
+    override and then the tracking node override; the first capture must not
+    wait for the first outer tick to see configured values. Every other graph
+    uses its declared spec policy unchanged. `GraphSpec` still describes
+    graph-level defaults only.
+
+    Inputs:
+        graph_id: The graph selected by the external authority.
+        params: Graph parameters.
+
+    Outputs:
+        Result[EffectivePolicy, FaultCode]: The validated entry policy, or
+            Err(COMMAND_INVALID) on an invalid resolved combination.
+    """
+    if graph_id is GraphId.OPERATE:
+        return params.operating_policy(params.config.payload_policy.tracking)
+    declared = spec(graph_id, params)
+    return Ok(EffectivePolicy(imaging=declared.imaging, inference=declared.inference))
 
 
 def step(

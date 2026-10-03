@@ -35,6 +35,8 @@ object is constructed.
 | `CommandRouterConfig` | class | Hazardous ARM window duration |
 | `EphemerisConfig` | class | Circular-orbit ISS elements and WGS-84 constants |
 | `DriverConfig` | class | Per-axis sim/real wiring selector |
+| `PayloadPolicyOverrideConfig` | class | Optional imaging/inference override fields; `None` inherits |
+| `PayloadPolicyConfig` | class | Override tables for `operate` and the four OPERATE nodes |
 | `PactConfig` | class | Top-level config composing all sub-configs |
 | `AxisMode` | type alias | `"sim"` or `"real"` |
 
@@ -146,6 +148,18 @@ by the XRT-U-60 payload inertia limit, with `B_nms_per_rad`, `tau_max_nm` (90 mN
 
 ISS circular-orbit mean elements (`inclination_deg`, `mean_motion_rev_per_day`,
 `mu_m3_s2`, `epoch_utc_s`), Earth rate, and WGS-84 `a` and `f`.
+
+### PayloadPolicyConfig
+
+Override tables under `[payload_policy]` for `operate`, `tracking`, `rewind`,
+`fast_rewind`, and `hold`. Every `PayloadPolicyOverrideConfig` field is
+optional and defaults to `None` (inherit): `acquisition_enabled`,
+`capture_interval_s`, `duty_cycle`, `exposure_us`, `gain_db`,
+`publish_products`, `inference_enabled`, and `every_n_frames`. Ranges reject
+nonpositive intervals and exposure, duty outside `[0, 1]`, negative gain,
+nonfinite floats, and a non-integer `every_n_frames`. Resolution order is
+sensor-derived base, then `operate`, then the named node; the
+`config/default.toml` tables are intentionally empty.
 
 ## Constraints
 

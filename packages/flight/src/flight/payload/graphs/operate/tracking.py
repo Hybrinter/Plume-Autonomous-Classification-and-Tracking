@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+from flight.libs.types import Err, FaultCode
 from flight.payload.gimbal.intersect import intersect_cog
 from flight.payload.gimbal.outer import (
     RateDecision,
@@ -25,7 +26,7 @@ from flight.payload.gimbal.pointing import pinhole_error_rad
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.gimbal.request import InhibitReference, RateReference
 from flight.payload.gimbal.scene import cog_scene
-from flight.payload.graphs.base import NodeOutcome, TickInputs
+from flight.payload.graphs.base import NodeOutcome, SystemRequestIntent, TickInputs
 from flight.payload.graphs.operate.state import (
     OperateNode,
     State,
@@ -60,7 +61,15 @@ def step(
         tuple[State, NodeOutcome[OperateNode]]: Updated state and the
             RateReference outcome under the science envelope.
     """
-    policy = params.default_policy(enabled=True)
+    resolved = params.operating_policy(params.config.payload_policy.tracking)
+    if isinstance(resolved, Err):
+        return state, NodeOutcome(
+            reference=InhibitReference(reason="invalid_policy"),
+            policy=params.default_policy(enabled=False),
+            system_request=SystemRequestIntent.SAFE,
+            faults=(FaultCode.COMMAND_INVALID,),
+        )
+    policy = resolved.value
     encoder = inputs.encoder
     if encoder is None or not encoder_fresh(inputs, params):
         return state, NodeOutcome(

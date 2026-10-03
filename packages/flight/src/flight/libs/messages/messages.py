@@ -28,14 +28,15 @@ import numpy as np  # noqa: F401  (used in type comments)
 # internal
 from flight.libs.types import (
     AckStatus,
+    ActivationKey,
     DownlinkPriority,
     FaultCode,
     FrameUsabilityTag,
     GimbalCommandMode,
-    GimbalState,
     LinkState,
     MessageType,
     ModelDeployState,
+    ModeTransitionDecision,
     SystemMode,
 )
 
@@ -43,7 +44,7 @@ from flight.libs.types import (
 # field layout changes incompatibly, so a consumer (or a downlinked record) can detect a
 # version skew rather than silently mis-parsing. Every message dataclass carries it as a
 # defaulted trailing field, so existing keyword constructions are unaffected.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # ---------------------------------------------------------------------------
 # Shared timestamp utility
@@ -140,7 +141,10 @@ class GimbalCommandMsg:
     frame_id: int  # frame that triggered this command
     mode: GimbalCommandMode  # ABSOLUTE / STOW / HOME
     el_value_deg: float  # target angle (deg) for ABSOLUTE; 0 otherwise
-    state: GimbalState  # arbiter state at time of command
+    payload_graph: str  # GraphId value of the active graph at command time
+    payload_node: str  # node value within the graph at command time
+    activation_epoch: str  # epoch of the accepted activation
+    activation_sequence: int  # sequence of the accepted activation
     reason: str  # human-readable reason code for logging
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
@@ -156,7 +160,9 @@ class TelemetryEventMsg:
     timestamp_utc: str  # ISO 8601, millisecond precision
     subsystem: str  # originating subsystem name (snake_case)
     event_name: str  # short snake_case event identifier
-    payload: dict[str, str | int | float | bool]  # serializable structured fields only
+    payload: dict[
+        str, str | int | float | bool | None
+    ]  # serializable fields; None = unavailable graph estimate
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
@@ -183,14 +189,80 @@ class HeartbeatMsg:
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
-@dataclass(frozen=True)
-class ModeChangeMsg:
-    """System mode transition request or notification."""
+@dataclass(frozen=True, slots=True)
+class CommandCorrelation:
+    """Originating command identity embedded in a system-mode request.
 
-    msg_type: MessageType  # must be MessageType.MODE_CHANGE
+    Attributes:
+        source: Command origin echoed from the routed envelope.
+        seq: Per-source command sequence.
+        command_id: Command opcode string.
+    """
+
+    source: str
+    seq: int
+    command_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SystemModeRequestMsg:
+    """Request for a system-mode transition, consumed by the mode authority."""
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_REQUEST
     timestamp_utc: str  # ISO 8601, millisecond precision
-    new_mode: SystemMode  # requested target system mode
-    requested_by: str  # subsystem or operator that requested the change
+    request_id: str
+    requested_mode: SystemMode
+    requested_by: str
+    reason: str
+    command: CommandCorrelation | None = None
+    activation_key: ActivationKey | None = None
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True, slots=True)
+class SystemModeTransitionMsg:
+    """Authority's recorded decision on a mode request (audit, never behavior)."""
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_TRANSITION
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    transition_id: str
+    request_id: str | None
+    epoch: str
+    previous_mode: SystemMode | None
+    requested_mode: SystemMode
+    resulting_mode: SystemMode
+    decision: ModeTransitionDecision
+    reason: str
+    activation_sequence: int | None = None
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True, slots=True)
+class SystemModeActivatedMsg:
+    """Authority's activation of the resulting mode; the payload boundary."""
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_ACTIVATED
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    epoch: str
+    sequence: int
+    previous_mode: SystemMode | None
+    active_mode: SystemMode
+    reason: str
+    request_id: str | None = None
+    recovery_authorized: bool = False
+    schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
+
+
+@dataclass(frozen=True, slots=True)
+class SystemModeSyncRequestMsg:
+    """Boot-time request for the authority's current activation snapshot."""
+
+    msg_type: MessageType  # must be MessageType.SYSTEM_MODE_SYNC_REQUEST
+    timestamp_utc: str  # ISO 8601, millisecond precision
+    subscriber: str
+    expected_epoch: str
+    request_id: str
+    last_sequence: int | None = None
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 
@@ -248,10 +320,13 @@ class SafetyStateMsg:
 
     msg_type: MessageType  # must be MessageType.SAFETY_STATE
     timestamp_utc: str  # ISO 8601, millisecond precision
-    mode: SystemMode  # SAFE while latched, else IDLE
     active_faults: tuple[FaultCode, ...]  # SAFE-triggering faults seen this tick (sorted)
-    safe_latched: bool  # True once a SAFE-triggering fault latched SAFE, until EXIT_SAFE
+    safe_latched: bool  # True once a SAFE-triggering fault latched SAFE, until release
     safe_reason: FaultCode  # the fault that latched SAFE (NONE when not latched)
+    evidence_epoch: str  # epoch this evidence publication belongs to
+    evidence_sequence: int  # FaultApp-owned counter, increments per evidence publication
+    observed_s: float  # monotonic time the evidence was observed
+    recovery_request_id: str | None = None  # set on a released latch's recovery evidence
     schema_version: int = SCHEMA_VERSION  # bus-envelope schema version
 
 

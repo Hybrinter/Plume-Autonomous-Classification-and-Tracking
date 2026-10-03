@@ -6,9 +6,22 @@ from pathlib import Path
 from flight.core.storage import StorageService
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
-from flight.libs.messages import FaultEventMsg, TelemetryEventMsg
+from flight.libs.messages import (
+    FaultEventMsg,
+    SystemModeActivatedMsg,
+    SystemModeTransitionMsg,
+    TelemetryEventMsg,
+)
 from flight.libs.time import ManualClock
-from flight.libs.types import DownlinkPriority, Err, FaultCode, MessageType, Ok
+from flight.libs.types import (
+    DownlinkPriority,
+    Err,
+    FaultCode,
+    MessageType,
+    ModeTransitionDecision,
+    Ok,
+    SystemMode,
+)
 
 
 def _service(tmp_path: Path, max_bytes: int = 1_000_000) -> StorageService:
@@ -116,3 +129,79 @@ def test_tick_persists_telemetry(tmp_path: Path) -> None:
     )
     svc.tick()
     assert (tmp_path / "telemetry.jsonl").exists()
+
+
+def test_transition_ledger_records_accepted_and_denied(tmp_path: Path) -> None:
+    """tick() persists ACCEPTED + DENIED transition records with exact schema-3 fields.
+
+    The transition message is an audit record only: consuming it must not
+    synthesize any side-effect SystemModeActivatedMsg.
+    """
+    bus = MessageBus()
+    cfg = PactConfig()
+    cfg = dataclasses.replace(
+        cfg, storage=dataclasses.replace(cfg.storage, data_root=str(tmp_path))
+    )
+    svc = StorageService.from_config(cfg, bus, ManualClock())
+    activations = bus.subscribe(SystemModeActivatedMsg)
+    bus.publish(
+        SystemModeTransitionMsg(
+            msg_type=MessageType.SYSTEM_MODE_TRANSITION,
+            timestamp_utc="t1",
+            transition_id="tr-1",
+            request_id="req-1",
+            epoch="e1",
+            previous_mode=SystemMode.IDLE,
+            requested_mode=SystemMode.OPERATE,
+            resulting_mode=SystemMode.OPERATE,
+            decision=ModeTransitionDecision.ACCEPTED,
+            reason="authorized",
+            activation_sequence=7,
+        )
+    )
+    bus.publish(
+        SystemModeTransitionMsg(
+            msg_type=MessageType.SYSTEM_MODE_TRANSITION,
+            timestamp_utc="t2",
+            transition_id="tr-2",
+            request_id=None,
+            epoch="e1",
+            previous_mode=None,
+            requested_mode=SystemMode.SAFE,
+            resulting_mode=SystemMode.IDLE,
+            decision=ModeTransitionDecision.DENIED,
+            reason="unauthorized requester",
+            activation_sequence=None,
+        )
+    )
+    svc.tick()
+    ledger = svc.read_mode_transition_ledger()
+    assert len(ledger) == 2
+    accepted, denied = ledger
+    assert accepted == {
+        "ts": "t1",
+        "schema_version": 3,
+        "transition_id": "tr-1",
+        "request_id": "req-1",
+        "epoch": "e1",
+        "previous_mode": "IDLE",
+        "requested_mode": "OPERATE",
+        "resulting_mode": "OPERATE",
+        "decision": "ACCEPTED",
+        "reason": "authorized",
+        "activation_sequence": 7,
+    }
+    assert denied == {
+        "ts": "t2",
+        "schema_version": 3,
+        "transition_id": "tr-2",
+        "request_id": None,
+        "epoch": "e1",
+        "previous_mode": None,
+        "requested_mode": "SAFE",
+        "resulting_mode": "IDLE",
+        "decision": "DENIED",
+        "reason": "unauthorized requester",
+        "activation_sequence": None,
+    }
+    assert activations.empty()

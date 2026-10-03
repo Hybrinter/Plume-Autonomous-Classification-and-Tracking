@@ -109,8 +109,8 @@ def test_controller_placeholder_fields_load() -> None:
     assert c.inner.dt_s == 0.001
     assert c.inner.kp == 200.0
     assert c.outer.Kp == 8.0
-    assert c.arbiter.release_persistence_frames == 5
-    assert c.arbiter.max_observation_age_s == 0.25
+    assert c.operate.release_persistence_frames == 5
+    assert c.operate.max_observation_age_s == 0.25
     assert c.vision.queue_depth == 4
     assert c.position.K_pos == 4.0
 

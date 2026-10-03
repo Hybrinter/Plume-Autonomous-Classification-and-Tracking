@@ -8,9 +8,10 @@ from flight.hal.drivers_sim.gimbal import SimGimbal
 from flight.hal.interfaces.gimbal import GimbalPosition
 from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
-from flight.libs.types import FaultCode, Ok, Result
+from flight.libs.types import FaultCode, Ok, Result, SystemMode
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilSystem, build_sil_system, step_once
+from sim.sil.validation import publish_activation
 from tools.analysis.datapoints import (
     REGISTRY,
     SampleContext,
@@ -23,7 +24,7 @@ from tools.analysis.recorder import _evaluate, record_run, sample_devices
 
 def _nominal_system(frames: int = 10) -> SilSystem:
     """Build a nominal SIL system with the given frame count."""
-    return build_sil_system(
+    system = build_sil_system(
         PactConfig(),
         ManualClock(),
         build_frames(frames),
@@ -31,6 +32,8 @@ def _nominal_system(frames: int = 10) -> SilSystem:
         thermal_readings=[25.0],
         power_readings=[30.0],
     )
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
+    return system
 
 
 def test_record_run_shapes_and_columns() -> None:
@@ -69,10 +72,30 @@ def test_steps_must_be_positive() -> None:
         record_run(_nominal_system(2), steps=0)
 
 
+def test_record_run_advances_clock_once_from_shifted_origin() -> None:
+    """Recorded times follow the injected origin without a second clock advance."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(monotonic_s=3.0),
+        [],
+        plume_detector(),
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    result = record_run(system, steps=3, dt=0.02)
+    assert list(result.wide["system"]["t"]) == pytest.approx([3.02, 3.04, 3.06])
+    assert system.clock.monotonic_s() == pytest.approx(3.06)
+    samples = system.apps.payload.encoder_stream.samples
+    assert samples
+    assert max(sample.t_s for sample in samples) == pytest.approx(3.06)
+    assert system.apps.payload.runtime_shell.state is not None
+    assert system.apps.payload.runtime_shell.state.activation.last is None
+
+
 def test_failed_extractor_maps_to_sentinel() -> None:
     """An extractor that raises becomes NaN (numeric) or "" (categorical), never an error."""
     system = _nominal_system(2)
-    payload_state = system.apps.payload.controller.initial_state()
+    payload_state = system.apps.payload.initial_state()
     fault_entries = system.apps.fault.initial_entries()
     ctx = SampleContext(
         step=1,
@@ -99,7 +122,9 @@ def test_nominal_run_tracks_and_stays_nominal() -> None:
     result = record_run(_nominal_system(12), steps=12)
     payload = result.wide["payload"]
     system = result.wide["system"]
-    assert (payload["payload.gimbal_state"] == "TRACKING").any()
+    assert (payload["payload.graph"] == "operate").all()
+    assert (payload["payload.node"] == "tracking").any()
+    assert (system["system.mode"] == "OPERATE").all()
     assert float(system["system.safe_latched"].max()) == 0.0
 
 
@@ -158,7 +183,7 @@ def test_record_run_matches_unrecorded_twin_encoder_and_plant() -> None:
     twin_reads = _trace_encoder_reads(twin.gimbal)
     result = record_run(recorded, steps=steps)
 
-    payload_state = twin.apps.payload.controller.initial_state()
+    payload_state = twin.apps.payload.initial_state()
     fault_entries = twin.apps.fault.initial_entries()
     now = 0.0
     dt = 1.0
@@ -177,7 +202,6 @@ def test_record_run_matches_unrecorded_twin_encoder_and_plant() -> None:
             payload_state,
             fault_entries,
         )
-        twin.clock.advance(dt)
         snap = twin.gimbal.snapshot()
         twin_true.append(snap.true_el_deg)
         twin_tau.append(snap.tau_nm)

@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import math
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import numpy as np
 from analysis.studies.elevation_controller.plant import ElevationPlant
 from flight.hal.drivers_sim import SimIssEphemeris
-from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, SensorConfig
-from flight.libs.messages import BlobMeta, GimbalCommandMsg, InferenceResultMsg
+from flight.libs.config import ControllerConfig, EphemerisConfig, PactConfig
+from flight.libs.messages import BlobMeta, GimbalCommandMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalCommandMode, GimbalState, MessageType, Ok
-from flight.payload.control import PayloadController
+from flight.libs.types import ActivationKey, Ok
+from flight.payload.control import ServoController
 from flight.payload.gimbal.inner import inner_step
 from flight.payload.gimbal.outer import clip_rate, rate_decision, smear_cap_rad_s
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.gimbal.rate_fit import fit_rate
-from flight.payload.gimbal.request import GimbalRequest
-from flight.payload.records import VisionSample
+from flight.payload.gimbal.request import (
+    InhibitReference,
+    PoseReference,
+    RateReference,
+    StowReference,
+)
+from flight.payload.graphs import operate, safe, stow
+from flight.payload.graphs.base import TickInputs
+from flight.payload.graphs.parameters import GraphParameters
+from flight.payload.records import CaptureContext, CapturedVision, HealthSample, VisionSample
 from flight.payload.tracking.residual import (
     EncoderSample,
     ResidualFilter,
@@ -319,22 +327,33 @@ def test_smear_oracle_is_separate_from_control_rate() -> None:
     assert abs(r_rewind.commanded_rate_rad_s - (nom + oracle)) < 1e-12
 
 
-def test_safe_position_loop_and_cold_start() -> None:
-    """SAFE stows via the position loop; cold TRACKING holds r=0."""
-    controller = PayloadController.from_config(
-        ControllerConfig(), SensorConfig(), GimbalConfig(), EphemerisConfig()
-    )
-    cold = controller.initial_state()
+def test_safe_inhibits_stow_moves_and_cold_tracking_is_zero() -> None:
+    """SAFE has no motion reference; STOW is separate from cold TRACKING."""
+    config = PactConfig()
+    params = GraphParameters(config=config)
+    controller = ServoController.from_config(config.controller, config.gimbal)
+    key = ActivationKey(epoch="block-test", sequence=1)
     encoder = EncoderSample(sample_id="encoder:0", t_s=0.02, angle_rad=0.0)
-    coast = controller.outer_step(cold, 0.02, encoder, None, None, False, False)
-    assert coast.state.commanded_rate_rad_s == 0.0
-    assert coast.state.arbiter.gimbal_state is GimbalState.TRACKING
-
-    safe = controller.outer_step(cold, 0.02, encoder, None, None, True, False)
-    assert safe.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert safe.request is not None
-    assert safe.request.mode is GimbalCommandMode.STOW
-    assert safe.state.commanded_rate_rad_s > 0.0
+    inputs = TickInputs(
+        now_s=0.02,
+        timestamp_utc="2026-06-01T00:00:00.000Z",
+        activation_key=key,
+        encoder=encoder,
+        navigation=None,
+        vision=None,
+        health=HealthSample(feedback_valid=True, inhibit_confirmed=True, contained=False),
+    )
+    _, coast = operate.step(operate.initial_state(inputs, params), inputs, params)
+    assert isinstance(coast.outcome.reference, RateReference)
+    assert coast.outcome.reference.rate_rad_s == 0.0
+    safe_state = safe.initial_state(inputs, params)
+    _, inhibited = safe.step(safe_state, inputs, params)
+    assert isinstance(inhibited.outcome.reference, InhibitReference)
+    _, moving = stow.step(stow.initial_state(inputs, params), inputs, params)
+    assert isinstance(moving.outcome.reference, StowReference)
+    rate = controller.reference_rate(moving.outcome.reference, 0.0, detailed_plant=False)
+    assert isinstance(rate, Ok)
+    assert rate.value > 0.0
 
     blob = BlobMeta(
         blob_id=1,
@@ -354,55 +373,65 @@ def test_safe_position_loop_and_cold_start() -> None:
         mode_flags=0,
         iss=None,
     )
-    ignored = controller.outer_step(
-        safe.state,
-        0.04,
-        EncoderSample(sample_id="encoder:1", t_s=0.04, angle_rad=0.0),
-        vision,
-        None,
-        False,
-        False,
+    captured = CapturedVision(
+        context=CaptureContext(activation_key=key, policy_revision=0, model_version="test"),
+        sample=vision,
     )
-    assert ignored.state.arbiter.gimbal_state is GimbalState.SAFE
-    assert ignored.state.pose.pose_mode is GimbalCommandMode.STOW
+    ignored_state, ignored = safe.step(
+        safe_state, replace(inputs, now_s=0.04, vision=captured), params
+    )
+    assert ignored_state == safe_state
+    assert isinstance(ignored.outcome.reference, InhibitReference)
 
 
 def test_no_azimuth_on_request_or_command() -> None:
-    """GimbalRequest and GimbalCommandMsg expose no azimuth field."""
-    request_names = {item.name for item in fields(GimbalRequest)}
+    """Typed references and command telemetry expose no azimuth actuation."""
+    request_names = {
+        item.name
+        for reference_type in (RateReference, PoseReference, StowReference, InhibitReference)
+        for item in fields(reference_type)
+    }
     command_names = {item.name for item in fields(GimbalCommandMsg)}
     assert not any("az" in name for name in request_names)
     assert not any("az" in name for name in command_names)
-    controller = PayloadController.from_config(ControllerConfig(), SensorConfig(), GimbalConfig())
+    config = PactConfig()
+    params = GraphParameters(config=config)
+    controller = ServoController.from_config(config.controller, config.gimbal)
     state = controller.initial_state()
-    result = InferenceResultMsg(
-        msg_type=MessageType.INFERENCE_RESULT,
-        timestamp_utc="t",
-        frame_id=1,
-        mask=np.zeros((8, 8), dtype=np.float32),
-        blobs=(
-            BlobMeta(
-                blob_id=1,
-                bbox=(0, 0, 10, 10),
-                centroid_raw=(682.0, 512.0),
-                pixel_area=80,
-                mean_confidence=0.9,
-                persistence_count=1,
+    key = ActivationKey(epoch="block-test", sequence=1)
+    sample = CapturedVision(
+        context=CaptureContext(activation_key=key, policy_revision=0, model_version="test"),
+        sample=VisionSample(
+            t_s=0.02,
+            frame_id="frame:1",
+            z_v=None,
+            p_cog=None,
+            exposure_us=1000.0,
+            blobs=(
+                BlobMeta(
+                    blob_id=1,
+                    bbox=(0, 0, 10, 10),
+                    centroid_raw=(682.0, 512.0),
+                    pixel_area=80,
+                    mean_confidence=0.9,
+                    persistence_count=1,
+                ),
             ),
+            mode_flags=0,
+            iss=None,
+            theta_g_rad=0.0,
         ),
-        model_version="t",
-        inference_ms=0.0,
-        mode_flags=0,
     )
-    state, sample = controller.ingest_inference(state, result, 0.0, 1000.0)
-    tick = controller.outer_step(
-        state,
-        0.02,
-        EncoderSample(sample_id="encoder:0", t_s=0.02, angle_rad=0.0),
-        sample,
-        None,
-        False,
-        False,
+    inputs = TickInputs(
+        now_s=0.02,
+        timestamp_utc="2026-06-01T00:00:00.000Z",
+        activation_key=key,
+        encoder=EncoderSample(sample_id="encoder:0", t_s=0.02, angle_rad=0.0),
+        navigation=None,
+        vision=sample,
+        health=HealthSample(feedback_valid=True, inhibit_confirmed=True, contained=False),
     )
-    assert tick.request is None
-    assert not hasattr(tick.state, "commanded_az_rate_deg_per_s")
+    graph, tick = operate.step(operate.initial_state(inputs, params), inputs, params)
+    assert isinstance(tick.outcome.reference, RateReference)
+    assert graph.last_e_az != 0.0
+    assert not hasattr(state, "commanded_az_rate_deg_per_s")

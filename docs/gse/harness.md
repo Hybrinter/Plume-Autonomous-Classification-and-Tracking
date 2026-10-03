@@ -28,7 +28,8 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 **`InProcessBackend.step(now) -> None`**
 
 - Input: monotonic seconds.
-- Side effect: advances clock, calls `ValidationHarness.step` (which calls `step_once`).
+- Side effect: calls `ValidationHarness.step` (which calls `step_once`); `step_once`
+  owns advancing the shared clock.
 
 **`InProcessBackend.inject_command(step) -> None`**
 
@@ -37,7 +38,8 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 
 **`InProcessBackend.collect() -> TelemetryCapture`**
 
-- Output: inference count, gimbal-moved flag, mode changes, ack statuses, downlink packets.
+- Output: inference count, gimbal-moved flag, published activation history, terminal accepted
+  mode (or unknown), ack statuses, downlink packets.
 
 **`SocketBackend.*`**
 
@@ -51,8 +53,10 @@ the validation harness in one process. `SocketBackend` is declared but not imple
    system, and connects `StationEmulator`.
 4. For sim link, it pre-builds signed TC packets with `build_tc_packet` and passes them as
    `inbound_packets`.
-5. It creates bus subscriptions before the first step.
-6. Each `step` advances the shared `ManualClock` then runs the harness step.
+5. It creates bus subscriptions before the first step. When `Scenario.initial_mode` is set,
+   it injects that explicit test activation. Without it, the system remains unsynchronized.
+6. Each `step` delegates to the harness step; `step_once` owns advancing the shared
+   `ManualClock`, so backends never advance it separately.
 7. `collect` drains subscriptions, reads gimbal position with a noise tolerance, and polls
    emulator downlink on real link.
 8. `shutdown` closes the emulator and station link.
@@ -64,8 +68,9 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 
 ## Messages
 
-Backends subscribe passively to `InferenceResultMsg`, `GimbalCommandMsg`, `ModeChangeMsg`, and
-`CommandAckMsg`. They do not publish.
+Backends subscribe passively to `InferenceResultMsg`, `GimbalCommandMsg`,
+`SystemModeActivatedMsg`, and `CommandAckMsg`. Scenario setup may publish one explicit
+test activation through the simulation seam; it does not implement a system-mode authority.
 
 ## Configuration
 
@@ -78,6 +83,8 @@ Profile TOML selects `DriverConfig` axes. Default SIL uplink key is
 - Sim-link `inject_command` is intentionally a no-op. All pre-baked packets drain on step 1.
 - Gimbal-moved is true only when elevation left the origin and is not at stow.
 - Imports are limited to `flight.libs` and `sim`.
+- Terminal mode comes from the payload's accepted activation, not requests, transition records,
+  fault-latch evidence, or unvalidated message history.
 
 ## Related documents
 

@@ -43,7 +43,6 @@ from flight.libs.messages import (
     HeartbeatMsg,
     InferenceResultMsg,
     LinkStateMsg,
-    ModeChangeMsg,
     ModelDeployStateMsg,
     ModelStagedMsg,
     ProcessedFrameMsg,
@@ -51,6 +50,10 @@ from flight.libs.messages import (
     RoutedCommandMsg,
     SafetyStateMsg,
     StorageWriteMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
+    SystemModeSyncRequestMsg,
+    SystemModeTransitionMsg,
     TelemetryEventMsg,
     UploadChunkMsg,
 )
@@ -97,10 +100,14 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
         RoutedCommandMsg,
         CommandAckMsg,
         FaultEventMsg,
-        ModeChangeMsg,
         ModelStagedMsg,
         UploadChunkMsg,
         StorageWriteMsg,
+        SystemModeRequestMsg,
+        SystemModeTransitionMsg,
+        SystemModeActivatedMsg,
+        SystemModeSyncRequestMsg,
+        SafetyStateMsg,
     ):
         policy[never_type] = never
     for drop_type in (
@@ -113,7 +120,6 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
         ProductRefMsg,
         DownlinkItemMsg,
         ModelDeployStateMsg,
-        SafetyStateMsg,
     ):
         policy[drop_type] = drop
     return policy
@@ -164,6 +170,7 @@ def build_apps(
     monitored: tuple[str, ...],
     calib: MosaicCalibration,
     uplink_key: bytes,
+    activation_epoch: str,
 ) -> SystemApps:
     """Construct every subsystem app wired to the shared bus and clock.
 
@@ -179,6 +186,8 @@ def build_apps(
         uplink_key: The shared HMAC-SHA256 secret for authenticating inbound TC packets.
             Loaded from disk by the composition root and injected here so build_apps
             and the apps themselves stay key-file-agnostic.
+        activation_epoch: The authority epoch for this run (uuid4 in flight, a fixed
+            deterministic value in SIL). Apps never generate epochs themselves.
 
     Returns:
         A SystemApps with all five apps constructed.
@@ -195,14 +204,15 @@ def build_apps(
             clock,
             calib,
             storage,
+            activation_epoch,
         ),
-        fault=FaultApp.from_config(config, bus, clock, monitored),
+        fault=FaultApp.from_config(config, bus, clock, monitored, activation_epoch),
         iss_iface=IssIfaceApp.from_config(
             config, bus, clock, drivers.station, uplink_key, storage, storage
         ),
         thermal=ThermalApp.from_config(config, bus, clock, drivers.thermal_sensor),
         electrical=ElectricalApp.from_config(config, bus, clock, drivers.power_sensor),
-        command_router=CommandRouter.from_config(config, bus, clock),
+        command_router=CommandRouter.from_config(config, bus, clock, activation_epoch),
         storage=storage,
         downlink=DownlinkManager.from_config(config, bus, clock),
         model_deploy=ModelDeployService.from_config(config, bus, clock, storage),

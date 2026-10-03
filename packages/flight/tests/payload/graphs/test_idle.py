@@ -1,10 +1,11 @@
 """Tests for the IDLE graph: pose capture on fresh feedback only."""
 
+from flight.libs.types import ActivationKey
 from flight.payload.gimbal.request import InhibitReference, PoseReference
 from flight.payload.graphs import idle
 from flight.payload.graphs.base import SystemRequestIntent
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey, HealthSample
+from flight.payload.records import HealthSample
 
 from .support import TickBuilder
 

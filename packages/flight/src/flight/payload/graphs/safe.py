@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from flight.libs.types import ActivationKey
 from flight.payload.gimbal.request import InhibitReference
 from flight.payload.graphs.base import (
     GraphId,
@@ -21,7 +22,6 @@ from flight.payload.graphs.base import (
     TickInputs,
 )
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey
 
 _INHIBIT = InhibitReference(reason="safe")
 

@@ -3,8 +3,8 @@
 import math
 
 from flight.libs.config import PactConfig
+from flight.libs.types import ActivationKey
 from flight.payload.graphs.parameters import GraphParameters, encoder_fresh
-from flight.payload.records import ActivationKey
 
 from .support import TickBuilder
 
@@ -87,3 +87,14 @@ def test_encoder_fresh_rejects_bad_variance_and_out_of_range_angle(
     ):
         at_bound = tick(1.0, key, encoder_angle_rad=math.radians(angle_deg))
         assert encoder_fresh(at_bound, params) is True
+
+
+def test_encoder_fresh_does_not_relax_hardware_bound_for_noise(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """A noise-scale excursion below the hardware minimum is still not fresh."""
+    bound_rad = math.radians(params.config.gimbal.el_hw_min_deg)
+    below = tick(1.0, key, encoder_angle_rad=bound_rad - 1.0e-5)
+    assert encoder_fresh(below, params) is False
+    at_bound = tick(1.0, key, encoder_angle_rad=bound_rad)
+    assert encoder_fresh(at_bound, params) is True

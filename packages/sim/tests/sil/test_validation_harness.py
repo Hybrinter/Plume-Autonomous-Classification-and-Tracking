@@ -8,12 +8,14 @@ from flight.hal.drivers_sim import SimSensor, SimStationLink
 from flight.libs.config import DriverConfig, PactConfig
 from flight.libs.messages import InferenceResultMsg
 from flight.libs.time import ManualClock
+from flight.libs.types import SystemMode
 from sim.scene import build_frames, plume_detector
 from sim.sil import (
     ValidationHarness,
     ValidationSystem,
     build_validation_system,
     load_profile_config,
+    publish_activation,
 )
 
 
@@ -27,7 +29,15 @@ def _all_sim_config() -> PactConfig:
         clock="sim",
         host="x86_64",
     )
-    return dataclasses.replace(PactConfig(), drivers=sim_drivers)
+    base = PactConfig()
+    return dataclasses.replace(
+        base,
+        drivers=sim_drivers,
+        gimbal=dataclasses.replace(
+            base.gimbal,
+            simulation=dataclasses.replace(base.gimbal.simulation, encoder_noise_deg=0.0),
+        ),
+    )
 
 
 def _sim_inputs() -> SimDriverInputs:
@@ -57,6 +67,7 @@ def test_build_validation_system_yields_sim_drivers() -> None:
 def test_validation_harness_drives_inference_per_frame() -> None:
     """Four steps at duty 0.5 publish floor(4 * 0.5) inference results."""
     system = build_validation_system(_all_sim_config(), ManualClock(), _sim_inputs())
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     inf_sub = system.bus.subscribe(InferenceResultMsg)
 
     ValidationHarness(system).run_steps(4)

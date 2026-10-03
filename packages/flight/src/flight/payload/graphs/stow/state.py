@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from flight.payload.records import ActivationKey
+from flight.libs.types import ActivationKey
 
 
 class StowNode(Enum):

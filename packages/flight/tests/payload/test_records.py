@@ -4,8 +4,8 @@ import math
 from dataclasses import FrozenInstanceError
 
 import pytest
+from flight.libs.types import ActivationKey
 from flight.payload.records import (
-    ActivationKey,
     CaptureContext,
     CapturedVision,
     HealthSample,

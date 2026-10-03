@@ -12,7 +12,7 @@ and embedded structs.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SCHEMA_VERSION` | constant | Bus envelope schema version (`2`) |
+| `SCHEMA_VERSION` | constant | Bus envelope schema version (`3`) |
 | `utc_now_iso` | function | Current UTC ISO string with millisecond precision |
 | `BlobMeta` | class | Embedded blob metadata struct |
 | Message classes | class | One frozen dataclass per `MessageType` |
@@ -27,7 +27,11 @@ and embedded structs.
 | `TelemetryEventMsg` | `TELEMETRY_EVENT` | Structured telemetry event |
 | `FaultEventMsg` | `FAULT_EVENT` | Fault notification to fault app |
 | `HeartbeatMsg` | `HEARTBEAT` | Subsystem liveness signal |
-| `ModeChangeMsg` | `MODE_CHANGE` | System mode transition |
+| `CommandCorrelation` | struct | Command identity embedded in a mode request |
+| `SystemModeRequestMsg` | `SYSTEM_MODE_REQUEST` | Request to the external mode authority |
+| `SystemModeTransitionMsg` | `SYSTEM_MODE_TRANSITION` | Authority decision audit record |
+| `SystemModeActivatedMsg` | `SYSTEM_MODE_ACTIVATED` | Authority activation; the payload boundary |
+| `SystemModeSyncRequestMsg` | `SYSTEM_MODE_SYNC_REQUEST` | Boot-time activation snapshot request |
 | `CommandMsg` | `COMMAND` | Ground command envelope from ingress |
 | `RoutedCommandMsg` | `ROUTED_COMMAND` | Command accepted by router for target app |
 | `SafetyStateMsg` | `SAFETY_STATE` | Fault-owned SAFE latch and active fault set |
@@ -69,14 +73,19 @@ Frame-scoped messages also carry `frame_id: int` (uint32 monotonic counter).
 5. `utc_now_iso()` formats UTC with a trailing `Z` suffix.
 6. `BlobMeta` embeds in `InferenceResultMsg.blobs` with tracker ID, bbox, centroid, area,
    confidence, and persistence count.
-7. `GimbalCommandMsg` records pose mode, elevation target, arbiter state, and reason.
-   Tracking torque is not a command message. Compact pointing uses `TelemetryEventMsg`.
+7. `GimbalCommandMsg` records pose mode, elevation target, the active payload graph and
+   node, the activation epoch and sequence, and reason. Tracking torque is not a command
+   message. Compact pointing uses `TelemetryEventMsg`.
 8. `CommandAckMsg` correlates via `(source, seq, command_id)`. On `REJECTED`, `fault_code`
    carries the reject reason.
 9. `DownlinkItemMsg` carries inline `payload_bytes` or a non-empty `storage_ref` for large
    products fetched at transmission time.
-10. `SafetyStateMsg` publishes mode, active SAFE-triggering faults, latch flag, and latch reason
-    each fault tick.
+10. `SafetyStateMsg` publishes the active SAFE-triggering fault set, latch flag, latch
+    reason, evidence epoch, evidence sequence, and observation time each fault tick.
+11. The system-mode family separates roles: `SystemModeRequestMsg` asks the authority for a
+    transition, `SystemModeTransitionMsg` records the authority's decision as an audit trail
+    (never behavior), `SystemModeActivatedMsg` is the accepted activation payload graphs
+    consume, and `SystemModeSyncRequestMsg` requests the current snapshot at boot.
 
 ## Errors and faults
 
@@ -90,15 +99,18 @@ The module defines message shapes only. Producers emit `FaultEventMsg` with appr
 | Message | Typical publishers | Typical subscribers |
 | --- | --- | --- |
 | `ProcessedFrameMsg` | payload (internal; not bus in current pipeline) | inference path in payload |
-| `InferenceResultMsg` | payload | payload controller, storage |
+| `InferenceResultMsg` | payload | telemetry observers, tests |
 | `GimbalCommandMsg` | payload (pose commands) | downlink, logging |
 | `TelemetryEventMsg` | any subsystem | telemetry reporter |
-| `FaultEventMsg` | any subsystem | fault |
+| `FaultEventMsg` | any subsystem | fault; payload (local containing-fault subscription) |
 | `HeartbeatMsg` | monitored subsystems | fault watchdog |
-| `ModeChangeMsg` | fault, core | all mode-aware apps |
+| `SystemModeRequestMsg` | payload, fault | external mode authority |
+| `SystemModeTransitionMsg` | external mode authority | storage, downlink |
+| `SystemModeActivatedMsg` | external mode authority | payload, fault |
+| `SystemModeSyncRequestMsg` | payload | external mode authority |
 | `CommandMsg` | iss_iface | core command router |
 | `RoutedCommandMsg` | core command router | target subsystem apps |
-| `SafetyStateMsg` | fault | command router |
+| `SafetyStateMsg` | fault | command router, payload |
 | `StorageWriteMsg` | payload | core storage |
 | `ProductRefMsg` | payload | downlink manager |
 | `DownlinkItemMsg` | downlink manager | iss_iface |

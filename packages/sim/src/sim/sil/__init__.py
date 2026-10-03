@@ -6,13 +6,16 @@ from sim.sil.environment_bind import SilEnvironmentBind, bind_sil_environment
 from sim.sil.runner import SilHarness, SilSystem, build_sil_system
 from sim.sil.stepping import SilCycleBind, step_once
 from sim.sil.validation import (
+    ActivationTarget,
     ValidationHarness,
     ValidationSystem,
     build_validation_system,
     load_profile_config,
+    publish_activation,
 )
 
 __all__ = [
+    "ActivationTarget",
     "SilCycleBind",
     "SilEnvironmentBind",
     "SilHarness",
@@ -24,5 +27,6 @@ __all__ = [
     "build_sil_system",
     "build_validation_system",
     "load_profile_config",
+    "publish_activation",
     "step_once",
 ]

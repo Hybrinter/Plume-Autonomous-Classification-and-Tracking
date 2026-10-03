@@ -33,7 +33,7 @@ from tools.analysis.recorder import CaptureResult
 from tools.analysis.runner import ScenarioRun
 from tools.analysis.stats import summarize
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _STATS_VIEW = ("signal", "kind", "unit", "last", "min", "max", "mean", "n_transitions", "mode")
 
 
@@ -92,7 +92,8 @@ def _outcomes(capture: CaptureResult) -> dict[str, object]:
     return {
         "safe_latched_end": bool(last("system", "system.safe_latched") or 0),
         "safe_ever": ever_positive("system", "system.safe_latched"),
-        "final_gimbal_state": last("payload", "payload.gimbal_state"),
+        "final_payload_graph": last("payload", "payload.graph"),
+        "final_payload_node": last("payload", "payload.node"),
         "final_system_mode": last("system", "system.mode"),
         "stow_engaged_ever": ever_positive("payload", "payload.stow_switch"),
         "total_faults": _native(pd.to_numeric(capture.wide["system"]["system.total_faults"]).sum()),
@@ -370,7 +371,9 @@ def _write_suite_index(
         outcomes = report.manifest["outcomes"]
         assert isinstance(outcomes, dict)
         safe = _fmt(outcomes.get("safe_ever"))
-        final = _fmt(outcomes.get("final_gimbal_state"))
+        final = "/".join(
+            (_fmt(outcomes.get("final_payload_graph")), _fmt(outcomes.get("final_payload_node")))
+        )
         md.append(
             f"| [{spec.name}]({spec.name}/summary.md) | {spec.category} | "
             f"{report.n_figures} | {safe} | {final} |"

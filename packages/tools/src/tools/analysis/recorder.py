@@ -1,9 +1,9 @@
 """Passive per-step capture loop: drive the deterministic SIL and tabulate every signal.
 
 The recorder owns the SIL stepping loop (it reuses ``sim.sil.step_once`` -- the single source of
-truth for one cycle -- and threads the payload ``ControlState`` + FDIR watchdog entries itself), so
+truth for one cycle -- and threads the payload ``PayloadState`` + FDIR watchdog entries itself), so
 it can observe the state those two apps keep off ``self`` (threaded through ``step_once``). Capture
-is fully passive: it subscribes to all nineteen message types on the shared bus, and because the
+is fully passive: it subscribes to the message registry on the shared bus, and because the
 bus is fan-out (each subscriber gets its own queue) draining the recorder's subscriptions steals
 nothing from the apps. Each step it drains its subscriptions, takes one self-consistent
 ``DeviceSample`` from ``SimGimbal.snapshot`` and other sim driver fields, builds a
@@ -150,23 +150,25 @@ def record_run(
 
     Notes:
         Subscriptions are created before the first step, so step 1 is captured. The loop mirrors
-        SilHarness.run_steps (``now``, optional hook, ``step_once``, then clock advance) and owns
+        SilHarness.run_steps (target ``now``, optional hook, then ``step_once``) and owns
         the threaded state so the payload/FDIR internals are observable. ``sample_devices`` uses
         ``SimGimbal.snapshot`` and does not call ``read_position`` or ``read_stow_switch``.
+        The SIL composition root advances the shared clock through control ticks to the
+        requested target; the recorder does not advance it a second time.
     """
     if steps <= 0:
         raise ValueError(f"steps must be positive, got {steps}")
     subscriptions: dict[type, Subscription[object]] = {
         message_type: system.bus.subscribe(message_type) for message_type in MESSAGE_TYPES
     }
-    payload_state = system.apps.payload.controller.initial_state()
+    payload_state = system.apps.payload.initial_state()
     fault_entries = system.apps.fault.initial_entries()
 
     step_index: list[int] = []
     t_values: list[float] = []
     columns: dict[str, list[SignalValue]] = {signal.name: [] for signal in REGISTRY}
 
-    now = 0.0
+    now = system.clock.monotonic_s()
     for step in range(1, steps + 1):
         now += dt
         if pre_step is not None:
@@ -181,7 +183,6 @@ def record_run(
             payload_state,
             fault_entries,
         )
-        system.clock.advance(dt)
         messages: dict[type, tuple[object, ...]] = {
             message_type: _drain(subscription)
             for message_type, subscription in subscriptions.items()

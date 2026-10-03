@@ -27,29 +27,33 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 
 **`SilHarness.step(now) -> None`**
 
-- Input: monotonic seconds for arbiter and watchdog.
+- Input: target monotonic seconds for the graphs and watchdog.
 - Side effect: one cycle via `step_once` with the optional bind; updates threaded
-  payload and fault state.
+  `PayloadState` and watchdog entries.
 
 **`SilHarness.run_steps(count, dt=1.0) -> None`**
 
 - Inputs: step count, seconds per step.
-- Side effect: calls `step` then advances the shared clock by `dt` each iteration.
+- Side effect: calls `step` with `now += dt` each iteration; `step_once` owns the
+  shared clock advance.
 
-**`SilHarness.payload_gimbal_state() -> GimbalState`**
+**`SilHarness.payload_graph() / payload_node() / payload_system_mode() -> str | SystemMode | None`**
 
-- Output: current arbiter gimbal state (test accessor).
+- Output: the active `GraphId`, graph node, or mapped `SystemMode` of the last
+  accepted activation, or `None` before activation (test accessors).
 
 ## Behavior
 
 1. `build_sil_system` packs sim inputs into `SimDriverInputs`.
 2. It replaces `config.drivers` with all `"sim"` axes and host `"x86_64"`.
 3. It calls `build_validation_system` and casts driver fields to concrete sim types.
-4. `SilHarness.__init__` seeds payload `ControlState` and FDIR watchdog entries.
+4. `SilHarness.__init__` seeds the payload `PayloadState` and FDIR watchdog
+   entries, and `_now` from the shared clock.
 5. `SilHarness.step` delegates to `step_once` and passes the optional bind. Catch-up
    runs first. Bind evaluate and acquire follow.
-6. `run_steps` continues from the last `now`, adds `dt` each step, and advances the
-   shared clock after `step`. A later `run_steps` call does not reset time.
+6. `run_steps` continues from the last `now` and adds `dt` each step. `step_once`
+   advances the shared `ManualClock` forward to `now`; a later `run_steps` call does
+   not reset time.
 
 ## Errors and faults
 

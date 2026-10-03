@@ -5,7 +5,7 @@ its stable dotted name, its group (one of the ten flight apps, the message ``bus
 synthetic ``system`` rollup), a human title, a unit, a kind (NUMERIC or CATEGORICAL), and a pure
 ``extract`` callable that reads the value from a ``SampleContext``. The context bundles everything
 the recorder gathered for one step -- the wired ``SilSystem`` (apps + bus + sim drivers), the
-payload ``ControlState`` and FDIR watchdog entries the recorder threads through ``step_once``, the
+payload ``PayloadState`` and FDIR watchdog entries the recorder threads through ``step_once``, the
 messages drained from the recorder's own (passive, fan-out) subscriptions this step, and a one-shot
 ``DeviceSample`` of the sim drivers. Extractors are read-only and side-effect-free; an extractor
 that raises is the recorder's signal to record NaN (numeric) or "" (categorical), so the registry
@@ -46,7 +46,6 @@ from flight.libs.messages import (
     HeartbeatMsg,
     InferenceResultMsg,
     LinkStateMsg,
-    ModeChangeMsg,
     ModelDeployStateMsg,
     ModelStagedMsg,
     ProcessedFrameMsg,
@@ -54,11 +53,17 @@ from flight.libs.messages import (
     RoutedCommandMsg,
     SafetyStateMsg,
     StorageWriteMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
+    SystemModeSyncRequestMsg,
+    SystemModeTransitionMsg,
     TelemetryEventMsg,
     UploadChunkMsg,
 )
 from flight.libs.types import DownlinkPriority, FaultCode
-from flight.payload.control import ControlState
+from flight.payload.gimbal.request import InhibitReference
+from flight.payload.graphs import operate
+from flight.payload.state import PayloadState
 from sim.sil import SilSystem
 
 _NAN = float("nan")
@@ -74,7 +79,10 @@ MESSAGE_TYPES: tuple[type, ...] = (
     TelemetryEventMsg,
     FaultEventMsg,
     HeartbeatMsg,
-    ModeChangeMsg,
+    SystemModeRequestMsg,
+    SystemModeTransitionMsg,
+    SystemModeActivatedMsg,
+    SystemModeSyncRequestMsg,
     CommandMsg,
     RoutedCommandMsg,
     SafetyStateMsg,
@@ -152,7 +160,7 @@ class SampleContext:
         step: 1-based step index.
         t: monotonic seconds at this step (the recorder's advanced ``now``).
         system: the wired SilSystem (apps + bus + sim drivers + clock).
-        payload_state: the payload ControlState the recorder threaded out of this step.
+        payload_state: the payload PayloadState the recorder threaded out of this step.
         fault_entries: the FDIR watchdog entries the recorder threaded out of this step.
         messages: messages drained from the recorder's passive subscriptions, keyed by type.
         devices: the one-shot DeviceSample for this step.
@@ -161,7 +169,7 @@ class SampleContext:
     step: int
     t: float
     system: SilSystem
-    payload_state: ControlState
+    payload_state: PayloadState
     fault_entries: Mapping[str, WatchdogEntry]
     messages: Mapping[type, tuple[object, ...]]
     devices: DeviceSample
@@ -172,7 +180,7 @@ class Signal:
     """One registered per-step observable: identity + how to extract it from a SampleContext.
 
     Fields:
-        name: stable, unique, dotted identifier (e.g. "payload.gimbal_state").
+        name: stable, unique, dotted identifier (e.g. "payload.graph").
         group: the owning group ("payload", "bus", "system", ...); names the wide frame + figures.
         title: short human-readable description for plot titles and the report.
         unit: SI unit, "count", "bool", "enum", or "" (dimensionless).
@@ -297,6 +305,48 @@ def _bool(predicate: Callable[[SampleContext], bool]) -> ExtractorFn:
     return lambda ctx: 1.0 if predicate(ctx) else 0.0
 
 
+def _operate_num(
+    field: Callable[[operate.State], float], *, tracking_only: bool = False
+) -> ExtractorFn:
+    """Read graph-local data explicitly; inactive estimates are unavailable, not zero."""
+
+    def extract(ctx: SampleContext) -> SignalValue:
+        graph = ctx.payload_state.graph
+        if not isinstance(graph, operate.State):
+            return _NAN
+        if tracking_only and graph.node is not operate.OperateNode.TRACKING:
+            return _NAN
+        return field(graph)
+
+    return extract
+
+
+def _accepted_mode(ctx: SampleContext) -> SignalValue:
+    """Return the current accepted activation mode, not a request or fault-latch inference."""
+    current = ctx.payload_state.activation.last
+    return "" if current is None else current.graph_id.name
+
+
+def _graph_label(ctx: SampleContext) -> SignalValue:
+    """Return the accepted payload graph label, or unavailable before synchronization."""
+    current = ctx.payload_state.activation.last
+    return "" if current is None else current.graph_id.value
+
+
+def _node_label(ctx: SampleContext) -> SignalValue:
+    """Return the concrete graph's active node label, or unavailable before synchronization."""
+    graph = ctx.payload_state.graph
+    return "" if graph is None else graph.node.value
+
+
+def _observation_age(ctx: SampleContext) -> SignalValue:
+    """Return the accepted shutter age only when OPERATE has an observation."""
+    graph = ctx.payload_state.graph
+    if not isinstance(graph, operate.State) or graph.last_observation_s is None:
+        return _NAN
+    return max(0.0, ctx.t - graph.last_observation_s)
+
+
 # ---------------------------------------------------------------------------
 # Per-group signal builders
 # ---------------------------------------------------------------------------
@@ -310,8 +360,8 @@ def _system_signals() -> list[Signal]:
         _cat(
             "system.mode",
             "system",
-            "System mode (last SafetyStateMsg)",
-            _last_cat(SafetyStateMsg, lambda m: m.mode.value),
+            "System mode (accepted activation)",
+            _accepted_mode,
         ),
         _num(
             "system.safe_latched",
@@ -444,20 +494,49 @@ def _payload_signals() -> list[Signal]:
     """Payload control-state, tracking estimators, gimbal driver reads, and payload bus output."""
     return [
         _cat(
-            "payload.gimbal_state",
+            "payload.graph",
             "payload",
-            "Gimbal arbiter FSM state",
-            lambda ctx: ctx.payload_state.arbiter.gimbal_state.value,
+            "Selected payload graph",
+            _graph_label,
+        ),
+        _cat(
+            "payload.node",
+            "payload",
+            "Active payload node",
+            _node_label,
+        ),
+        _cat(
+            "payload.activation_epoch",
+            "payload",
+            "Accepted activation epoch",
+            lambda ctx: (
+                ctx.payload_state.activation.last.key.epoch
+                if ctx.payload_state.activation.last is not None
+                else ""
+            ),
         ),
         _num(
-            "payload.current_target_id",
+            "payload.activation_sequence",
             "payload",
-            "Deprecated single-blob target id",
-            "id",
+            "Accepted activation sequence",
+            "count",
             lambda ctx: (
-                float(ctx.payload_state.arbiter.current_target_id)
-                if ctx.payload_state.arbiter.current_target_id is not None
+                float(ctx.payload_state.activation.last.key.sequence)
+                if ctx.payload_state.activation.last is not None
                 else _NAN
+            ),
+        ),
+        _num(
+            "payload.motion_inhibited",
+            "payload",
+            "Motion reference inhibited or containment latched",
+            "bool",
+            _bool(
+                lambda ctx: (
+                    isinstance(ctx.payload_state.reference, InhibitReference)
+                    or ctx.system.apps.payload.containment.local_latched
+                    or ctx.system.apps.fault.safety.safe_latched
+                )
             ),
         ),
         _num(
@@ -465,81 +544,77 @@ def _payload_signals() -> list[Signal]:
             "payload",
             "Tracked blob count",
             "count",
-            lambda ctx: float(len(ctx.payload_state.arbiter.tracked_blobs)),
+            _operate_num(lambda graph: float(len(graph.tracked_blobs))),
         ),
         _num(
             "payload.aggregate_live",
             "payload",
             "Accepted aggregate or bounded coast live",
             "bool",
-            lambda ctx: float(ctx.payload_state.arbiter.aggregate_live),
+            _operate_num(lambda graph: float(graph.aggregate_live)),
         ),
         _num(
             "payload.observation_age_s",
             "payload",
             "Age of last accepted aggregate observation",
             "s",
-            lambda ctx: (
-                max(0.0, ctx.t - ctx.payload_state.arbiter.last_observation_s)
-                if ctx.payload_state.arbiter.last_observation_s is not None
-                else _NAN
-            ),
+            _observation_age,
         ),
         _num(
             "payload.miss_count",
             "payload",
             "Received-empty release counter",
             "count",
-            lambda ctx: float(ctx.payload_state.arbiter.miss_count),
+            _operate_num(lambda graph: float(graph.miss_count)),
         ),
         _num(
             "payload.r_rad_s",
             "payload",
             "Outer rate reference",
             "rad/s",
-            lambda ctx: float(ctx.payload_state.commanded_rate_rad_s),
+            lambda ctx: float(ctx.payload_state.servo.commanded_rate_rad_s),
         ),
         _num(
             "payload.y_m",
             "payload",
             "Encoder rate estimate",
             "rad/s",
-            lambda ctx: float(ctx.payload_state.encoder.measured_rate_rad_s),
+            lambda ctx: float(ctx.payload_state.servo.encoder.measured_rate_rad_s),
         ),
         _num(
             "payload.tau_nm",
             "payload",
             "Inner torque command",
             "N*m",
-            lambda ctx: float(ctx.payload_state.inner.last_tau_nm),
+            lambda ctx: float(ctx.payload_state.servo.inner.last_tau_nm),
         ),
         _num(
             "payload.e_hat",
             "payload",
             "Residual elevation error",
             "rad",
-            lambda ctx: float(ctx.payload_state.residual.x[0]),
+            _operate_num(lambda graph: float(graph.residual.x[0]), tracking_only=True),
         ),
         _num(
             "payload.omega_t_res",
             "payload",
             "Residual rate estimate",
             "rad/s",
-            lambda ctx: float(ctx.payload_state.residual.x[1]),
+            _operate_num(lambda graph: float(graph.residual.x[1]), tracking_only=True),
         ),
         _num(
             "payload.omega_t_nom",
             "payload",
             "Co-rotating predictor rate",
             "rad/s",
-            lambda ctx: float(ctx.payload_state.target.last_omega_t_nom),
+            _operate_num(lambda graph: float(graph.target.last_omega_t_nom)),
         ),
         _num(
             "payload.residual_p_trace",
             "payload",
             "Residual covariance trace",
             "rad^2",
-            lambda ctx: float(np.trace(ctx.payload_state.residual.P)),
+            _operate_num(lambda graph: float(np.trace(graph.residual.P)), tracking_only=True),
         ),
         _num(
             "payload.gimbal_el_meas_deg",
@@ -674,12 +749,6 @@ def _fault_signals() -> list[Signal]:
             "Latched SAFE reason",
             lambda ctx: ctx.system.apps.fault.safety.safe_reason.value,
         ),
-        _cat(
-            "fault.safety_mode",
-            "fault",
-            "SafetyStateMsg mode (last)",
-            _last_cat(SafetyStateMsg, lambda m: m.mode.value),
-        ),
         _num(
             "fault.safety_active_faults",
             "fault",
@@ -695,17 +764,17 @@ def _fault_signals() -> list[Signal]:
             _count_of(SafetyStateMsg),
         ),
         _num(
-            "fault.mode_change_count",
+            "fault.mode_request_count",
             "fault",
-            "ModeChangeMsg/step",
+            "SystemModeRequestMsg/step",
             "count",
-            _count_of(ModeChangeMsg),
+            _count_of(SystemModeRequestMsg),
         ),
         _cat(
-            "fault.last_mode_change",
+            "fault.last_requested_mode",
             "fault",
             "Last requested mode",
-            _last_cat(ModeChangeMsg, lambda m: m.new_mode.value),
+            _last_cat(SystemModeRequestMsg, lambda m: m.requested_mode.value),
         ),
         _num("fault.event_count", "fault", "Fault events/step", "count", _count_of(FaultEventMsg)),
     ]
@@ -1203,21 +1272,21 @@ def _enrichment_signals() -> list[Signal]:
             "payload",
             "Residual P[0,0] (e var)",
             "rad^2",
-            lambda ctx: float(ctx.payload_state.residual.P[0, 0]),
+            _operate_num(lambda graph: float(graph.residual.P[0, 0]), tracking_only=True),
         ),
         _num(
             "payload.residual_p11",
             "payload",
             "Residual P[1,1] (omega_res var)",
             "rad^2/s^2",
-            lambda ctx: float(ctx.payload_state.residual.P[1, 1]),
+            _operate_num(lambda graph: float(graph.residual.P[1, 1]), tracking_only=True),
         ),
         _num(
             "payload.vision_accepted",
             "payload",
             "Residual filter has a measurement",
             "bool",
-            _bool(lambda ctx: ctx.payload_state.residual.has_measurement),
+            _operate_num(lambda graph: float(graph.residual.has_measurement), tracking_only=True),
         ),
         _num(
             "payload.gimbal_el_noise_deg",
@@ -1229,9 +1298,14 @@ def _enrichment_signals() -> list[Signal]:
         _num(
             "payload.is_tracking",
             "payload",
-            "Arbiter in TRACKING",
+            "OPERATE graph in TRACKING",
             "bool",
-            _bool(lambda ctx: ctx.payload_state.arbiter.gimbal_state.value == "TRACKING"),
+            _bool(
+                lambda ctx: (
+                    isinstance(ctx.payload_state.graph, operate.State)
+                    and ctx.payload_state.graph.node is operate.OperateNode.TRACKING
+                )
+            ),
         ),
         _num(
             "iss_iface.upload_progress",

@@ -38,7 +38,16 @@ def _build_app(detector: DetectorBackend) -> PayloadApp:
     eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     app = PayloadApp.from_config(
-        cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage()
+        cfg,
+        sensor,
+        gimbal,
+        eph,
+        detector,
+        bus,
+        clock,
+        calib,
+        _MemStorage(),
+        "epoch-encoder-test",
     )
     return app
 

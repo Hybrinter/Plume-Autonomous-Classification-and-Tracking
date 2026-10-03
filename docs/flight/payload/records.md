@@ -14,23 +14,24 @@ records shared between the shell and the pure cores.
 | --- | --- | --- |
 | `VisionSample` | dataclass | Frame ID, shutter time, error, centroid, exposure, blobs, and ISS |
 | `IssSample` | dataclass | ISS ECI state for the predictor |
-| `ActivationKey` | dataclass | Session epoch plus activation sequence |
-| `CaptureContext` | dataclass | Activation key, policy revision, and model version |
+| `CaptureContext` | dataclass | Activation key, policy revision, model version, and containment generation |
 | `CapturedVision` | dataclass | Vision sample tagged with its capture context |
 | `HealthSample` | dataclass | Feedback validity, inhibit confirmation, and containment flags |
 
 ## Inputs and outputs
 
 All records are frozen slots dataclasses. `VisionSample.theta_g_rad` defaults
-to `None`. `CaptureContext`, `CapturedVision`, `ActivationKey`, and
-`HealthSample` fields carry data only; nothing here executes behavior.
+to `None`. `CaptureContext`, `CapturedVision`, and `HealthSample` fields
+carry data only; nothing here executes behavior. `ActivationKey` is imported
+from `flight.libs.types`; it is not declared in this module.
 
 ## Behavior
 
 The app shell constructs `IssSample` from ephemeris reads and `VisionSample`
-from gated inference results. Pure cores consume them as tick inputs.
-`CapturedVision` tags a vision sample with the activation key, policy
-revision, and model identity under which its capture ran.
+from raw inference output; the OPERATE graph applies the vision acceptance
+gates when it consumes the sample. `CapturedVision` tags a vision sample with
+the activation key, policy revision, containment generation, and model
+identity under which its capture ran.
 
 ## Errors and faults
 

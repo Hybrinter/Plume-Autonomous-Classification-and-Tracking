@@ -1,12 +1,11 @@
-"""Tests for the GimbalRequest pose-command value and control references."""
+"""Tests for the typed control references below the payload graphs."""
 
 import math
 from dataclasses import FrozenInstanceError
 
 import pytest
-from flight.libs.types import Err, FaultCode, GimbalCommandMode, Ok
+from flight.libs.types import Err, FaultCode, Ok
 from flight.payload.gimbal import (
-    GimbalRequest,
     InhibitReference,
     PoseReference,
     RateReference,
@@ -14,14 +13,6 @@ from flight.payload.gimbal import (
     TravelEnvelope,
     validate_reference,
 )
-
-
-def test_gimbal_request_carries_mode_and_elevation() -> None:
-    """GimbalRequest is a frozen pose value: mode + elevation + reason."""
-    req = GimbalRequest(mode=GimbalCommandMode.ABSOLUTE, el_deg=-12.5, reason="goto_science")
-    assert req.mode is GimbalCommandMode.ABSOLUTE
-    assert req.el_deg == -12.5
-    assert not hasattr(req, "az_deg")
 
 
 def _envelope(

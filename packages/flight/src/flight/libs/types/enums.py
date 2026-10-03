@@ -4,8 +4,8 @@ Defines all enumerations used as discriminants and state values across the fligh
 software. The Ok/Err/Result types live in flight.libs.types.result.
 
 Includes:
-- SystemMode: top-level operational mode transitions.
-- GimbalState: TRACKING / REWIND / FAST_REWIND / SAFE arbiter for gimbal control.
+- SystemMode: top-level operational modes (IDLE/STOW/SAFE/INIT/OPERATE).
+- ModeTransitionDecision: authority accept/deny outcome for a mode request.
 - GimbalCommandMode: interpretation of gimbal pose commands (ABSOLUTE/STOW/HOME).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
   (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
@@ -37,41 +37,23 @@ import enum
 
 
 class SystemMode(enum.Enum):
-    """Top-level operational mode. REQ-OPER-HIGH-002."""
+    """Top-level operational mode. REQ-OPER-HIGH-002.
 
-    IDLE = "IDLE"
-    ACTIVE = "ACTIVE"  # inference + gimbal running
-    SCAN = "SCAN"  # nadir scan, no active target
-    MODEL_UPLINK = "MODEL_UPLINK"
-    DATA_DOWNLINK = "DATA_DOWNLINK"
-    SAFE = "SAFE"  # fault-induced; minimal activity
-
-
-class GimbalState(enum.Enum):
-    """Four-state arbiter. REQ-AIML-GIMB-008.
-
-    REWIND and FAST_REWIND are hunts toward the science limb. ``is_rewind_hunt``
-    is that check on the state.
+    Exactly five modes; names double as the payload graph vocabulary.
     """
 
-    TRACKING = "TRACKING"
-    REWIND = "REWIND"
-    FAST_REWIND = "FAST_REWIND"
+    IDLE = "IDLE"
+    STOW = "STOW"
     SAFE = "SAFE"
+    INIT = "INIT"
+    OPERATE = "OPERATE"
 
-    def is_rewind_hunt(self) -> bool:
-        """True when this state is a hunt toward the science limb.
 
-        Inputs:
-            self (GimbalState): Arbiter state.
+class ModeTransitionDecision(enum.Enum):
+    """Authority decision on a requested system-mode transition."""
 
-        Outputs:
-            bool: True for REWIND and FAST_REWIND.
-
-        Notes:
-            REWIND is the smear-capped hunt. FAST_REWIND is the hardware-slew hunt.
-        """
-        return self is GimbalState.REWIND or self is GimbalState.FAST_REWIND
+    ACCEPTED = "ACCEPTED"
+    DENIED = "DENIED"
 
 
 class GimbalCommandMode(enum.Enum):
@@ -159,7 +141,10 @@ class MessageType(enum.Enum):
     TELEMETRY_EVENT = "TELEMETRY_EVENT"
     FAULT_EVENT = "FAULT_EVENT"
     HEARTBEAT = "HEARTBEAT"
-    MODE_CHANGE = "MODE_CHANGE"
+    SYSTEM_MODE_REQUEST = "SYSTEM_MODE_REQUEST"
+    SYSTEM_MODE_TRANSITION = "SYSTEM_MODE_TRANSITION"
+    SYSTEM_MODE_ACTIVATED = "SYSTEM_MODE_ACTIVATED"
+    SYSTEM_MODE_SYNC_REQUEST = "SYSTEM_MODE_SYNC_REQUEST"
     COMMAND = "COMMAND"
     ROUTED_COMMAND = "ROUTED_COMMAND"
     SAFETY_STATE = "SAFETY_STATE"
@@ -224,10 +209,10 @@ class CommandId(enum.Enum):
     PING = "PING"  # liveness check; non-hazardous; core-handled; no params
     SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; target thermal; param limit_c: float
     NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
-    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target fault; param phase: str
+    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target system_modes; param phase: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
-    GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop
+    GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target system_modes; stow request
     GIMBAL_HOME = "GIMBAL_HOME"  # non-hazardous; target payload; home via position loop
     GIMBAL_GOTO = "GIMBAL_GOTO"  # non-hazardous; target payload; param el_deg: float
     GIMBAL_HOLD = "GIMBAL_HOLD"

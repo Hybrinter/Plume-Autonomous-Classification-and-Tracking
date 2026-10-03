@@ -2,6 +2,7 @@ name = "ingress_nack"
 profile = "sil-link-real"
 steps = 20
 dt = 1.0
+initial_mode = "OPERATE"
 
 [scene]
 num_frames = 4

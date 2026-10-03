@@ -23,12 +23,14 @@ read TOML directly.
 | --- | --- |
 | `AxisMode` | type alias |
 | `CommandIngressConfig`, `CommandRouterConfig`, `CommsConfig` | class |
-| `ArbiterConfig`, `VisionConfig`, `InnerLoopConfig`, `OuterLoopConfig` | class |
+| `OperateGraphConfig`, `VisionConfig`, `InnerLoopConfig`, `OuterLoopConfig` | class |
 | `ResidualConfig`, `PositionLoopConfig`, `ControllerConfig` | class |
 | `DriverConfig`, `EphemerisConfig`, `FaultConfig` | class |
-| `GimbalConfig`, `InferenceConfig`, `LinkConfig` | class |
-| `PactConfig`, `PreprocessingConfig`, `SensorConfig`, `StorageConfig` | class |
-| `ThermalConfig` | class |
+| `GimbalConfig`, `GimbalSimulationConfig`, `XeryonConfig` | class |
+| `InferenceConfig`, `IntegrityConfig`, `PredictorConfig` | class |
+| `LinkConfig`, `PactConfig`, `PreprocessingConfig` | class |
+| `SensorConfig`, `SensorCaptureConfig`, `SensorOpticsConfig` | class |
+| `StorageConfig`, `ThermalConfig` | class |
 
 ## Interactions
 

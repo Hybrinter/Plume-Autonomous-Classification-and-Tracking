@@ -18,6 +18,7 @@ from flight.payload.graphs.base import (
     CommandOutcome,
     GraphId,
     GraphOutcome,
+    GraphSpec,
     TickInputs,
 )
 from flight.payload.graphs.parameters import GraphParameters
@@ -35,6 +36,15 @@ GraphOutcomeUnion = (
 """Closed union of every concrete graph outcome."""
 
 CommandOutcomeUnion = CommandOutcome[operate.State, operate.OperateNode]
+
+GraphSpecUnion = (
+    GraphSpec[idle.IdleNode]
+    | GraphSpec[safe.SafeNode]
+    | GraphSpec[stow.StowNode]
+    | GraphSpec[init.InitNode]
+    | GraphSpec[operate.OperateNode]
+)
+"""Closed union of every concrete graph spec."""
 
 
 def initial_state(
@@ -63,6 +73,24 @@ def initial_state(
             return init.initial_state(inputs, params)
         case GraphId.OPERATE:
             return operate.initial_state(inputs, params)
+
+
+def spec(
+    graph_id: GraphId,
+    params: GraphParameters,
+) -> GraphSpecUnion:
+    """Return the declared spec (topology + default policy) for one graph."""
+    match graph_id:
+        case GraphId.IDLE:
+            return idle.spec(params)
+        case GraphId.SAFE:
+            return safe.spec(params)
+        case GraphId.STOW:
+            return stow.spec(params)
+        case GraphId.INIT:
+            return init.spec(params)
+        case GraphId.OPERATE:
+            return operate.spec(params)
 
 
 def step(

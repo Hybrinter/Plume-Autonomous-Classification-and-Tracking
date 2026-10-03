@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import numpy as np
 from flight.libs.config import EphemerisConfig, SensorConfig
+from flight.libs.types import ActivationKey
 from flight.payload.gimbal.intersect import CameraGeometry, intersect_cog
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.gimbal.request import InhibitReference
@@ -12,7 +13,6 @@ from flight.payload.graphs import operate
 from flight.payload.graphs.operate import tracking
 from flight.payload.graphs.parameters import GraphParameters
 from flight.payload.records import (
-    ActivationKey,
     IssSample,
 )
 

@@ -1,6 +1,9 @@
 """Tests for the INIT graph: ordered effects, verification, request once."""
 
-from flight.libs.types import FaultCode
+from flight.libs.types import (
+    ActivationKey,
+    FaultCode,
+)
 from flight.payload.gimbal.request import InhibitReference, PoseReference
 from flight.payload.graphs import init
 from flight.payload.graphs.base import (
@@ -12,7 +15,7 @@ from flight.payload.graphs.base import (
     SystemRequestIntent,
 )
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey, HealthSample
+from flight.payload.records import HealthSample
 
 from .support import TickBuilder
 

@@ -42,8 +42,8 @@ class VisionConfig:
 
 
 @dataclass(frozen=True, config=_SCHEMA)
-class ArbiterConfig:
-    """TRACKING / REWIND / FAST_REWIND / SAFE mode-machine thresholds.
+class OperateGraphConfig:
+    """TRACKING / REWIND / FAST_REWIND / HOLD operate-graph thresholds.
 
     ``max_observation_age_s`` is an independent ceiling on prediction-only
     coasting.  It protects against a vision pipeline that stops producing
@@ -146,10 +146,10 @@ class PredictorConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class ControllerConfig:
-    """Nested configuration for vision gates, arbiter, predictor, and cascaded loops."""
+    """Nested configuration for vision gates, operate graph, predictor, and loops."""
 
     vision: VisionConfig = field(default_factory=VisionConfig)
-    arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
+    operate: OperateGraphConfig = field(default_factory=OperateGraphConfig)
     inner: InnerLoopConfig = field(default_factory=InnerLoopConfig)
     outer: OuterLoopConfig = field(default_factory=OuterLoopConfig)
     residual: ResidualConfig = field(default_factory=ResidualConfig)

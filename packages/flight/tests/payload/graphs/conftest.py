@@ -3,6 +3,7 @@
 import pytest
 from flight.libs.config import PactConfig
 from flight.libs.messages import BlobMeta, RoutedCommandMsg
+from flight.libs.types import ActivationKey
 from flight.payload.graphs.base import (
     EffectResult,
     InitVerificationResult,
@@ -10,7 +11,6 @@ from flight.payload.graphs.base import (
 )
 from flight.payload.graphs.parameters import GraphParameters
 from flight.payload.records import (
-    ActivationKey,
     CaptureContext,
     CapturedVision,
     HealthSample,

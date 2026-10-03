@@ -17,13 +17,16 @@ generation, or graph selection lives here.
 | --- | --- | --- |
 | `GraphState` | union | `idle.State | safe.State | stow.State | init.State | operate.State` |
 | `GraphOutcomeUnion` | union | `GraphOutcome` over each graph's node enum |
+| `GraphSpecUnion` | union | `GraphSpec` over each graph's node enum |
 | `initial_state` | function | Cold state for the selected `GraphId` |
+| `spec` | function | Declared spec (topology + default policy) for one `GraphId` |
 | `step` | function | One tick of whichever graph owns the state |
 | `apply_command` | function | OPERATE command application only; other graphs `Err(COMMAND_INVALID)` |
 
 ## Inputs and outputs
 
 `initial_state(graph_id, inputs, params) -> GraphState`;
+`spec(graph_id, params) -> GraphSpecUnion`;
 `step(state, inputs, params) -> (GraphState, GraphOutcomeUnion)`;
 `apply_command(state, command, inputs, params)` returns
 `Result[CommandOutcome[operate.State, OperateNode], FaultCode]`.
@@ -51,8 +54,8 @@ Reads `PactConfig` through `GraphParameters`.
 
 ## Constraints
 
-Pure dispatch only. The shell-side activation mapping arrives with the
-runtime cutover; nothing here selects graphs or owns epochs.
+Pure dispatch only. The shell (`PayloadApp`) owns activation mapping, epochs,
+and graph selection; nothing here selects graphs or owns epochs.
 
 ## Related documents
 

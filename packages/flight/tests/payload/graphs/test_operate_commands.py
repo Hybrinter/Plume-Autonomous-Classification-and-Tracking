@@ -5,13 +5,20 @@ from dataclasses import replace
 
 import pytest
 from flight.libs.messages import RoutedCommandMsg
-from flight.libs.types import CommandId, Err, FaultCode, MessageType, Ok
+from flight.libs.types import (
+    ActivationKey,
+    CommandId,
+    Err,
+    FaultCode,
+    MessageType,
+    Ok,
+)
 from flight.payload.gimbal.request import InhibitReference, PoseReference, RateReference
 from flight.payload.graphs import operate
 from flight.payload.graphs.base import SystemRequestIntent
 from flight.payload.graphs.operate.state import State
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey, HealthSample
+from flight.payload.records import HealthSample
 
 from .support import BlobBuilder, TickBuilder, VisionBuilder
 

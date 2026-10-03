@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import Enum
 
+from flight.libs.types import ActivationKey
 from flight.payload.gimbal.request import InhibitReference, PoseReference
 from flight.payload.graphs.base import (
     GraphId,
@@ -23,7 +24,6 @@ from flight.payload.graphs.base import (
     TickInputs,
 )
 from flight.payload.graphs.parameters import GraphParameters, encoder_fresh
-from flight.payload.records import ActivationKey
 
 
 class IdleNode(Enum):

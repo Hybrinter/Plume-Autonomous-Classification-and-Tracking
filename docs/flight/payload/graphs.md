@@ -32,10 +32,12 @@ closed state union and applies commands only on OPERATE.
 
 ## Interactions
 
-These are pure graph implementations, not live shell wiring: no module maps
-system activations onto live graphs yet, and `PayloadApp` still runs the
-existing controller. Activation mapping arrives with the runtime cutover.
-Shared gimbal and tracking primitives never import this package.
+`PayloadApp` is the live shell: each accepted `SystemModeActivatedMsg`
+reenters the graph selected by the external authority, `control_tick` steps
+the installed graph, and graph outcomes commit through the shell's HAL and
+bus surfaces. The graphs themselves stay pure - no I/O, bus, or clock - and
+never import `SystemMode`; the mode-to-graph mapping lives only in the app
+shell. Shared gimbal and tracking primitives never import this package.
 
 ## Constraints
 

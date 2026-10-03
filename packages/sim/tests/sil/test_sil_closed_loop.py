@@ -1,6 +1,7 @@
 """SIL closed-loop integration: the real flight apps over sim drivers via build_apps."""
 
 import math
+from dataclasses import replace
 
 from flight.libs.bus import Subscription
 from flight.libs.commands import build_tc_packet
@@ -10,13 +11,14 @@ from flight.libs.messages import (
     CommandMsg,
     FaultEventMsg,
     InferenceResultMsg,
-    ModeChangeMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
     TelemetryEventMsg,
 )
 from flight.libs.time import ManualClock
-from flight.libs.types import AckStatus, FaultCode, GimbalState, MessageType, Ok, SystemMode
+from flight.libs.types import AckStatus, FaultCode, Ok, SystemMode
 from sim.scene import build_frames, plume_detector
-from sim.sil import SilHarness, build_sil_system
+from sim.sil import SilHarness, build_sil_system, publish_activation
 
 
 def _drain[T](subscription: Subscription[T]) -> list[T]:
@@ -27,10 +29,30 @@ def _drain[T](subscription: Subscription[T]) -> list[T]:
     return result
 
 
+def _config(stow_rate_deg_per_s: float | None = None) -> PactConfig:
+    """Default config with zeroed sim encoder noise (keeps the 0-deg bound fresh)."""
+    base = PactConfig()
+    return replace(
+        base,
+        gimbal=replace(
+            base.gimbal,
+            simulation=replace(base.gimbal.simulation, encoder_noise_deg=0.0),
+            xeryon=(
+                base.gimbal.xeryon
+                if stow_rate_deg_per_s is None
+                else replace(
+                    base.gimbal.xeryon,
+                    stow_reference_rate_deg_per_s=stow_rate_deg_per_s,
+                )
+            ),
+        ),
+    )
+
+
 def test_sil_nominal_closed_loop_tracks_plume() -> None:
-    """A plume scene drives payload detection, pointing telemetry, and elevation motion."""
+    """A plume scene drives payload detection, tracking telemetry, and elevation motion."""
     system = build_sil_system(
-        PactConfig(),
+        _config(),
         ManualClock(),
         build_frames(8),
         plume_detector(),
@@ -40,24 +62,21 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
     )
     inf_sub = system.bus.subscribe(InferenceResultMsg)
     telem_sub = system.bus.subscribe(TelemetryEventMsg)
-    mode_sub = system.bus.subscribe(ModeChangeMsg)
 
     harness = SilHarness(system)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     harness.run_steps(8, dt=1.0)
 
     # Payload tracked the plume and moved elevation inside the science window.
     telem = _drain(telem_sub)
-    pointing = [m for m in telem if m.subsystem == "payload" and m.event_name == "pointing"]
-    assert pointing
     position = system.gimbal.read_position()
     assert isinstance(position, Ok)
     assert 0.0 < position.value.el_deg <= 45.0
-    transitions = [
-        m for m in telem if m.subsystem == "controller" and m.event_name == "state_transition"
-    ]
-    assert harness.payload_gimbal_state() is not GimbalState.SAFE
-    assert harness.payload_gimbal_state() is GimbalState.TRACKING or any(
-        m.payload.get("from") == "TRACKING" or m.payload.get("to") == "TRACKING"
+    assert harness.payload_system_mode() is SystemMode.OPERATE
+    assert harness.payload_graph() == "operate"
+    transitions = [m for m in telem if m.event_name == "node_transition"]
+    assert harness.payload_node() == "tracking" or any(
+        m.payload.get("from") == "tracking" or m.payload.get("to") == "tracking"
         for m in transitions
     )
 
@@ -70,7 +89,7 @@ def test_sil_nominal_closed_loop_tracks_plume() -> None:
 
     # Housekeeping telemetry flowed and the system stayed nominal (no SAFE).
     assert telem
-    assert mode_sub.empty()
+    assert harness.payload_system_mode() is not SystemMode.SAFE
 
 
 def test_sil_thermal_hot_sample_is_telemetry_only() -> None:
@@ -85,7 +104,6 @@ def test_sil_thermal_hot_sample_is_telemetry_only() -> None:
         power_readings=[30.0],
     )
     fault_sub = system.bus.subscribe(FaultEventMsg)
-    mode_sub = system.bus.subscribe(ModeChangeMsg)
     telem_sub = system.bus.subscribe(TelemetryEventMsg)
 
     SilHarness(system).run_steps(6, dt=1.0)
@@ -97,13 +115,12 @@ def test_sil_thermal_hot_sample_is_telemetry_only() -> None:
     ]
     assert any(m.payload["temperature_c"] == 95.0 for m in thermal_samples)
     assert not any(f.fault_code is FaultCode.THERMAL_OVER_LIMIT for f in _drain(fault_sub))
-    assert mode_sub.empty()
 
 
-def test_safe_stows_the_gimbal() -> None:
-    """A commanded SAFE mode change stows the gimbal to the stow pose."""
+def test_stow_activation_stows_the_gimbal() -> None:
+    """An explicit STOW activation slews the gimbal to the stow pose and trips the switch."""
     system = build_sil_system(
-        PactConfig(),
+        _config(stow_rate_deg_per_s=8.0),
         ManualClock(),
         build_frames(15),
         plume_detector(),
@@ -111,27 +128,22 @@ def test_safe_stows_the_gimbal() -> None:
         thermal_readings=[25.0],
         power_readings=[30.0],
     )
-    system.bus.publish(
-        ModeChangeMsg(
-            msg_type=MessageType.MODE_CHANGE,
-            timestamp_utc="2026-06-10T00:00:00.000Z",
-            new_mode=SystemMode.SAFE,
-            requested_by="test_safe_stow",
-        )
-    )
+    harness = SilHarness(system)
+    publish_activation(system, SystemMode.STOW, sequence=1)
 
     # Stow is +90 deg at 8 deg/s, so the slew from nadir needs longer than the old -45 deg park.
-    SilHarness(system).run_steps(20, dt=1.0)
+    harness.run_steps(20, dt=1.0)
 
     switch = system.gimbal.read_stow_switch()
     assert isinstance(switch, Ok)
     assert switch.value is True
+    assert harness.payload_system_mode() is SystemMode.STOW
 
 
 def test_safe_recovery_returns_to_operations() -> None:
-    """A ground ModeChangeMsg(non-SAFE) after SAFE un-latches the arbiter."""
+    """An authority-authorized IDLE activation after SAFE releases the containment latch."""
     system = build_sil_system(
-        PactConfig(),
+        _config(),
         ManualClock(),
         build_frames(8),
         plume_detector(),
@@ -140,29 +152,23 @@ def test_safe_recovery_returns_to_operations() -> None:
         power_readings=[30.0],
     )
     harness = SilHarness(system)
-    system.bus.publish(
-        ModeChangeMsg(
-            msg_type=MessageType.MODE_CHANGE,
-            timestamp_utc="2026-06-10T00:00:00.000Z",
-            new_mode=SystemMode.SAFE,
-            requested_by="test_safe_entry",
-        )
-    )
+    publish_activation(system, SystemMode.SAFE, sequence=1, previous_mode=SystemMode.OPERATE)
     harness.run_steps(2, dt=1.0)
-    assert harness.payload_gimbal_state() is GimbalState.SAFE
+    assert harness.payload_system_mode() is SystemMode.SAFE
+    assert system.apps.payload.containment.local_latched
 
-    system.bus.publish(
-        ModeChangeMsg(
-            msg_type=MessageType.MODE_CHANGE,
-            timestamp_utc="2026-06-10T00:00:01.000Z",
-            new_mode=SystemMode.IDLE,
-            requested_by="test_ground_recovery",
-        )
+    publish_activation(
+        system,
+        SystemMode.IDLE,
+        sequence=2,
+        previous_mode=SystemMode.SAFE,
+        request_id="rec-1",
+        recovery_authorized=True,
     )
     harness.run_steps(2, dt=1.0)
 
-    # The arbiter must have left SAFE (it will re-acquire the scripted plume).
-    assert harness.payload_gimbal_state() is not GimbalState.SAFE
+    assert harness.payload_system_mode() is SystemMode.IDLE
+    assert not system.apps.payload.containment.local_latched
 
 
 def test_tracking_commands_point_toward_the_plume() -> None:
@@ -181,12 +187,13 @@ def test_tracking_commands_point_toward_the_plume() -> None:
         power_readings=[30.0],
     )
     harness = SilHarness(system)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     harness.run_steps(8, dt=1.0)
 
     pos = system.gimbal.read_position()
     assert isinstance(pos, Ok)
     assert 0.0 < pos.value.el_deg <= 45.0
-    assert harness.payload_gimbal_state() is not GimbalState.SAFE
+    assert harness.payload_system_mode() is SystemMode.OPERATE
     assert not hasattr(pos.value, "az_deg")
 
 
@@ -244,17 +251,21 @@ def test_sil_non_grid_now_interleaves() -> None:
         power_readings=[30.0],
     )
     harness = SilHarness(system)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     harness.step(1.005)
-    system.clock.advance(1.005)
     pos = system.gimbal.read_position()
     assert isinstance(pos, Ok)
     assert math.isfinite(pos.value.el_deg)
 
 
-def test_encoder_freeze_trips_runaway_and_safe() -> None:
-    """A frozen encoder under nonzero r publishes GIMBAL_RUNAWAY and SAFEs."""
+def test_encoder_freeze_trips_runaway_and_latches_containment() -> None:
+    """A frozen encoder under nonzero r publishes GIMBAL_RUNAWAY and latches containment.
+
+    The fault-owned evidence inhibits hardware immediately; only an explicit
+    authority SAFE activation selects the SAFE graph.
+    """
     system = build_sil_system(
-        PactConfig(),
+        _config(),
         ManualClock(),
         build_frames(10),
         plume_detector(),
@@ -263,10 +274,48 @@ def test_encoder_freeze_trips_runaway_and_safe() -> None:
         power_readings=[30.0],
     )
     fault_sub = system.bus.subscribe(FaultEventMsg)
+    request_sub = system.bus.subscribe(SystemModeRequestMsg)
     harness = SilHarness(system)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     harness.run_steps(4, dt=1.0)
     system.gimbal.freeze_encoder()
     harness.run_steps(3, dt=1.0)
     faults = _drain(fault_sub)
     assert any(f.fault_code is FaultCode.GIMBAL_RUNAWAY for f in faults)
-    assert harness.payload_gimbal_state() is GimbalState.SAFE
+    assert system.apps.payload.containment.local_latched
+    assert harness.payload_system_mode() is SystemMode.OPERATE
+    assert any(
+        r.requested_mode is SystemMode.SAFE and r.requested_by == "fault"
+        for r in _drain(request_sub)
+    )
+
+    publish_activation(system, SystemMode.SAFE, sequence=2, previous_mode=SystemMode.OPERATE)
+    harness.run_steps(2, dt=1.0)
+    assert harness.payload_system_mode() is SystemMode.SAFE
+    health = system.gimbal.read_health()
+    assert isinstance(health, Ok)
+    assert health.value.inhibit_confirmed
+
+
+def test_unactivated_boot_captures_nothing() -> None:
+    """With no activation the payload acquires no frames and drives no torque."""
+    system = build_sil_system(
+        PactConfig(),
+        ManualClock(),
+        build_frames(4),
+        plume_detector(),
+        inbound_packets=[],
+        thermal_readings=[25.0],
+        power_readings=[30.0],
+    )
+    inf_sub = system.bus.subscribe(InferenceResultMsg)
+    act_sub = system.bus.subscribe(SystemModeActivatedMsg)
+    harness = SilHarness(system)
+    harness.run_steps(4, dt=1.0)
+    assert inf_sub.empty()
+    assert act_sub.empty()
+    assert harness.payload_system_mode() is None
+    assert harness.payload_graph() is None
+    health = system.gimbal.read_health()
+    assert isinstance(health, Ok)
+    assert health.value.inhibit_confirmed

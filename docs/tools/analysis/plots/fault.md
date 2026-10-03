@@ -5,7 +5,7 @@
 
 ## Purpose
 
-The fault plot builder renders FDIR figures: SAFE latch and reason, mode changes, per-subsystem
+The fault plot builder renders FDIR figures: containment latch and reason, mode requests, per-subsystem
 watchdog metrics, and per-code fault activity.
 
 ## Public interface
@@ -21,12 +21,12 @@ None.
 ## Behavior
 
 1. Latched SAFE reason categorical timeline.
-2. SAFE latch, fault event count, mode-change count, and active fault count line panel.
+2. Containment latch, fault event count, mode-request count, and active fault count line panel.
 3. Per-subsystem watchdog consecutive miss counts.
 4. Per-subsystem heartbeat age in seconds.
 5. Stacked per-step fault events by code (thermal, power, gimbal runaway, watchdog, model
    corrupt, process died, storage full, command unroutable).
-6. Cumulative fault events and mode changes.
+6. Cumulative fault events and mode requests.
 
 ## Errors and faults
 

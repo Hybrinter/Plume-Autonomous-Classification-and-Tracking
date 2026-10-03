@@ -62,5 +62,5 @@ The module is pure. Callers must not write a boresight hit into
 - [`flight.payload.gimbal.intersect`](intersect.md)
 - [`flight.payload.gimbal.predictor`](predictor.md)
 - [`flight.payload.gimbal.outer`](outer.md)
-- [`flight.payload.gimbal.arbiter`](arbiter.md)
+- [`flight.payload.graphs.operate`](../graphs/operate.md)
 - [`flight.payload.control`](../control.md)

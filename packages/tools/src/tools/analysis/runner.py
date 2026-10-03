@@ -9,8 +9,8 @@ or flip the link state). Driving state changes through prepared bus messages / p
 captures the response passively.
 
 The suite covers the nominal track plus every required fault/behavior path: a thermal hot
-sample (telemetry only), power over-limit -> SAFE -> stow, gimbal runaway, watchdog/process-died,
-EXIT_SAFE recovery via the ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the
+sample (telemetry only), power over-limit containment, gimbal runaway, watchdog/process-died,
+EXIT_SAFE awaiting authority via the ARM/EXECUTE command path, hazardous ARM/EXECUTE gating, the
 launch-lock interlock, the model upload -> activate -> rollback lifecycle, storage eviction,
 and downlink AOS/budget backpressure.
 The gimbal-runaway scenario freezes the sim encoder under a nonzero rate reference so
@@ -46,13 +46,14 @@ from flight.libs.messages import (
     ModelStagedMsg,
 )
 from flight.libs.time import ManualClock
-from flight.libs.types import DownlinkPriority, FaultCode, LinkState, MessageType, Ok
+from flight.libs.types import DownlinkPriority, FaultCode, LinkState, MessageType, Ok, SystemMode
 
 # third-party
 from pydantic import ConfigDict, Field, TypeAdapter
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilSystem, build_sil_system
+from sim.sil.validation import publish_activation
 
 from tools.analysis.recorder import CaptureResult, PreStepHook, record_run
 
@@ -109,6 +110,7 @@ class ScenarioSpec:
         actions: timed system actions.
         uplink_key: HMAC key the iss_iface app authenticates inbound packets with.
         config: the PactConfig to wire (scenarios may shrink quotas/budgets to exercise limits).
+        initial_mode: Explicit first-step test activation, or None to remain unsynchronized.
     """
 
     name: str
@@ -126,6 +128,7 @@ class ScenarioSpec:
     actions: tuple[Action, ...] = ()
     uplink_key: bytes = DEFAULT_UPLINK_KEY
     config: PactConfig = field(default_factory=PactConfig)
+    initial_mode: SystemMode | None = None
 
     def frame_count(self) -> int:
         """Return the number of frames to render (num_frames, or steps when unset)."""
@@ -164,6 +167,8 @@ def _make_pre_step(spec: ScenarioSpec) -> PreStepHook:
         messages_by_step[injection.at_step].append(injection.message)
 
     def pre_step(system: SilSystem, step: int) -> None:
+        if step == 1 and spec.initial_mode is not None:
+            publish_activation(system, spec.initial_mode, sequence=1)
         for apply in actions_by_step.get(step, ()):
             apply(system)
         for message in messages_by_step.get(step, ()):
@@ -322,9 +327,11 @@ def _downlink_budget_config(bytes_per_pass: int) -> PactConfig:
 
 def _build_scenarios() -> dict[str, ScenarioSpec]:
     """Construct every built-in ScenarioSpec, keyed by name."""
+    base = PactConfig()
     specs: list[ScenarioSpec] = [
         ScenarioSpec(
             name="nominal_tracking",
+            initial_mode=SystemMode.OPERATE,
             title="Nominal plume tracking",
             description=(
                 "Detect the scripted plume, enter TRACKING, and slew elevation toward "
@@ -336,6 +343,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="thermal_hot_sample",
+            initial_mode=SystemMode.OPERATE,
             title="Thermal hot sample is telemetry only",
             description=(
                 "A thermal spike to 95 C publishes thermal_sample telemetry. Housekeeping "
@@ -348,10 +356,12 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="power_over_limit_safe",
-            title="Power over-limit -> SAFE",
+            initial_mode=SystemMode.OPERATE,
+            title="Power over-limit -> containment and SAFE request",
             description=(
                 "A power draw above the 55 W limit self-reports POWER_OVER_LIMIT; FDIR "
-                "latches SAFE and the gimbal completes its commanded stow before capture ends."
+                "latches containment and requests SAFE without selecting a new graph. "
+                "Motion inhibits; SAFE never stows. Actual authority integration is pending."
             ),
             category="power",
             steps=18,
@@ -360,25 +370,37 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="gimbal_runaway",
+            initial_mode=SystemMode.OPERATE,
             title="Gimbal runaway -> SAFE",
             description=(
-                "Freezes the sim encoder at step 3 while the outer loop still commands a "
-                "nonzero r. The light integrity detector trips GIMBAL_RUNAWAY; FDIR routes "
-                "it to SAFE."
+                "Uses exact simulated encoder feedback so the lower-stop noise gate does "
+                "not prevent initial plume acquisition, then freezes feedback at step 3 "
+                "under a nonzero reference. The light integrity detector trips "
+                "GIMBAL_RUNAWAY; FDIR requests SAFE while containment inhibits independently "
+                "of graph selection."
             ),
             category="gimbal",
             steps=12,
             num_frames=12,
             actions=(Action(3, lambda system: system.gimbal.freeze_encoder()),),
+            config=replace(
+                base,
+                gimbal=replace(
+                    base.gimbal,
+                    simulation=replace(base.gimbal.simulation, encoder_noise_deg=0.0),
+                ),
+            ),
         ),
         ScenarioSpec(
             name="watchdog_process_died",
+            initial_mode=SystemMode.OPERATE,
             title="Watchdog expiry / process died -> SAFE",
             description=(
                 "step_once synthesizes every app's heartbeat each cycle, so a genuine miss "
                 "is not reachable in the deterministic harness; a WATCHDOG_EXPIRE "
                 "FaultEventMsg (the FDIR input a missed heartbeat would raise) is injected "
-                "at step 3 and routed to SAFE. The per-subsystem watchdog miss/heartbeat-age "
+                "at step 3 and requests SAFE. No authority activation is synthesized. "
+                "The per-subsystem watchdog miss/heartbeat-age "
                 "signals stay nominal (synthesized)."
             ),
             category="watchdog",
@@ -390,41 +412,44 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="exit_safe_recovery",
-            title="EXIT_SAFE recovery via ARM/EXECUTE",
+            initial_mode=SystemMode.OPERATE,
+            title="EXIT_SAFE ARM/EXECUTE awaits authority",
             description=(
                 "A power spike latches SAFE, then the spike clears; a ground EXIT_SAFE is "
-                "ARMed (step 8) and EXECUTEd (step 9) through the command router and fault "
-                "app, un-latching SAFE so the arbiter returns to operations and re-acquires "
-                "the plume."
+                "ARMed (step 8) and EXECUTEd (step 9) through the command router to "
+                "system_modes. Containment remains latched without authorized activation; "
+                "actual authority-mediated recovery is deferred to integration."
             ),
             category="recovery",
             steps=14,
             num_frames=14,
             power_readings=(30.0, 30.0, 80.0, 80.0, 25.0),
             injections=(
-                Injection(8, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=1)),
-                Injection(9, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=2)),
+                Injection(8, _command("EXIT_SAFE", "system_modes", {"phase": "ARM"}, seq=1)),
+                Injection(9, _command("EXIT_SAFE", "system_modes", {"phase": "EXECUTE"}, seq=2)),
             ),
         ),
         ScenarioSpec(
             name="arm_execute_command",
+            initial_mode=SystemMode.OPERATE,
             title="Hazardous ARM/EXECUTE gating",
             description=(
                 "Exercises the command router's two-step hazardous gate with EXIT_SAFE: an "
                 "EXECUTE without a prior ARM is rejected (step 3), an ARM is accepted "
-                "(step 5), then the matching EXECUTE routes to the fault app (step 6)."
+                "(step 5), then the matching EXECUTE routes to system_modes (step 6)."
             ),
             category="command",
             steps=10,
             num_frames=10,
             injections=(
-                Injection(3, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=1)),
-                Injection(5, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=2)),
-                Injection(6, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=3)),
+                Injection(3, _command("EXIT_SAFE", "system_modes", {"phase": "EXECUTE"}, seq=1)),
+                Injection(5, _command("EXIT_SAFE", "system_modes", {"phase": "ARM"}, seq=2)),
+                Injection(6, _command("EXIT_SAFE", "system_modes", {"phase": "EXECUTE"}, seq=3)),
             ),
         ),
         ScenarioSpec(
             name="model_lifecycle",
+            initial_mode=SystemMode.OPERATE,
             title="Model upload -> activate -> rollback",
             description=(
                 "Stages a contract-valid tiled, GSD-conditioned classifier+segmentor pair "
@@ -450,6 +475,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="storage_eviction",
+            initial_mode=SystemMode.OPERATE,
             title="Storage quota eviction",
             description=(
                 "With the storage quota shrunk to 8 KiB, opaque 3 KiB blobs are stored each "
@@ -466,6 +492,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="downlink_aos_budget",
+            initial_mode=SystemMode.OPERATE,
             title="Downlink AOS gate + per-pass budget",
             description=(
                 "With the per-pass downlink budget shrunk to 256 bytes, the link drops to "
@@ -484,6 +511,7 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ),
         ScenarioSpec(
             name="command_ingress_auth",
+            initial_mode=SystemMode.OPERATE,
             title="Signed command ingress -> route -> ack",
             description=(
                 "A signed SET_THERMAL_LIMIT telecommand is delivered on the uplink; "
@@ -562,6 +590,7 @@ class _ScenarioFile:
     scene: _SceneFile
     steps: int
     dt: float
+    initial_mode: SystemMode | None = None
     commands: tuple[_CommandFile, ...] = ()
 
 
@@ -615,6 +644,7 @@ def load_scenario_spec(path: str | Path) -> ScenarioSpec:
         category="scenario-file",
         steps=parsed.steps,
         dt=parsed.dt,
+        initial_mode=parsed.initial_mode,
         num_frames=parsed.scene.num_frames,
         seed=parsed.scene.seed,
         thermal_readings=parsed.scene.thermal_readings,

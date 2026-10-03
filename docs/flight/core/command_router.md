@@ -18,9 +18,12 @@ routing core, and publishes routed commands, acks, and fault events.
 
 ## Inputs and outputs
 
-**`CommandRouter.from_config(cfg, bus, clock) -> CommandRouter`**
+**`CommandRouter.from_config(cfg, bus, clock, activation_epoch) -> CommandRouter`**
 
-- Inputs: `PactConfig`, shared `MessageBus`, `Clock`.
+- Inputs: `PactConfig`, shared `MessageBus`, `Clock`, and the mandatory
+  authority epoch. Safety evidence under any other epoch, a non-increasing
+  sequence, or a future or nonfinite observation time cannot replace the
+  accepted evidence.
 - Output: router with fresh subscriptions and empty state.
 
 **`CommandRouter.tick() -> None`**
@@ -36,8 +39,12 @@ routing core, and publishes routed commands, acks, and fault events.
 
 1. `from_config` subscribes to `CommandMsg` and `SafetyStateMsg`.
 2. `from_config` loads routable targets and hazardous command IDs from the command dictionary.
-3. Each `tick` updates `safe_latched` from the latest `SafetyStateMsg`.
-4. Each `tick` calls `route_command` for every pending `CommandMsg`.
+3. Each `tick` accepts `SafetyStateMsg` evidence only when it matches the
+   injected epoch, carries a nonnegative strictly increasing sequence, and
+   holds a finite nonfuture observation time; the newest accepted record
+   updates `safe_latched` and the freshness timestamp.
+4. Each `tick` calls `route_command` for every pending `CommandMsg`, passing
+   whether fresh safety evidence was observed within the watchdog interval.
 5. The shell stamps wall-clock timestamps on returned messages and publishes them.
 6. When `result.routed_command` is set, publish `RoutedCommandMsg`.
 7. When `result.ack` is set, publish `CommandAckMsg`.

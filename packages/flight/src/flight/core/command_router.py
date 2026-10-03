@@ -18,6 +18,7 @@ Satisfies: REQ-COMM-CMD-001.
 from __future__ import annotations
 
 # stdlib
+import math
 import threading
 from dataclasses import dataclass, field, replace
 
@@ -45,10 +46,15 @@ class RouterState:
     Fields:
         armed: Per-(source, command_id) ARM timestamp map (monotonic seconds).
         safe_latched: The latest SAFE-latch flag from the fault app's SafetyStateMsg.
+        safety_observed_s: Monotonic time of the latest SafetyStateMsg evidence, or
+            None before the first publication.
+        evidence_sequence: Greatest accepted fault-owned evidence sequence.
     """
 
     armed: dict[tuple[str, str], float] = field(default_factory=dict)
     safe_latched: bool = False
+    safety_observed_s: float | None = None
+    evidence_sequence: int = -1
 
 
 @dataclass(frozen=True)
@@ -69,15 +75,21 @@ class CommandRouter:
     commands: Subscription[CommandMsg]
     safety: Subscription[SafetyStateMsg]
     state: RouterState
+    activation_epoch: str
 
     @staticmethod
-    def from_config(cfg: PactConfig, bus: MessageBus, clock: Clock) -> CommandRouter:
+    def from_config(
+        cfg: PactConfig, bus: MessageBus, clock: Clock, activation_epoch: str
+    ) -> CommandRouter:
         """Assemble a CommandRouter, subscribing to inbound commands + safety state.
 
         Args:
             cfg: Top-level PactConfig (command_router for arm window; fault for heartbeat).
             bus: The shared MessageBus to publish onto and subscribe from.
             clock: Injected Clock (real or manual).
+            activation_epoch: The authority epoch; safety evidence under any other epoch
+                (or a non-increasing sequence, or a future/nonfinite observation time)
+                cannot replace the accepted evidence.
 
         Returns:
             A CommandRouter with fresh CommandMsg + SafetyStateMsg subscriptions, the routable
@@ -94,20 +106,40 @@ class CommandRouter:
             commands=bus.subscribe(CommandMsg),
             safety=bus.subscribe(SafetyStateMsg),
             state=RouterState(),
+            activation_epoch=activation_epoch,
         )
 
     def tick(self) -> None:
         """Drain safety state then route every pending command, publishing the outcomes."""
+        now = self.clock.monotonic_s()
         while not self.safety.empty():
-            self.state.safe_latched = self.safety.get_nowait().safe_latched
+            evidence = self.safety.get_nowait()
+            if (
+                evidence.evidence_epoch != self.activation_epoch
+                or evidence.evidence_sequence < 0
+                or evidence.evidence_sequence <= self.state.evidence_sequence
+                or not math.isfinite(evidence.observed_s)
+                or evidence.observed_s > now
+            ):
+                continue
+            self.state.evidence_sequence = evidence.evidence_sequence
+            self.state.safe_latched = evidence.safe_latched
+            self.state.safety_observed_s = evidence.observed_s
         while not self.commands.empty():
             command = self.commands.get_nowait()
             now = self.clock.monotonic_s()
+            safety_fresh = (
+                self.state.safety_observed_s is not None
+                and 0.0
+                <= now - self.state.safety_observed_s
+                <= self.fault_cfg.watchdog_interval_s + 1.0e-12
+            )
             result = route_command(
                 command,
                 self.routable,
                 self.hazardous,
                 self.state.safe_latched,
+                safety_fresh,
                 self.state.armed,
                 now,
                 self.cfg.arm_window_s,

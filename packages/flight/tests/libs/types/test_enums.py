@@ -6,9 +6,9 @@ from flight.libs.types import (
     CommandId,
     FaultCode,
     GimbalCommandMode,
-    GimbalState,
     LinkState,
     MessageType,
+    ModeTransitionDecision,
     ParamKind,
     SystemMode,
 )
@@ -16,13 +16,12 @@ from flight.libs.types import (
 
 def test_enum_value_mirrors_name() -> None:
     """Enum string values mirror their member names (log readability convention)."""
-    assert SystemMode.IDLE.value == "IDLE"
-    assert {m.name for m in GimbalState} == {"TRACKING", "REWIND", "FAST_REWIND", "SAFE"}
-    assert GimbalState.FAST_REWIND.value == "FAST_REWIND"
-    assert GimbalState.REWIND.is_rewind_hunt()
-    assert GimbalState.FAST_REWIND.is_rewind_hunt()
-    assert not GimbalState.TRACKING.is_rewind_hunt()
-    assert not GimbalState.SAFE.is_rewind_hunt()
+    assert {m.name for m in SystemMode} == {"IDLE", "STOW", "SAFE", "INIT", "OPERATE"}
+    for member in SystemMode:
+        assert member.value == member.name
+    assert {m.name for m in ModeTransitionDecision} == {"ACCEPTED", "DENIED"}
+    for decision in ModeTransitionDecision:
+        assert decision.value == decision.name
 
 
 def test_faultcode_has_expected_members() -> None:
@@ -83,6 +82,14 @@ def test_new_message_types_present() -> None:
     """The command-ack and link-state discriminants exist."""
     assert MessageType.COMMAND_ACK.value == "COMMAND_ACK"
     assert MessageType.LINK_STATE.value == "LINK_STATE"
+    assert not hasattr(MessageType, "MODE_CHANGE")
+    for name in (
+        "SYSTEM_MODE_REQUEST",
+        "SYSTEM_MODE_TRANSITION",
+        "SYSTEM_MODE_ACTIVATED",
+        "SYSTEM_MODE_SYNC_REQUEST",
+    ):
+        assert MessageType[name].value == name
 
 
 def test_new_command_fault_codes_present() -> None:

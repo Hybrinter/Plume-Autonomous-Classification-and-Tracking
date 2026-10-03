@@ -15,7 +15,7 @@ from TOML files for the orchestrator.
 | `SceneSpec` | class | Frame count, seed, thermal and power reading scripts |
 | `CommandStep` | class | One telecommand with frame index and sequence |
 | `Assertion` | class | Scored or skipped check with id, kind, value, tag |
-| `Scenario` | class | Full test case: profile, scene, commands, assertions |
+| `Scenario` | class | Full test case: profile, scene, explicit initial mode, commands, assertions |
 | `load_scenario` | function | Parse a scenario TOML file into a `Scenario` |
 
 ## Inputs and outputs
@@ -33,7 +33,8 @@ from TOML files for the orchestrator.
    `(20.0,)` thermal and `(10.0,)` power. Missing command and assertion arrays default to
    empty tuples.
 3. Assertion tags must be `"frame-portable"` or `"realtime-only"`.
-4. It returns the frozen `Scenario` with name, profile, steps, and dt.
+4. It returns the frozen `Scenario` with name, profile, steps, dt, and `initial_mode`.
+   The optional initial mode is one of the five system modes; omitted means no activation.
 
 ## Errors and faults
 
@@ -55,6 +56,7 @@ a config override at run time.
 - `SimScalarSensor` holds the last reading once a script exhausts.
 - A hot thermal reading publishes `thermal_sample` telemetry and does not emit
   `THERMAL_OVER_LIMIT`.
+- `initial_mode` is explicit test setup, not a production fallback or authority implementation.
 
 ## Related documents
 

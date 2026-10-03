@@ -33,12 +33,12 @@ heartbeat before nominal operation.
 2. `startup_healthy` returns `not missing_heartbeats(seen, monitored)`.
 
 `flight.core.main` owns the time-bounded heartbeat collection. It calls `startup_healthy`
-in a loop and publishes `ModeChangeMsg(SAFE)` when the window closes with missing
-heartbeats.
+in a loop and publishes a `SystemModeRequestMsg(SAFE)` to the external mode authority when
+the window closes with missing heartbeats.
 
 ## Errors and faults
 
-None. The caller publishes `ModeChangeMsg(SAFE)` on failure.
+None. The caller publishes `SystemModeRequestMsg(SAFE)` on failure.
 
 ## Messages
 

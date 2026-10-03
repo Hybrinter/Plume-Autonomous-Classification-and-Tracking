@@ -9,13 +9,13 @@ from __future__ import annotations
 from typing import Protocol
 
 from flight.libs.messages import BlobMeta, RoutedCommandMsg
+from flight.libs.types import ActivationKey
 from flight.payload.graphs.base import (
     EffectResult,
     InitVerificationResult,
     TickInputs,
 )
 from flight.payload.records import (
-    ActivationKey,
     CapturedVision,
     HealthSample,
     IssSample,

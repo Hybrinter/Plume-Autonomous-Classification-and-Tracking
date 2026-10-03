@@ -3,11 +3,17 @@
 import math
 
 from flight.libs.messages import RoutedCommandMsg
-from flight.libs.types import CommandId, Err, FaultCode, MessageType, Ok
+from flight.libs.types import (
+    ActivationKey,
+    CommandId,
+    Err,
+    FaultCode,
+    MessageType,
+    Ok,
+)
 from flight.payload.graphs import idle, operate, runtime
 from flight.payload.graphs.base import GraphId
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey
 
 from .support import TickBuilder
 

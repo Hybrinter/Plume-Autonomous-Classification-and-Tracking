@@ -2,6 +2,7 @@ name = "safe_on_thermal"
 profile = "sil"
 steps = 3
 dt = 1.0
+initial_mode = "IDLE"
 
 [scene]
 num_frames = 3

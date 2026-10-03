@@ -1,6 +1,6 @@
 # flight.payload.preprocess.tile_product
 
-**Source:** `packages/flight/src/flight/payload/preprocess/tile_product.py`  
+**Source:** `packages/flight/src/flight/payload/preprocess/tile_product.py`
 **Kind:** pure module
 
 ## Purpose

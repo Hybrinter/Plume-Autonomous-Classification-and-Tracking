@@ -830,6 +830,18 @@ to prove an architecture refactor.
 
 ## Execution receipts
 
+Latest publication receipt: PR 7 is OPEN as
+https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/120,
+stacked on PR 6 at `a0c519b`. The published code/test head is `d10a74d`, containing
+implementation `d0bd54e`, ancestry merge `bb368b3`, and the final acceptance receipt.
+All workspace static gates pass. Full non-e2e tests: 1445 passed, 8 skipped,
+1 known vendor-checkout CRLF provenance failure; vendor source is unchanged.
+Initial CI on `d10a74d` is in progress; no CI success is claimed in this receipt.
+PR 8 awaits authority-contract alignment and the recovery-path decision:
+the actual authority PR 112 uses `EXIT_SAFE -> INIT`, while this stack currently
+authorizes recovery through `SAFE -> IDLE`. Neither path is changed here.
+The local/unpublished statuses in earlier checkpoint receipts are historical.
+
 PR 4 publication: director review accepted; implementation commit `63bde2b`, branch
 `devin/payload-graphs-04-pure-graphs`, predecessor `7d42c1b`.
 Published PR: https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/111 .

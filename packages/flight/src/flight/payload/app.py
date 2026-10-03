@@ -1462,6 +1462,7 @@ class PayloadApp:
                     "gain_db": policy.imaging.gain_db,
                     "capture_interval_s": policy.imaging.capture_interval_s,
                     "duty_cycle": policy.imaging.duty_cycle,
+                    "publish_products": policy.imaging.publish_products,
                     "inference_enabled": policy.inference.enabled,
                     "every_n_frames": policy.inference.every_n_frames,
                 },

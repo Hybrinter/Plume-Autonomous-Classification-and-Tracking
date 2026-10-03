@@ -1008,6 +1008,7 @@ def test_applied_policy_telemetry_emitted_once_per_revision() -> None:
     assert payload["policy_revision"] == state.policy_revision
     assert payload["activation_epoch"] == _EPOCH
     assert payload["acquisition_enabled"] is True
+    assert payload["publish_products"] is True
     assert payload["inference_enabled"] is True
     app.capture_once(state, now=0.03)
     assert not [e for e in _drain(telem) if e.event_name == "imaging_policy"]

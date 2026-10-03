@@ -63,7 +63,9 @@ def build_command(
     ] = None,
     bin_id: Annotated[
         list[str] | None,
-        typer.Option(help="Zenodo GSD bin to emit (repeatable). Default: all bins."),
+        typer.Option(
+            help="Zenodo GSD bin name (repeatable): native10 or gsd15-gsd35. Default: all bins."
+        ),
     ] = None,
     spec: Annotated[Path | None, typer.Option(help="Optional BuildSpec TOML.")] = None,
 ) -> None:

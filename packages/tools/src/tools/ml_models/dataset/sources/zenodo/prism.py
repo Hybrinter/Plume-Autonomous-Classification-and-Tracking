@@ -22,6 +22,7 @@ import numpy as np
 
 _DN_SCALE = np.float32(10000.0)
 _COLOR_NAMES: tuple[str, ...] = ("blue", "green", "red")
+OUTPUT_BANDS: tuple[str, ...] = ("BLUE", "GREEN", "RED")
 _TABLE_KEYS: frozenset[str] = frozenset({"id", "blue", "green", "red"})
 
 

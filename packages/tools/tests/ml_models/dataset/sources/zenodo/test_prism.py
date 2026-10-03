@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from tools.ml_models.dataset.sources.zenodo.bands import ZENODO_BAND_IDS
 from tools.ml_models.dataset.sources.zenodo.prism import (
+    OUTPUT_BANDS,
     WeightTable,
     load_weight_table,
     mix_prism,
@@ -27,7 +28,8 @@ def test_weight_table_loads_and_mixes(tmp_path: Path) -> None:
     stack[ZENODO_BAND_IDS.index("B3")] = 2500.0
     stack[ZENODO_BAND_IDS.index("B4")] = 10000.0
     mixed = mix_prism(stack, ZENODO_BAND_IDS, table)
-    assert mixed.shape == (3, 4, 5)
+    assert OUTPUT_BANDS == ("BLUE", "GREEN", "RED")
+    assert mixed.shape == (len(OUTPUT_BANDS), 4, 5)
     np.testing.assert_allclose(mixed[0], 0.5, atol=1e-6)
     np.testing.assert_allclose(mixed[1], 0.25, atol=1e-6)
     np.testing.assert_allclose(mixed[2], 1.0, atol=1e-6)

@@ -18,7 +18,7 @@ member extracts to disk.
 | [`prism`](zenodo/prism.md) | module | AP-3200T weight table and color mix |
 | [`resample`](zenodo/resample.md) | module | Area-overlap downsample of image planes |
 | [`annotations`](zenodo/annotations.md) | module | Label Studio polygons and mask rasterize |
-| [`bins`](zenodo/bins.md) | module | Native and flight-elevation GSD bins |
+| [`bins`](zenodo/bins.md) | module | Native and fixed target-GSD bins |
 | [`adapt`](zenodo/adapt.md) | module | `ZenodoSource` raw source |
 | [`fetch`](zenodo/fetch.md) | module | Checksum manifest, download, and verify |
 
@@ -48,4 +48,3 @@ CLI paths.
 - [`tools.ml_models.dataset.sources`](../sources.md)
 - [`tools.ml_models.dataset.raw`](../raw.md)
 - [`tools.ml_models.dataset.build`](../build.md)
-- [`flight.payload.gimbal.footprint`](../../../../flight/payload/gimbal/footprint.md)

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 
-from tools.ml_models.dataset.geometry import INPUT_BANDS
 from tools.ml_models.dataset.raw import BinSpec, RawTile, RawTileRef
 from tools.ml_models.dataset.sources.zenodo.annotations import rasterize_percent_mask
 from tools.ml_models.dataset.sources.zenodo.archive import build_index, iter_stacks, to_native_stack
@@ -18,7 +17,7 @@ from tools.ml_models.dataset.sources.zenodo.bins import (
     actual_gsd,
     bin_hw,
 )
-from tools.ml_models.dataset.sources.zenodo.prism import WeightTable, mix_prism
+from tools.ml_models.dataset.sources.zenodo.prism import OUTPUT_BANDS, WeightTable, mix_prism
 from tools.ml_models.dataset.sources.zenodo.resample import resample_area
 
 
@@ -31,7 +30,7 @@ class ZenodoSource:
     """
 
     name = "zenodo"
-    band_names = INPUT_BANDS
+    band_names = OUTPUT_BANDS
     domain = "unit"
     source_ref = "10.5281/zenodo.4250706"
 

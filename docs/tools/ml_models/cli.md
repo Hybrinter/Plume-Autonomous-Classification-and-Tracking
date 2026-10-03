@@ -40,7 +40,7 @@ runs the full-frame evaluation.
 - `--weights-path`: prism weight table TOML. Required with `--source
   zenodo`.
 - `--bin-id`: Zenodo GSD bin name, repeatable. Selects `DEFAULT_BINS` by
-  name; default is every bin.
+  name (`native10` or `gsd15` through `gsd35`); default is every bin.
 - `--spec`: optional `BuildSpec` TOML file.
 
 `train` options:

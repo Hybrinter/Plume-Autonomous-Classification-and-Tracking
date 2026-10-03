@@ -1,5 +1,7 @@
 """Tests for ZenodoSource and the zenodo build wrapper."""
 
+import io
+import tarfile
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -43,6 +45,7 @@ def test_index_covers_every_bin_per_image(archives: tuple[Path, Path, Path]) -> 
     assert by_stem["10004_2020-01-02T00-00-00.000Z_0"].has_mask
     assert not by_stem["10005_2020-01-03T00-00-00.000Z_0"].has_mask
     assert source.name == "zenodo"
+    assert source.band_names == ("BLUE", "GREEN", "RED")
     assert source.domain == "unit"
     assert source.weight_table_id == "ap3200t-test"
     for item in DEFAULT_BINS:
@@ -80,9 +83,9 @@ def test_stream_image_orientation_and_mix(archives: tuple[Path, Path, Path]) -> 
     assert np.all(blue[:, 1:] == blue[:, :-1])
     np.testing.assert_allclose(native[1], 0.1, atol=1e-6)
     np.testing.assert_allclose(native[2], 0.15, atol=1e-6)
-    e45 = next(t for t in tiles if t.ref.bin_id == "elevation45")
-    assert e45.image.shape == (3, 31, 50)
-    ramp = e45.image[0].astype(np.float64)
+    g35 = next(t for t in tiles if t.ref.bin_id == "gsd35")
+    assert g35.image.shape == (3, 34, 34)
+    ramp = g35.image[0].astype(np.float64)
     assert np.all(np.diff(ramp[:, 0]) >= 0.0)
     assert ramp[-2:].mean() - ramp[:2].mean() > 0.9
 
@@ -95,11 +98,11 @@ def test_masks_scale_with_each_bin(archives: tuple[Path, Path, Path]) -> None:
     assert positive_native.mask is not None
     np.testing.assert_array_equal(positive_native.mask[0, :, :60], 0)
     np.testing.assert_array_equal(positive_native.mask[0, :, 60:], 1)
-    positive_e45 = tiles[("10003_2020-01-01T00-00-00.000Z_0", "elevation45")]
-    assert positive_e45.mask is not None
-    assert positive_e45.mask.shape == (1, 31, 50)
-    np.testing.assert_array_equal(positive_e45.mask[0, :, :25], 0)
-    np.testing.assert_array_equal(positive_e45.mask[0, :, 25:], 1)
+    positive_g35 = tiles[("10003_2020-01-01T00-00-00.000Z_0", "gsd35")]
+    assert positive_g35.mask is not None
+    assert positive_g35.mask.shape == (1, 34, 34)
+    np.testing.assert_array_equal(positive_g35.mask[0, :, :17], 0)
+    np.testing.assert_array_equal(positive_g35.mask[0, :, 17:], 1)
     negative_native = tiles[("10004_2020-01-02T00-00-00.000Z_0", "native10")]
     assert negative_native.mask is not None
     # The 119-row source maps row 59 back through the native pad: half of its
@@ -119,6 +122,16 @@ def test_build_counts_splits_and_stored_gsd(
     spec = BuildSpec(augment=AugmentRecipe(elements=("id",)))
     manifest = build_zenodo(images, labels, weights, dest, spec)
     assert manifest.weight_table_id == "ap3200t-test"
+    gsd35 = next(item for item in manifest.bins if item.bin_id == "gsd35")
+    assert gsd35.lateral_m == 35.0 and gsd35.along_m == 35.0
+    expected_gsd = {
+        "native10": np.float32(10.0),
+        "gsd15": np.float32(15.0),
+        "gsd20": np.float32(20.0),
+        "gsd25": np.float32(25.0),
+        "gsd30": np.float32(30.0),
+        "gsd35": np.float32(1200.0 / 34),
+    }
     counts: dict[str, int] = {"classifier": 0, "segmentor": 0}
     group_splits: dict[str, set[str]] = {}
     shapes: dict[tuple[str, str], set[tuple[int, ...]]] = {}
@@ -131,13 +144,43 @@ def test_build_counts_splits_and_stored_gsd(
         for row in rows:
             group_splits.setdefault(row.group_id, set()).add(split)
         for record, pair in zip(rows, gsd, strict=True):
+            assert pair[0] == expected_gsd[record.bin_id]
+            assert pair[1] == expected_gsd[record.bin_id]
             width = int(round(1200.0 / float(pair[0])))
             height = int(round(1200.0 / float(pair[1])))
             shapes.setdefault((record.bin_id, task), set()).add((height, width))
     assert counts == {"classifier": 18, "segmentor": 12}
     assert all(len(splits) == 1 for splits in group_splits.values())
     assert shapes[("native10", "classifier")] == {(120, 120)}
-    assert shapes[("elevation45", "classifier")] == {(31, 50)}
+    assert shapes[("gsd35", "classifier")] == {(34, 34)}
+
+
+def test_dates_and_variants_of_one_location_share_a_split(
+    archives: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """A second unannotated 10003 date stays in the location's single split."""
+    images, labels, weights = archives
+    extra = b"stack0"
+    with tarfile.open(images, "a") as bundle:
+        info = tarfile.TarInfo("positive/10003_2020-01-04T00-00-00.000Z_0.tif")
+        info.size = len(extra)
+        bundle.addfile(info, io.BytesIO(extra))
+    source = ZenodoSource(images, labels, load_weight_table(weights))
+    new_refs = [ref for ref in source.index() if ref.tile_id.startswith("10003_2020-01-04")]
+    assert len(new_refs) == len(DEFAULT_BINS)
+    assert {ref.group_id for ref in new_refs} == {"10003"}
+    assert not any(ref.has_mask for ref in new_refs)
+    dest = tmp_path / "ds"
+    build_zenodo(images, labels, weights, dest, BuildSpec())
+    group_splits: dict[str, set[str]] = {}
+    for task, split, shard in _shard_dirs(dest):
+        for row in read_rows(shard):
+            if task == "classifier":
+                group_splits.setdefault(row.group_id, set()).add(split)
+            if split != "train":
+                assert row.element == "id"
+    assert all(len(splits) == 1 for splits in group_splits.values())
+    assert len(group_splits["10003"]) == 1
 
 
 def test_build_rejects_weight_table_mismatch(
@@ -169,7 +212,7 @@ def test_cli_zenodo_build_and_bin_filter(archives: tuple[Path, Path, Path], tmp_
             "--bin-id",
             "native10",
             "--bin-id",
-            "elevation45",
+            "gsd35",
             "--out",
             str(dest),
         ]
@@ -177,7 +220,7 @@ def test_cli_zenodo_build_and_bin_filter(archives: tuple[Path, Path, Path], tmp_
     assert code == 0
     manifest = load_manifest(dest / "dataset.json")
     assert manifest.weight_table_id == "ap3200t-test"
-    assert {item.bin_id for item in manifest.bins} == {"native10", "elevation45"}
+    assert {item.bin_id for item in manifest.bins} == {"native10", "gsd35"}
 
 
 def test_cli_zenodo_rejects_bad_args(tmp_path: Path) -> None:
@@ -197,4 +240,5 @@ def test_cli_zenodo_rejects_bad_args(tmp_path: Path) -> None:
         str(tmp_path / "o2"),
     ]
     assert main([*full, "--bin-id", "nope"]) != 0
+    assert main([*full, "--bin-id", "elevation45"]) != 0
     assert main([*full, "--bin-id", "native10", "--bin-id", "native10"]) != 0

@@ -50,7 +50,8 @@ None.
 ## Configuration
 
 `weight_table` is a loaded `prism.WeightTable`; its `id` is exposed as
-`weight_table_id` for `build_zenodo` provenance. `source_ref` is
+`weight_table_id` for `build_zenodo` provenance. `band_names` is
+`prism.OUTPUT_BANDS`, the prism mix's plane order. `source_ref` is
 `10.5281/zenodo.4250706`. `domain` is `unit`; each ref indexes the `bin_hw`
 pixel dimensions of its bin and carries `actual_gsd` metres.
 

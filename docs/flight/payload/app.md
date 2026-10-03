@@ -57,6 +57,10 @@ accepted activation inhibits motion, cold-enters the destination graph's
 declared policy, and bumps both revisions. A SAFE activation also latches
 containment.
 
+`run` calls `capture_once`, then sleeps for `capture_wait_s`. The sleep is
+the time remaining until `next_opportunity_s`, at most one outer period. No
+future deadline sleeps one outer period. A deadline already passed sleeps 0.
+
 `capture_once` stamps the capture context and the latest state atomically
 under the state lock before any settings, acquisition, or shutter work, then
 hands cadence and duty to the pure `plan_capture`: `WAIT` does no I/O,

@@ -7,7 +7,8 @@ now + capture_interval_s, so a late call never bursts missed frames. The duty
 floor selects which due opportunities acquire; the remaining due opportunities
 drain the running stream. record_capture is the successful-capture seam: it
 counts accepted frames per capture context and decimates inference to the
-first success and then every Nth frame.
+first success and then every Nth frame. capture_wait_s is the loop sleep:
+the time remaining until an armed deadline, capped by a policy-change wake.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 """
@@ -120,6 +121,46 @@ def plan_capture(
         next_opportunity_s=now + policy.imaging.capture_interval_s,
     )
     return Ok(CapturePlan(schedule=planned, decision=decision))
+
+
+def capture_wait_s(
+    next_opportunity_s: float | None,
+    call_now: float,
+    now: float,
+    policy_wake_s: float,
+) -> float:
+    """Seconds until the next capture-loop wake.
+
+    Inputs:
+        next_opportunity_s: Deadline armed by the last plan, or None when
+            the schedule has no deadline.
+        call_now: Monotonic seconds passed into the capture call that
+            produced this schedule.
+        now: Monotonic seconds after that call returns. Processing time
+            between the two reads is already spent and is not slept again.
+        policy_wake_s: Maximum sleep. Also the sleep when no future deadline
+            is armed, so a policy change is observed on a bound.
+
+    Outputs:
+        float: Time from `now` to a deadline armed after `call_now`, capped
+            at `policy_wake_s`. 0 when that deadline is already reached.
+            `policy_wake_s` when no future deadline is armed. 0 when
+            `policy_wake_s` is not a positive finite number.
+    """
+    if not math.isfinite(policy_wake_s) or policy_wake_s <= 0.0:
+        return 0.0
+    if (
+        next_opportunity_s is None
+        or not math.isfinite(next_opportunity_s)
+        or not math.isfinite(call_now)
+        or not math.isfinite(now)
+        or next_opportunity_s <= call_now
+    ):
+        return policy_wake_s
+    remaining = next_opportunity_s - now
+    if remaining <= 0.0:
+        return 0.0
+    return min(remaining, policy_wake_s)
 
 
 def record_capture(

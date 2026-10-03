@@ -7,8 +7,8 @@
 
 The module owns the capture loop's timing decisions as pure functions so the
 production `run` loop and the SIL `step_once` seam share identical cadence.
-It plans deadline, duty-floor, and inference-decimation decisions; the
-imperative app shell executes them.
+It plans deadline, duty-floor, and inference-decimation decisions and the
+capture-loop sleep. The imperative app shell executes those decisions.
 
 ## Public interface
 
@@ -18,6 +18,7 @@ imperative app shell executes them.
 | `CaptureSchedule` | dataclass | Context, next deadline, opportunity and capture counters |
 | `CapturePlan` | dataclass | One decision plus the schedule that produced it |
 | `plan_capture` | function | `Result[CapturePlan, FaultCode]` per capture-loop call |
+| `capture_wait_s` | function | Sleep until the armed deadline, capped by a policy wake |
 | `record_capture` | function | Counts one successful capture and gates inference |
 
 ## Inputs and outputs
@@ -30,6 +31,10 @@ nonfinite time or an invalid complete policy, otherwise `Ok` with `WAIT`,
 
 `record_capture(schedule, context, inference)` returns the updated schedule
 and whether inference runs on this successful capture.
+
+`capture_wait_s(next_opportunity_s, call_now, now, policy_wake_s)` returns
+the capture-loop sleep in seconds. `call_now` is the monotonic time of the
+capture call. `now` is the monotonic time after that call returns.
 
 ## Behavior
 
@@ -48,6 +53,11 @@ and whether inference runs on this successful capture.
    runs on the first successful capture and then every `every_n_frames`-th:
    `(captured_frames - 1) % N == 0`. A skipped frame runs no detector, emits
    no vision, and is not a plume-loss observation.
+5. `capture_wait_s` returns the capture-loop sleep. A deadline after
+   `call_now` returns the time from `now` to that deadline, at most
+   `policy_wake_s`. A deadline at or before `now` returns 0. No deadline,
+   a deadline at or before `call_now`, or a nonfinite time returns
+   `policy_wake_s`. A nonpositive or nonfinite `policy_wake_s` returns 0.
 
 ## Errors and faults
 

@@ -98,7 +98,13 @@ from flight.payload.graphs.base import (
 )
 from flight.payload.graphs.operate.state import accept_vision
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.imaging import CaptureDecision, CaptureSchedule, plan_capture, record_capture
+from flight.payload.imaging import (
+    CaptureDecision,
+    CaptureSchedule,
+    capture_wait_s,
+    plan_capture,
+    record_capture,
+)
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
     MosaicCalibration,
@@ -2111,7 +2117,10 @@ class PayloadApp:
         while unsynced the request repeats on the watchdog cadence. The control
         worker owns activation drain, commands, inner/outer advance, heartbeat,
         and every gimbal HAL call; the capture loop (this thread) may block on
-        acquire/detect without ever committing graph or servo state.
+        acquire/detect without ever committing graph or servo state. After each
+        capture call the loop sleeps until the armed opportunity deadline, and
+        no longer than one outer period, so a policy change is still observed
+        on that bound.
         """
         self._inhibit_motion("boot")
         boot = self.initial_state()
@@ -2151,12 +2160,16 @@ class PayloadApp:
         control_thread.start()
         try:
             while not stop_event.is_set():
-                now = self.clock.monotonic_s()
+                call_now = self.clock.monotonic_s()
                 snap = self._latest(boot)
-                self.capture_once(snap, now)
-                interval = snap.policy.imaging.capture_interval_s
-                outer_dt = self.params.config.controller.outer.dt_s
-                stop_event.wait(timeout=min(interval, outer_dt))
+                self.capture_once(snap, call_now)
+                timeout = capture_wait_s(
+                    self.capture_shell.schedule.next_opportunity_s,
+                    call_now,
+                    self.clock.monotonic_s(),
+                    self.params.config.controller.outer.dt_s,
+                )
+                stop_event.wait(timeout=timeout)
         finally:
             stop_event.set()
             control_thread.join(timeout=1.0)

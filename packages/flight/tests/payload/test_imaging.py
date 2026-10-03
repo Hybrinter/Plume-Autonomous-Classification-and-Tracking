@@ -8,6 +8,7 @@ config before any HAL call.
 """
 
 import math
+import threading
 from collections.abc import Callable
 from dataclasses import replace
 
@@ -41,7 +42,7 @@ from flight.libs.types import (
     Result,
     SystemMode,
 )
-from flight.payload.app import PayloadApp
+from flight.payload.app import PayloadApp, TickOutcome
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.graphs import operate
 from flight.payload.graphs.base import EffectivePolicy, SystemRequestIntent, TickInputs
@@ -49,6 +50,7 @@ from flight.payload.graphs.parameters import GraphParameters
 from flight.payload.imaging import (
     CaptureDecision,
     CaptureSchedule,
+    capture_wait_s,
     plan_capture,
     record_capture,
 )
@@ -125,6 +127,77 @@ def test_plan_capture_waits_without_spending_duty() -> None:
     assert schedule.opportunities == 3
     assert decisions[1] is CaptureDecision.WAIT
     assert decisions[3] is CaptureDecision.WAIT
+
+
+def test_capture_wait_hits_configured_period_inside_outer_dt() -> None:
+    """Shipped 35 Hz period is not aliased to two outer steps (40 ms)."""
+    cfg = PactConfig()
+    interval = GraphParameters(config=cfg).default_policy(True).imaging.capture_interval_s
+    outer_dt = cfg.controller.outer.dt_s
+    assert interval == pytest.approx(1.0 / cfg.sensor.capture.max_frame_rate_hz)
+    assert interval > outer_dt
+    first = capture_wait_s(interval, 0.0, 0.0, outer_dt)
+    second = capture_wait_s(interval, first, first, outer_dt)
+    assert first == pytest.approx(outer_dt)
+    assert second == pytest.approx(interval - outer_dt)
+    assert first + second == pytest.approx(interval)
+    # A second full outer sleep would step past the armed deadline.
+    assert first + outer_dt > interval
+
+
+def test_capture_wait_bounds_idle_and_returns_immediately_on_overrun() -> None:
+    """No armed future deadline uses the policy wake; an overrun does not sleep."""
+    outer_dt = 0.020
+    assert capture_wait_s(None, 0.0, 0.0, outer_dt) == pytest.approx(outer_dt)
+    # Deadline already due at the call: bounded wake, no spin.
+    assert capture_wait_s(0.5, 1.0, 1.0, outer_dt) == pytest.approx(outer_dt)
+    # Deadline armed at the call, processing finished after it: run now.
+    assert capture_wait_s(1.0 / 35.0, 0.0, 0.040, outer_dt) == 0.0
+    # A far deadline stays capped at the policy wake.
+    assert capture_wait_s(5.0, 0.0, 0.0, outer_dt) == pytest.approx(outer_dt)
+    assert capture_wait_s(None, math.nan, math.nan, outer_dt) == pytest.approx(outer_dt)
+    assert capture_wait_s(1.0, 0.0, 0.0, math.nan) == 0.0
+    assert capture_wait_s(1.0, 0.0, 0.0, 0.0) == 0.0
+
+
+def test_run_capture_sleep_reaches_deadline_before_two_outer_periods(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run() sleeps to the armed deadline, not another full outer period."""
+    app, _bus, _gimbal, clock, _spy, _storage = _build()
+    interval = app.params.default_policy(True).imaging.capture_interval_s
+    outer_dt = app.params.config.controller.outer.dt_s
+    stop = threading.Event()
+    waits: list[float] = []
+    original_wait = threading.Event.wait
+
+    def fake_capture(self: PayloadApp, state: object, now: float) -> tuple[object, TickOutcome]:
+        deadline = self.capture_shell.schedule.next_opportunity_s
+        if deadline is None or now + 1e-12 >= deadline:
+            self.capture_shell.schedule = replace(
+                self.capture_shell.schedule,
+                next_opportunity_s=now + interval,
+            )
+        return state, TickOutcome(0, None, False)
+
+    def fake_wait(self: threading.Event, timeout: float | None = None) -> bool:
+        if self is not stop or threading.current_thread().name == "payload-control":
+            return original_wait(self, timeout)
+        assert timeout is not None
+        waits.append(timeout)
+        clock.advance(timeout)
+        if clock.monotonic_s() + 1e-12 >= interval or len(waits) > 4:
+            self.set()
+        return self.is_set()
+
+    monkeypatch.setattr(PayloadApp, "capture_once", fake_capture)
+    monkeypatch.setattr(threading.Event, "wait", fake_wait)
+    app.run(stop)
+
+    assert waits[0] == pytest.approx(outer_dt)
+    assert waits[1] == pytest.approx(interval - outer_dt)
+    assert sum(waits) == pytest.approx(interval)
+    assert len(waits) == 2
 
 
 def test_plan_capture_late_call_spends_one_opportunity() -> None:

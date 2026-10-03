@@ -1447,6 +1447,7 @@ def test_init_pending_verifier_stays_ready_past_deadline() -> None:
     assert not any(r.requested_mode is SystemMode.IDLE for r in requests)
     assert _drain(fault_sub) == []
     assert isinstance(state.graph, init.State)
+    assert state.graph.node is init.InitNode.READY
     assert not state.graph.failed
     assert runtime.snapshot() is None
     assert isinstance(state.reference, InhibitReference)

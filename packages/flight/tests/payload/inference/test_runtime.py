@@ -1,5 +1,6 @@
 """InferenceRuntime holder, scripted session, and ONNX factory/session tests."""
 
+import subprocess
 import sys
 import threading
 
@@ -275,9 +276,21 @@ def test_onnx_session_warm_up_reports_cancel_after_models() -> None:
 
 
 def test_runtime_module_imports_sdk_free() -> None:
-    """Importing the runtime module never pulls ML/camera SDKs into sys.modules."""
-    assert "onnxruntime" not in sys.modules
-    assert "PySpin" not in sys.modules
+    """Importing lifecycle/runtime in a fresh interpreter pulls no ML/camera SDK."""
+    probe = (
+        "import sys\n"
+        "import flight.payload.lifecycle\n"
+        "import flight.payload.inference.runtime\n"
+        "assert 'onnxruntime' not in sys.modules\n"
+        "assert 'PySpin' not in sys.modules\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_onnx_factory_constructs_nothing_until_load() -> None:

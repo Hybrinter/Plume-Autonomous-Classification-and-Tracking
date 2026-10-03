@@ -32,6 +32,7 @@ from flight.libs.config import DriverConfig, PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import MosaicFrame, SystemMode
 from flight.payload.inference import ScriptedDetector
+from flight.payload.lifecycle import InitializationVerifier
 from flight.payload.state import PayloadState
 
 from sim.sil.environment_bind import SilEnvironmentBind
@@ -62,6 +63,8 @@ def build_sil_system(
     thermal_readings: list[float] | None = None,
     power_readings: list[float] | None = None,
     uplink_key: bytes = b"sil-test-key-0000000000000000000",
+    *,
+    initialization_verifier: InitializationVerifier | None = None,
 ) -> SilSystem:
     """Construct the sim drivers and wire the flight apps over a fresh bus via build_apps.
 
@@ -76,6 +79,9 @@ def build_sil_system(
         uplink_key: The HMAC-SHA256 secret used by the iss_iface app to authenticate
             inbound TC packets. Defaults to a fixed SIL test key; pass explicitly in
             command-path SIL tests that build packets with build_tc_packet.
+        initialization_verifier: Optional deterministic INIT verifier seam forwarded
+            to the payload app; None keeps the pending-by-default production verifier.
+            Sim selection never implies a passing verifier.
 
     Returns:
         A SilSystem holding the wired apps, the shared bus/clock, and the sim drivers.
@@ -104,7 +110,13 @@ def build_sil_system(
         host="x86_64",
     )
     sil_config = dataclasses.replace(config, drivers=sil_env)
-    system = build_validation_system(sil_config, clock, sim_inputs, uplink_key)
+    system = build_validation_system(
+        sil_config,
+        clock,
+        sim_inputs,
+        uplink_key,
+        initialization_verifier=initialization_verifier,
+    )
     return SilSystem(
         apps=system.apps,
         bus=system.bus,

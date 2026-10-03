@@ -13,7 +13,7 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 | Name | Kind | Description |
 | --- | --- | --- |
 | `MONITORED_SUBSYSTEMS` | constant | Eight heartbeat-emitting subsystem names |
-| `Drivers` | class | Frozen bundle of HAL drivers, ISS ephemeris, and detector backend |
+| `Drivers` | class | Frozen bundle of HAL drivers, ISS ephemeris, and inference runtime |
 | `SystemApps` | class | Frozen bundle of all constructed apps and core services |
 | `default_bus_policy` | function | Per-message-type queue bounds and overflow rules |
 | `build_apps` | function | Construct every app from config, bus, clock, and drivers |
@@ -27,8 +27,10 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 **`build_apps(config, bus, clock, drivers, monitored, calib, uplink_key, activation_epoch) -> SystemApps`**
 
 - Inputs: `PactConfig`, shared `MessageBus`, `Clock`, `Drivers`, monitored subsystem names,
-  `MosaicCalibration`, uplink HMAC key bytes, and the mandatory `activation_epoch`
-  forwarded to the payload, fault, and router apps.
+  `MosaicCalibration`, uplink HMAC key bytes, the mandatory `activation_epoch`
+  forwarded to the payload, fault, and router apps, and an optional keyword-only
+  `InitializationVerifier` forwarded to the payload app (None keeps the
+  pending-by-default production verifier).
 - Output: wired `SystemApps`.
 
 ## Behavior
@@ -42,7 +44,7 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 4. `build_apps` constructs payload, fault, iss_iface, thermal, electrical, command_router,
    downlink, and model_deploy apps via each app's `from_config`.
 5. `build_apps` passes `drivers.ephemeris` into `PayloadApp.from_config` with the gimbal,
-   sensor, and detector.
+   sensor, and the `InferenceRuntime` holder.
 6. `build_apps` passes the same storage instance to payload, iss_iface, and model_deploy.
 
 ## Errors and faults
@@ -73,6 +75,9 @@ Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEven
   "model_deploy")`.
 - The fault app receives the `monitored` tuple. It does not monitor itself.
 - `Drivers.ephemeris` is the injected `IssEphemeris` (sim circular Keplerian or real stub).
+- `Drivers.inference` is the `InferenceRuntime` holder: empty with a lazy
+  `OnnxRuntimeFactory` on the real path, or an explicit scripted runtime on the
+  sim path.
 
 ## Related documents
 

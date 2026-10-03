@@ -54,7 +54,7 @@ from flight.payload.imaging import (
     plan_capture,
     record_capture,
 )
-from flight.payload.inference import DetectorBackend, ScriptedDetector
+from flight.payload.inference import DetectorBackend, InferenceRuntime, ScriptedDetector
 from flight.payload.records import CaptureContext, HealthSample
 from flight.payload.state import PayloadState, node_name_of
 from flight.payload.tracking import EncoderSample
@@ -582,7 +582,7 @@ def _build(
         spy,
         gimbal,
         eph,
-        detector or _plume_detector(),
+        InferenceRuntime.from_scripted(detector or _plume_detector()),
         bus,
         clock,
         calib,
@@ -627,7 +627,7 @@ def test_capture_once_off_policy_stops_stream_and_skips_drain() -> None:
     """Contained policy forces the stream off with no acquire/drain/detect."""
     app, bus, gimbal, _clock, spy, _storage = _build()
     detector = _CountingDetector(_plume_detector())
-    app = replace(app, detector=detector)
+    app = replace(app, inference=InferenceRuntime.from_scripted(detector))
     telem = bus.subscribe(TelemetryEventMsg)
     state = _operate(app, bus, gimbal)
     app.capture_once(state, now=0.0)
@@ -777,7 +777,16 @@ def test_from_config_rejects_invalid_policy_before_hal() -> None:
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     with pytest.raises(ValueError, match="invalid payload policy"):
         PayloadApp.from_config(
-            cfg, spy, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage(), _EPOCH
+            cfg,
+            spy,
+            gimbal,
+            eph,
+            InferenceRuntime.from_scripted(_plume_detector()),
+            bus,
+            clock,
+            calib,
+            _MemStorage(),
+            _EPOCH,
         )
     assert spy.calls == []
 
@@ -800,7 +809,7 @@ def test_inference_decimation_skips_vision_and_products() -> None:
     spy = _SpySensor(frames=[_mosaic(i) for i in range(1, 8)])
     app, bus, gimbal, _clock, spy, storage = _build(cfg=cfg, sensor=spy)
     detector = _CountingDetector(_plume_detector())
-    app = replace(app, detector=detector)
+    app = replace(app, inference=InferenceRuntime.from_scripted(detector))
     inf_sub = bus.subscribe(InferenceResultMsg)
     prod_sub = bus.subscribe(ProductRefMsg)
     state = _operate(app, bus, gimbal)
@@ -862,7 +871,7 @@ def test_new_activation_resets_capture_phase() -> None:
     spy = _SpySensor(frames=[_mosaic(i) for i in range(1, 9)])
     app, bus, gimbal, _clock, spy, _storage = _build(cfg=cfg, sensor=spy)
     detector = _CountingDetector(_plume_detector())
-    app = replace(app, detector=detector)
+    app = replace(app, inference=InferenceRuntime.from_scripted(detector))
     state = _operate(app, bus, gimbal)
     # Captures at opportunities 2 and 4 -> successful captures 1 and 2.
     for index in range(1, 5):
@@ -1137,7 +1146,7 @@ def test_capture_only_policy_acquires_and_counts_without_inference() -> None:
     spy = _SpySensor(frames=[_mosaic(1), _mosaic(2), _mosaic(3)])
     app, bus, gimbal, _clock, spy, _storage = _build(cfg=cfg, sensor=spy)
     detector = _CountingDetector(_plume_detector())
-    app = replace(app, detector=detector)
+    app = replace(app, inference=InferenceRuntime.from_scripted(detector))
     inf_sub = bus.subscribe(InferenceResultMsg)
     prod_sub = bus.subscribe(ProductRefMsg)
     state = _operate(app, bus, gimbal)

@@ -24,8 +24,9 @@ deterministically. GSE imports this surface and does not touch flight compositio
 **`build_validation_system(config, clock, sim_inputs=None, uplink_key=..., activation_epoch="sil") -> ValidationSystem`**
 
 - Inputs: `PactConfig` (driver axes intact), `ManualClock`, optional `SimDriverInputs`,
-  uplink HMAC key, and the authority epoch forwarded to `build_apps` (default test
-  epoch `"sil"`).
+  uplink HMAC key, the authority epoch forwarded to `build_apps` (default test
+  epoch `"sil"`), and an optional keyword-only `InitializationVerifier` forwarded
+  to the payload app (None keeps the pending-by-default production verifier).
 - Output: `ValidationSystem` with HAL protocol-typed driver fields.
 
 **`ValidationHarness.step(now) -> None`**

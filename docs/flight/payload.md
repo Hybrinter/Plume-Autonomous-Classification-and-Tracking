@@ -19,6 +19,7 @@ tracking, graphs, and gimbal control.
 | [`state`](payload/state.md) | pure module | `PayloadState` threaded runtime record and name helpers |
 | [`records`](payload/records.md) | pure module | Compact observation and activation-context value records |
 | [`imaging`](payload/imaging.md) | pure module | Planned capture deadlines, duty floor, and inference decimation |
+| [`lifecycle`](payload/lifecycle.md) | module | Bounded INIT effect executor and observed lifecycle services |
 | [`calibration_io`](payload/calibration_io.md) | module | Loads checksummed mosaic calibration artifacts at startup |
 | [`blobs`](payload/blobs.md) | module | Connected-component blob extraction from a probability mask |
 | [`preprocess`](payload/preprocess.md) | package | Pure functions from raw mosaic to inference tensor |
@@ -41,7 +42,10 @@ The payload app subscribes to `SystemModeActivatedMsg` (the accepted-activation 
 `TelemetryEventMsg`, `ProductRefMsg`, `SystemModeRequestMsg`, and
 `SystemModeSyncRequestMsg`. It uses the `ImagingSensor`, `GimbalActuator`,
 `IssEphemeris`, and `StorageWriter` HAL protocols. Preprocessing runs inside
-`process_frame()` and does not publish `ProcessedFrameMsg` on the bus.
+`process_frame()` and does not publish `ProcessedFrameMsg` on the bus. INIT
+effect intents run on one bounded lifecycle worker through
+`flight.payload.lifecycle`; the inference runtime holder stays empty until the
+control owner installs a verified session.
 
 ## Constraints
 

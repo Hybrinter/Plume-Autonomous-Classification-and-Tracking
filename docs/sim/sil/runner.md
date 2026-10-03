@@ -21,7 +21,10 @@ It casts concrete sim drivers back from the validation builder for test inspecti
 **`build_sil_system(config, clock, frames, detector, ...) -> SilSystem`**
 
 - Inputs: `PactConfig`, `ManualClock`, mosaic frame list, `ScriptedDetector`, optional
-  inbound CCSDS packets, thermal and power reading scripts, uplink HMAC key.
+  inbound CCSDS packets, thermal and power reading scripts, uplink HMAC key, and an
+  optional keyword-only `InitializationVerifier` forwarded to the payload app (None
+  keeps the pending-by-default production verifier; sim selection never implies a
+  passing verifier).
 - Output: frozen `SilSystem` with concrete `SimSensor`, `SimGimbal`, `SimStationLink`, and
   scalar sensors.
 

@@ -61,7 +61,7 @@ from flight.payload.gimbal.request import (
     TravelEnvelope,
 )
 from flight.payload.graphs import operate
-from flight.payload.inference import DetectorBackend, ScriptedDetector
+from flight.payload.inference import DetectorBackend, InferenceRuntime, ScriptedDetector
 from flight.payload.records import CaptureContext, CapturedVision, VisionSample
 from flight.payload.state import PayloadState, graph_name_of, node_name_of
 from flight.payload.tracking import EncoderSample, ResidualState
@@ -134,7 +134,7 @@ def _build_app(
         sensor,
         gimbal,
         eph,
-        detector,
+        InferenceRuntime.from_scripted(detector),
         bus,
         clock,
         calib,
@@ -1155,7 +1155,7 @@ def test_newer_same_mode_activation_reenters_cold_graph() -> None:
 # -- flagged vision ordering ----------------------------------------------------
 
 
-def _flagged_vision(state: PayloadState, t_s: float) -> CapturedVision:
+def _flagged_vision(state: PayloadState, t_s: float, model_version: str) -> CapturedVision:
     """One due flagged vision sample stamped under the current activation."""
     last = state.activation.last
     assert last is not None
@@ -1163,7 +1163,7 @@ def _flagged_vision(state: PayloadState, t_s: float) -> CapturedVision:
         context=CaptureContext(
             activation_key=last.key,
             policy_revision=state.policy_revision,
-            model_version="test",
+            model_version=model_version,
             containment_generation=0,
         ),
         sample=VisionSample(
@@ -1201,7 +1201,7 @@ def test_flagged_vision_nacks_commands(
     state = _operate(app, bus, gimbal)
     t = app.params.config.controller.outer.dt_s
     app.note_gimbal_feedback(GimbalPosition(el_deg=0.0, timestamp_s=t, sequence=2))
-    app.vision_queue.append(_flagged_vision(state, t))
+    app.vision_queue.append(_flagged_vision(state, t, app.inference.identity))
     bus.publish(_routed(command_id, 1, params))
     state, _out = app.advance_outer(state, now=t)
     acks = [a for a in _drain(ack_sub)]
@@ -1556,7 +1556,9 @@ def test_pointing_telemetry_safe_idle_fields_none() -> None:
         assert payload[field_name] is None, field_name
 
 
-def _valid_vision(state: PayloadState, t_s: float, frame_id: str = "v1") -> CapturedVision:
+def _valid_vision(
+    state: PayloadState, t_s: float, frame_id: str = "v1", model_version: str = ""
+) -> CapturedVision:
     """One due unflagged vision sample stamped under the current activation."""
     last = state.activation.last
     assert last is not None
@@ -1564,7 +1566,7 @@ def _valid_vision(state: PayloadState, t_s: float, frame_id: str = "v1") -> Capt
         context=CaptureContext(
             activation_key=last.key,
             policy_revision=state.policy_revision,
-            model_version="test",
+            model_version=model_version,
         ),
         sample=VisionSample(
             t_s=t_s,
@@ -1587,7 +1589,7 @@ def test_same_tick_command_and_vision_commit_one_edge() -> None:
     state = _operate(app, bus, gimbal)
     dt = app.params.config.controller.outer.dt_s
     app.note_gimbal_feedback(GimbalPosition(el_deg=0.0, timestamp_s=dt, sequence=2))
-    app.vision_queue.append(_valid_vision(state, dt))
+    app.vision_queue.append(_valid_vision(state, dt, model_version=app.inference.identity))
     bus.publish(_routed("GIMBAL_HOLD", 1))
     state, _out = app.advance_outer(state, now=dt)
     acks = _drain(ack_sub)

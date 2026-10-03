@@ -17,7 +17,7 @@ from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
 from flight.payload.app import PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
-from flight.payload.inference import ScriptedDetector
+from flight.payload.inference import InferenceRuntime, ScriptedDetector
 from flight.payload.preprocess import MosaicCalibration
 from flight.thermal.app import ThermalApp
 
@@ -29,7 +29,9 @@ def _drivers() -> Drivers:
         sensor=SimSensor([]),
         gimbal=SimGimbal(clock=clock),
         ephemeris=SimIssEphemeris(clock=clock),
-        detector=ScriptedDetector(np.zeros((256, 256), dtype=np.float32), grid=(8, 8)),
+        inference=InferenceRuntime.from_scripted(
+            ScriptedDetector(np.zeros((256, 256), dtype=np.float32), grid=(8, 8))
+        ),
         station=SimStationLink([]),
         thermal_sensor=SimScalarSensor([20.0]),
         power_sensor=SimScalarSensor([10.0]),

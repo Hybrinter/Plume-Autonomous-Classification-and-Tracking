@@ -37,7 +37,7 @@ from flight.libs.types import (
 from flight.payload.app import PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.imaging import CaptureDecision, plan_capture
-from flight.payload.inference import DetectorBackend, ScriptedDetector
+from flight.payload.inference import DetectorBackend, InferenceRuntime, ScriptedDetector
 from flight.payload.preprocess import SmearRateSource
 from flight.payload.state import PayloadState, graph_name_of, node_name_of
 
@@ -136,7 +136,16 @@ def _build_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, SimGi
     eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     app = PayloadApp.from_config(
-        cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage(), _EPOCH
+        cfg,
+        sensor,
+        gimbal,
+        eph,
+        InferenceRuntime.from_scripted(detector),
+        bus,
+        clock,
+        calib,
+        _MemStorage(),
+        _EPOCH,
     )
     return app, bus, gimbal, clock
 
@@ -261,7 +270,16 @@ def _rate_app(detector: DetectorBackend) -> tuple[PayloadApp, MessageBus, _RateG
     eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     app = PayloadApp.from_config(
-        cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage(), _EPOCH
+        cfg,
+        sensor,
+        gimbal,
+        eph,
+        InferenceRuntime.from_scripted(detector),
+        bus,
+        clock,
+        calib,
+        _MemStorage(),
+        _EPOCH,
     )
     return app, bus, gimbal
 
@@ -579,7 +597,16 @@ def test_run_drains_camera_on_skipped_opportunities() -> None:
     eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     app = PayloadApp.from_config(
-        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage(), _EPOCH
+        cfg,
+        sensor,
+        gimbal,
+        eph,
+        InferenceRuntime.from_scripted(_plume_detector()),
+        bus,
+        clock,
+        calib,
+        _MemStorage(),
+        _EPOCH,
     )
     _publish_mode(bus, SystemMode.OPERATE, 1)
     app.run(stop)
@@ -604,7 +631,16 @@ def test_run_publishes_fault_when_camera_drain_fails() -> None:
     eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     app = PayloadApp.from_config(
-        cfg, sensor, gimbal, eph, _plume_detector(), bus, clock, calib, _MemStorage(), _EPOCH
+        cfg,
+        sensor,
+        gimbal,
+        eph,
+        InferenceRuntime.from_scripted(_plume_detector()),
+        bus,
+        clock,
+        calib,
+        _MemStorage(),
+        _EPOCH,
     )
     _publish_mode(bus, SystemMode.OPERATE, 1)
     app.run(stop)

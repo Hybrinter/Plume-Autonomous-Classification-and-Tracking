@@ -5,6 +5,7 @@ Satisfies: REQ-AIML-COMP-001.
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, replace
 from typing import Protocol, runtime_checkable
@@ -194,6 +195,65 @@ class Detector:
                 tile_gsd_m=tile_gsd_meta,
             )
         )
+
+    def warm_up(
+        self,
+        images: np.ndarray,
+        gsd: np.ndarray,
+        cancel: threading.Event | None = None,
+    ) -> Result[None, FaultCode]:
+        """Exercise the classifier and segmentor once on caller-supplied tiles.
+
+        Both backends run unconditionally -- the segmentor is not gated on the
+        classifier sign -- and their outputs are validated against the same
+        shape/finiteness/range contract detect applies (logits ``(N,)`` finite,
+        masks ``(N, 1, h, w)`` finite in [0, 1]). Nothing is published and no
+        frame latency is measured. ``cancel`` is checked before, between, and
+        after the two model calls; cancellation returns Err(INFERENCE_TIMEOUT).
+        Unexpected backend exceptions become Err(MODEL_CORRUPT) at this public
+        boundary.
+        """
+        if cancel is not None and cancel.is_set():
+            return Err(FaultCode.INFERENCE_TIMEOUT)
+        if not _valid_inputs(images, gsd):
+            return Err(FaultCode.FRAME_MALFORMED)
+        try:
+            classified = self._classifier.classify_tiles(images, gsd)
+        except Exception:
+            return Err(FaultCode.MODEL_CORRUPT)
+        if isinstance(classified, Err):
+            return classified
+        try:
+            logits = np.asarray(classified.value)
+        except TypeError, ValueError:
+            return Err(FaultCode.FRAME_MALFORMED)
+        if logits.shape != (images.shape[0],) or not _is_real_numeric(logits):
+            return Err(FaultCode.FRAME_MALFORMED)
+        if not bool(np.isfinite(logits).all()):
+            return Err(FaultCode.INFERENCE_NAN)
+        if cancel is not None and cancel.is_set():
+            return Err(FaultCode.INFERENCE_TIMEOUT)
+        try:
+            segmented = self._segmentor.segment_tiles(images, gsd)
+        except Exception:
+            return Err(FaultCode.MODEL_CORRUPT)
+        if isinstance(segmented, Err):
+            return segmented
+        try:
+            masks = np.asarray(segmented.value)
+        except TypeError, ValueError:
+            return Err(FaultCode.FRAME_MALFORMED)
+        expected = (images.shape[0], 1, images.shape[2], images.shape[3])
+        if masks.shape != expected or not _is_real_numeric(masks):
+            return Err(FaultCode.FRAME_MALFORMED)
+        values = masks.astype(np.float32)
+        if not bool(np.isfinite(values).all()):
+            return Err(FaultCode.INFERENCE_NAN)
+        if np.any(values < 0) or np.any(values > 1):
+            return Err(FaultCode.INFERENCE_NAN)
+        if cancel is not None and cancel.is_set():
+            return Err(FaultCode.INFERENCE_TIMEOUT)
+        return Ok(None)
 
 
 class ScriptedDetector(Detector):

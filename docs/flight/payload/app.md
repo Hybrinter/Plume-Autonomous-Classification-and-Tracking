@@ -42,8 +42,11 @@ detailed SIL plant path runs the inner PI and torque loop.
 
 ## Inputs and outputs
 
-`from_config` takes `PactConfig`, HAL drivers, `MessageBus`, `Clock`,
-calibration, storage, and the composition-root `activation_epoch`. It returns
+`from_config` takes `PactConfig`, HAL drivers, an `InferenceRuntime` holder,
+`MessageBus`, `Clock`, calibration, storage, and the composition-root
+`activation_epoch`. Optional lifecycle services (self-test, home arrival,
+verification) and the effect deadline may be injected; production defaults are
+the observed checks plus a verifier that always reports PENDING. It returns
 a `PayloadApp` and raises `ValueError` for invalid sensor or inference
 geometry or for a graph/node payload policy that resolves to an invalid
 combination; policy validation runs before any camera-policy HAL call.
@@ -148,6 +151,22 @@ take one final actual-clock feedback sample before a shutter binding.
     acquire. `entry_policy` supplies the activation policy: OPERATE enters on
     TRACKING's configured override; other graphs use their declared off
     policy.
+15. INIT effect intents go to the `LifecycleExecutor` under the exact
+    activation token after a successful reference commit. Outer ticks poll the
+    executor and feed terminal `EffectResult`s plus a current verification to
+    the next `runtime.step`; results for a different token, kind, id, or
+    cancelled generation drop. Any activation change, containment latch, or
+    shutdown cancels the worker first, so a blocked service or SDK call cannot
+    stall inhibition or teardown. The previously verified session survives a
+    failed replacement load.
+16. While OPERATE runs with an empty `InferenceRuntime` (no verified session),
+    the reference is forced to inhibit; an inference-enabled policy is forced
+    off with one `MODEL_CORRUPT` fault and one SAFE request per activation,
+    while a capture-only policy may still acquire frames. `process_frame`
+    stamps `model_version` from the installed session identity at capture
+    start and drops the result when the runtime identity changes mid-flight;
+    installation bumps the policy revision so a same-identity reload still
+    invalidates in-flight captures.
 
 ## Errors and faults
 

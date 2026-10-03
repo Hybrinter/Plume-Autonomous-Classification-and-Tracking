@@ -5,7 +5,7 @@
 
 ## Purpose
 
-The payload plot builder renders gimbal FSM, pointing, control rates, residual estimators, and
+The payload plot builder renders graph and node identity, pointing, control rates, residual estimators, and
 science output figures from the payload wide frame.
 
 ## Public interface
@@ -20,7 +20,7 @@ None.
 
 ## Behavior
 
-1. Gimbal arbiter FSM categorical timeline.
+1. Separate payload graph and active node categorical timelines.
 2. Pointing truth versus measured elevation.
 3. Commanded versus measured elevation rate (`r` versus `y_m`).
 4. Residual KF state (`e`, `omega_t_res`) and covariance diagonal plus trace.

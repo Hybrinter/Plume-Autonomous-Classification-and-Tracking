@@ -21,6 +21,7 @@ from enum import Enum
 
 from flight.libs.messages import RoutedCommandMsg, TelemetryEventMsg
 from flight.libs.types import (
+    ActivationKey,
     CommandId,
     Err,
     FaultCode,
@@ -30,7 +31,6 @@ from flight.libs.types import (
 )
 from flight.payload.gimbal.request import ControlReference
 from flight.payload.records import (
-    ActivationKey,
     CapturedVision,
     HealthSample,
     IssSample,

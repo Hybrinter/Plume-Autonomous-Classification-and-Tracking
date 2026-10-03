@@ -1,8 +1,9 @@
 # Payload graph architecture stack
 
-**Status:** architecture approved; pure foundations implemented; runtime cutover pending.
-This brief records settled design for a multi-PR implementation stack. The live runtime
-remains the legacy controller pending the shell cutover. The teammate-owned
+**Status:** architecture approved; pure foundations and runtime cutover implemented.
+This brief records settled design for a multi-PR implementation stack. The live payload
+runtime uses authoritative activations; configurable imaging and INIT effects remain
+later stack work. The teammate-owned
 system-mode authority interface is recorded here as agreed scope, but teammate confirmation of
 the shared contract is a pending external dependency; nothing below is implemented authority
 code and nothing here asserts their agreement.
@@ -273,6 +274,16 @@ Keep command correlation in a typed embedded record `(source, seq, command_id)`,
 dictionary. The shared activation-key record contains only epoch and sequence, not a clock
 source. `recovery_authorized` defaults false and can only be true for an authority-approved
 EXIT_SAFE. Ordinary activations do not clear fault-owned or hardware-owned latches.
+
+PR 5 places the shared `ActivationKey` in `flight.libs.types.activation`; payload records
+consume it but do not own it. `CommandCorrelation` is a frozen embedded message record
+with `source`, `seq`, and `command_id`. The incompatible bus schema becomes version 3.
+Recovery authorization is consumed only for a newer SAFE-to-IDLE activation with a nonempty
+request identity. Fault-owned safety evidence has no system-mode field: it carries
+`evidence_epoch`, `evidence_sequence`, `observed_s`, and optional `recovery_request_id`
+alongside the latch and active faults. Payload recovery requires matching released evidence,
+the current authorized activation, and fresh confirmed inhibited hardware. A request or audit
+record cannot release either latch.
 
 There is no requirement that every notification imply activation: denials never do; an authority
 may record a committed transition before activation. Correlate records and activation by
@@ -825,9 +836,118 @@ Published PR: https://github.com/Hybrinter/Plume-Autonomous-Classification-and-T
 The table's readiness entry records the pre-publication gate; this receipt confirms publication.
 PR 5 is next. Actual authority integration and teammate contract confirmation remain pending.
 
+PR 5 work has started locally on `devin/payload-graphs-05-runtime-cutover`, based on
+`481fdf6`. Runtime and schema implementation is in progress and is not yet verified or
+published. Consumer migration separates accepted system mode, selected payload graph/node,
+and containment. GSE terminal-mode scoring compares only the accepted activation; absent
+activation is unknown. Analysis uses unavailable values for inactive graph estimates.
+Explicit scenario activation remains test setup, not a substitute production authority.
+
+PR 5 review checkpoint: the first runtime draft was rejected; the current rework is still
+unaccepted and uncommitted. Known remaining work includes atomic capture-context commit
+(including activation during acquisition, detection, and product storage), blocked-compute
+regressions, HAL-spy no-motion proofs, recovery replay/evidence tests, complete old-controller
+regression migration, pointing telemetry assertions, and flight/sim source mirrors.
+Focused payload-app verification still has five failures. The strict hardware-angle freshness
+guard rejects noisy simulated feedback near the lower stop; no new noise tolerance or
+controller tuning has been approved or applied. Preserve the existing physical and numerical
+contracts while investigating this boundary instead of relaxing the guard to pass tests.
+Lead-owned terminal-mode, extractor-availability, and elevation-block checks pass:
+31 tests, raw checkpoint evidence
+`C:/Users/kampw/AppData/Local/Temp/pact-pr5-lead-critical-checkpoint.log`.
+This is not a full PR 5 verification result. No background verification jobs remain running.
+
+PR 5 boundary rework: the focused payload-app and graph-parameter selector now passes
+29 tests. Runtime test fixtures use zero simulated encoder noise at the exact lower stop;
+production parameters, simulator behavior, and the hardware-bound freshness guard are unchanged.
+An explicit regression rejects a noise-scale excursion below that bound. Scoped Ruff check,
+format check, and mypy passed. Raw evidence:
+`C:/Users/kampw/AppData/Local/Temp/pact-pr5-boundary-pytest.log`,
+`C:/Users/kampw/AppData/Local/Temp/pact-pr5-boundary-ruff.log`, and
+`C:/Users/kampw/AppData/Local/Temp/pact-pr5-boundary-mypy.log`.
+This scoped result does not accept the complete cutover. Runtime review identified capture
+identity being assigned after acquisition and a possible command-plus-automatic double edge;
+atomic capture publication, containment tokens, recovery, and actuator regressions are under
+active rework. PR 5 remains local, uncommitted, and unpublished.
+
+PR 5 chronology review: a proposed simulator timestamp change was rejected and
+`hal/drivers_sim/gimbal.py` was restored to its predecessor contents. The earlier
+562-test aggregate passed with that rejected change and is not a current cutover gate.
+The SIL composition root now advances the existing injected clock through control
+ticks; final SIL and safety verification for this rework is pending. Recovery must
+retain the nonfuture feedback requirement without a new tolerance. The analysis
+recorder no longer advances that clock a second time and preserves shifted origins.
+Lead-owned extractor, recorder/twin, and elevation-block checks pass: 35 tests,
+`C:/Users/kampw/AppData/Local/Temp/pact-pr5-lead-critical-chronology.log`.
+This evidence does not complete runtime, documentation, or workspace verification.
+
+PR 5 docs-final/runtime-safety checkpoint: still a local, uncommitted, unpublished
+draft on `devin/payload-graphs-05-runtime-cutover`. This phase added immediate
+containment for any `stow()`/`goto_angle()` reference-metadata HAL failure via the
+internal `ReferenceCommit` record (rejected-ACK rollback for routed commands, no
+committed-edge events or audit), finite-only encoder validation before history
+mutation (`GIMBAL_ENCODER_INVALID` on nonfinite angle or timestamp), and a
+payload-local `FaultEventMsg` subscription so an in-context detector
+`Err(INFERENCE_NAN)` latches containment on the next control poll while stale
+detector errors drop silently. Storage and downlink now have transition-ledger
+tests covering accepted and denied `SystemModeTransitionMsg` JSON. The
+descriptive flight/sim/GSE/root documentation mirrors were completed for the
+activation/schema-3 architecture. Evidence: 146 scoped chronology tests plus
+8 post-move spot checks (`pact-pr5-chronology-*.log`), narrow docs-final
+selector 96 passed (`pact-pr5-docs-final-review-pytest.log`), scoped
+Ruff/format clean on non-lead files, scoped mypy 12 files clean, 20 import
+contracts kept, `check_docs --strict` and `check_adr --strict` ok
+(`pact-pr5-docs-final-review-*.log`). Lead-owned evidence remains frozen:
+35 critical chronology tests and 18 GSE final tests. Full workspace gates are
+not run; INIT verification stays undefined; teammate contract blockers and
+external authority integration remain open. No hardware validation, CI
+acceptance, or publication is claimed.
+
+Final review fixes added batch-drained local-fault polling (no HAL inside the
+subscription drain), atomic detector-Err check-and-publish under `state_lock`
+(stale work returns a `fault=None` outcome), and immediate deliberate
+`_inhibit_motion` on `InhibitReference` commit. First full-gate evidence:
+ruff check/format, mypy (504 files), lint-imports (20 kept), check_vcrm,
+check_docs --strict, check_adr --strict, and check_flight_image all pass;
+`pytest -m "not e2e" -n2 --timeout=180` reports 1317 passed / 8 skipped / 6 failed
+(`pact-pr5-final-pytest.log`): a preexisting vendored-Xeryon hash mismatch
+from CRLF checkout (file unmodified in git) and 5 lead-owned
+tools.analysis slow scenario failures (4 xdist worker crashes plus
+`safe_latched` not reaching 1.0 in the injected-fault runs), reported for
+lead review rather than fixed here.
+
+PR 5 failure follow-up: all 24 slow runner and statistics tests pass with
+`uv run pytest packages/tools/tests/analysis/test_analysis_runner_slow.py
+packages/tools/tests/analysis/test_analysis_stats.py -n0 --timeout=0`.
+Raw evidence: `C:/Users/kampw/AppData/Local/Temp/pact-pr5-slow-followup-pytest.log`.
+The runaway scenario had frozen feedback before initial acquisition because
+lower-stop noise suppressed imaging. Its scenario-only encoder-noise setting
+is now zero; freeze timing, production defaults, hardware guards, and controller
+equations are unchanged. It requests SAFE and latches containment without
+changing accepted OPERATE mode. Lead-authored diagnostic evidence is retained
+as `pact-pr5-lead-slow-diagnosis.json` and `pact-pr5-lead-runaway-fixed.json`.
+The earlier worker-crash mechanism remains unconfirmed; serial execution
+avoids concurrent copies of the shared scenario fixture and the added 180-second
+timeout. Scoped Ruff, mypy, and strict docs pass after the scenario fix.
+
+The remaining local gate blocker is vendored `Xeryon.py` checkout line endings.
+The tracked LF bytes match the pinned SHA-256
+`bff3338ecff97c2cb01c18a3d07dafdd1b86a19f2e5ce2a8ac8c21a9825bce77`;
+the unmodified CRLF worktree matches those bytes after newline normalization.
+The pin, vendor source, Git configuration, and security checks remain unchanged.
+User permission to normalize only the local vendor checkout is pending.
+PR 5 remains uncommitted and unpublished; no background jobs are running.
+
+PR 5 publication authorization: the user requested committing, pushing, and opening
+the cutover PR before continuing PR 6. The vendor checkout stays unchanged; its
+local CRLF-only provenance-test failure will be disclosed rather than treated as
+a source change or a passing test. Publication does not imply CI acceptance,
+authority integration, hardware validation, or completion of PRs 6-8.
+
 | PR | Branch | Base | Status | Evidence | Blockers |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `devin/payload-graphs-01-design-contract` | `main` @ `37aa8f8` | accepted and published; commit `031f9ed` | PR https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/108; `check_docs.py --strict` ok and `check_adr.py --strict` ok after preserving stale ignored source caches outside the source tree; raw logs retained | teammate interface agreement pending (external gate before authority integration) |
 | 2 | `devin/payload-graphs-02-primitives` | `devin/payload-graphs-01-design-contract` @ `031f9ed` | accepted and published; commit `d1b5bcb` | PR https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/109; focused controller/gimbal/app/encoder selector: 86 passed; migrated analysis consumer: 12 passed; post-review reference/analysis tests: 20 passed; scoped Ruff and mypy passed; import contracts: 18 kept; strict docs and decision-record checks passed. Raw final and initial logs retained separately under `/tmp/pact-pr2-*.log`. | none |
 | 3 | `devin/payload-graphs-03-graph-contracts` | `devin/payload-graphs-02-primitives` @ `d1b5bcb` | accepted and published; commit `7d42c1b` | PR https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/110; records relocated; typed graph/policy/effect/activation contracts added; HOLD/RESUME declarations remain explicitly unsupported by the current app. Automatic edges permit guarded alternate targets; ambiguous command targets and exact duplicates reject. Initial selector: 124 passed; post-review graph/records/app selector: 60 passed; scoped Ruff/mypy, 20 import contracts, and strict docs passed. Raw final evidence retained under `/tmp/pact-pr3-rework-*.log`. | teammate authority agreement remains pending before integration |
-| 4 | `devin/payload-graphs-04-pure-graphs` | `devin/payload-graphs-03-graph-contracts` @ `7d42c1b` | director review accepted; ready for publication | All five pure graphs and closed-union dispatch delivered; no live shell wiring. INIT waits for fresh HOME feedback and later explicit verification; matching failure takes precedence. OPERATE retains rate/replay diagnostics, rejects flagged-vision commands, and preserves activation-scoped deduplication across RESUME. Initial graph/residual/tracker/outer/scene selector: 151 passed; post-edit graph selector: 116 passed; final graph selector: 123 passed. Scoped Ruff check/format and strict mypy (37 files), 20 import contracts, and strict docs passed. Raw historical logs: `/tmp/pact-pr4-*.log`, `/tmp/pact-pr4-rework-*.log`, `/tmp/pact-pr4-final-ruff-check.log`, `/tmp/pact-pr4-final-check-docs.log`. Actual final Windows evidence: `C:/Users/kampw/AppData/Local/Temp/pact-pr4-post-edit-*.log` and `C:/Users/kampw/AppData/Local/Temp/pact-pr4-final-review-*.log`; earlier final evidence also retained as `pact-pr4-final-ruff-check.log` and `pact-pr4-final-check-docs.log` in that directory. | teammate authority agreement remains pending before integration |
+| 4 | `devin/payload-graphs-04-pure-graphs` | `devin/payload-graphs-03-graph-contracts` @ `7d42c1b` | accepted and published; PR #111 remains open | All five pure graphs and closed-union dispatch delivered; no live shell wiring. INIT waits for fresh HOME feedback and later explicit verification; matching failure takes precedence. OPERATE retains rate/replay diagnostics, rejects flagged-vision commands, and preserves activation-scoped deduplication across RESUME. Initial graph/residual/tracker/outer/scene selector: 151 passed; post-edit graph selector: 116 passed; final graph selector: 123 passed. Scoped Ruff check/format and strict mypy (37 files), 20 import contracts, and strict docs passed. Raw historical logs: `/tmp/pact-pr4-*.log`, `/tmp/pact-pr4-rework-*.log`, `/tmp/pact-pr4-final-ruff-check.log`, `/tmp/pact-pr4-final-check-docs.log`. Actual final Windows evidence: `C:/Users/kampw/AppData/Local/Temp/pact-pr4-post-edit-*.log` and `C:/Users/kampw/AppData/Local/Temp/pact-pr4-final-review-*.log`; earlier final evidence also retained as `pact-pr4-final-ruff-check.log` and `pact-pr4-final-check-docs.log` in that directory. | teammate authority agreement remains pending before integration |
+| 5 | `devin/payload-graphs-05-runtime-cutover` | `devin/payload-graphs-04-pure-graphs` @ `481fdf6` | local draft; uncommitted and unpublished; final local gate blocked | Activation-driven shell, schema 3 contracts, graph-independent containment, atomic capture publication, metadata-failure rollback, local detector-fault containment, transition audit consumers, and documentation mirrors reviewed. All workspace static gates pass (`pact-pr5-final-*.log`). Full tests: 1317 passed, 8 skipped, 6 failures; affected slow follow-up: all 24 passed serially (`pact-pr5-slow-followup-*.log`). Focused evidence includes 146 chronology, 96 docs-final, 35 lead-critical, and 18 GSE tests; see checkpoint receipts above for exact scope and caveats. | Local vendor CRLF normalization permission pending; authority integration and teammate agreement remain external dependencies; INIT verification criterion undefined |

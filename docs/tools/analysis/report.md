@@ -12,7 +12,7 @@ Markdown and HTML summaries, and a deterministic manifest.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SCHEMA_VERSION` | constant | Manifest schema version (1) |
+| `SCHEMA_VERSION` | constant | Manifest schema version (2) |
 | `RunReport` | class | Paths and manifest for one scenario run |
 | `SuiteReport` | class | Suite index plus per-run reports |
 | `write_run_report` | function | Emit one run's full bundle |
@@ -38,7 +38,7 @@ Markdown and HTML summaries, and a deterministic manifest.
 4. Build manifest with scenario metadata, capture counts, group figure lists, and headline
    outcomes (SAFE latched, final modes, fault totals, storage eviction, downlink peak).
 5. Render Markdown and HTML summaries with embedded figure links and per-group stats tables.
-6. Suite index links each scenario summary with SAFE-ever and final gimbal state columns.
+6. Suite index links each scenario summary with containment-ever and final graph/node columns.
 
 ## Errors and faults
 
@@ -55,9 +55,12 @@ None.
 ## Constraints
 
 - No wall-clock timestamps in manifests. Bundles are byte-reproducible.
-- Headline outcomes include: `safe_latched_end`, `safe_ever`, `final_gimbal_state`,
+- Headline outcomes include: `safe_latched_end`, `safe_ever`, `final_payload_graph`,
+  `final_payload_node`,
   `final_system_mode`, `stow_engaged_ever`, `total_faults`, `final_model_deploy_state`,
   `storage_entries_evicted`, `downlink_pending_peak`.
+- `final_system_mode` comes from the accepted activation, not the containment latch.
+  Schema 2 removes `final_gimbal_state`; no compatibility alias is retained.
 
 ## Related documents
 

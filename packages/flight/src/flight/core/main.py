@@ -17,6 +17,7 @@ from __future__ import annotations
 import signal
 import threading
 import time
+import uuid
 from types import FrameType
 
 # internal
@@ -32,7 +33,7 @@ from flight.core.scheduler import Scheduler
 from flight.core.select_drivers import select_drivers
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import PactConfig
-from flight.libs.messages import HeartbeatMsg, ModeChangeMsg
+from flight.libs.messages import HeartbeatMsg, SystemModeRequestMsg
 from flight.libs.time import Clock, ManualClock, RealClock
 from flight.libs.types import MessageType, Ok, SystemMode
 from flight.payload.calibration_io import build_identity_calibration, load_calibration
@@ -89,7 +90,10 @@ def build_flight_system(
     """
     uplink_key = _load_uplink_key(config.command_ingress.hmac_key_path)
     drivers = select_drivers(config, clock, sim_inputs=None)
-    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    activation_epoch = str(uuid.uuid4())
+    return build_apps(
+        config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key, activation_epoch
+    )
 
 
 def _run_startup_health_gate(
@@ -110,7 +114,8 @@ def _run_startup_health_gate(
 
     Returns:
         True if every monitored subsystem heartbeat within the window; otherwise publishes a
-        ModeChangeMsg(SAFE) (annunciating the half-initialized topology) and returns False.
+        SystemModeRequestMsg(SAFE) (annunciating the half-initialized topology) and returns
+        False.
     """
     seen: set[str] = set()
     deadline = clock.monotonic_s() + window_s
@@ -123,11 +128,13 @@ def _run_startup_health_gate(
     if startup_healthy(seen, monitored):
         return True
     bus.publish(
-        ModeChangeMsg(
-            msg_type=MessageType.MODE_CHANGE,
+        SystemModeRequestMsg(
+            msg_type=MessageType.SYSTEM_MODE_REQUEST,
             timestamp_utc=clock.wall_clock_iso(),
-            new_mode=SystemMode.SAFE,
+            request_id=str(uuid.uuid4()),
+            requested_mode=SystemMode.SAFE,
             requested_by="startup_health_gate",
+            reason="startup heartbeat gate failed",
         )
     )
     return False

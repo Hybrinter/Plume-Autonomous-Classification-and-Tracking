@@ -88,6 +88,7 @@ def route_command(
     routable_targets: frozenset[str],
     hazardous_ids: frozenset[str],
     safe_latched: bool,
+    safety_fresh: bool,
     armed: dict[tuple[str, str], float],
     now: float,
     arm_window_s: float,
@@ -99,6 +100,8 @@ def route_command(
         routable_targets: The set of subsystem targets any command may be routed to.
         hazardous_ids: The opcode strings requiring the ARM/EXECUTE two-step.
         safe_latched: The latest fault-published SAFE-latch state (inhibit pre-check input).
+        safety_fresh: True only while fresh safety evidence has been observed;
+            hazardous non-EXIT_SAFE commands fail closed when stale or missing.
         armed: The current armed-state map ((source, command_id) -> arm monotonic seconds).
         now: Current monotonic seconds (for the ARM expiry check).
         arm_window_s: Seconds an ARM remains valid before EXECUTE must follow.
@@ -134,10 +137,9 @@ def route_command(
                 command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "execute without valid arm"
             )
             return RouteResult(None, ack, None, without_key)
-        if safe_latched and command.command_id != _EXIT_SAFE:
-            ack = _ack(
-                command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, "inhibited while SAFE"
-            )
+        if command.command_id != _EXIT_SAFE and (safe_latched or not safety_fresh):
+            reason = "inhibited while SAFE" if safe_latched else "safety evidence stale or missing"
+            ack = _ack(command, AckStatus.REJECTED, FaultCode.COMMAND_INVALID, reason)
             return RouteResult(None, ack, None, without_key)
         return RouteResult(_routed(command), None, None, without_key)
 

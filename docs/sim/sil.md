@@ -23,6 +23,7 @@ thread. It exposes builders, harnesses, and the shared `step_once` cycle body.
 
 | Name | Kind |
 | --- | --- |
+| `ActivationTarget` | Protocol |
 | `SilCycleBind` | Protocol |
 | `SilEnvironmentBind` | class |
 | `SilHarness` | class |
@@ -34,6 +35,7 @@ thread. It exposes builders, harnesses, and the shared `step_once` cycle body.
 | `build_sil_system` | function |
 | `build_validation_system` | function |
 | `load_profile_config` | function |
+| `publish_activation` | function |
 | `step_once` | function |
 
 ## Interactions
@@ -52,10 +54,12 @@ GSE drives `build_validation_system` and `ValidationHarness`. Tools analysis cal
 
 ## Constraints
 
-- `step_once` is the single source of truth for one deterministic cycle.
-  Catch-up runs before optional bind evaluate and before acquire.
+- `step_once` is the single source of truth for one deterministic cycle. Catch-up
+  runs before optional bind evaluate and before acquire, and it alone advances the
+  shared `ManualClock`; harnesses and backends never advance it separately.
 - The harness publishes one `HeartbeatMsg` per entry in `MONITORED_SUBSYSTEMS` each step.
-- `SilHarness.run_steps` advances the shared `ManualClock` so `SimGimbal` dynamics integrate.
+- Activations enter only through explicit `SystemModeActivatedMsg` records (the
+  `publish_activation` test seam or scenario injection); no synthetic authority runs.
 - Storage redirects to a temp directory in `build_validation_system`.
 - `SilHarness` and `ValidationHarness` accept an optional `SilEnvironmentBind`.
   Default runs keep pre-rendered `sim.scene.plume` frames.

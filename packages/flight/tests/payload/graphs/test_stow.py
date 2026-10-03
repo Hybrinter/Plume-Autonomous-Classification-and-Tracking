@@ -1,11 +1,14 @@
 """Tests for the STOW graph: bounded move, verified hold, latched timeout."""
 
-from flight.libs.types import FaultCode
+from flight.libs.types import (
+    ActivationKey,
+    FaultCode,
+)
 from flight.payload.gimbal.request import InhibitReference, StowReference
 from flight.payload.graphs import stow
 from flight.payload.graphs.base import SystemRequestIntent
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey, HealthSample
+from flight.payload.records import HealthSample
 
 from .support import TickBuilder
 

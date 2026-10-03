@@ -14,12 +14,13 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 from flight.libs.messages import BlobMeta
+from flight.libs.types import ActivationKey
 from flight.payload.gimbal.outer import RateDecision
 from flight.payload.gimbal.pointing import pinhole_error_rad
 from flight.payload.gimbal.safety import apply_confidence_gate, apply_min_area_gate
 from flight.payload.graphs.base import TickInputs
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey, CapturedVision
+from flight.payload.records import CapturedVision
 from flight.payload.tracking import match_blobs
 from flight.payload.tracking.residual import (
     ObservationDisposition,
@@ -127,7 +128,7 @@ class State:
 def vision_window_s(params: GraphParameters) -> float:
     """Acceptance window: max(observation age ceiling, residual history horizon)."""
     controller = params.config.controller
-    return max(controller.arbiter.max_observation_age_s, controller.residual.rewind_horizon_s)
+    return max(controller.operate.max_observation_age_s, controller.residual.rewind_horizon_s)
 
 
 def accept_vision(
@@ -175,6 +176,10 @@ def accept_vision(
     z_v: float | None = None
     p_cog: tuple[float, float] | None = None
     if matched:
+        # All accepted components form one visible-plume aggregate.  Do not
+        # select a component by ID or order: each component centroid is
+        # weighted by its accepted pixel area, which is equivalent to the
+        # union-pixel centroid for disjoint connected components.
         total_area = sum(blob.pixel_area for blob in matched)
         p_cog = (
             sum(blob.pixel_area * blob.centroid_raw[0] for blob in matched) / total_area,
@@ -232,9 +237,9 @@ def bookkeep_vision(
             tracked = ()
     age_s = None if last_observation_s is None else max(0.0, now_s - last_observation_s)
     empty_release = (
-        vision is not None and miss_count >= controller.arbiter.release_persistence_frames
+        vision is not None and miss_count >= controller.operate.release_persistence_frames
     )
-    age_release = age_s is not None and age_s >= controller.arbiter.max_observation_age_s
+    age_release = age_s is not None and age_s >= controller.operate.max_observation_age_s
     has_plume = vision is not None and len(vision.sample.blobs) > 0
     aggregate_live = has_plume or (
         last_observation_s is not None

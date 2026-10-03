@@ -1,9 +1,10 @@
 """Tests for the SAFE graph: inhibition only, never a pose."""
 
+from flight.libs.types import ActivationKey
 from flight.payload.gimbal.request import InhibitReference
 from flight.payload.graphs import safe
 from flight.payload.graphs.parameters import GraphParameters
-from flight.payload.records import ActivationKey, HealthSample
+from flight.payload.records import HealthSample
 
 from .support import TickBuilder
 

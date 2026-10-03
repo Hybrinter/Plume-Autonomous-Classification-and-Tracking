@@ -17,7 +17,10 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
     """Build the payload figures from the payload wide frame."""
     candidates = [
         common.categorical_timeline(
-            wide, "payload.gimbal_state", name="payload_fsm", title="Gimbal arbiter FSM state"
+            wide, "payload.graph", name="payload_graph", title="Selected payload graph"
+        ),
+        common.categorical_timeline(
+            wide, "payload.node", name="payload_node", title="Active payload node"
         ),
         common.line_panel(
             wide,

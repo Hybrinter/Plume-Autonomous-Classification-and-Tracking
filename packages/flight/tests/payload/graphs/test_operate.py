@@ -4,14 +4,16 @@ import math
 
 import numpy as np
 from flight.libs.config import EphemerisConfig
-from flight.libs.types import FaultCode
+from flight.libs.types import (
+    ActivationKey,
+    FaultCode,
+)
 from flight.payload.gimbal.request import InhibitReference, PoseReference, RateReference
 from flight.payload.graphs import operate
 from flight.payload.graphs.base import SystemRequestIntent
 from flight.payload.graphs.operate.state import HoldState, State, TargetState
 from flight.payload.graphs.parameters import GraphParameters
 from flight.payload.records import (
-    ActivationKey,
     HealthSample,
     IssSample,
 )
@@ -142,7 +144,7 @@ def test_coast_exhaustion_away_from_limb_rewinds(
     state, _ = operate.step(
         state, tick(0.02, key, encoder_angle_rad=math.radians(20.0), vision=sample), params
     )
-    now = params.config.controller.arbiter.max_observation_age_s + 0.04
+    now = params.config.controller.operate.max_observation_age_s + 0.04
     new_state, outcome = operate.step(
         state, tick(now, key, encoder_angle_rad=math.radians(20.0)), params
     )
@@ -167,7 +169,7 @@ def test_coast_exhaustion_at_limb_holds(
     state = operate.initial_state(tick(0.0, key, encoder_angle_rad=angle), params)
     sample = vision(0.0, key, blobs=(blob(),), theta_g_rad=angle)
     state, _ = operate.step(state, tick(0.02, key, encoder_angle_rad=angle, vision=sample), params)
-    now = params.config.controller.arbiter.max_observation_age_s + 0.04
+    now = params.config.controller.operate.max_observation_age_s + 0.04
     new_state, outcome = operate.step(state, tick(now, key, encoder_angle_rad=angle), params)
     assert new_state.node is operate.OperateNode.HOLD
     assert new_state.hold.reason is operate.HoldReason.LIMB_WAIT
@@ -191,7 +193,7 @@ def test_empty_frames_release_by_persistence(
     state, _ = operate.step(
         state, tick(0.02, key, encoder_angle_rad=math.radians(20.0), vision=sample), params
     )
-    persist = params.config.controller.arbiter.release_persistence_frames
+    persist = params.config.controller.operate.release_persistence_frames
     for index in range(persist):
         t_s = 0.04 + index * 0.02
         empty = vision(t_s, key, blobs=(), theta_g_rad=math.radians(20.0))
@@ -218,7 +220,7 @@ def test_release_frame_id_seen_once(
     state, _ = operate.step(
         state, tick(0.02, key, encoder_angle_rad=math.radians(20.0), vision=sample), params
     )
-    persist = params.config.controller.arbiter.release_persistence_frames
+    persist = params.config.controller.operate.release_persistence_frames
     last_empty = None
     for index in range(persist):
         t_s = 0.04 + index * 0.02
@@ -295,7 +297,7 @@ def test_rewind_reacquires_to_tracking(
     state, _ = operate.step(
         state, tick(0.02, key, encoder_angle_rad=math.radians(20.0), vision=sample), params
     )
-    now = params.config.controller.arbiter.max_observation_age_s + 0.04
+    now = params.config.controller.operate.max_observation_age_s + 0.04
     state, _ = operate.step(state, tick(now, key, encoder_angle_rad=math.radians(20.0)), params)
     assert state.node is operate.OperateNode.REWIND
     planted = np.array([0.15, 0.04], dtype=np.float64)
@@ -539,7 +541,7 @@ def test_rewind_uses_boresight_not_stored_cog(
         params,
     )
     assert state.target.r_cog_ecef_m is not None
-    now = params.config.controller.arbiter.max_observation_age_s + 0.04
+    now = params.config.controller.operate.max_observation_age_s + 0.04
     state, outcome = operate.step(
         state,
         tick(now, key, encoder_angle_rad=math.radians(20.0), navigation=iss),

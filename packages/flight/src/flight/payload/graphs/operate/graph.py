@@ -178,12 +178,12 @@ def _coast_exhausted(
     has_plume = vision is not None and len(vision.sample.blobs) > 0
     if has_plume or state.loss_handled:
         return False
-    arbiter = params.config.controller.arbiter
+    operate_cfg = params.config.controller.operate
     miss = state.miss_count + 1 if vision is not None else state.miss_count
-    empty_release = vision is not None and miss >= arbiter.release_persistence_frames
+    empty_release = vision is not None and miss >= operate_cfg.release_persistence_frames
     age_release = (
         state.last_observation_s is not None
-        and max(0.0, now_s - state.last_observation_s) >= arbiter.max_observation_age_s
+        and max(0.0, now_s - state.last_observation_s) >= operate_cfg.max_observation_age_s
     )
     return empty_release or age_release
 
@@ -200,12 +200,12 @@ def _automatic_edge(
     exhaustion check is last and commits once per loss via loss_handled.
     """
     gimbal = params.config.gimbal
-    arbiter = params.config.controller.arbiter
+    operate_cfg = params.config.controller.operate
     has_plume = vision is not None and len(vision.sample.blobs) > 0
     encoder = inputs.encoder
     assert encoder is not None
     at_limb = (
-        math.degrees(encoder.angle_rad) >= gimbal.el_science_max_deg - arbiter.limb_arrival_deg
+        math.degrees(encoder.angle_rad) >= gimbal.el_science_max_deg - operate_cfg.limb_arrival_deg
     )
     node = state.node
     if has_plume:

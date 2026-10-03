@@ -5,14 +5,15 @@
 
 ## Purpose
 
-The types package holds enumerations, the `Result` error wrapper, and raw-frame value types. It
-is the dependency root for most flight code.
+The types package holds enumerations, the `Result` error wrapper, raw-frame value types, and
+the authority-scoped activation identity. It is the dependency root for most flight code.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`enums`](types/enums.md) | module | System, gimbal, fault, message, and command enumerations |
+| [`activation`](types/activation.md) | module | `ActivationKey` authority-scoped identity record |
+| [`enums`](types/enums.md) | module | System, fault, message, and command enumerations |
 | [`result`](types/result.md) | module | `Ok`, `Err`, and `Result[T, E]` types |
 | [`frames`](types/frames.md) | module | `MosaicFrame` raw sensor frame value type |
 
@@ -22,8 +23,9 @@ is the dependency root for most flight code.
 
 | Name | Kind |
 | --- | --- |
+| `ActivationKey` | dataclass |
 | `AckStatus`, `Band`, `CommandId`, `DownlinkPriority`, `FaultCode`, `FrameUsabilityTag` | enum |
-| `GimbalCommandMode`, `GimbalState`, `LinkState`, `MessageType` | enum |
+| `GimbalCommandMode`, `LinkState`, `MessageType`, `ModeTransitionDecision` | enum |
 | `ModelDeployState`, `ParamKind`, `SystemMode` | enum |
 | `Err`, `Ok`, `Result` | type |
 | `MosaicFrame` | class |

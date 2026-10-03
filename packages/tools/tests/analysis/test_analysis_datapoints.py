@@ -1,9 +1,24 @@
 """Tests for the analysis signal registry (datapoints)."""
 
+import math
+from dataclasses import replace
+
+import pytest
+from flight.libs.config import PactConfig
+from flight.libs.time import ManualClock
+from flight.libs.types import ActivationKey
+from flight.payload.graphs import runtime
+from flight.payload.graphs.base import ActivationSnapshot, GraphId, TickInputs
+from flight.payload.graphs.parameters import GraphParameters
+from flight.payload.records import HealthSample
+from flight.payload.tracking import EncoderSample
+from sim.scene import build_frames, plume_detector
+from sim.sil import build_sil_system
 from tools.analysis.datapoints import (
     GROUPS,
     MESSAGE_TYPES,
     REGISTRY,
+    SampleContext,
     Signal,
     SignalKind,
     accumulable_names,
@@ -11,6 +26,7 @@ from tools.analysis.datapoints import (
     signal_names,
     signals_for_group,
 )
+from tools.analysis.recorder import sample_devices
 
 _EXPECTED_GROUPS = {
     "system",
@@ -79,3 +95,60 @@ def test_accumulable_names_are_event_rate_registry_signals() -> None:
 def test_signal_names_matches_registry_order() -> None:
     """signal_names returns the registry names in order."""
     assert signal_names() == tuple(signal.name for signal in REGISTRY)
+
+
+@pytest.mark.parametrize("graph_id", [None, *GraphId])
+def test_extractors_handle_each_graph_without_masking_errors(graph_id: GraphId | None) -> None:
+    """Every registered extractor runs directly; missing graph data is intentional."""
+    config = PactConfig()
+    system = build_sil_system(config, ManualClock(), build_frames(1), plume_detector())
+    state = system.apps.payload.initial_state()
+    if graph_id is not None:
+        key = ActivationKey(epoch=state.activation.expected_epoch, sequence=1)
+        inputs = TickInputs(
+            now_s=0.0,
+            timestamp_utc="2026-06-01T00:00:00.000Z",
+            activation_key=key,
+            encoder=EncoderSample(sample_id="encoder", t_s=0.0, angle_rad=0.0),
+            navigation=None,
+            vision=None,
+            health=HealthSample(feedback_valid=True, inhibit_confirmed=True, contained=False),
+        )
+        state = replace(
+            state,
+            activation=replace(
+                state.activation,
+                last=ActivationSnapshot(
+                    key=key, graph_id=graph_id, previous_graph=None, reason="test"
+                ),
+            ),
+            graph=runtime.initial_state(graph_id, inputs, GraphParameters(config=config)),
+        )
+    ctx = SampleContext(
+        step=1,
+        t=0.0,
+        system=system,
+        payload_state=state,
+        fault_entries=system.apps.fault.initial_entries(),
+        messages={},
+        devices=sample_devices(system),
+    )
+    values = {signal.name: signal.extract(ctx) for signal in REGISTRY}
+    assert values["system.mode"] == ("" if graph_id is None else graph_id.name)
+    assert values["payload.graph"] == ("" if graph_id is None else graph_id.value)
+    assert values["payload.node"] == ("" if state.graph is None else state.graph.node.value)
+    if graph_id is not GraphId.OPERATE:
+        for name in (
+            "payload.e_hat",
+            "payload.omega_t_res",
+            "payload.residual_p00",
+            "payload.residual_p11",
+            "payload.residual_p_trace",
+            "payload.aggregate_live",
+            "payload.tracked_blobs",
+        ):
+            value = values[name]
+            assert isinstance(value, float) and math.isnan(value), name
+    assert "payload.gimbal_state" not in values
+    assert "payload.current_target_id" not in values
+    assert "fault.safety_mode" not in values

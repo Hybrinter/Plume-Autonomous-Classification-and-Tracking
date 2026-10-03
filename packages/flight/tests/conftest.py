@@ -5,8 +5,7 @@ from pathlib import Path
 import pytest
 from flight.core import load_config
 from flight.libs.config import PactConfig
-from flight.libs.types import GimbalState, Ok
-from flight.payload.gimbal import ArbiterState
+from flight.libs.types import Ok
 
 
 def _repo_root() -> Path:
@@ -28,14 +27,3 @@ def default_config() -> PactConfig:
     result = load_config(str(_REPO_ROOT / "config" / "default.toml"))
     assert isinstance(result, Ok)
     return result.value
-
-
-@pytest.fixture
-def arbiter_tracking_state() -> ArbiterState:
-    """An ArbiterState in GimbalState.TRACKING with no tracked blobs."""
-    return ArbiterState(
-        gimbal_state=GimbalState.TRACKING,
-        tracked_blobs=(),
-        current_target_id=None,
-        miss_count=0,
-    )

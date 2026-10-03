@@ -24,10 +24,12 @@ subsystem app publishes and subscribes using these types.
 | `BlobMeta` | class |
 | `CommandAckMsg`, `CommandMsg`, `DownlinkItemMsg`, `FaultEventMsg` | class |
 | `GimbalCommandMsg`, `HeartbeatMsg`, `InferenceResultMsg` | class |
-| `LinkStateMsg`, `ModeChangeMsg` | class |
-| `ModelDeployStateMsg`, `ModelStagedMsg`, `ProcessedFrameMsg` | class |
-| `ProductRefMsg`, `RoutedCommandMsg`, `SafetyStateMsg` | class |
-| `StorageWriteMsg`, `TelemetryEventMsg`, `UploadChunkMsg` | class |
+| `LinkStateMsg`, `ModelDeployStateMsg`, `ModelStagedMsg` | class |
+| `ProcessedFrameMsg`, `ProductRefMsg`, `RoutedCommandMsg` | class |
+| `SafetyStateMsg`, `StorageWriteMsg`, `TelemetryEventMsg` | class |
+| `SystemModeActivatedMsg`, `SystemModeRequestMsg` | class |
+| `SystemModeSyncRequestMsg`, `SystemModeTransitionMsg` | class |
+| `CommandCorrelation`, `UploadChunkMsg` | class |
 | `utc_now_iso` | function |
 
 ## Interactions
@@ -41,7 +43,7 @@ the bus; large artifacts use direct storage access or inline bytes in `DownlinkI
 - Every message is `@dataclass(frozen=True)`.
 - `msg_type: MessageType` is the first field. `timestamp_utc: str` is the second field.
 - `timestamp_utc` uses `YYYY-MM-DDTHH:MM:SS.mmmZ` format with a trailing `Z`.
-- `schema_version` defaults to `SCHEMA_VERSION` (currently `1`) on every message.
+- `schema_version` defaults to `SCHEMA_VERSION` (currently `3`) on every message.
 - Raw sensor frames never appear as bus messages. Use `MosaicFrame` from `flight.libs.types`.
 - Treat received messages as immutable. The bus delivers the same object reference to every
   subscriber.

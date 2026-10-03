@@ -30,13 +30,13 @@ from flight.hal.drivers_sim import SimGimbal, SimScalarSensor, SimSensor, SimSta
 from flight.libs.bus import MessageBus
 from flight.libs.config import DriverConfig, PactConfig
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, MosaicFrame
-from flight.payload.control import ControlState
+from flight.libs.types import MosaicFrame, SystemMode
 from flight.payload.inference import ScriptedDetector
+from flight.payload.state import PayloadState
 
 from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
-from sim.sil.validation import build_validation_system
+from sim.sil.validation import _GRAPH_TO_MODE, build_validation_system
 
 
 @dataclass(frozen=True)
@@ -130,19 +130,34 @@ class SilHarness:
         """
         self._system = system
         self._bind = bind
-        self._now = 0.0
-        self._payload_state: ControlState = system.apps.payload.controller.initial_state()
+        self._now = system.clock.monotonic_s()
+        self._payload_state: PayloadState = system.apps.payload.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
 
-    def payload_gimbal_state(self) -> GimbalState:
-        """Return the payload arbiter's current GimbalState (test/inspection accessor)."""
-        return self._payload_state.arbiter.gimbal_state
+    def payload_graph(self) -> str | None:
+        """Return the active payload GraphId value, or None before activation."""
+        last = self._payload_state.activation.last
+        return None if last is None else last.graph_id.value
+
+    def payload_node(self) -> str | None:
+        """Return the active graph node value, or None before activation."""
+        if self._payload_state.graph is None:
+            return None
+        return str(self._payload_state.graph.node.value)
+
+    def payload_system_mode(self) -> SystemMode | None:
+        """Return the system mode of the last accepted activation, or None."""
+        last = self._payload_state.activation.last
+        if last is None:
+            return None
+        return _GRAPH_TO_MODE[last.graph_id]
 
     def step(self, now: float) -> None:
         """Advance every subsystem one cycle over the shared bus (delegates to step_once).
 
         Args:
-            now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
+            now: Target monotonic seconds for the graphs and watchdog;
+                step_once advances the shared clock forward to it.
         """
         self._now = now
         system = self._system
@@ -159,10 +174,10 @@ class SilHarness:
         )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:
-        """Run count deterministic steps, advancing `now` and the shared clock by dt each step.
+        """Run count deterministic steps, advancing `now` by dt each step.
 
-        Advancing the shared ManualClock after each step lets SimGimbal apply
-        catch-up debt against the clock jump without double-counting plant time.
+        step_once owns the shared ManualClock: each step advances it forward
+        to the step's `now`, so callers never advance the clock separately.
 
         Args:
             count: Number of steps to run.
@@ -172,4 +187,3 @@ class SilHarness:
         for _ in range(count):
             now += dt
             self.step(now)
-            self._system.clock.advance(dt)

@@ -36,11 +36,16 @@ def test_builtin_scenario_runs(name: str, builtin_runs: dict[str, ScenarioRun]) 
     assert run.capture.n_steps == SCENARIOS[name].steps
 
 
-def test_power_drives_safe_and_stow(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """A power over-limit run latches SAFE and stows the gimbal."""
+def test_power_contains_without_selecting_safe_or_stowing(
+    builtin_runs: dict[str, ScenarioRun],
+) -> None:
+    """A SAFE request inhibits motion but does not grant an activation or stow."""
     run = builtin_runs["power_over_limit_safe"]
     assert _ever_positive(run, "system", "system.safe_latched")
-    assert _ever_positive(run, "payload", "payload.stow_switch")
+    assert _ever_positive(run, "payload", "payload.motion_inhibited")
+    assert not _ever_positive(run, "payload", "payload.stow_switch")
+    assert _final(run, "system", "system.mode") == "OPERATE"
+    assert _final(run, "payload", "payload.graph") == "operate"
 
 
 def test_thermal_hot_sample_stays_nominal(builtin_runs: dict[str, ScenarioRun]) -> None:
@@ -51,19 +56,29 @@ def test_thermal_hot_sample_stays_nominal(builtin_runs: dict[str, ScenarioRun]) 
     assert float(temps.max()) >= 95.0
 
 
-def test_injected_faults_drive_safe(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """The gimbal-runaway and watchdog runs reach SAFE via the injected fault."""
+def test_injected_faults_contain_without_activating_safe(
+    builtin_runs: dict[str, ScenarioRun],
+) -> None:
+    """Runaway and watchdog faults latch containment without inventing an activation."""
     for name in ("gimbal_runaway", "watchdog_process_died"):
         run = builtin_runs[name]
         assert _final(run, "system", "system.safe_latched") == 1.0
+        assert _ever_positive(run, "fault", "fault.mode_request_count")
+        assert _final(run, "system", "system.mode") == "OPERATE"
+        assert _final(run, "payload", "payload.graph") == "operate"
+        assert _final(run, "payload", "payload.motion_inhibited") == 1.0
 
 
-def test_exit_safe_recovery_unlatches(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """The recovery run latches SAFE but ends un-latched and back in operations."""
+def test_exit_safe_without_authority_does_not_unlatch(
+    builtin_runs: dict[str, ScenarioRun],
+) -> None:
+    """Routing EXIT_SAFE cannot clear containment without authorized activation."""
     run = builtin_runs["exit_safe_recovery"]
     assert _ever_positive(run, "system", "system.safe_latched")
-    assert _final(run, "system", "system.safe_latched") == 0.0
-    assert _final(run, "payload", "payload.gimbal_state") != "SAFE"
+    assert _final(run, "system", "system.safe_latched") == 1.0
+    assert _final(run, "payload", "payload.motion_inhibited") == 1.0
+    assert _final(run, "payload", "payload.graph") == "operate"
+    assert _final(run, "system", "system.mode") == "OPERATE"
 
 
 def test_model_lifecycle_activates_then_rolls_back(builtin_runs: dict[str, ScenarioRun]) -> None:

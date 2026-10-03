@@ -13,7 +13,7 @@ object is constructed.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `ArbiterConfig` | class | TRACKING / REWIND / FAST_REWIND / SAFE persistence and limb arrival |
+| `OperateGraphConfig` | class | TRACKING / REWIND / FAST_REWIND / HOLD persistence, limb arrival, and observation-age ceiling |
 | `VisionConfig` | class | Blob gates and in-process vision queue depth |
 | `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
 | `OuterLoopConfig` | class | Outer period, Kp, and REWIND window before FAST_REWIND |
@@ -21,7 +21,7 @@ object is constructed.
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
 | `IntegrityConfig` | class | Catch-up cap and light GIMBAL_RUNAWAY detector |
-| `ControllerConfig` | class | Nested vision, arbiter, inner, outer, residual, position, integrity, and predictor configs |
+| `ControllerConfig` | class | Nested vision, operate, inner, outer, residual, position, integrity, and predictor configs |
 | `InferenceConfig` | class | Model paths, input bands, tensor size, and latency budget |
 | `CommsConfig` | class | Downlink/uplink rates, APID, and pass budgets |
 | `StorageConfig` | class | Data root, capacity, and checksum algorithm |
@@ -79,7 +79,7 @@ Nested tables under `[controller]`:
 
 - `vision`: `confidence_gate`, `blob_iou_match_threshold`, `min_blob_area_px`,
   `queue_depth`
-- `arbiter`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
+- `operate`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
 - `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
 - `outer`: `dt_s`, `Kp`, `rewind_sharp_max_s`
 - `predictor`: `cog_height_m`
@@ -126,7 +126,7 @@ not compare these values.
 
 Hardware elevation `[0, +90]` deg, science window `[+5, +45]`, stow at `+90`
 (flat launch pose), home at `+45`, and max hardware slew. Plant `J_kg_m2` is capped
-by the XRT-U-60 payload inertia limit, with `B_nms_per_rad`, `tau_max_nm` (90 mN·m),
+by the XRT-U-60 payload inertia limit, with `B_nms_per_rad`, `tau_max_nm` (90 mN*m),
 64800 encoder counts, and sim encoder noise. There is no azimuth travel field.
 
 ### LinkConfig

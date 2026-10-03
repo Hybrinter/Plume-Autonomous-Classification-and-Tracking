@@ -29,6 +29,7 @@ read TOML directly.
 | `GimbalConfig`, `GimbalSimulationConfig`, `XeryonConfig` | class |
 | `InferenceConfig`, `IntegrityConfig`, `PredictorConfig` | class |
 | `LinkConfig`, `PactConfig`, `PreprocessingConfig` | class |
+| `PayloadPolicyConfig`, `PayloadPolicyOverrideConfig` | class |
 | `SensorConfig`, `SensorCaptureConfig`, `SensorOpticsConfig` | class |
 | `StorageConfig`, `ThermalConfig` | class |
 

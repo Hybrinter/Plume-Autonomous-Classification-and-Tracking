@@ -606,6 +606,46 @@ class EphemerisConfig:
     epoch_utc_s: float = 1_788_249_600.0
 
 
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
+class PayloadPolicyOverrideConfig:
+    """Optional imaging/inference policy fields; None inherits the base policy.
+
+    Every field is an override, not a value: an omitted field inherits the
+    sensor-derived base first, then the operate-graph override, so a node
+    table only restates the fields it actually changes. Cross-field
+    combinations (enabled inference with disabled acquisition, zero duty with
+    enabled inference, exposure exceeding the interval, camera bounds/rate
+    violations) are rejected later by the payload policy resolver, not here.
+    """
+
+    acquisition_enabled: bool | None = None
+    capture_interval_s: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
+    duty_cycle: float | None = Field(default=None, ge=0.0, le=1.0, allow_inf_nan=False)
+    exposure_us: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
+    gain_db: float | None = Field(default=None, ge=0.0, allow_inf_nan=False)
+    publish_products: bool | None = None
+    inference_enabled: bool | None = None
+    every_n_frames: int | None = Field(default=None, ge=1, strict=True)
+
+
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
+class PayloadPolicyConfig:
+    """Payload imaging/inference overrides by graph scope and OPERATE node.
+
+    ``operate`` applies over the sensor-derived base for the whole OPERATE
+    graph; each named node field then applies over the resolved operate
+    policy. Other graphs carry no configurable imaging and stay off. All
+    fields default to empty tables, so the shipped policy equals the
+    sensor-derived base with no overrides.
+    """
+
+    operate: PayloadPolicyOverrideConfig = field(default_factory=PayloadPolicyOverrideConfig)
+    tracking: PayloadPolicyOverrideConfig = field(default_factory=PayloadPolicyOverrideConfig)
+    rewind: PayloadPolicyOverrideConfig = field(default_factory=PayloadPolicyOverrideConfig)
+    fast_rewind: PayloadPolicyOverrideConfig = field(default_factory=PayloadPolicyOverrideConfig)
+    hold: PayloadPolicyOverrideConfig = field(default_factory=PayloadPolicyOverrideConfig)
+
+
 # A deployment axis is wired to either a sim stand-in or the real device/driver.
 AxisMode = Literal["sim", "real"]
 
@@ -653,6 +693,7 @@ class PactConfig:
     command_ingress: CommandIngressConfig = field(default_factory=CommandIngressConfig)
     command_router: CommandRouterConfig = field(default_factory=CommandRouterConfig)
     ephemeris: EphemerisConfig = field(default_factory=EphemerisConfig)
+    payload_policy: PayloadPolicyConfig = field(default_factory=PayloadPolicyConfig)
     drivers: DriverConfig = field(default_factory=DriverConfig)
 
     @model_validator(mode="after")

@@ -13,16 +13,20 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from flight.libs.config import PactConfig
+from flight.libs.config import PactConfig, PayloadPolicyOverrideConfig
+from flight.libs.types import Err, FaultCode, Result
 from flight.payload.gimbal.intersect import CameraGeometry
 from flight.payload.gimbal.request import TravelEnvelope
 from flight.payload.graphs.base import (
     EffectivePolicy,
+    ImagingOverride,
     ImagingPolicy,
+    InferenceOverride,
     InferencePolicy,
     ModelSelection,
     PolicyLimits,
     TickInputs,
+    resolve_policy,
 )
 from flight.payload.tracking.residual import ResidualFilter
 
@@ -163,6 +167,77 @@ class GraphParameters:
             model=ModelSelection.CONFIGURED,
         )
         return EffectivePolicy(imaging=imaging, inference=inference)
+
+    def operating_policy(
+        self, node_override: PayloadPolicyOverrideConfig | None = None
+    ) -> Result[EffectivePolicy, FaultCode]:
+        """Resolve the OPERATE imaging/inference policy for one node.
+
+        Inheritance order: sensor-derived enabled base, then the operate-graph
+        override, then the named node override. Each stage resolves optional
+        fields over the previous result and revalidates the complete policy
+        against the sensor limits, so an invalid resolved combination --
+        enabled inference with disabled acquisition, zero duty with enabled
+        inference, exposure exceeding the interval, or bounds/rate violations
+        -- returns Err(COMMAND_INVALID) rather than an applied policy.
+
+        Inputs:
+            node_override: Optional per-node override fields; None resolves
+                the graph-scoped policy only.
+
+        Outputs:
+            Result[EffectivePolicy, FaultCode]: The validated effective
+                policy, or Err(COMMAND_INVALID) on any invalid resolution.
+        """
+        base = self.default_policy(enabled=True)
+        operate_cfg = self.config.payload_policy.operate
+        resolved = resolve_policy(
+            base.imaging,
+            base.inference,
+            _imaging_override(operate_cfg),
+            _inference_override(operate_cfg),
+            self.policy_limits,
+        )
+        if isinstance(resolved, Err) or node_override is None:
+            return resolved
+        return resolve_policy(
+            resolved.value.imaging,
+            resolved.value.inference,
+            _imaging_override(node_override),
+            _inference_override(node_override),
+            self.policy_limits,
+        )
+
+
+def _imaging_override(cfg: PayloadPolicyOverrideConfig) -> ImagingOverride:
+    """Project the flat typed override onto the imaging-only override record.
+
+    Inputs:
+        cfg: Typed config override fields; None inherits the resolved base.
+
+    Outputs:
+        ImagingOverride: The imaging-side projection of `cfg`.
+    """
+    return ImagingOverride(
+        acquisition_enabled=cfg.acquisition_enabled,
+        capture_interval_s=cfg.capture_interval_s,
+        duty_cycle=cfg.duty_cycle,
+        exposure_us=cfg.exposure_us,
+        gain_db=cfg.gain_db,
+        publish_products=cfg.publish_products,
+    )
+
+
+def _inference_override(cfg: PayloadPolicyOverrideConfig) -> InferenceOverride:
+    """Project the flat typed override onto the inference-only override record.
+
+    Inputs:
+        cfg: Typed config override fields; None inherits the resolved base.
+
+    Outputs:
+        InferenceOverride: The inference-side projection of `cfg`.
+    """
+    return InferenceOverride(enabled=cfg.inference_enabled, every_n_frames=cfg.every_n_frames)
 
 
 def encoder_fresh(inputs: TickInputs, params: GraphParameters) -> bool:

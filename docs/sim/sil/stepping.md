@@ -39,8 +39,11 @@ before acquire.
 3. Take one control-owned feedback sample (`sample_feedback`) so a non-grid
    shutter has actual encoder evidence, then run `bind.pre_step(now)` when a
    bind is present.
-4. Run one conservative capture cycle (`capture_once`): acquire and process when
-   the policy/duty gate is due, otherwise drain one unread frame.
+4. Run one planned capture cycle (`capture_once`): the same pure
+   `plan_capture` deadline/duty schedule used by the production `run` loop
+   decides `WAIT` (no I/O), `DRAIN` (release one buffered frame), or
+   `CAPTURE` (acquire and process). Repeated early harness calls spend no
+   opportunities; deadline semantics are identical in SIL and production.
 5. Run iss_iface and command_router ticks.
 6. Run thermal and electrical handle-commands and sample.
 7. Run model_deploy, storage, and downlink ticks.
@@ -54,10 +57,12 @@ pose commands routed this cycle apply on a later cycle's catch-up.
 
 ## Errors and faults
 
-An off-duty cycle drains one frame; it does not acquire. Sensor acquire or gimbal
-read failures skip `process_frame` for that cycle. Fault routing happens inside the
-fault app tick. `bind.pre_step` may raise `ValueError` when a live mosaic would mix
-with unread constructor frames.
+A `DRAIN` cycle releases one buffered frame; it does not acquire. Sensor
+acquire or gimbal read failures skip `process_frame` for that cycle, and a
+current imaging failure queues containment for the next control poll through
+`pending_fault`. Fault routing happens inside the fault app tick.
+`bind.pre_step` may raise `ValueError` when a live mosaic would mix with
+unread constructor frames.
 
 ## Messages
 

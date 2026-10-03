@@ -12,10 +12,11 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+from flight.libs.types import Err, FaultCode
 from flight.payload.gimbal.outer import RateDecision, rate_decision, smear_cap_rad_s
 from flight.payload.gimbal.request import InhibitReference, RateReference
 from flight.payload.gimbal.scene import boresight_scene
-from flight.payload.graphs.base import NodeOutcome, TickInputs
+from flight.payload.graphs.base import NodeOutcome, SystemRequestIntent, TickInputs
 from flight.payload.graphs.operate.state import OperateNode, State, bookkeep_vision
 from flight.payload.graphs.parameters import GraphParameters, encoder_fresh
 
@@ -36,7 +37,15 @@ def step(
         tuple[State, NodeOutcome[OperateNode]]: Updated state and the
             RateReference outcome under the science envelope.
     """
-    policy = params.default_policy(enabled=True)
+    resolved = params.operating_policy(params.config.payload_policy.fast_rewind)
+    if isinstance(resolved, Err):
+        return state, NodeOutcome(
+            reference=InhibitReference(reason="invalid_policy"),
+            policy=params.default_policy(enabled=False),
+            system_request=SystemRequestIntent.SAFE,
+            faults=(FaultCode.COMMAND_INVALID,),
+        )
+    policy = resolved.value
     encoder = inputs.encoder
     if encoder is None or not encoder_fresh(inputs, params):
         return state, NodeOutcome(

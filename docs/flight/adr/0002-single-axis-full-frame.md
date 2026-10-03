@@ -4,7 +4,7 @@
 **Date:** 2026-09-03
 **Topic:** feature-remove
 **Supersedes:** none
-**Superseded-by:** ADR-FLIGHT-0003 (inference latency and factory ONNX spatial contract)
+**Superseded-by:** ADR-FLIGHT-0003 (inference latency and factory ONNX spatial contract), ADR-FLIGHT-0007 (SAFE stow)
 **Related:** ADR-REPO-0007, ADR-REPO-0008
 
 ## Context

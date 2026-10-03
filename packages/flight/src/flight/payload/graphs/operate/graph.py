@@ -4,6 +4,8 @@ TRACKING keeps the residual estimate; REWIND and FAST_REWIND hunt toward the
 science limb; HOLD is limb-wait (auto-exits on vision) or manual (never).
 Valid directed commands commit before automatic vision edges; at most one edge
 commits per tick and the destination node's outcome applies same tick.
+Stale or missing encoder feedback inhibits motion and keeps the enabled
+imaging policy; other inhibit reasons disable acquisition and inference.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001, REQ-AIML-GIMB-008.
 """
@@ -140,13 +142,31 @@ def _inhibit(
     reason: str,
     system_request: SystemRequestIntent | None = None,
     faults: tuple[FaultCode, ...] = (),
+    *,
+    enabled: bool = False,
 ) -> tuple[State, GraphOutcome[OperateNode]]:
-    """Same-state inhibit outcome helper."""
+    """Same-state inhibit outcome.
+
+    ``enabled`` selects the imaging policy. Stale feedback passes true and
+    keeps acquisition and inference. Other callers leave it false.
+
+    Inputs:
+        state: Current OPERATE state; returned unchanged.
+        params: Graph parameters supplying the default policy.
+        reason: Inhibit reference reason.
+        system_request: Optional SAFE intent.
+        faults: Fault codes raised with this inhibit.
+        enabled: Whether acquisition and inference stay on.
+
+    Outputs:
+        tuple[State, GraphOutcome[OperateNode]]: Unchanged state and an
+            inhibit outcome with no transition.
+    """
     return state, GraphOutcome(
         node=state.node,
         outcome=NodeOutcome(
             reference=InhibitReference(reason=reason),
-            policy=params.default_policy(enabled=False),
+            policy=params.default_policy(enabled=enabled),
             system_request=system_request,
             faults=faults,
         ),
@@ -470,7 +490,7 @@ def step(
     if inputs.health.contained:
         return _inhibit(state, params, "contained", system_request=SystemRequestIntent.SAFE)
     if not encoder_fresh(inputs, params):
-        return _inhibit(state, params, "stale_feedback")
+        return _inhibit(state, params, "stale_feedback", enabled=True)
 
     vision = accept_vision(state, inputs, params)
     if vision is not None and vision.sample.mode_flags != 0:

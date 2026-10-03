@@ -157,6 +157,53 @@ def test_coast_exhaustion_away_from_limb_rewinds(
     assert outcome.outcome.reference.rate_rad_s > 0.0
 
 
+def test_delayed_plume_keeps_newest_observation_time(
+    params: GraphParameters,
+    tick: TickBuilder,
+    vision: VisionBuilder,
+    blob: BlobBuilder,
+    key: ActivationKey,
+) -> None:
+    """A late plume inside the replay window does not age the live aggregate."""
+    from flight.payload.tracking.residual import ObservationDisposition
+
+    theta = math.radians(20.0)
+    plume = blob(1, (612.0, 442.0))
+    state = operate.initial_state(tick(0.0, key, encoder_angle_rad=theta), params)
+    first = vision(0.0, key, blobs=(plume,), theta_g_rad=theta)
+    state, _ = operate.step(state, tick(0.0, key, encoder_angle_rad=theta, vision=first), params)
+    for t_s in (0.02, 0.04):
+        state, _ = operate.step(state, tick(t_s, key, encoder_angle_rad=theta), params)
+    newer_t = 0.06
+    newer = vision(newer_t, key, blobs=(plume,), theta_g_rad=theta)
+    state, _ = operate.step(
+        state, tick(newer_t, key, encoder_angle_rad=theta, vision=newer), params
+    )
+    assert state.last_observation_s == newer_t
+    delayed_t = 0.04
+    delayed = vision(delayed_t, key, blobs=(plume,), theta_g_rad=theta)
+    arrival = 0.08
+    age_limit = params.config.controller.operate.max_observation_age_s
+    assert arrival - delayed_t <= params.residual_filter.rewind_horizon_s
+    assert arrival - delayed_t <= age_limit
+    state, _ = operate.step(
+        state, tick(arrival, key, encoder_angle_rad=theta, vision=delayed), params
+    )
+    assert state.last_observation_s == newer_t
+    assert state.vision_disposition is ObservationDisposition.ACCEPTED
+    assert any(
+        obs.frame_id == delayed.sample.frame_id
+        for obs in state.residual_history.vision_observations
+    )
+    now = delayed_t + age_limit
+    assert now - newer_t < age_limit
+    state, outcome = operate.step(state, tick(now, key, encoder_angle_rad=theta), params)
+    assert state.node is operate.OperateNode.TRACKING
+    assert outcome.transition is None
+    assert state.aggregate_live is True
+    assert state.last_observation_s == newer_t
+
+
 def test_coast_exhaustion_at_limb_holds(
     params: GraphParameters,
     tick: TickBuilder,
@@ -444,6 +491,8 @@ def test_mode_flags_request_safe_without_moving(
     assert outcome.outcome.faults == (FaultCode.INFERENCE_NAN,)
     assert outcome.outcome.system_request is SystemRequestIntent.SAFE
     assert isinstance(outcome.outcome.reference, InhibitReference)
+    assert outcome.outcome.policy.imaging.acquisition_enabled is False
+    assert outcome.outcome.policy.inference.enabled is False
 
 
 def test_stale_context_and_duplicate_frames_do_not_refresh(
@@ -485,12 +534,21 @@ def test_stale_context_and_duplicate_frames_do_not_refresh(
 def test_stale_feedback_inhibits(
     params: GraphParameters, tick: TickBuilder, key: ActivationKey
 ) -> None:
-    """Stale or invalid feedback inhibits motion with no transition."""
+    """Stale or missing feedback inhibits motion and keeps imaging enabled."""
     state = operate.initial_state(tick(0.0, key), params)
     new_state, outcome = operate.step(state, tick(1.0, key, encoder_t_s=0.0, health=_STALE), params)
     assert new_state == state
     assert isinstance(outcome.outcome.reference, InhibitReference)
+    assert outcome.outcome.reference.reason == "stale_feedback"
     assert outcome.transition is None
+    assert outcome.outcome.policy.imaging.acquisition_enabled is True
+    assert outcome.outcome.policy.inference.enabled is True
+    missing_state, missing = operate.step(state, tick(0.02, key, encoder_angle_rad=None), params)
+    assert missing_state == state
+    assert isinstance(missing.outcome.reference, InhibitReference)
+    assert missing.outcome.reference.reason == "stale_feedback"
+    assert missing.outcome.policy.imaging.acquisition_enabled is True
+    assert missing.outcome.policy.inference.enabled is True
 
 
 def test_contained_requests_safe(
@@ -501,6 +559,8 @@ def test_contained_requests_safe(
     new_state, outcome = operate.step(state, tick(0.02, key, health=_CONTAINED), params)
     assert new_state == state
     assert outcome.outcome.system_request is SystemRequestIntent.SAFE
+    assert outcome.outcome.policy.imaging.acquisition_enabled is False
+    assert outcome.outcome.policy.inference.enabled is False
 
 
 def test_same_inputs_same_outputs(

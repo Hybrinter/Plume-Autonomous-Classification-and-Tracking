@@ -54,7 +54,8 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 4. For sim link, it pre-builds signed TC packets with `build_tc_packet` and passes them as
    `inbound_packets`.
 5. It creates bus subscriptions before the first step. When `Scenario.initial_mode` is set,
-   it injects that explicit test activation. Without it, the system remains unsynchronized.
+   it injects that explicit test activation through the fixture seam. Without it, the real
+   system-mode authority boots SAFE on the first step.
 6. Each `step` delegates to the harness step; `step_once` owns advancing the shared
    `ManualClock`, so backends never advance it separately.
 7. `collect` drains subscriptions, reads gimbal position with a noise tolerance, and polls
@@ -70,7 +71,8 @@ the validation harness in one process. `SocketBackend` is declared but not imple
 
 Backends subscribe passively to `InferenceResultMsg`, `GimbalCommandMsg`,
 `SystemModeActivatedMsg`, and `CommandAckMsg`. Scenario setup may publish one explicit
-test activation through the simulation seam; it does not implement a system-mode authority.
+test activation through the simulation seam; every other activation is arbitrated by the
+real system-mode authority the seam only seeds.
 
 ## Configuration
 

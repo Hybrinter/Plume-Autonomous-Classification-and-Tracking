@@ -56,7 +56,7 @@ its own.
 Each subsystem under `packages/flight/src/flight/` is an isolated **app**: a thin imperative shell
 around a pure core, talking to other apps **only** over the typed `MessageBus`
 (`flight.libs.bus`). No app imports or references another app. Peer apps
-(`payload`/`fault`/`iss_iface`/`thermal`/`electrical`) must never cross-import -- this
+(`payload`/`fault`/`system_modes`/`iss_iface`/`thermal`/`electrical`) must never cross-import -- this
 is enforced by the `flight-layers` import-linter contract (layer order: `core` > apps >
 `hal.interfaces` > `libs`).
 
@@ -166,8 +166,9 @@ Every app that runs a persistent loop emits `HeartbeatMsg` periodically (in its 
 `watchdog_interval_s`, default 5 s). The FDIR watchdog (`flight.fault`) monitors the subsystems in
 `flight.core.composition.MONITORED_SUBSYSTEMS` and emits `WATCHDOG_EXPIRE` after
 `watchdog_max_miss_count` (default 3) consecutive misses; `flight.fault.policy` routes that (and
-the other SAFE-triggering faults) to `SystemModeRequestMsg(SAFE)` for the external mode
-authority; the payload's own containment latch inhibits motion locally and independently.
+the other SAFE-triggering faults) to `SystemModeRequestMsg(SAFE)` for the system-mode
+authority (`flight.system_modes`); the payload's own containment latch inhibits motion
+locally and independently.
 
 **Implementation pattern:** loops use `stop_event.wait(timeout=interval)`, not `time.sleep`, so
 shutdown is immediate. The deterministic SIL harness stands in for these per-app heartbeats by

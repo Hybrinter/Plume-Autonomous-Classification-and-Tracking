@@ -34,7 +34,7 @@ an authorized activation record meets the recovery contract.
 2. A matching code produces `enter_safe_request`; all other codes produce `None`.
 3. `recovery_authorized` returns true only for an authority-approved EXIT_SAFE recovery:
    the record is marked `recovery_authorized`, carries a nonempty unspent `request_id`,
-   moves from SAFE to IDLE under the expected epoch, is strictly newer than the last
+   moves from SAFE to INIT under the expected epoch, is strictly newer than the last
    observed sequence, and no SAFE-triggering fault fired this tick.
 
 ## Errors and faults

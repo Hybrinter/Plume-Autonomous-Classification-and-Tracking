@@ -30,14 +30,14 @@ def test_numeric_stats_are_sane(builtin_runs: dict[str, ScenarioRun]) -> None:
 def test_categorical_stats_capture_transitions_and_mode(
     builtin_runs: dict[str, ScenarioRun],
 ) -> None:
-    """Containment does not create a graph transition without an activation."""
+    """The real authority's SAFE activation creates one recorded graph transition."""
     run = builtin_runs["power_over_limit_safe"]
     stats = summarize(run.capture).set_index("signal")
     fsm = stats.loc["payload.graph"]
     assert fsm["kind"] == "CATEGORICAL"
-    assert int(fsm["n_transitions"]) == 0
-    assert fsm["mode"] == "operate"
-    assert fsm["last"] == "operate"
+    assert int(fsm["n_transitions"]) == 1
+    assert fsm["mode"] == "safe"
+    assert fsm["last"] == "safe"
 
 
 def test_safe_latch_stats_reflect_the_fault(builtin_runs: dict[str, ScenarioRun]) -> None:

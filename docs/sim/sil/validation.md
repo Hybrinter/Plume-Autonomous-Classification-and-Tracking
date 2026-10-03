@@ -47,8 +47,12 @@ deterministically. GSE imports this surface and does not touch flight compositio
   `SystemMode`, authority sequence, optional previous mode, request id, and
   recovery flag.
 - Side effect: publishes one `SystemModeActivatedMsg` stamped with the system's
-  configured epoch. Explicit test injection seam only; the harness runs no
-  synthetic authority.
+  configured epoch. Explicit test/scenario fixture only: it bypasses the real
+  authority's arbitration and is not acceptance proof. When the record's epoch
+  matches and its sequence is strictly newer, the live authority's active
+  snapshot and sequence are seeded to it first, so the authority neither boots
+  a contradictory SAFE nor reuses the sequence. A stale or foreign-epoch
+  injection never rewrites the seed and never lowers the counter.
 
 **`load_profile_config(config_path, override_path) -> PactConfig`**
 
@@ -90,7 +94,9 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 - A `"real"` link axis yields `RealStationLink`. Other axes may stay sim.
 - GSE is the primary consumer of this module.
 - The harness does not call `bind.pre_step` itself.
-- `publish_activation` is the only activation path; no fabricated authority.
+- `publish_activation` bypasses authority arbitration; it seeds the authority
+  coherently for matching-epoch strictly-newer records and is never acceptance
+  proof.
 
 ## Related documents
 

@@ -96,6 +96,12 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("version", ParamKind.STR),),
         hazardous=False,
     ),
+    CommandId.SET_MODE: CommandSpec(
+        CommandId.SET_MODE,
+        "system_modes",
+        (ParamSpec("mode", ParamKind.STR),),
+        hazardous=False,
+    ),
     CommandId.GIMBAL_STOW: CommandSpec(CommandId.GIMBAL_STOW, "system_modes", (), hazardous=False),
     CommandId.GIMBAL_HOME: CommandSpec(CommandId.GIMBAL_HOME, "payload", (), hazardous=False),
     CommandId.GIMBAL_GOTO: CommandSpec(

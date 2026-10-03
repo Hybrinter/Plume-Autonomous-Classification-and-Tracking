@@ -1,0 +1,32 @@
+name = "stow_from_idle"
+profile = "sil-link-real"
+steps = 5
+dt = 1.0
+initial_mode = "IDLE"
+
+# GIMBAL_STOW is routed to the system-mode authority, which maps it to the
+# authoritative STOW activation; the payload STOW graph performs the stow move.
+# The command lands at frame 2, after the first fault-owned safety evidence is on
+# the bus (a step-1 command is correctly denied before any evidence exists).
+
+[scene]
+num_frames = 5
+seed = 0
+
+[[commands]]
+at_frame = 2
+command_id = "GIMBAL_STOW"
+source = "ground"
+seq = 1
+
+[[assertions]]
+id = "stow_from_idle.acked"
+kind = "command_acked"
+value = "ACCEPTED"
+tag = "frame-portable"
+
+[[assertions]]
+id = "stow_from_idle.reaches_stow"
+kind = "mode_is"
+value = "STOW"
+tag = "frame-portable"

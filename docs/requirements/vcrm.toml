@@ -139,7 +139,11 @@ statement = "SAFE is a single latched tier exited only by a ground EXIT_SAFE com
 method = "SIL"
 venue = "sil"
 modules = ["REQ-SAFE-EXIT-001"]
-evidence = ["packages/sim/tests/sil/test_sil_command_router.py"]
+evidence = [
+    "packages/sim/tests/sil/test_sil_command_router.py",
+    "packages/sim/tests/sil/test_mode_graph_acceptance.py",
+    "packages/flight/tests/system_modes/test_app.py",
+]
 status = "verified"
 
 [[requirement]]

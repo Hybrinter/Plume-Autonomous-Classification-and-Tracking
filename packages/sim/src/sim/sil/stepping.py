@@ -83,17 +83,22 @@ def step_once(
 ) -> tuple[PayloadState, dict[str, WatchdogEntry]]:
     """Advance every subsystem one deterministic cycle over the shared bus.
 
-    Order: drain payload activations/safety evidence at the current clock
+    Order: system-mode authority tick (boot SAFE plus any queued request is
+    decided before the payload's activation drain) -> drain payload
+    activations/safety evidence at the current clock
     -> inner-period control ticks that advance the shared clock to ``now``
     (routed payload commands commit inside the outer tick) -> optional
     bind.pre_step (one control-owned feedback sample first, so a non-grid
     shutter has actual encoder evidence) -> one conservative capture cycle
-    -> ISS bridge pump -> command router -> housekeeping
-    handle-commands + sample -> storage/downlink ticks -> heartbeats -> FDIR tick.
+    -> ISS bridge pump -> command router -> authority tick (routed
+    SET_MODE/EXIT_SAFE/GIMBAL_STOW decided the same cycle) -> housekeeping
+    handle-commands + sample -> storage/downlink ticks -> heartbeats -> FDIR tick
+    -> authority tick (fault SAFE requests arbitrated the same cycle).
     This function owns forward advancement of the shared clock to ``now`` and
     never rewinds it; callers must not advance the clock separately. Activations
-    arrive only via explicit SystemModeActivatedMsg publications; nothing here
-    fabricates authority.
+    are published only by the real system-mode authority (or an explicit
+    test-fixture injection via publish_activation); nothing here fabricates
+    authority.
 
     Args:
         apps: The wired SystemApps (payload / fault / iss_iface / thermal / electrical).
@@ -115,6 +120,7 @@ def step_once(
         concrete driver, so the GSE in-process backend reuses it verbatim. The body is the
         single source of truth for one SIL cycle; SilHarness.step delegates here.
     """
+    apps.system_modes.tick()
     payload_state = apps.payload.poll_activations(payload_state, clock.monotonic_s())
     payload_state = _catch_up_loops(apps, clock, now, payload_state)
     apps.payload.sample_feedback()
@@ -124,6 +130,7 @@ def step_once(
 
     apps.iss_iface.tick()
     apps.command_router.tick()
+    apps.system_modes.tick()
 
     apps.thermal.handle_commands()
     apps.thermal.sample()
@@ -145,4 +152,5 @@ def step_once(
         )
 
     fault_entries = apps.fault.tick(fault_entries, now)
+    apps.system_modes.tick()
     return payload_state, fault_entries

@@ -62,6 +62,7 @@ from flight.payload.app import PayloadApp
 from flight.payload.inference import InferenceRuntime
 from flight.payload.lifecycle import InitializationVerifier
 from flight.payload.preprocess import MosaicCalibration
+from flight.system_modes.app import SystemModesApp
 from flight.thermal.app import ThermalApp
 
 # The subsystems that run persistent loops and emit heartbeats; the FDIR watchdog
@@ -72,6 +73,7 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "thermal",
     "electrical",
     "command_router",
+    "system_modes",
     "storage",
     "downlink",
     "model_deploy",
@@ -149,13 +151,15 @@ class Drivers:
 class SystemApps:
     """The constructed subsystem apps + core services, sharing one bus and clock.
 
-    The five subsystem apps (payload/fault/iss_iface/thermal/electrical) plus the core-hosted
-    command_router service (spec Section 10 Approach A). All are constructed by build_apps,
-    run by the flight Scheduler, and stepped by the deterministic SIL/GSE harness.
+    The six subsystem apps (system_modes plus payload/fault/iss_iface/thermal/electrical)
+    plus the core-hosted command_router service (spec Section 10 Approach A). All are
+    constructed by build_apps, run by the flight Scheduler, and stepped by the
+    deterministic SIL/GSE harness.
     """
 
     payload: PayloadApp
     fault: FaultApp
+    system_modes: SystemModesApp
     iss_iface: IssIfaceApp
     thermal: ThermalApp
     electrical: ElectricalApp
@@ -222,6 +226,7 @@ def build_apps(
             synchronous_lifecycle=synchronous_lifecycle,
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored, activation_epoch),
+        system_modes=SystemModesApp.from_config(config, bus, clock, activation_epoch),
         iss_iface=IssIfaceApp.from_config(
             config, bus, clock, drivers.station, uplink_key, storage, storage
         ),

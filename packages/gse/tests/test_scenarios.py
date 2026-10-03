@@ -20,6 +20,8 @@ _SCENARIOS = [
     ("safe_on_thermal", 1),
     ("command_route_exec", 2),
     ("product_downlink", 2),
+    ("boot_exit_safe_init", 2),
+    ("stow_from_idle", 2),
 ]
 
 

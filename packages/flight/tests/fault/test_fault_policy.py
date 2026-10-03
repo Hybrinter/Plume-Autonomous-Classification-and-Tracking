@@ -27,7 +27,7 @@ def _activation(
     *,
     sequence: int = 1,
     previous_mode: SystemMode | None = SystemMode.SAFE,
-    active_mode: SystemMode = SystemMode.IDLE,
+    active_mode: SystemMode = SystemMode.INIT,
     epoch: str = _EPOCH,
     request_id: str | None = "req-1",
     recovery_authorized: bool = True,
@@ -117,7 +117,7 @@ def test_command_ingress_faults_do_not_trigger_safe() -> None:
 
 
 def test_recovery_authorized_accepts_clean_record() -> None:
-    """A fully valid authorized SAFE->IDLE record releases the latch."""
+    """A fully valid authorized SAFE->INIT record releases the latch."""
     assert recovery_authorized(
         _activation(),
         expected_epoch=_EPOCH,
@@ -156,6 +156,13 @@ def test_recovery_rejected_on_wrong_request_or_mode() -> None:
     )
     assert not recovery_authorized(
         _activation(previous_mode=SystemMode.IDLE),
+        expected_epoch=_EPOCH,
+        request_id_consumed=False,
+        last_sequence=None,
+        safe_fault_seen_this_tick=False,
+    )
+    assert not recovery_authorized(
+        _activation(active_mode=SystemMode.IDLE),
         expected_epoch=_EPOCH,
         request_id_consumed=False,
         last_sequence=None,

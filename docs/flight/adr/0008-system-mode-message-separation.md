@@ -1,10 +1,10 @@
 # ADR-FLIGHT-0008: Separate system-mode request, notification, and activation messages
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-10-02
 **Topic:** interface
 **Supersedes:** ADR-REPO-0006 (SAFE transition contract), ADR-REPO-0008 (SAFE transition contract), ADR-REPO-0009 (EXIT_SAFE execution acknowledgements)
-**Superseded-by:** none
+**Superseded-by:** ADR-FLIGHT-0009
 **Related:** ADR-FLIGHT-0007
 
 ## Context

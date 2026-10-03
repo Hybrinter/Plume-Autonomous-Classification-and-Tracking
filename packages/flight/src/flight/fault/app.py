@@ -206,7 +206,7 @@ class FaultApp:
         """Drain activation records; release the latch only on authorized recovery.
 
         The latch holds until an activation is recovery_authorized, carries a
-        nonempty request_id, moves SAFE -> IDLE under the current epoch with a
+        nonempty request_id, moves SAFE -> INIT under the current epoch with a
         strictly newer sequence, and no SAFE-triggering fault fired this tick.
         A release consumes its request_id; the released evidence then carries
         recovery_request_id so the payload can match it once.

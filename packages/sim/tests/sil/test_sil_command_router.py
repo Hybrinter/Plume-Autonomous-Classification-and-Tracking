@@ -59,11 +59,12 @@ def test_command_routed_executed_and_acked() -> None:
 
 
 def test_safe_request_then_authorized_recovery() -> None:
-    """Power over-limit latches containment and raises a SAFE request to the authority.
+    """Power over-limit latches containment and the authority arbitrates SAFE.
 
-    The request alone never selects a graph: the payload graph stays OPERATE while
-    hardware is inhibited. EXIT_SAFE ARM/EXECUTE route to the authority target, and a
-    recovery-authorized IDLE activation releases the latch once fault evidence confirms.
+    The fault app's SAFE request is decided by the real authority: the payload
+    graph goes SAFE while hardware stays inhibited. EXIT_SAFE ARM/EXECUTE route
+    to the authority, which activates a recovery-authorized INIT; the latch then
+    releases once the fault-owned recovery evidence and hardware checks pass.
     """
     system = build_sil_system(
         _config(),
@@ -92,7 +93,7 @@ def test_safe_request_then_authorized_recovery() -> None:
     advance(4)
     reqs = _drain(requests)
     assert any(r.requested_mode is SystemMode.SAFE and r.requested_by == "fault" for r in reqs)
-    assert harness.payload_system_mode() is SystemMode.OPERATE
+    assert harness.payload_system_mode() is SystemMode.SAFE
     assert system.apps.payload.containment.local_latched
 
     advance(3)
@@ -109,23 +110,14 @@ def test_safe_request_then_authorized_recovery() -> None:
         a for a in _drain(acks) if a.command_id == "EXIT_SAFE" and a.status is AckStatus.REJECTED
     ]
     assert not rejected
-    assert harness.payload_system_mode() is SystemMode.OPERATE
-    assert system.apps.payload.containment.local_latched
 
-    publish_activation(
-        system,
-        SystemMode.IDLE,
-        sequence=2,
-        previous_mode=SystemMode.SAFE,
-        request_id="rec-1",
-        recovery_authorized=True,
-    )
     advance(2)
 
     assert not system.apps.payload.containment.local_latched
-    assert harness.payload_system_mode() is SystemMode.IDLE
+    assert harness.payload_system_mode() is SystemMode.INIT
     accepted = _drain(activations)
-    assert accepted and accepted[-1].recovery_authorized
+    assert accepted and accepted[-1].active_mode is SystemMode.INIT
+    assert accepted[-1].recovery_authorized
 
 
 def _drain[T](subscription: Subscription[T]) -> list[T]:

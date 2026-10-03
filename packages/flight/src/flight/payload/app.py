@@ -536,7 +536,7 @@ class PayloadApp:
             and self.containment.local_latched
             and last is not None
             and last.recovery_authorized
-            and last.graph_id is GraphId.IDLE
+            and last.graph_id is GraphId.INIT
             and last.previous_graph is GraphId.SAFE
             and last.request_id
         ):
@@ -693,7 +693,7 @@ class PayloadApp:
     def _try_release_containment(self, snapshot: ActivationSnapshot, now: float) -> None:
         """Release the local latch only under the authorized-recovery contract.
 
-        Pending is not failure: while the current authorized IDLE activation's
+        Pending is not failure: while the current authorized INIT activation's
         request_id has no matching fresh fault-owned release evidence yet, the
         latch simply stays engaged without a fault. Once evidence matches --
         same request_id, injected epoch, strictly increasing sequence, finite
@@ -1128,6 +1128,7 @@ class PayloadApp:
         anchor_angle = checkpoint.encoder_angle_rad if checkpoint is not None else None
         span_s = max(0.0, encoder.t_s - checkpoint.t_s) if checkpoint is not None else None
         residual_cfg = self.params.config.controller.residual
+        session = self.inference.snapshot()
         self.bus.publish(
             TelemetryEventMsg(
                 msg_type=MessageType.TELEMETRY_EVENT,
@@ -1139,6 +1140,8 @@ class PayloadApp:
                     "payload_node": node_name_of(state),
                     "activation_epoch": last.key.epoch if last is not None else "",
                     "activation_sequence": last.key.sequence if last is not None else -1,
+                    "runtime_ready": session is not None,
+                    "runtime_identity": "" if session is None else session.identity,
                     "e": float(tr.residual.x[0]) if tr is not None else None,
                     "r": state.servo.commanded_rate_rad_s,
                     "tau": state.servo.inner.last_tau_nm,
@@ -1202,8 +1205,35 @@ class PayloadApp:
             )
         )
 
+    def _recovery_release_pending(self, state: PayloadState) -> bool:
+        """True while an authorized SAFE->INIT recovery release is still pending.
+
+        The contained INIT graph requests SAFE on every tick; publishing that
+        request during the pending window would re-SAFE the system before the
+        fault-owned release evidence can arrive, deadlocking the authorized
+        recovery. Suppression covers only the authorized-INIT pending window:
+        once the request_id is consumed (released or failed hardware check) or
+        the latch clears, SAFE intents flow again, and the ground can always
+        command SAFE directly.
+        """
+        last = state.activation.last
+        return (
+            self.containment.local_latched
+            and last is not None
+            and last.recovery_authorized
+            and last.graph_id is GraphId.INIT
+            and last.previous_graph is GraphId.SAFE
+            and bool(last.request_id)
+            and last.request_id not in self.containment.consumed_recovery_ids
+        )
+
     def _emit_intent(self, intent: SystemRequestIntent, state: PayloadState) -> None:
         """Publish a deduped payload-owned SystemModeRequestMsg per activation."""
+        if intent is SystemRequestIntent.SAFE and self._recovery_release_pending(state):
+            # Not marked emitted: once the pending window closes (released or
+            # consumed), the contained graph's SAFE intent still reaches the
+            # authority on the next outcome.
+            return
         last = state.activation.last
         seq = last.key.sequence if last is not None else -1
         if (seq, intent.value) in self.emitted_intents:

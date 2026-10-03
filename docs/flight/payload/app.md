@@ -115,12 +115,19 @@ take one final actual-clock feedback sample before a shutter binding.
 8. A nonfinite encoder position or timestamp is rejected before it enters the
    encoder history: `Err(GIMBAL_ENCODER_INVALID)`, latch, and fault. A read
    error latches containment through the actuator-failure path.
-9. Recovery requires an authorized activation: matching request ID, matching
+9. Recovery requires an authorized `SAFE -> INIT` activation: matching request ID, matching
    epoch, strictly increasing evidence sequence, finite nonfuture observation
    time, no active faults or SAFE latch, fresh confirmed hardware feedback,
    and a fresh valid bounded encoder sample. Evidence is consumed once; a
    replayed request ID cannot release a new latch, and unsafe evidence in the
-   same drain always wins over a later clear record.
+   same drain always wins over a later clear record. While that authorized
+   recovery still awaits matching release evidence, the shell withholds the
+   contained INIT graph's repeated SAFE intent - narrowly, only while the
+   latch is engaged, the current activation is the recovery-authorized INIT
+   from SAFE, and the request ID is unspent - so the recovery handshake cannot
+   deadlock. The withheld intent is not marked emitted; a new containing
+   `FaultEventMsg` still emits its fault-owned SAFE request, and consuming the
+   authorization or a failed hardware check ends the window.
 10. The committed policy's `duty_cycle` gates imaging through
     `plan_capture`. Duty 0.5 captures even opportunities; a `DRAIN`
     opportunity calls `drain_frame` and a `WAIT` call touches no HAL. The
@@ -168,7 +175,9 @@ take one final actual-clock feedback sample before a shutter binding.
     stamps `model_version` from the installed session identity at capture
     start and drops the result when the runtime identity changes mid-flight;
     installation bumps the policy revision so a same-identity reload still
-    invalidates in-flight captures.
+    invalidates in-flight captures. Outer telemetry reports `runtime_ready`
+    and `runtime_identity` from one `InferenceRuntime.snapshot()` read,
+    distinct from deployment metadata.
 
 ## Errors and faults
 

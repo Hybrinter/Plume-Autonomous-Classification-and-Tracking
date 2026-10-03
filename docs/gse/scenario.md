@@ -34,7 +34,8 @@ from TOML files for the orchestrator.
    empty tuples.
 3. Assertion tags must be `"frame-portable"` or `"realtime-only"`.
 4. It returns the frozen `Scenario` with name, profile, steps, dt, and `initial_mode`.
-   The optional initial mode is one of the five system modes; omitted means no activation.
+   The optional initial mode is one of the five system modes; omitted means the real
+   authority's own boot activation decides the start (SAFE).
 
 ## Errors and faults
 
@@ -56,7 +57,8 @@ a config override at run time.
 - `SimScalarSensor` holds the last reading once a script exhausts.
 - A hot thermal reading publishes `thermal_sample` telemetry and does not emit
   `THERMAL_OVER_LIMIT`.
-- `initial_mode` is explicit test setup, not a production fallback or authority implementation.
+- `initial_mode` is explicit test setup that seeds the authority, not a production fallback
+  or a second authority.
 
 ## Related documents
 

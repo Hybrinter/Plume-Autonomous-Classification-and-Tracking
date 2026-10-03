@@ -140,8 +140,8 @@ def test_stow_activation_stows_the_gimbal() -> None:
     assert harness.payload_system_mode() is SystemMode.STOW
 
 
-def test_safe_recovery_returns_to_operations() -> None:
-    """An authority-authorized IDLE activation after SAFE releases the containment latch."""
+def test_safe_recovery_returns_through_init() -> None:
+    """An authority-authorized INIT activation after SAFE releases the containment latch."""
     system = build_sil_system(
         _config(),
         ManualClock(),
@@ -159,7 +159,7 @@ def test_safe_recovery_returns_to_operations() -> None:
 
     publish_activation(
         system,
-        SystemMode.IDLE,
+        SystemMode.INIT,
         sequence=2,
         previous_mode=SystemMode.SAFE,
         request_id="rec-1",
@@ -167,7 +167,7 @@ def test_safe_recovery_returns_to_operations() -> None:
     )
     harness.run_steps(2, dt=1.0)
 
-    assert harness.payload_system_mode() is SystemMode.IDLE
+    assert harness.payload_system_mode() is SystemMode.INIT
     assert not system.apps.payload.containment.local_latched
 
 
@@ -261,8 +261,8 @@ def test_sil_non_grid_now_interleaves() -> None:
 def test_encoder_freeze_trips_runaway_and_latches_containment() -> None:
     """A frozen encoder under nonzero r publishes GIMBAL_RUNAWAY and latches containment.
 
-    The fault-owned evidence inhibits hardware immediately; only an explicit
-    authority SAFE activation selects the SAFE graph.
+    The fault-owned evidence inhibits hardware immediately; the real authority
+    arbitrates the fault's SAFE request into a SAFE activation.
     """
     system = build_sil_system(
         _config(),
@@ -275,6 +275,7 @@ def test_encoder_freeze_trips_runaway_and_latches_containment() -> None:
     )
     fault_sub = system.bus.subscribe(FaultEventMsg)
     request_sub = system.bus.subscribe(SystemModeRequestMsg)
+    act_sub = system.bus.subscribe(SystemModeActivatedMsg)
     harness = SilHarness(system)
     publish_activation(system, SystemMode.OPERATE, sequence=1)
     harness.run_steps(4, dt=1.0)
@@ -283,22 +284,23 @@ def test_encoder_freeze_trips_runaway_and_latches_containment() -> None:
     faults = _drain(fault_sub)
     assert any(f.fault_code is FaultCode.GIMBAL_RUNAWAY for f in faults)
     assert system.apps.payload.containment.local_latched
-    assert harness.payload_system_mode() is SystemMode.OPERATE
+    assert harness.payload_system_mode() is SystemMode.SAFE
     assert any(
         r.requested_mode is SystemMode.SAFE and r.requested_by == "fault"
         for r in _drain(request_sub)
     )
-
-    publish_activation(system, SystemMode.SAFE, sequence=2, previous_mode=SystemMode.OPERATE)
-    harness.run_steps(2, dt=1.0)
-    assert harness.payload_system_mode() is SystemMode.SAFE
+    activations = _drain(act_sub)
+    assert any(
+        a.active_mode is SystemMode.SAFE and a.previous_mode is SystemMode.OPERATE
+        for a in activations
+    )
     health = system.gimbal.read_health()
     assert isinstance(health, Ok)
     assert health.value.inhibit_confirmed
 
 
-def test_unactivated_boot_captures_nothing() -> None:
-    """With no activation the payload acquires no frames and drives no torque."""
+def test_boot_activates_safe_and_captures_nothing() -> None:
+    """The authority's boot SAFE inhibits the gimbal and captures no frames."""
     system = build_sil_system(
         PactConfig(),
         ManualClock(),
@@ -313,9 +315,10 @@ def test_unactivated_boot_captures_nothing() -> None:
     harness = SilHarness(system)
     harness.run_steps(4, dt=1.0)
     assert inf_sub.empty()
-    assert act_sub.empty()
-    assert harness.payload_system_mode() is None
-    assert harness.payload_graph() is None
+    activations = _drain(act_sub)
+    assert activations and activations[0].active_mode is SystemMode.SAFE
+    assert harness.payload_system_mode() is SystemMode.SAFE
+    assert harness.payload_graph() == "safe"
     health = system.gimbal.read_health()
     assert isinstance(health, Ok)
     assert health.value.inhibit_confirmed

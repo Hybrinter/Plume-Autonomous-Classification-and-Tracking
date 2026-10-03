@@ -1,12 +1,10 @@
 """Exhaustive evaluation of finished splits with mixed spatial extents.
 
 Dataset and bin reports use every row once, without training resampling.
-Combined metrics are an explicit dataset-weighted macro average.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
@@ -72,88 +70,79 @@ class _Scores:
 
 def evaluate(
     model: nn.Module,
-    dests: Sequence[str | Path],
-    manifests: Sequence[DatasetManifest],
+    dataset: str | Path,
+    manifest: DatasetManifest,
     kind: str,
     split: str,
     batch_size: int,
-    weights: Sequence[float],
     device: str,
 ) -> dict[str, object]:
-    """Score full splits by source and bin, then weight source-level metrics.
+    """Score every eligible row of one dataset split and report its bins.
 
-    Input weights are positive and validated by TrainConfig. Training loads
-    and verifies the manifests once before calling this function.
+    Args:
+        model: Two-input torch model.
+        dataset: Finished dataset root.
+        manifest: Verified identity of that dataset.
+        kind: Classifier or segmentor task.
+        split: Train, validation, or test split.
+        batch_size: Positive number of same-shape rows per batch.
+        device: Torch device used for inference.
+
+    Returns:
+        dict[str, object]: Split, dataset identity, task metrics, and bin metrics.
+
+    Raises:
+        ValueError: On missing rows, mismatched counts, or invalid model output.
     """
-    if len(dests) != len(manifests) or len(weights) != len(dests) or not dests:
-        raise ValueError("evaluation dataset metadata is misaligned")
+    if not isinstance(dataset, str | Path) or not str(dataset).strip():
+        raise ValueError("evaluation requires exactly one finished dataset")
+    if kind not in ("classifier", "segmentor") or batch_size < 1:
+        raise ValueError("evaluation requires a valid task and positive batch size")
     previous_training = model.training
     model.eval()
-    reports: list[dict[str, object]] = []
-    summaries: list[dict[str, float]] = []
+    scores = _Scores(kind)
+    bins: dict[str, _Scores] = {}
     try:
         with torch.no_grad():
-            for dest, manifest in zip(dests, manifests, strict=True):
-                scores = _Scores(kind)
-                bins: dict[str, _Scores] = {}
-                selected = [
-                    shard
-                    for shard in manifest.shards
-                    if shard.task == kind and shard.split == split
-                ]
-                if not selected:
-                    raise ValueError(f"no {kind}/{split} samples in {dest}")
-                for shard in selected:
-                    directory = Path(dest) / kind / split / f"{shard.height}x{shard.width}"
-                    rows = read_rows(directory)
-                    dataset = ShardDataset(
-                        directory,
-                        manifest.gsd_reference_m,
-                        kind,
-                        channels=len(manifest.band_names),
-                    )
-                    if len(rows) != len(dataset) or len(rows) != shard.n:
-                        raise ValueError("evaluation shard count disagrees with manifest")
-                    offset = 0
-                    for images, gsd, targets in DataLoader(
-                        dataset,
-                        batch_size=batch_size,
-                        shuffle=False,
-                    ):
-                        output = model(images.to(device), gsd.to(device))
-                        scores.add(output, targets)
-                        for index in range(len(images)):
-                            row = rows[offset + index]
-                            bin_id = row.bin_id or "unbinned"
-                            bins.setdefault(bin_id, _Scores(kind)).add(
-                                output[index : index + 1],
-                                targets[index : index + 1],
-                            )
-                        offset += len(images)
-                summary = scores.result()
-                summaries.append(summary)
-                reports.append(
-                    {
-                        "dataset": str(dest),
-                        "source": manifest.source,
-                        "dataset_hash": manifest.dataset_hash,
-                        "metrics": summary,
-                        "bins": {name: bucket.result() for name, bucket in sorted(bins.items())},
-                    }
+            selected = [
+                shard for shard in manifest.shards if shard.task == kind and shard.split == split
+            ]
+            if not selected:
+                raise ValueError(f"no {kind}/{split} samples in {dataset}")
+            for shard in selected:
+                directory = Path(dataset) / kind / split / f"{shard.height}x{shard.width}"
+                rows = read_rows(directory)
+                shard_dataset = ShardDataset(
+                    directory,
+                    manifest.gsd_reference_m,
+                    kind,
+                    channels=len(manifest.band_names),
                 )
+                if len(rows) != len(shard_dataset) or len(rows) != shard.n:
+                    raise ValueError("evaluation shard count disagrees with manifest")
+                offset = 0
+                for images, gsd, targets in DataLoader(
+                    shard_dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                ):
+                    output = model(images.to(device), gsd.to(device))
+                    scores.add(output, targets)
+                    for index in range(len(images)):
+                        row = rows[offset + index]
+                        bin_id = row.bin_id or "unbinned"
+                        bins.setdefault(bin_id, _Scores(kind)).add(
+                            output[index : index + 1],
+                            targets[index : index + 1],
+                        )
+                    offset += len(images)
     finally:
         model.train(previous_training)
-    total = sum(weights)
-    combined = {
-        key: sum(weight * values[key] for weight, values in zip(weights, summaries, strict=True))
-        / total
-        for key in summaries[0]
-        if key != "n"
-    }
-    combined["n"] = sum(values["n"] for values in summaries)
     return {
         "split": split,
-        "aggregation": "dataset_weighted_macro",
-        "datasets": reports,
-        "combined": combined,
+        "dataset": str(dataset),
+        "source": manifest.source,
+        "dataset_hash": manifest.dataset_hash,
+        "metrics": scores.result(),
+        "bins": {name: bucket.result() for name, bucket in sorted(bins.items())},
     }

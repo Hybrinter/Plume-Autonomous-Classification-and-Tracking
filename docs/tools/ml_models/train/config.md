@@ -37,26 +37,26 @@ field, omitting None values.
 
 1. `kind` is `classifier` or `segmentor`; `arch` empty selects the kind
    default.
-2. `datasets` lists finished dataset roots; an empty list fails at run
-   start.
-3. `dataset_weights` is empty or one positive weight per dataset.
-4. `epochs`, `batch_size`, and `eval_interval` are positive;
+2. `dataset` names the one finished dataset root; an empty string fails
+   at run start. The legacy `datasets` and `dataset_weights` keys are
+   rejected with a single-dataset message.
+3. `epochs`, `batch_size`, and `eval_interval` are positive;
    `patience` is nonnegative; `max_steps` is None or positive.
-5. `learning_rate` is finite and positive; `weight_decay` is finite and
+4. `learning_rate` is finite and positive; `weight_decay` is finite and
    nonnegative; `momentum` lies in `[0, 1)`.
-6. `optimizer` is `sgd` or `adamw`; `scheduler` is `none` or `cosine`.
-7. `loss` is `bce`, `dice`, `bce_dice`, `focal`, or `focal_dice`;
+5. `optimizer` is `sgd` or `adamw`; `scheduler` is `none` or `cosine`.
+6. `loss` is `bce`, `dice`, `bce_dice`, `focal`, or `focal_dice`;
    `focal_gamma` is nonnegative, `focal_alpha` lies in `[0, 1]`, and
    `pos_weight` is nonnegative.
-8. `val_metric` is empty or a metric valid for the kind: classifier
+7. `val_metric` is empty or a metric valid for the kind: classifier
    metrics include `f1`, `brier`, and `bce`; segmentor metrics include
    `mean_iou`, `mean_dice`, `mean_iou_blob_gate`, and `bce`.
 
 ## Errors and faults
 
 `ValueError` (pydantic `ValidationError`) on unknown keys, out-of-bounds
-values, a weight list whose length differs from `datasets`, a nonpositive
-weight, or a `val_metric` invalid for the kind.
+values, the legacy `datasets` or `dataset_weights` keys, or a
+`val_metric` invalid for the kind.
 
 ## Messages
 

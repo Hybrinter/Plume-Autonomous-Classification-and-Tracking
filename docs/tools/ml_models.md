@@ -16,9 +16,9 @@ for model workflows.
 | [`arch`](ml_models/arch.md) | package | Segmentor and classifier network builders |
 | [`train`](ml_models/train.md) | package | GSD-conditioned training loop, evaluation, and metrics |
 | [`export`](ml_models/export.md) | package | Two-input ONNX export, manifests, acceptance, and pair gates |
-| [`analysis`](ml_models/analysis.md) | package | Run accounting, Pareto ranking, and full-frame evaluation |
+| [`analysis`](ml_models/analysis.md) | package | Run accounting, Pareto ranking, and report rendering |
 | [`studies`](ml_models/studies.md) | package | Offline band and GSD studies over shared dataset sources |
-| [`cli`](ml_models/cli.md) | module | `python -m tools.ml_models` dataset, train, export, accept, pair, convert, and frame-eval commands |
+| [`cli`](ml_models/cli.md) | module | `python -m tools.ml_models` dataset, train, export, accept, pair, and convert commands |
 | [`__main__`](ml_models/__main__.md) | module | `python -m tools.ml_models` entry shim |
 
 ## Package interface

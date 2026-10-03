@@ -174,25 +174,24 @@ def test_batches_stay_inside_one_shard(tmp_path: Path) -> None:
         tiles.append(_tile(f"r{index}", f"g{index}", gsd_rect, (4, 8), 0.0))
     dest = _build(tmp_path, "mixed", tuple(tiles))
     shapes: set[tuple[int, int]] = set()
-    for image, _gsd, _target in make_loader(
-        [dest], "classifier", "train", 2, None, 0, n_batches=24
-    ):
+    for image, _gsd, _target in make_loader(dest, "classifier", "train", 2, 0, n_batches=24):
         assert image.shape[0] == 2
         shapes.add((int(image.shape[-2]), int(image.shape[-1])))
         assert len({(int(image.shape[-2]), int(image.shape[-1]))}) == 1
     assert shapes == {(8, 8), (4, 8)}
 
 
-def test_weights_and_seed_fix_the_order(tmp_path: Path) -> None:
-    """Equal seeds match. A heavier dataset contributes more batches."""
-    low = _build(tmp_path, "low", _square(0.0))
-    high = _build(tmp_path, "high", _square(1.0))
-    first = list(make_loader([low, high], "classifier", "train", 4, (1.0, 9.0), 3, n_batches=40))
-    second = list(make_loader([low, high], "classifier", "train", 4, (1.0, 9.0), 3, n_batches=40))
-    third = list(make_loader([low, high], "classifier", "train", 4, (1.0, 9.0), 4, n_batches=40))
+def test_seed_fixes_the_batch_order(tmp_path: Path) -> None:
+    """Equal seeds produce identical batches; a different seed differs."""
+    gsd = GsdPair(10.0, 10.0)
+    tiles = _square(1.0) + tuple(
+        _tile(f"u{index}", f"h{index}", gsd, (8, 8), 0.0) for index in range(3)
+    )
+    dest = _build(tmp_path, "ds", tiles)
+    first = list(make_loader(dest, "classifier", "train", 4, 3, n_batches=40))
+    second = list(make_loader(dest, "classifier", "train", 4, 3, n_batches=40))
+    third = list(make_loader(dest, "classifier", "train", 4, 4, n_batches=40))
     for left, right in zip(first, second, strict=True):
         torch.testing.assert_close(left[0], right[0])
         torch.testing.assert_close(left[2], right[2])
-    positives = sum(int(batch[2].mean().item() > 0.5) for batch in first)
-    assert positives > 28
     assert not torch.equal(first[0][2], third[0][2]) or not torch.equal(first[1][2], third[1][2])

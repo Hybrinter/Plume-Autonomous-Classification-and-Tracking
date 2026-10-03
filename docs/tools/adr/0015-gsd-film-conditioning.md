@@ -1,10 +1,10 @@
 # ADR-TOOLS-0015: GSD FiLM conditioning in tools training
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-11-14
 **Topic:** feature-add
 **Supersedes:** none
-**Superseded-by:** none
+**Superseded-by:** ADR-TOOLS-0017
 **Related:** ADR-TOOLS-0002, ADR-TOOLS-0009, ADR-TOOLS-0014
 
 ## Context

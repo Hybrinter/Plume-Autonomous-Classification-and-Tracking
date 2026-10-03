@@ -48,10 +48,7 @@ def _checkpoint(
                 "gsd_max_m": list(gsd_max_m),
                 "train_samples": 8,
             },
-            "dataset_weights": [1.0],
             "dataset_hash": "b" * 64,
-            "input_height_px": 193,
-            "input_width_px": 258,
         },
         path,
     )

@@ -16,7 +16,7 @@ evaluation, objectives, and metrics.
 | [`config`](train/config.md) | module | Frozen `TrainConfig`, TOML load, overlay, and digest |
 | [`loop`](train/loop.md) | module | Run directory, epoch loop, checkpoints, and artifacts |
 | [`provenance`](train/provenance.md) | module | Training geometry and split-leakage checks |
-| [`evaluate`](train/evaluate.md) | module | Exhaustive split scoring with macro averaging |
+| [`evaluate`](train/evaluate.md) | module | Exhaustive split scoring for one dataset |
 | [`losses`](train/losses.md) | module | BCE, Dice, and focal objectives |
 | [`metrics`](train/metrics.md) | module | Classifier and segmentor scores |
 
@@ -38,7 +38,7 @@ validation splits with `tools.ml_models.train.evaluate`. The
 
 - The package imports torch and returns `Result[Path, str]` at the public
   boundary.
-- Dataset weights apply to sampling only; they never scale the loss.
+- Each run trains on exactly one finished dataset.
 - Checkpoints record `film-log-gsd-v1` or `ignored` conditioning.
 
 ## Related documents

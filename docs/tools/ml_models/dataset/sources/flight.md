@@ -92,5 +92,4 @@ not import torch.
 
 - [`tools.ml_models.dataset.sources`](../sources.md)
 - [`tools.ml_models.dataset.raw`](../raw.md)
-- [`tools.ml_models.dataset.geometry`](../geometry.md)
 - [`tools.ml_models.dataset.build`](../build.md)

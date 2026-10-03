@@ -14,7 +14,7 @@ batches that each come from a single shard.
 | --- | --- | --- |
 | `Batch` | alias | `(image, g, target)` tensor triple |
 | `ShardDataset` | class | `torch.utils.data.Dataset` over one shard directory |
-| `make_loader` | function | Seeded single-shard batches across datasets |
+| `make_loader` | function | Seeded single-shard batches across one dataset's shards |
 
 ## Inputs and outputs
 
@@ -29,19 +29,17 @@ checked to be finite and inside `[0, 1]`. `g` is float32 `(2,)`
 from `to_model_gsd`. The classifier target is float32 `(1,)`; the segmentor
 target is float32 `(1, H, W)`.
 
-`make_loader(dests, task, split, batch_size, weights, seed, n_batches=n)`
-yields `n_batches` stacked batches.
+`make_loader(dataset, task, split, batch_size, seed, n_batches=n)` yields
+`n_batches` stacked batches.
 
 ## Behavior
 
-1. Each `dataset.json` is loaded and `check_compatible` requires shared
-   bands, unit norm, and GSD reference across `dests`.
-2. Under each `<dest>/<task>/<split>`, directories that parse as `<H>x<W>`
-   become `ShardDataset`s.
-3. Per batch, `numpy.random.default_rng(seed)` draws a dataset with
-   probability proportional to `weights` (equal when None), then a shard
-   with probability proportional to its row count.
-4. Rows are drawn without replacement unless `batch_size` exceeds the
+1. The manifest-listed `<task>/<split>` shards are opened sorted
+   lexicographically by `<H>x<W>`; each `ShardDataset` length must equal
+   the manifest's recorded row count.
+2. Per batch, `numpy.random.default_rng(seed)` draws a shard with
+   probability proportional to its row count.
+3. Rows are drawn without replacement unless `batch_size` exceeds the
    shard size. The chosen indices form a `torch.utils.data.Subset`, and a
    single-batch `DataLoader` collates the batch. Every batch comes from a
    single shard, so H and W are uniform inside a batch.
@@ -53,8 +51,8 @@ with the wrong dtype or layout (`images.npy` float32 `(N, C, H, W)` with
 positive dims, `gsd.npy` float32 `(N, 2)`, `labels.npy` float32 `(N, 1)`,
 `masks.npy` uint8 `(N, 1, H, W)` when present), a stored image row outside
 `[0, 1]`, a segmentor shard without `masks.npy`, a
-`batch_size` or `n_batches` below 1, an empty `dests`, incompatible
-manifests, a non-positive or wrong-length `weights`, or a dataset with no
+`batch_size` or `n_batches` below 1, an empty `dataset` path, a shard
+row count that disagrees with the manifest, or a dataset with no
 shard for the requested task and split. `FileNotFoundError` when an array
 file is missing.
 
@@ -64,8 +62,7 @@ None.
 
 ## Configuration
 
-`weights` are relative dataset sampling weights. `seed` seeds the NumPy
-Generator. There is no TOML file.
+`seed` seeds the NumPy Generator. There is no TOML file.
 
 ## Constraints
 

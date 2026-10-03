@@ -21,9 +21,9 @@ atomically without overwriting existing outputs.
 ## Inputs and outputs
 
 `convert_fp16(source, dest)` and `quantize_int8(source, dest, *,
-datasets, calib_samples=32)` take `.onnx` paths and return `Result` of
-the destination path. `datasets` is a repeatable list of finished dataset
-directories that supply INT8 calibration rows.
+dataset, calib_samples=32)` take `.onnx` paths and return `Result` of
+the destination path. `dataset` is the one finished dataset directory
+that supplies INT8 calibration rows.
 
 ## Behavior
 

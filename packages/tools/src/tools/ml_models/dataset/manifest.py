@@ -3,7 +3,6 @@
 Contains:
   - SCHEMA_VERSION, ShardCount, DatasetManifest.
   - compute_dataset_hash, write_manifest, load_manifest.
-  - check_compatible: same bands, unit norm, and GSD reference.
 
 The hash covers every file under the dataset directory except ``dataset.json``.
 Paths are relative, POSIX, and sorted. Each file is digested in 8 MiB chunks.
@@ -14,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Self
 
@@ -242,33 +240,6 @@ def load_manifest(
                 f"files have {digest}"
             )
     return manifest
-
-
-def check_compatible(manifests: Sequence[DatasetManifest]) -> None:
-    """Require a shared band list, unit norm, and GSD reference.
-
-    Args:
-        manifests: One or more finished datasets. Sizes and GSD values may differ.
-
-    Returns:
-        None.
-
-    Raises:
-        ValueError: If the sequence is empty or a dataset disagrees on bands,
-            norm, or ``gsd_reference_m``.
-    """
-    if len(manifests) < 1:
-        raise ValueError("check_compatible requires at least one manifest")
-    first = manifests[0]
-    for other in manifests[1:]:
-        if other.band_names != first.band_names:
-            raise ValueError(f"band_names mismatch: {first.band_names} vs {other.band_names}")
-        if other.norm != first.norm:
-            raise ValueError(f"norm mismatch: {first.norm} vs {other.norm}")
-        if other.gsd_reference_m != first.gsd_reference_m:
-            raise ValueError(
-                f"gsd_reference_m mismatch: {first.gsd_reference_m} vs {other.gsd_reference_m}"
-            )
 
 
 def _require_gsd_range(low: float, high: float, axis: str) -> None:

@@ -5,15 +5,14 @@ kind/digest/timestamp default. The directory is created once and an existing
 one is rejected; ``overwrite`` is a reserved flag and never makes the loop
 destructive.
 
-The loader, not the loop, owns sampling, augmentation, and normalisation.
-Dataset weights influence only which dataset a batch is drawn from; they do
-not scale the loss. Validation uses :func:`evaluate`, which scores every row
-of every selected shard once, so the best checkpoint is selected strictly on
-the combined validation metric.
+Sources own pixel preparation, the dataset build owns augmentation, and
+the loader owns sampling and GSD encoding. The training loop adds no
+pixel conversion.
+Validation uses :func:`evaluate`, which scores every row of every selected
+shard once, so the best checkpoint is selected strictly on the validation
+metric.
 
 Contains:
-  - EXPORT_HEIGHT_PX / EXPORT_WIDTH_PX: export trace defaults carried in
-    checkpoint metadata; they are not training resize dimensions.
   - train: the public ``Result`` boundary.
   - _train: the raising implementation.
 
@@ -22,7 +21,6 @@ Satisfies: REQ-AIML-HIGH-004.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import shutil
@@ -39,26 +37,23 @@ from torch import nn
 from tools.ml_models.arch.film import CONDITIONING_ID, IGNORED_CONDITIONING_ID, IgnoreGsd
 from tools.ml_models.arch.registry import build as build_model
 from tools.ml_models.arch.registry import resolve_arch
-from tools.ml_models.dataset.geometry import tile_hw
 from tools.ml_models.dataset.loader import make_loader
-from tools.ml_models.dataset.manifest import DatasetManifest, check_compatible, load_manifest
+from tools.ml_models.dataset.manifest import DatasetManifest, load_manifest
 from tools.ml_models.train.config import TrainConfig, config_digest, write_train_config_toml
 from tools.ml_models.train.evaluate import evaluate
 from tools.ml_models.train.losses import build_loss
 from tools.ml_models.train.provenance import training_provenance
-
-EXPORT_HEIGHT_PX, EXPORT_WIDTH_PX = tile_hw()
 
 # Validation metrics that improve by shrinking; every other metric maximises.
 _MINIMIZE_METRICS = frozenset({"bce", "brier"})
 
 
 def train(cfg: TrainConfig | None = None) -> Result[Path, str]:
-    """Train one model on finished datasets and return the run directory.
+    """Train one model on one finished dataset and return the run directory.
 
     Args:
         cfg: Training configuration. None uses :class:`TrainConfig` defaults.
-            ``datasets`` must name at least one finished dataset root.
+            ``dataset`` must name a finished dataset root.
 
     Returns:
         Result[Path, str]: Ok with the run directory on success.
@@ -73,8 +68,9 @@ def train(cfg: TrainConfig | None = None) -> Result[Path, str]:
 
 def _train(cfg: TrainConfig) -> Path:
     """Run one training pass; raises on any failure."""
-    if not cfg.datasets:
-        raise ValueError("train requires at least one finished dataset")
+    if not cfg.dataset.strip():
+        raise ValueError("train requires exactly one finished dataset")
+    dataset = Path(cfg.dataset)
     run_id = cfg.run_id or f"{cfg.kind}-{config_digest(cfg)}-{time.time_ns()}"
     run = Path(cfg.run_dir) / run_id
     if run.exists():
@@ -83,13 +79,9 @@ def _train(cfg: TrainConfig) -> Path:
     (run / "checkpoints").mkdir()
     write_train_config_toml(run / "config.toml", cfg)
 
-    dests: list[str | Path] = list(cfg.datasets)
-
-    manifests = [load_manifest(Path(dest) / "dataset.json") for dest in dests]
-    check_compatible(manifests)
-    provenance = training_provenance(dests, manifests, cfg.kind)
-    weights: tuple[float, ...] = cfg.dataset_weights if cfg.dataset_weights else (1.0,) * len(dests)
-    _require_train_val(dests, manifests, cfg.kind)
+    manifest = load_manifest(dataset / "dataset.json")
+    provenance = training_provenance(cfg.dataset, manifest, cfg.kind)
+    _require_train_val(cfg.dataset, manifest, cfg.kind)
 
     torch.manual_seed(cfg.seed)
     device = cfg.device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -124,9 +116,6 @@ def _train(cfg: TrainConfig) -> Path:
     minimize = metric in _MINIMIZE_METRICS
     arch = resolve_arch(cfg.kind, cfg.arch)
     conditioning = IGNORED_CONDITIONING_ID if isinstance(model, IgnoreGsd) else CONDITIONING_ID
-    dataset_hash = hashlib.sha256(
-        "|".join(manifest.dataset_hash for manifest in manifests).encode()
-    ).hexdigest()
 
     history: list[dict[str, object]] = []
     best = math.inf if minimize else -math.inf
@@ -140,11 +129,10 @@ def _train(cfg: TrainConfig) -> Path:
         model.train()
         n_batches = math.ceil(cast(int, provenance["train_samples"]) / cfg.batch_size)
         loader = make_loader(
-            dests,
+            cfg.dataset,
             cfg.kind,
             "train",
             cfg.batch_size,
-            weights,
             cfg.seed + epoch,
             n_batches=n_batches,
         )
@@ -183,11 +171,11 @@ def _train(cfg: TrainConfig) -> Path:
 
         if epoch % cfg.eval_interval == 0 or epoch == cfg.epochs or stop:
             last_report = evaluate(
-                model, dests, manifests, cfg.kind, "val", cfg.batch_size, weights, device
+                model, cfg.dataset, manifest, cfg.kind, "val", cfg.batch_size, device
             )
-            combined = cast(dict[str, float], last_report["combined"])
-            value = float(combined[metric])
-            history.append({"epoch": epoch, "step": step, "validation": combined})
+            metrics = cast(dict[str, float], last_report["metrics"])
+            value = float(metrics[metric])
+            history.append({"epoch": epoch, "step": step, "validation": metrics})
             improved = value < best if minimize else value > best
             if improved:
                 best = value
@@ -200,8 +188,7 @@ def _train(cfg: TrainConfig) -> Path:
                     arch,
                     conditioning,
                     provenance,
-                    dataset_hash,
-                    weights,
+                    manifest.dataset_hash,
                 )
             else:
                 evaluations_without_improvement += 1
@@ -213,8 +200,7 @@ def _train(cfg: TrainConfig) -> Path:
                 arch,
                 conditioning,
                 provenance,
-                dataset_hash,
-                weights,
+                manifest.dataset_hash,
             )
             if 0 < cfg.patience <= evaluations_without_improvement:
                 stop = True
@@ -227,8 +213,7 @@ def _train(cfg: TrainConfig) -> Path:
         arch,
         conditioning,
         provenance,
-        dataset_hash,
-        weights,
+        manifest.dataset_hash,
         metric,
         best,
         last_report,
@@ -242,17 +227,12 @@ def _train(cfg: TrainConfig) -> Path:
     return run
 
 
-def _require_train_val(
-    dests: Sequence[str | Path],
-    manifests: Sequence[DatasetManifest],
-    kind: str,
-) -> None:
-    """Require every dataset to carry train and validation rows for the task."""
-    for dest, manifest in zip(dests, manifests, strict=True):
-        splits = {shard.split for shard in manifest.shards if shard.task == kind}
-        missing = {"train", "val"} - splits
-        if missing:
-            raise ValueError(f"dataset {dest} lacks {sorted(missing)} samples for {kind}")
+def _require_train_val(dataset: str, manifest: DatasetManifest, kind: str) -> None:
+    """Require the dataset to carry train and validation rows for the task."""
+    splits = {shard.split for shard in manifest.shards if shard.task == kind}
+    missing = {"train", "val"} - splits
+    if missing:
+        raise ValueError(f"dataset {dataset} lacks {sorted(missing)} samples for {kind}")
 
 
 def _save_checkpoint(
@@ -264,7 +244,6 @@ def _save_checkpoint(
     conditioning: str,
     provenance: dict[str, object],
     dataset_hash: str,
-    weights: Sequence[float],
 ) -> None:
     """Write one checkpoint with the full run metadata."""
     torch.save(
@@ -276,10 +255,7 @@ def _save_checkpoint(
             "conditioning": conditioning,
             "config": asdict(cfg),
             "provenance": provenance,
-            "dataset_weights": list(weights),
             "dataset_hash": dataset_hash,
-            "input_height_px": EXPORT_HEIGHT_PX,
-            "input_width_px": EXPORT_WIDTH_PX,
         },
         path,
     )
@@ -300,7 +276,6 @@ def _write_summary(
     conditioning: str,
     provenance: dict[str, object],
     dataset_hash: str,
-    weights: Sequence[float],
     metric: str,
     best: float,
     evaluation: dict[str, object] | None,
@@ -315,10 +290,7 @@ def _write_summary(
                 "conditioning": conditioning,
                 "config": asdict(cfg),
                 "provenance": provenance,
-                "dataset_weights": list(weights),
                 "dataset_hash": dataset_hash,
-                "input_height_px": EXPORT_HEIGHT_PX,
-                "input_width_px": EXPORT_WIDTH_PX,
                 "val_metric": metric,
                 "best_validation": best,
                 "evaluation": evaluation,

@@ -1,10 +1,10 @@
 # ADR-TOOLS-0014: Finished datasets per source
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-10-01
 **Topic:** restructure
 **Supersedes:** none
-**Superseded-by:** none
+**Superseded-by:** ADR-TOOLS-0017
 **Related:** ADR-TOOLS-0004, ADR-TOOLS-0013
 
 ## Context

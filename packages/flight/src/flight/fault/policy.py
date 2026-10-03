@@ -17,13 +17,14 @@ Contains:
   - SAFE_TRIGGERING_FAULTS: the FaultCodes that require a transition to SystemMode.SAFE.
   - enter_safe_mode / exit_safe_mode: build SAFE-entry / SAFE-exit ModeChangeMsg.
   - decide_mode_change: map a FaultEventMsg to a ModeChangeMsg(SAFE) or None.
+  - safe_mode_request: build the SystemModeRequestMsg(SAFE) sent to the system-mode authority.
 
 Satisfies: REQ-SAFE-HIGH-002, REQ-GIMB-HIGH-003, REQ-SAFE-EXIT-001.
 """
 
 from __future__ import annotations
 
-from flight.libs.messages import FaultEventMsg, ModeChangeMsg
+from flight.libs.messages import FaultEventMsg, ModeChangeMsg, SystemModeRequestMsg
 from flight.libs.types import FaultCode, MessageType, SystemMode
 
 SAFE_TRIGGERING_FAULTS: frozenset[FaultCode] = frozenset(
@@ -88,8 +89,29 @@ def exit_safe_mode(cleared_by: str, now_iso: str) -> ModeChangeMsg:
     )
 
 
+def safe_mode_request(reason: FaultCode, request_id: str, now_iso: str) -> SystemModeRequestMsg:
+    """Build the SAFE request the fault app sends to the system-mode authority.
+
+    Args:
+        reason: The FaultCode that latched SAFE.
+        request_id: Fault-app-unique request identifier.
+        now_iso: Wall-clock ISO timestamp for the message.
+
+    Returns:
+        A SystemModeRequestMsg with requested_mode=SystemMode.SAFE.
+    """
+    return SystemModeRequestMsg(
+        msg_type=MessageType.SYSTEM_MODE_REQUEST,
+        timestamp_utc=now_iso,
+        request_id=request_id,
+        requested_mode=SystemMode.SAFE,
+        requested_by="fault",
+        reason=f"safe_mode_entry:{reason.value}",
+    )
+
+
 def can_exit_safe(safe_latched: bool, safe_fault_seen_this_tick: bool) -> bool:
-    """Decide whether a ground EXIT_SAFE may un-latch SAFE (pure).
+    """Decide whether an authorized EXIT_SAFE activation may un-latch SAFE (pure).
 
     Args:
         safe_latched: True if SAFE is currently latched (else there is nothing to exit).
@@ -97,10 +119,9 @@ def can_exit_safe(safe_latched: bool, safe_fault_seen_this_tick: bool) -> bool:
             the EXIT_SAFE is being evaluated in (the "triggering fault not yet cleared" gate).
 
     Returns:
-        True iff SAFE is latched AND no SAFE-triggering fault is currently active. The inhibit
-        is enforced here, at the actuator (the fault app), per the layered-authority model: a
-        ground EXIT_SAFE while a fault still fires must be refused so the vehicle cannot leave
-        SAFE into a still-faulted state.
+        True iff SAFE is latched AND no SAFE-triggering fault is currently active. The fault
+        app re-checks this on the recovery-authorized activation, so the latch never clears
+        into a still-faulted state even when the authority decided on older evidence.
     """
     return safe_latched and not safe_fault_seen_this_tick
 

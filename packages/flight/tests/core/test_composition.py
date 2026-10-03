@@ -19,6 +19,7 @@ from flight.payload.app import PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.inference import ScriptedDetector
 from flight.payload.preprocess import MosaicCalibration
+from flight.system_modes.app import SystemModesApp
 from flight.thermal.app import ThermalApp
 
 
@@ -51,6 +52,7 @@ def test_build_apps_wires_all_five_subsystems() -> None:
         MONITORED_SUBSYSTEMS,
         _calib(),
         b"test-key-00000000000000000000000",
+        "test-epoch",
     )
     assert isinstance(apps, SystemApps)
     assert isinstance(apps.payload, PayloadApp)
@@ -58,6 +60,8 @@ def test_build_apps_wires_all_five_subsystems() -> None:
     assert isinstance(apps.iss_iface, IssIfaceApp)
     assert isinstance(apps.thermal, ThermalApp)
     assert isinstance(apps.electrical, ElectricalApp)
+    assert isinstance(apps.system_modes, SystemModesApp)
+    assert apps.system_modes.epoch == "test-epoch"
 
 
 def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
@@ -71,6 +75,7 @@ def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
         "storage",
         "downlink",
         "model_deploy",
+        "system_modes",
     }
 
 
@@ -85,6 +90,7 @@ def test_build_apps_shares_one_bus() -> None:
         MONITORED_SUBSYSTEMS,
         _calib(),
         b"test-key-00000000000000000000000",
+        "test-epoch",
     )
     assert apps.payload.bus is bus
     assert apps.fault.bus is bus

@@ -36,12 +36,13 @@ parameters against that schema.
 | `PING` | `core` | none | no |
 | `NOOP` | `core` | none | no |
 | `SET_THERMAL_LIMIT` | `thermal` | `limit_c: float` | no |
-| `EXIT_SAFE` | `fault` | `phase: str` | yes |
+| `EXIT_SAFE` | `system_modes` | `phase: str` | yes |
 | `UPLOAD_MODEL_CHUNK` | `iss_iface` | chunk fields | no |
 | `ACTIVATE_MODEL` | `model_deploy` | `version: str` | no |
 | `GIMBAL_STOW` | `payload` | none | no |
 | `GIMBAL_HOME` | `payload` | none | no |
 | `GIMBAL_GOTO` | `payload` | `el_deg: float` | no |
+| `SET_MODE` | `system_modes` | `mode: str` | no |
 
 ## Inputs and outputs
 

@@ -6,8 +6,10 @@ from `flight.libs.messages`.
 
 from flight.libs.messages.messages import (
     SCHEMA_VERSION,
+    ActivationKey,
     BlobMeta,
     CommandAckMsg,
+    CommandCorrelation,
     CommandMsg,
     DownlinkItemMsg,
     FaultEventMsg,
@@ -23,6 +25,10 @@ from flight.libs.messages.messages import (
     RoutedCommandMsg,
     SafetyStateMsg,
     StorageWriteMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
+    SystemModeSyncRequestMsg,
+    SystemModeTransitionMsg,
     TelemetryEventMsg,
     UploadChunkMsg,
     utc_now_iso,
@@ -30,7 +36,9 @@ from flight.libs.messages.messages import (
 
 __all__ = [
     "SCHEMA_VERSION",
+    "ActivationKey",
     "BlobMeta",
+    "CommandCorrelation",
     "CommandAckMsg",
     "CommandMsg",
     "DownlinkItemMsg",
@@ -47,6 +55,10 @@ __all__ = [
     "RoutedCommandMsg",
     "SafetyStateMsg",
     "StorageWriteMsg",
+    "SystemModeActivatedMsg",
+    "SystemModeRequestMsg",
+    "SystemModeSyncRequestMsg",
+    "SystemModeTransitionMsg",
     "TelemetryEventMsg",
     "UploadChunkMsg",
     "utc_now_iso",

@@ -28,7 +28,7 @@ name = Flight layered architecture
 type = layers
 layers =
     flight.core
-    flight.payload | flight.thermal | flight.electrical | flight.iss_iface | flight.fault
+    flight.payload | flight.thermal | flight.electrical | flight.iss_iface | flight.fault | flight.system_modes
     flight.hal.interfaces
     flight.libs
 
@@ -41,6 +41,7 @@ source_modules =
     flight.electrical
     flight.iss_iface
     flight.fault
+    flight.system_modes
     flight.libs
 forbidden_modules =
     flight.hal.drivers_real

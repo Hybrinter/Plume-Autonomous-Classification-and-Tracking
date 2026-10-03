@@ -25,6 +25,7 @@ across subsystems.
 | `AckStatus` | enum | Command ingress outcome |
 | `CommandId` | enum | Command dictionary opcode keys |
 | `ParamKind` | enum | Command parameter primitive kind |
+| `TransitionDecision` | enum | System-mode authority decision outcome |
 
 ### SystemMode
 
@@ -36,6 +37,18 @@ across subsystems.
 | `MODEL_UPLINK` | Model upload session |
 | `DATA_DOWNLINK` | Data downlink session |
 | `SAFE` | Fault-induced minimal activity |
+| `STOW` | Commanded park at the stow pose |
+| `INIT` | Post-boot verification before `IDLE` |
+| `OPERATE` | Science operation; the payload graph owns tracking behavior |
+
+The system-mode authority activates only `IDLE`, `STOW`, `SAFE`, `INIT`, and `OPERATE`.
+
+### TransitionDecision
+
+| Member | Description |
+| --- | --- |
+| `ACCEPTED` | The mode request produced a new activation |
+| `DENIED` | The mode request was refused; the active mode is unchanged |
 
 ### GimbalState
 
@@ -110,7 +123,8 @@ across subsystems.
 Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMBAL_COMMAND`,
 `TELEMETRY_EVENT`, `FAULT_EVENT`, `HEARTBEAT`, `MODE_CHANGE`, `COMMAND`, `ROUTED_COMMAND`,
 `SAFETY_STATE`, `STORAGE_WRITE`, `PRODUCT_REF`, `DOWNLINK_ITEM`, `UPLINK_CHUNK`, `COMMAND_ACK`,
-`LINK_STATE`, `MODEL_STAGED`, `MODEL_DEPLOY`.
+`LINK_STATE`, `MODEL_STAGED`, `MODEL_DEPLOY`, `SYSTEM_MODE_REQUEST`, `SYSTEM_MODE_TRANSITION`,
+`SYSTEM_MODE_ACTIVATED`, `SYSTEM_MODE_SYNC_REQUEST`.
 
 ### DownlinkPriority
 
@@ -150,12 +164,13 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `PING` | Liveness check, no params |
 | `NOOP` | Accepted no-op, no params |
 | `SET_THERMAL_LIMIT` | Set thermal limit (`limit_c: float`) |
-| `EXIT_SAFE` | Hazardous SAFE exit (`phase: str`) |
+| `EXIT_SAFE` | Hazardous SAFE exit to the system-mode authority (`phase: str`) |
 | `UPLOAD_MODEL_CHUNK` | Chunked classifier+segmentor pair upload params |
 | `ACTIVATE_MODEL` | Activate staged inference pair (`version: str`) |
 | `GIMBAL_STOW` | Payload stow via the position loop |
 | `GIMBAL_HOME` | Payload home via the position loop |
 | `GIMBAL_GOTO` | Payload absolute pose (`el_deg: float`) |
+| `SET_MODE` | System-mode request to the authority (`mode: str`) |
 
 ### ParamKind
 

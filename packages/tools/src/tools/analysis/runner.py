@@ -402,8 +402,8 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             num_frames=14,
             power_readings=(30.0, 30.0, 80.0, 80.0, 25.0),
             injections=(
-                Injection(8, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=1)),
-                Injection(9, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=2)),
+                Injection(8, _command("EXIT_SAFE", "system_modes", {"phase": "ARM"}, seq=1)),
+                Injection(9, _command("EXIT_SAFE", "system_modes", {"phase": "EXECUTE"}, seq=2)),
             ),
         ),
         ScenarioSpec(
@@ -418,9 +418,9 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             steps=10,
             num_frames=10,
             injections=(
-                Injection(3, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=1)),
-                Injection(5, _command("EXIT_SAFE", "fault", {"phase": "ARM"}, seq=2)),
-                Injection(6, _command("EXIT_SAFE", "fault", {"phase": "EXECUTE"}, seq=3)),
+                Injection(3, _command("EXIT_SAFE", "system_modes", {"phase": "EXECUTE"}, seq=1)),
+                Injection(5, _command("EXIT_SAFE", "system_modes", {"phase": "ARM"}, seq=2)),
+                Injection(6, _command("EXIT_SAFE", "system_modes", {"phase": "EXECUTE"}, seq=3)),
             ),
         ),
         ScenarioSpec(

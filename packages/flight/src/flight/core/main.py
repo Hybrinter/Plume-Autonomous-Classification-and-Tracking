@@ -32,7 +32,7 @@ from flight.core.scheduler import Scheduler
 from flight.core.select_drivers import select_drivers
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import PactConfig
-from flight.libs.messages import HeartbeatMsg, ModeChangeMsg
+from flight.libs.messages import HeartbeatMsg, ModeChangeMsg, SystemModeRequestMsg
 from flight.libs.time import Clock, ManualClock, RealClock
 from flight.libs.types import MessageType, Ok, SystemMode
 from flight.payload.calibration_io import build_identity_calibration, load_calibration
@@ -89,7 +89,20 @@ def build_flight_system(
     """
     uplink_key = _load_uplink_key(config.command_ingress.hmac_key_path)
     drivers = select_drivers(config, clock, sim_inputs=None)
-    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    epoch = f"boot-{clock.wall_clock_iso()}"
+    return build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key, epoch)
+
+
+def _startup_request(clock: Clock, mode: SystemMode, reason: str) -> SystemModeRequestMsg:
+    """Build the startup health gate's request to the system-mode authority."""
+    return SystemModeRequestMsg(
+        msg_type=MessageType.SYSTEM_MODE_REQUEST,
+        timestamp_utc=clock.wall_clock_iso(),
+        request_id=f"startup_health_gate-{mode.value}",
+        requested_mode=mode,
+        requested_by="startup_health_gate",
+        reason=reason,
+    )
 
 
 def _run_startup_health_gate(
@@ -109,8 +122,9 @@ def _run_startup_health_gate(
         window_s: The maximum seconds to wait.
 
     Returns:
-        True if every monitored subsystem heartbeat within the window; otherwise publishes a
-        ModeChangeMsg(SAFE) (annunciating the half-initialized topology) and returns False.
+        True if every monitored subsystem heartbeat within the window (the authority stays in
+        its boot SAFE until an operator command); otherwise requests SAFE, publishes a
+        ModeChangeMsg(SAFE) (annunciating the half-initialized topology), and returns False.
     """
     seen: set[str] = set()
     deadline = clock.monotonic_s() + window_s
@@ -122,6 +136,7 @@ def _run_startup_health_gate(
         seen.add(heartbeats.get_nowait().subsystem)
     if startup_healthy(seen, monitored):
         return True
+    bus.publish(_startup_request(clock, SystemMode.SAFE, "startup health gate failed"))
     bus.publish(
         ModeChangeMsg(
             msg_type=MessageType.MODE_CHANGE,
@@ -183,6 +198,7 @@ def main(config_path: str = "config/default.toml") -> None:
             ("storage", apps.storage),
             ("downlink", apps.downlink),
             ("model_deploy", apps.model_deploy),
+            ("system_modes", apps.system_modes),
         ],
         bus=bus,
     )

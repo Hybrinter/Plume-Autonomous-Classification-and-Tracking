@@ -15,8 +15,9 @@ SAFE entry and builds the corresponding `ModeChangeMsg` values.
 | `SAFE_TRIGGERING_FAULTS` | constant | `frozenset` of fault codes that request SAFE mode |
 | `enter_safe_mode` | function | Builds `ModeChangeMsg(SAFE)` for a given fault code |
 | `exit_safe_mode` | function | Builds `ModeChangeMsg(IDLE)` after ground clearance |
-| `can_exit_safe` | function | Returns whether an `EXIT_SAFE` command may un-latch SAFE |
+| `can_exit_safe` | function | Returns whether a recovery-authorized activation may un-latch SAFE |
 | `decide_mode_change` | function | Maps a `FaultEventMsg` to a mode change or `None` |
+| `safe_mode_request` | function | Builds `SystemModeRequestMsg(SAFE)` for the system-mode authority |
 
 ## Inputs and outputs
 
@@ -24,6 +25,8 @@ SAFE entry and builds the corresponding `ModeChangeMsg` values.
 - `exit_safe_mode(cleared_by, now_iso)` returns a `ModeChangeMsg` with `new_mode=IDLE`.
 - `can_exit_safe(safe_latched, safe_fault_seen_this_tick)` returns a boolean.
 - `decide_mode_change(event, now_iso)` returns `ModeChangeMsg | None`.
+- `safe_mode_request(reason, request_id, now_iso)` returns a `SystemModeRequestMsg` with
+  `requested_mode=SAFE`.
 
 ## Behavior
 
@@ -52,7 +55,7 @@ Log-and-continue codes (no mode change) include `INFERENCE_TIMEOUT`, `STORAGE_FU
 
 ## Messages
 
-Builds `ModeChangeMsg` values. Does not publish to the bus.
+Builds `ModeChangeMsg` and `SystemModeRequestMsg` values. Does not publish to the bus.
 
 ## Configuration
 

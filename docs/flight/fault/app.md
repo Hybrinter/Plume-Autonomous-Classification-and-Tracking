@@ -6,7 +6,8 @@
 ## Purpose
 
 `FaultApp` is the FDIR app shell. Each tick it drains heartbeats, routes fault events through the
-policy, runs the heartbeat watchdog, handles `EXIT_SAFE` commands, and publishes `SafetyStateMsg`.
+policy, runs the heartbeat watchdog, releases the SAFE latch on a recovery-authorized system-mode
+activation, and publishes `SafetyStateMsg`.
 
 ## Public interface
 
@@ -14,7 +15,7 @@ policy, runs the heartbeat watchdog, handles `EXIT_SAFE` commands, and publishes
 | --- | --- | --- |
 | `SafetyLatch` | class | Mutable SAFE latch state owned by the app shell |
 | `FaultApp` | class | Frozen FDIR app with config, bus, clock, and subscriptions |
-| `FaultApp.from_config` | function | Builds the app and subscribes to heartbeats, faults, and routed commands |
+| `FaultApp.from_config` | function | Builds the app and subscribes to heartbeats, faults, and activations |
 | `FaultApp.initial_entries` | method | Seeds watchdog entries for all monitored subsystems |
 | `FaultApp.tick` | method | Runs one watchdog, fault-routing, and safety-state cycle |
 | `FaultApp.run` | method | Periodic loop until `stop_event` is set |
@@ -29,25 +30,28 @@ policy, runs the heartbeat watchdog, handles `EXIT_SAFE` commands, and publishes
 
 ## Behavior
 
-1. Drain all pending `HeartbeatMsg` values and reset miss counts for matching subsystems.
-2. Drain all pending `FaultEventMsg` values and publish `ModeChangeMsg(SAFE)` for SAFE-triggering
-   codes; latch SAFE on each trigger.
-3. Call `check_heartbeats` and route any `WATCHDOG_EXPIRE` faults through the same policy.
-4. Drain routed `EXIT_SAFE` commands; un-latch SAFE when the latch is set and no SAFE-triggering
-   fault fired this tick.
-5. Publish `SafetyStateMsg` with the current latch state and active fault codes from this tick.
+1. Drain `SystemModeActivatedMsg` values. Ignore keys that are not newer than the last applied
+   key. Keep the newest active mode and the newest recovery-authorized activation.
+2. Drain all pending `HeartbeatMsg` values and reset miss counts for matching subsystems.
+3. Drain all pending `FaultEventMsg` values. For SAFE-triggering codes, publish
+   `ModeChangeMsg(SAFE)` and latch SAFE. Publish one `SystemModeRequestMsg(SAFE)` per tick while
+   the authority has not activated `SAFE`.
+4. Call `check_heartbeats` and route any `WATCHDOG_EXPIRE` faults through the same policy.
+5. On a recovery-authorized activation, un-latch SAFE and publish `ModeChangeMsg(IDLE)` when the
+   latch is set and no SAFE-triggering fault fired this tick.
+6. Publish `SafetyStateMsg` with the current latch state and active fault codes from this tick.
 
 ## Errors and faults
 
-The app publishes `ModeChangeMsg(SAFE)` for faults in `SAFE_TRIGGERING_FAULTS`. It publishes
-`CommandAckMsg` with `REJECTED` when `EXIT_SAFE` is refused. It does not raise at runtime.
+The app publishes `ModeChangeMsg(SAFE)` and requests SAFE for faults in `SAFE_TRIGGERING_FAULTS`.
+It does not raise at runtime.
 
 ## Messages
 
 | Direction | Type |
 | --- | --- |
-| Subscribe | `HeartbeatMsg`, `FaultEventMsg`, `RoutedCommandMsg` |
-| Publish | `ModeChangeMsg`, `SafetyStateMsg`, `CommandAckMsg` |
+| Subscribe | `HeartbeatMsg`, `FaultEventMsg`, `SystemModeActivatedMsg` |
+| Publish | `ModeChangeMsg`, `SystemModeRequestMsg`, `SafetyStateMsg` |
 
 ## Configuration
 

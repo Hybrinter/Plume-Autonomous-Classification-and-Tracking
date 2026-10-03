@@ -143,6 +143,7 @@ def step_once(
 
     apps.iss_iface.tick()
     apps.command_router.tick()
+    apps.system_modes.tick()
 
     apps.thermal.handle_commands()
     apps.thermal.sample()

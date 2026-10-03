@@ -45,6 +45,19 @@ class SystemMode(enum.Enum):
     MODEL_UPLINK = "MODEL_UPLINK"
     DATA_DOWNLINK = "DATA_DOWNLINK"
     SAFE = "SAFE"  # fault-induced; minimal activity
+    STOW = "STOW"  # commanded park; payload held at the stow pose
+    INIT = "INIT"  # post-boot verification before IDLE
+    OPERATE = "OPERATE"  # science operation; payload graph owns tracking behavior
+
+
+class TransitionDecision(enum.Enum):
+    """Outcome of one system-mode request at the system-mode authority.
+
+    String values mirror member names (log readability convention). Satisfies: REQ-OPER-HIGH-002.
+    """
+
+    ACCEPTED = "ACCEPTED"  # the request produced a new activation
+    DENIED = "DENIED"  # the request was refused; the active mode is unchanged
 
 
 class GimbalState(enum.Enum):
@@ -171,6 +184,10 @@ class MessageType(enum.Enum):
     LINK_STATE = "LINK_STATE"
     MODEL_STAGED = "MODEL_STAGED"
     MODEL_DEPLOY = "MODEL_DEPLOY"
+    SYSTEM_MODE_REQUEST = "SYSTEM_MODE_REQUEST"
+    SYSTEM_MODE_TRANSITION = "SYSTEM_MODE_TRANSITION"
+    SYSTEM_MODE_ACTIVATED = "SYSTEM_MODE_ACTIVATED"
+    SYSTEM_MODE_SYNC_REQUEST = "SYSTEM_MODE_SYNC_REQUEST"
 
 
 class DownlinkPriority(enum.Enum):
@@ -224,12 +241,13 @@ class CommandId(enum.Enum):
     PING = "PING"  # liveness check; non-hazardous; core-handled; no params
     SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; target thermal; param limit_c: float
     NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
-    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target fault; param phase: str
+    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target system_modes; param phase: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
     GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop
     GIMBAL_HOME = "GIMBAL_HOME"  # non-hazardous; target payload; home via position loop
     GIMBAL_GOTO = "GIMBAL_GOTO"  # non-hazardous; target payload; param el_deg: float
+    SET_MODE = "SET_MODE"  # non-hazardous; target system_modes; param mode: str
 
 
 class ParamKind(enum.Enum):

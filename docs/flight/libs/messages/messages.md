@@ -17,6 +17,13 @@ and embedded structs.
 | `BlobMeta` | class | Embedded blob metadata struct |
 | Message classes | class | One frozen dataclass per `MessageType` |
 
+### Record classes
+
+| Class | Role |
+| --- | --- |
+| `ActivationKey` | `(epoch, sequence)` identity of one system-mode activation |
+| `CommandCorrelation` | Ground command `(source, seq, command_id)` carried by a mode request |
+
 ### Message classes
 
 | Class | MessageType | Role |
@@ -31,6 +38,10 @@ and embedded structs.
 | `CommandMsg` | `COMMAND` | Ground command envelope from ingress |
 | `RoutedCommandMsg` | `ROUTED_COMMAND` | Command accepted by router for target app |
 | `SafetyStateMsg` | `SAFETY_STATE` | Fault-owned SAFE latch and active fault set |
+| `SystemModeRequestMsg` | `SYSTEM_MODE_REQUEST` | Request to the system-mode authority |
+| `SystemModeTransitionMsg` | `SYSTEM_MODE_TRANSITION` | Accepted or denied authority decision record |
+| `SystemModeActivatedMsg` | `SYSTEM_MODE_ACTIVATED` | Authoritative active system mode with activation key |
+| `SystemModeSyncRequestMsg` | `SYSTEM_MODE_SYNC_REQUEST` | Request to replay the current activation |
 | `StorageWriteMsg` | `STORAGE_WRITE` | Full frame bundle for storage writer |
 | `ProductRefMsg` | `PRODUCT_REF` | Compact reference to a stored science product |
 | `DownlinkItemMsg` | `DOWNLINK_ITEM` | Prioritized downlink queue item |
@@ -98,14 +109,18 @@ The module defines message shapes only. Producers emit `FaultEventMsg` with appr
 | `ModeChangeMsg` | fault, core | all mode-aware apps |
 | `CommandMsg` | iss_iface | core command router |
 | `RoutedCommandMsg` | core command router | target subsystem apps |
-| `SafetyStateMsg` | fault | command router |
+| `SafetyStateMsg` | fault | command router, system_modes |
+| `SystemModeRequestMsg` | fault, startup health gate | system_modes |
+| `SystemModeTransitionMsg` | system_modes | audit consumers |
+| `SystemModeActivatedMsg` | system_modes | fault |
+| `SystemModeSyncRequestMsg` | restarted subscribers | system_modes |
 | `StorageWriteMsg` | payload | core storage |
 | `ProductRefMsg` | payload | downlink manager |
 | `DownlinkItemMsg` | downlink manager | iss_iface |
 | `UploadChunkMsg` | iss_iface | iss_iface upload handler |
 | `ModelStagedMsg` | iss_iface | core model deploy |
 | `ModelDeployStateMsg` | core model deploy | downlink |
-| `CommandAckMsg` | iss_iface, target apps | downlink |
+| `CommandAckMsg` | iss_iface, target apps, system_modes | downlink |
 | `LinkStateMsg` | iss_iface | downlink manager |
 
 Note: `ProcessedFrameMsg` exists as a typed record. Preprocessing outputs currently stay as

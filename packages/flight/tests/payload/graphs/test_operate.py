@@ -183,7 +183,7 @@ def test_delayed_plume_keeps_newest_observation_time(
     delayed_t = 0.04
     delayed = vision(delayed_t, key, blobs=(plume,), theta_g_rad=theta)
     arrival = 0.08
-    age_limit = params.config.controller.arbiter.max_observation_age_s
+    age_limit = params.config.controller.operate.max_observation_age_s
     assert arrival - delayed_t <= params.residual_filter.rewind_horizon_s
     assert arrival - delayed_t <= age_limit
     state, _ = operate.step(

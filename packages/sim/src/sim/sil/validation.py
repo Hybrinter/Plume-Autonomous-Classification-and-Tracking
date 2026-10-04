@@ -112,6 +112,10 @@ def build_validation_system(
         Storage is redirected to a fresh temp directory so the deterministic in-process harness
         is hermetic (no repo pollution) and isolated per build; the flight entry keeps the
         configured data_root.
+
+        The builder passes ``synchronous_lifecycle=True``. INIT effects run on the
+        control thread inside each poll, and the lifecycle daemon does not start.
+        SilHarness and the GSE in-process backend share this ManualClock path.
     """
     config = replace(
         config,
@@ -130,6 +134,7 @@ def build_validation_system(
         uplink_key,
         activation_epoch,
         initialization_verifier=initialization_verifier,
+        synchronous_lifecycle=True,
     )
     return ValidationSystem(
         apps=apps,

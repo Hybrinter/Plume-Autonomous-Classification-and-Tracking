@@ -373,8 +373,13 @@ def _executor(
     home: HomeArrivalService | None = None,
     verifier: InitializationVerifier | None = None,
     deadline_s: float = 30.0,
+    synchronous: bool = True,
 ) -> LifecycleExecutor:
-    """Executor over scripted stubs with fast results by default."""
+    """Executor over scripted stubs; fast completions run on the caller.
+
+    ``synchronous`` defaults true so the next poll drains the mailbox with no
+    sleep. Tests that block inside a call pass false and keep the daemon.
+    """
     return LifecycleExecutor(
         runtime=runtime,
         selftest=selftest or _FixedSelftest(Ok("selftest:ok")),
@@ -392,6 +397,7 @@ def _executor(
             ]
         ),
         effect_deadline_s=deadline_s,
+        synchronous=synchronous,
     )
 
 
@@ -400,21 +406,29 @@ def _poll_until(
     token: LifecycleToken,
     observation: LifecycleObservation,
     *,
-    seconds: float = 3.0,
+    polls: int = 4,
 ) -> LifecyclePoll:
-    """Poll until a completion appears; return the last poll regardless."""
-    deadline = time.monotonic() + seconds
+    """Poll until a completion appears; return the last poll regardless.
+
+    The first poll claims and runs one job. The next poll drains the mailbox.
+    A short poll bound fails a stuck executor without waiting on host time.
+    """
     poll = executor.poll(token, observation, observation.inputs.now_s)
-    while not (poll.results or poll.verification is not None or poll.install is not None):
-        if time.monotonic() >= deadline:
-            break
-        time.sleep(0.001)
+    remaining = polls - 1
+    while remaining > 0 and not (
+        poll.results or poll.verification is not None or poll.install is not None
+    ):
+        remaining -= 1
         poll = executor.poll(token, observation, observation.inputs.now_s)
     return poll
 
 
 def _wait_mail(executor: LifecycleExecutor, timeout_s: float = 2.0) -> None:
-    """Wait until the worker mails a completion for the next poll to consume."""
+    """Wait until the daemon worker mails a completion.
+
+    Only the blocked-worker tests use this. Synchronous polls fill the mailbox
+    before they return, so those tests assert ``_mailbox`` directly.
+    """
     deadline = time.monotonic() + timeout_s
     while not executor._mailbox and time.monotonic() < deadline:
         time.sleep(0.001)
@@ -462,6 +476,36 @@ def test_executor_runs_intents_in_order_and_installs_verified() -> None:
         executor.shutdown()
 
 
+def test_executor_synchronous_poll_completes_on_next_poll_without_thread() -> None:
+    """Synchronous mode never starts a worker; the next poll drains the result."""
+    selftest = _FixedSelftest(Ok("selftest:ok"))
+    pending = _FixedSelftest(Ok(None))
+    token = _token()
+    executor = _executor(InferenceRuntime(), selftest=selftest)
+    pending_exec = _executor(InferenceRuntime(), selftest=pending)
+    try:
+        executor.submit((_intent(EffectKind.SELFTEST),), token, now=0.0)
+        first = executor.poll(token, _observation(_KEY, 0.0), 0.0)
+        assert executor._thread is None
+        assert selftest.calls == 1
+        assert first.results == ()
+        assert len(executor._mailbox) == 1
+        second = executor.poll(token, _observation(_KEY, 0.0), 0.0)
+        assert len(second.results) == 1
+        assert second.results[0].status is EffectStatus.SUCCEEDED
+        assert second.results[0].evidence_id == "selftest:ok"
+        assert executor._thread is None
+
+        pending_exec.submit((_intent(EffectKind.SELFTEST),), token, now=0.0)
+        spun = pending_exec.poll(token, _observation(_KEY, 0.0), 0.0)
+        assert spun.results == ()
+        assert pending.calls == 1
+        assert pending_exec._thread is None
+    finally:
+        executor.shutdown()
+        pending_exec.shutdown()
+
+
 def test_executor_rejects_stale_token_poll() -> None:
     """A poll under a different token returns nothing and hands off nothing."""
     runtime = InferenceRuntime()
@@ -483,7 +527,7 @@ def test_executor_drops_completion_after_cancel() -> None:
     """A load that completes after cancel cannot install or advance."""
     gate = _BlockedFactory()
     runtime = InferenceRuntime(factory=gate)
-    executor = _executor(runtime)
+    executor = _executor(runtime, synchronous=False)
     token = _token()
     try:
         executor.submit((_intent(EffectKind.MODEL_LOAD),), token, now=0.0)
@@ -508,7 +552,7 @@ def test_executor_worker_count_bounded_across_reentry() -> None:
     """Repeated cancel/resubmit keeps exactly one worker thread alive."""
     gate = _BlockedFactory()
     runtime = InferenceRuntime(factory=gate)
-    executor = _executor(runtime)
+    executor = _executor(runtime, synchronous=False)
     try:
         executor.submit((_intent(EffectKind.MODEL_LOAD),), _token(), now=0.0)
         executor.poll(_token(), _observation(_KEY, 0.0), 0.0)
@@ -532,7 +576,7 @@ def test_executor_shutdown_returns_with_blocked_worker() -> None:
     """shutdown() never waits on a blocked SDK load."""
     gate = _BlockedFactory()
     runtime = InferenceRuntime(factory=gate)
-    executor = _executor(runtime)
+    executor = _executor(runtime, synchronous=False)
     try:
         executor.submit((_intent(EffectKind.MODEL_LOAD),), _token(), now=0.0)
         executor.poll(_token(), _observation(_KEY, 0.0), 0.0)
@@ -570,11 +614,11 @@ def test_executor_deadline_is_inclusive() -> None:
     try:
         executor.submit((_intent(EffectKind.SELFTEST),), token, now=0.0)
         executor.poll(token, _observation(_KEY, 0.0), 0.0)
-        _wait_mail(executor)
+        assert executor._mailbox
         # Consuming a PENDING probe result does not re-arm the issue deadline.
         poll = executor.poll(token, _observation(_KEY, 29.0), 29.0)
         assert poll.results == ()
-        _wait_mail(executor)
+        assert executor._mailbox
         poll = executor.poll(token, _observation(_KEY, 30.0), 30.0)
         assert len(poll.results) == 1
         assert poll.results[0].status is EffectStatus.FAILED
@@ -598,14 +642,14 @@ def test_executor_pending_verifier_rearms_invocation_deadline() -> None:
         executor.submit((_intent(EffectKind.VERIFY_INIT),), token, now=0.0)
         executor.poll(token, _observation(_KEY, 0.0), 0.0)
         for now in (29.0, 58.0, 87.9):
-            _wait_mail(executor)
+            assert executor._mailbox
             poll = executor.poll(token, _observation(_KEY, now), now)
             assert poll.results == ()
             assert poll.verification is None
             assert poll.install is None
         # ~88 s of responsive pending is fine; an unanswered call is not. At
         # exactly issued + deadline the window expires inclusively.
-        _wait_mail(executor)
+        assert executor._mailbox
         assert verifier.calls >= 3
         poll = executor.poll(token, _observation(_KEY, 117.9), 117.9)
         assert len(poll.results) == 1
@@ -620,7 +664,7 @@ def test_executor_blocked_verifier_fails_at_deadline() -> None:
     """A verifier call that never returns expires at its invocation bound."""
     blocked = _BlockedVerifier()
     runtime = InferenceRuntime()
-    executor = _executor(runtime, verifier=blocked, deadline_s=0.5)
+    executor = _executor(runtime, verifier=blocked, deadline_s=0.5, synchronous=False)
     token = _token()
     try:
         executor.submit((_intent(EffectKind.VERIFY_INIT),), token, now=0.0)
@@ -686,7 +730,7 @@ def test_executor_token_change_cancels_blocked_generation() -> None:
     """A new token abandons the old generation and signals the running job."""
     gate = _BlockedFactory()
     runtime = InferenceRuntime(factory=gate)
-    executor = _executor(runtime)
+    executor = _executor(runtime, synchronous=False)
     old_key = _KEY
     new_key = ActivationKey(epoch=_EPOCH, sequence=2)
     try:
@@ -877,17 +921,18 @@ def test_executor_pending_verifier_never_promotes() -> None:
         home_arrival=_FixedHome(Ok("home:ok")),
         verifier=PendingInitializationVerifier(),
         effect_deadline_s=5.0,
+        synchronous=True,
     )
     token = _token()
     obs = _observation(_KEY, now=0.0)
     try:
         executor.submit((_intent(EffectKind.VERIFY_INIT),), token, now=0.0)
-        deadline = time.monotonic() + 0.5
-        while time.monotonic() < deadline:
+        for _ in range(6):
             poll = executor.poll(token, obs, 0.0)
             assert poll.install is None
             assert poll.verification is None
-            time.sleep(0.005)
+            assert poll.results == ()
+        assert executor._thread is None
         assert runtime.snapshot() is None
     finally:
         executor.shutdown()
@@ -962,6 +1007,7 @@ def _build_app(
     effect_deadline_s: float = 30.0,
     sensor: ImagingSensor | None = None,
     cfg: PactConfig | None = None,
+    synchronous_lifecycle: bool = True,
 ) -> tuple[PayloadApp, MessageBus, SimGimbal, ManualClock]:
     """Assemble a PayloadApp over sim drivers with optional lifecycle injection."""
     base = cfg or PactConfig()
@@ -994,6 +1040,7 @@ def _build_app(
         home_service=home,
         verifier=verifier,
         effect_deadline_s=effect_deadline_s,
+        synchronous_lifecycle=synchronous_lifecycle,
     )
     return app, bus, gimbal, clock
 
@@ -1036,7 +1083,6 @@ def _drive(
         now += dt
         app.note_gimbal_feedback(GimbalPosition(el_deg=el_deg, timestamp_s=now, sequence=index))
         state, _ = app.advance_outer(state, now)
-        time.sleep(0.002)
     return state
 
 
@@ -1495,7 +1541,7 @@ def test_init_blocked_factory_safe_and_shutdown() -> None:
     """
     gate = _BlockedFactory()
     runtime = InferenceRuntime(factory=gate)
-    app, bus, gimbal, _clock = _build_app(inference=runtime)
+    app, bus, gimbal, _clock = _build_app(inference=runtime, synchronous_lifecycle=False)
     request_sub = bus.subscribe(SystemModeRequestMsg)
     try:
         state = app.initial_state()

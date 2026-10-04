@@ -43,8 +43,9 @@ The payload app subscribes to `SystemModeActivatedMsg` (the accepted-activation 
 `SystemModeSyncRequestMsg`. It uses the `ImagingSensor`, `GimbalActuator`,
 `IssEphemeris`, and `StorageWriter` HAL protocols. Preprocessing runs inside
 `process_frame()` and does not publish `ProcessedFrameMsg` on the bus. INIT
-effect intents run on one bounded lifecycle worker through
-`flight.payload.lifecycle`; the inference runtime holder stays empty until the
+effect intents run through `flight.payload.lifecycle`. Flight uses one bounded
+lifecycle daemon. SIL and GSE pump the same executor on the control thread and
+do not start that worker. The inference runtime holder stays empty until the
 control owner installs a verified session.
 
 ## Constraints

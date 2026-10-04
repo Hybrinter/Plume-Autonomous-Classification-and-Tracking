@@ -28,9 +28,12 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 
 - Inputs: `PactConfig`, shared `MessageBus`, `Clock`, `Drivers`, monitored subsystem names,
   `MosaicCalibration`, uplink HMAC key bytes, the mandatory `activation_epoch`
-  forwarded to the payload, fault, and router apps, and an optional keyword-only
+  forwarded to the payload, fault, and router apps, an optional keyword-only
   `InitializationVerifier` forwarded to the payload app (None keeps the
-  pending-by-default production verifier).
+  pending-by-default production verifier), and keyword-only
+  `synchronous_lifecycle` (default false). Flight keeps the lazy lifecycle
+  daemon. The SIL validation builder passes true and pumps INIT effects on
+  the control thread.
 - Output: wired `SystemApps`.
 
 ## Behavior

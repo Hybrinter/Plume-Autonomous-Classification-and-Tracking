@@ -176,6 +176,7 @@ def build_apps(
     activation_epoch: str,
     *,
     initialization_verifier: InitializationVerifier | None = None,
+    synchronous_lifecycle: bool = False,
 ) -> SystemApps:
     """Construct every subsystem app wired to the shared bus and clock.
 
@@ -196,6 +197,10 @@ def build_apps(
         initialization_verifier: Optional INIT verification seam; None keeps the
             pending-by-default production verifier. Sim selection never implies a
             passing verifier.
+        synchronous_lifecycle: When true, the payload executor pumps INIT
+            effects on the control thread and does not start its daemon.
+            Defaults to false so flight keeps the lazy worker. The SIL
+            validation builder passes true.
 
     Returns:
         A SystemApps with all five apps constructed.
@@ -214,6 +219,7 @@ def build_apps(
             storage,
             activation_epoch,
             verifier=initialization_verifier,
+            synchronous_lifecycle=synchronous_lifecycle,
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored, activation_epoch),
         iss_iface=IssIfaceApp.from_config(

@@ -12,13 +12,16 @@ HOME service attests exact configured-pose arrival on a fresh strictly-later
 encoder sample, and the production InitializationVerifier stays PENDING --
 there is no verified-by-default path.
 
-LifecycleExecutor owns one lazy-start daemon worker: control submits intents
-and polls completions; the worker calls factories/services, reads (but never
-mutates) the runtime holder for candidate lookup, and never touches the bus
-or motion HAL. Completions are deduplicated and token-checked by the
-control-side poll, deadlines bound each worker invocation (default 30 s of
-supplied monotonic time), and cancellation on activation change, containment,
-or shutdown drops in-flight results without spawning extra workers.
+LifecycleExecutor owns INIT effect execution. Flight starts one lazy daemon
+worker: control submits intents and polls completions; the worker calls
+factories/services, reads (but never mutates) the runtime holder for candidate
+lookup, and never touches the bus or motion HAL. SIL and GSE construct the
+same executor with ``synchronous`` set and pump each claimed job on the
+control thread; that path does not start the worker. Completions are
+deduplicated and token-checked by the control-side poll, deadlines bound each
+invocation (default 30 s of supplied monotonic time), and cancellation on
+activation change, containment, or shutdown drops in-flight results without
+spawning extra workers.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 """
@@ -282,10 +285,21 @@ class LifecycleExecutor:
     results/verification/install candidates for the app. Intents are canonical:
     at most one per EffectKind per generation, issued once and retired once, so
     a repeated graph emit can never re-execute, reinstall, or re-arm a
-    completed intent. A busy worker leaves later intents pending; a blocked SDK
-    call can never spawn extra workers and never blocks the control owner.
+    completed intent. A busy invocation leaves later intents pending. A blocked
+    SDK call can never spawn extra workers. On the flight daemon path it does
+    not block the control owner; synchronous mode runs that call on the caller.
     ``cancel`` invalidates the whole generation and signals in-flight work;
     ``shutdown`` stops the worker without waiting on a blocked SDK call.
+    With no thread (synchronous mode, or before the first flight claim),
+    ``shutdown`` only latches the flag and drops generation state.
+
+    Flight leaves ``synchronous`` false and starts one lazy daemon on the
+    first claim. SIL and GSE pass true: ``poll`` still claims at most one job
+    under the condition lock, then runs that job on the caller after the lock
+    is released. The completion is mailed for the next ``poll``, so the
+    simulated tick that observes it does not depend on host scheduling. A
+    PENDING result does not run again inside the same ``poll``. ``_thread``
+    stays ``None``.
 
     Deadlines bound each worker invocation from its issue time (inclusive
     ``now - issued_s >= deadline``). SELFTEST, MODEL_LOAD, and HOME keep their
@@ -303,6 +317,7 @@ class LifecycleExecutor:
         home_arrival: HomeArrivalService,
         verifier: InitializationVerifier,
         effect_deadline_s: float = 30.0,
+        synchronous: bool = False,
     ) -> None:
         """Wire services and the shared runtime holder; validate the deadline.
 
@@ -316,6 +331,9 @@ class LifecycleExecutor:
             verifier: Verification seam backing the VERIFY_INIT effect.
             effect_deadline_s: Finite positive bound in monotonic seconds on
                 each intent execution, measured from its issue time.
+            synchronous: When true, run each claimed job on the caller and
+                never start the daemon. Flight passes false. SIL and GSE
+                pass true.
 
         Raises:
             ValueError: If the deadline is nonfinite or nonpositive.
@@ -327,6 +345,7 @@ class LifecycleExecutor:
         self._home = home_arrival
         self._verifier = verifier
         self._deadline_s = effect_deadline_s
+        self._synchronous = synchronous
         self._condition = threading.Condition()
         self._shutdown = False
         self._thread: threading.Thread | None = None
@@ -382,6 +401,7 @@ class LifecycleExecutor:
         results: list[EffectResult] = []
         verification: InitVerificationResult | None = None
         install: RuntimeSession | None = None
+        claimed: _Job | None = None
         with self._condition:
             if self._token != token:
                 return LifecyclePoll()
@@ -411,8 +431,16 @@ class LifecycleExecutor:
                     cancel=threading.Event(),
                     observation=self._job_observation(pending, observation),
                 )
-                self._ensure_worker_locked()
-                self._condition.notify_all()
+                if self._synchronous:
+                    # Run after the lock drops. Mail the completion for the
+                    # next poll so one simulated tick cannot both start and
+                    # observe the same effect.
+                    claimed = self._job
+                else:
+                    self._ensure_worker_locked()
+                    self._condition.notify_all()
+        if claimed is not None:
+            self._complete_claimed_job(claimed)
         return LifecyclePoll(results=tuple(results), verification=verification, install=install)
 
     def cancel(self) -> None:
@@ -574,12 +602,17 @@ class LifecycleExecutor:
         )
 
     def _ensure_worker_locked(self) -> None:
-        """Lazily start the single daemon worker on first real work."""
-        if self._thread is None:
-            self._thread = threading.Thread(
-                target=self._worker_loop, name="payload-lifecycle", daemon=True
-            )
-            self._thread.start()
+        """Lazily start the single daemon worker on first real work.
+
+        Synchronous mode never starts a thread: the caller of ``poll`` runs
+        the claimed job itself.
+        """
+        if self._synchronous or self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._worker_loop, name="payload-lifecycle", daemon=True
+        )
+        self._thread.start()
 
     def _worker_loop(self) -> None:
         """Run claimed jobs one at a time until shutdown.
@@ -597,17 +630,26 @@ class LifecycleExecutor:
                 job = self._job
             if job is None:
                 continue
-            if job.cancel.is_set():
-                with self._condition:
-                    if self._job is job:
-                        self._job = None
-                continue
-            completion = self._run_job(job)
+            self._complete_claimed_job(job)
+
+    def _complete_claimed_job(self, job: _Job) -> None:
+        """Run one claimed job off the condition lock and mail it if current.
+
+        Shared by the daemon and the synchronous caller. A cancelled job frees
+        the slot and mails nothing. The mailbox append happens only while
+        shutdown has not begun and the token still matches the job.
+        """
+        if job.cancel.is_set():
             with self._condition:
                 if self._job is job:
                     self._job = None
-                if not job.cancel.is_set() and not self._shutdown and self._token == job.token:
-                    self._mailbox.append(completion)
+            return
+        completion = self._run_job(job)
+        with self._condition:
+            if self._job is job:
+                self._job = None
+            if not job.cancel.is_set() and not self._shutdown and self._token == job.token:
+                self._mailbox.append(completion)
 
     def _run_job(self, job: _Job) -> _Completion:
         """Execute one intent in the worker; every failure is typed, never raised."""

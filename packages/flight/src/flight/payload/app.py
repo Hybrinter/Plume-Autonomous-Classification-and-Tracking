@@ -387,8 +387,13 @@ class PayloadApp:
         home_service: HomeArrivalService | None = None,
         verifier: InitializationVerifier | None = None,
         effect_deadline_s: float = 30.0,
+        synchronous_lifecycle: bool = False,
     ) -> PayloadApp:
         """Assemble a PayloadApp from a PactConfig and injected services.
+
+        ``synchronous_lifecycle`` defaults to false so flight keeps the lazy
+        lifecycle daemon. SIL and GSE pass true and pump effects on the
+        control thread.
 
         Raises:
             ValueError: Invalid channel layout, inference geometry, or an
@@ -429,6 +434,7 @@ class PayloadApp:
                 home_arrival=home_service or ExactHomeArrival(params),
                 verifier=verifier or PendingInitializationVerifier(),
                 effect_deadline_s=effect_deadline_s,
+                synchronous=synchronous_lifecycle,
             ),
             servo=ServoController.from_config(cfg.controller, cfg.gimbal),
             params=params,

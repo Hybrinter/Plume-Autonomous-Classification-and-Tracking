@@ -46,7 +46,9 @@ detailed SIL plant path runs the inner PI and torque loop.
 `MessageBus`, `Clock`, calibration, storage, and the composition-root
 `activation_epoch`. Optional lifecycle services (self-test, home arrival,
 verification) and the effect deadline may be injected; production defaults are
-the observed checks plus a verifier that always reports PENDING. It returns
+the observed checks plus a verifier that always reports PENDING.
+`synchronous_lifecycle` defaults to false. Flight keeps the lazy daemon.
+SIL passes true through `build_apps`. `from_config` returns
 a `PayloadApp` and raises `ValueError` for invalid sensor or inference
 geometry or for a graph/node payload policy that resolves to an invalid
 combination; policy validation runs before any camera-policy HAL call.

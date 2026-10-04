@@ -143,3 +143,5 @@ def test_validation_system_default_verifier_stays_pending() -> None:
     system = build_validation_system(_all_sim_config(), ManualClock(), _sim_inputs())
 
     assert isinstance(system.apps.payload.lifecycle._verifier, PendingInitializationVerifier)
+    assert system.apps.payload.lifecycle._synchronous is True
+    assert system.apps.payload.lifecycle._thread is None

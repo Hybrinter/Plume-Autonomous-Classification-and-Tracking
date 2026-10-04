@@ -5,12 +5,13 @@
 
 ## Purpose
 
-The lifecycle module executes the INIT graph's asynchronous effect intents
-(`SELFTEST`, `MODEL_LOAD`, `HOME`, `VERIFY_INIT`) off the control thread. The
-graph stays pure: it emits intents and consumes terminal results; the executor
-owns one lazy worker thread, a bounded pending-job capacity of one, and a
-bounded completion mailbox. The worker never touches the bus or the gimbal HAL
-and never mutates the inference holder - it reads the holder's factory (or the
+The lifecycle module executes the INIT graph's effect intents (`SELFTEST`,
+`MODEL_LOAD`, `HOME`, `VERIFY_INIT`). The graph stays pure: it emits intents
+and consumes terminal results. The executor owns a bounded pending-job capacity
+of one and a bounded completion mailbox. Flight starts one lazy daemon worker.
+SIL and GSE pump the same executor synchronously on the control thread and do
+not start the worker. The executor never touches the bus or the gimbal HAL and
+never mutates the inference holder. It reads the holder's factory (or the
 installed session as the scripted candidate fallback) and produces typed
 completions the control owner polls.
 
@@ -27,7 +28,7 @@ completions the control owner polls.
 | `ExactHomeArrival` | class | Default HOME check: exact target on a fresh later sample |
 | `PendingInitializationVerifier` | class | Default verifier; always reports current-key PENDING |
 | `LifecyclePoll` | dataclass | Drained results plus a verified candidate session to install |
-| `LifecycleExecutor` | class | One-worker bounded executor: submit, poll, cancel, shutdown |
+| `LifecycleExecutor` | class | Bounded executor: submit, poll, cancel, shutdown; flight daemon or synchronous pump |
 
 ## Inputs and outputs
 
@@ -36,17 +37,22 @@ exact `(kind, effect_id)` under the token; each worker invocation is bounded by
 a finite monotonic deadline (constructor `effect_deadline_s`, default 30 s).
 `poll(token, observation, now)` returns terminal `EffectResult`s for the
 current token plus at most one verified candidate `RuntimeSession` for the
-control owner to install. `cancel()` drops pending work and flags a blocked
-worker; `shutdown()` flags the worker and joins it with a bounded timeout, so
-shutdown itself never waits on the SDK - a blocked daemon worker may still
-remain until its call returns.
+control owner to install. One poll claims at most one job. The completion is
+mailed for the next poll. `cancel()` drops pending work and flags a blocked
+call; `shutdown()` flags the worker and joins it with a bounded timeout when
+a daemon exists. Shutdown never waits on the SDK. A blocked daemon may remain
+until its call returns. Synchronous mode has no thread to join.
 
 ## Behavior
 
-1. The worker lazily starts on the first submitted intent and is reused across
-   INIT reentries; pending capacity is one job and completions are bounded, so
-   repeated reentry cannot grow the worker count.
-2. Pending self-test and home jobs are re-polled through the same worker with
+1. Flight lazily starts one daemon on the first claimed intent and reuses it
+   across INIT reentries. SIL and GSE set `synchronous` and run each claimed
+   job on the caller inside `poll`. One poll runs at most one job. A `PENDING`
+   result does not run again in that same poll. The completion waits in the
+   mailbox until the next `poll`. Pending capacity is one job and completions
+   are bounded, so repeated reentry cannot grow the worker count. Synchronous
+   mode never starts a thread.
+2. Pending self-test and home jobs are claimed again on a later poll with
    refreshed observations under the original intent deadline. `VERIFY_INIT`
    re-arms its invocation deadline each time the verifier returns a
    current-key `PENDING`, so a responsive verifier may hold INIT indefinitely;
@@ -83,11 +89,17 @@ telemetry and graph outcomes.
 ## Configuration
 
 The executor takes a finite positive `effect_deadline_s` (default 30 s) that
-bounds each worker invocation and each control-side wait for a completion,
-measured from issue (inclusive `>=` expiry); it never bounds the SDK call
-itself, which may outlive the deadline inside the daemon worker. The home
-target comes from `gimbal.home_el_deg` through the app; feedback freshness
-follows the encoder freshness window.
+bounds each invocation and each control-side wait for a completion, measured
+from issue (inclusive `>=` expiry). It never bounds the SDK call itself. On
+the flight daemon path a blocked call may outlive the deadline inside the
+worker. On the synchronous path the same call runs during `poll`, and the
+mailed completion is visible on the next poll. The home target comes from
+`gimbal.home_el_deg` through the app; feedback freshness follows the encoder
+freshness window.
+
+`synchronous` defaults to false. `flight.core.main` keeps the daemon.
+`sim.sil.validation.build_validation_system` passes true. `SilHarness` and the
+GSE in-process backend share that pumped executor.
 
 ## Constraints
 

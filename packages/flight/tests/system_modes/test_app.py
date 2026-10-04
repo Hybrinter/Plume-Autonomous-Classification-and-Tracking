@@ -548,6 +548,31 @@ def test_denied_repeat_safe_command_still_blocks_same_tick_exit_safe() -> None:
     assert app.state.mode is SystemMode.SAFE
 
 
+def test_earlier_exit_safe_denied_by_later_set_mode_safe() -> None:
+    """EXIT_SAFE queued before SET_MODE SAFE in one tick is denied, with no recovery activation."""
+    app, bus = _booted()
+    _fresh_evidence(app, bus)
+    transitions = bus.subscribe(SystemModeTransitionMsg)
+    activations = bus.subscribe(SystemModeActivatedMsg)
+    acks = bus.subscribe(CommandAckMsg)
+    bus.publish(_routed("EXIT_SAFE", {"phase": "EXECUTE"}, seq=1))
+    bus.publish(_routed("SET_MODE", {"mode": "SAFE"}, seq=2))
+    app.tick()
+    records = _drain(transitions)
+    assert len(records) == 2
+    assert records[0].requested_mode is SystemMode.INIT
+    assert records[0].decision is ModeTransitionDecision.DENIED
+    assert "SAFE request decided this tick" in records[0].reason
+    assert records[1].requested_mode is SystemMode.SAFE
+    assert records[1].decision is ModeTransitionDecision.DENIED
+    assert "already active" in records[1].reason
+    assert activations.empty()
+    assert app.state.mode is SystemMode.SAFE
+    [exit_ack] = [a for a in _drain(acks) if a.command_id == "EXIT_SAFE"]
+    assert exit_ack.status is AckStatus.REJECTED
+    assert exit_ack.seq == 1
+
+
 def test_fault_then_clear_in_one_drain_denies_recovery() -> None:
     """A fault record in a drain blocks EXIT_SAFE even when a newer clear follows."""
     app, bus = _init()

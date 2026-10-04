@@ -192,8 +192,19 @@ class SystemModesApp:
                 request_message=request,
                 evidence=effective,
             )
+        routed_batch: list[RoutedCommandMsg] = []
         while not self.routed.empty():
-            command = self.routed.get_nowait()
+            routed_batch.append(self.routed.get_nowait())
+        # A later SET_MODE SAFE in this batch denies EXIT_SAFE before any command is decided.
+        for command in routed_batch:
+            if command.target != SUBSYSTEM or command.command_id != CommandId.SET_MODE.value:
+                continue
+            mode_value = command.params.get("mode")
+            target = _MODES_BY_NAME.get(mode_value) if isinstance(mode_value, str) else None
+            if target is SystemMode.SAFE:
+                safe_requested = True
+                break
+        for command in routed_batch:
             if command.target == SUBSYSTEM:
                 safe_requested |= self._handle_command(command, safe_requested, effective)
         while not self.syncs.empty():

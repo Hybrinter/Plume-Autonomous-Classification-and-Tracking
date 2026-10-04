@@ -5,8 +5,9 @@
 
 ## Purpose
 
-This module selects the Earth point for one outer tick and decides when a new
-target identity cold-starts the residual filter.
+This module predicts the scene Earth point for one outer tick from either a
+stored CoG or the boresight height-proxy intersect. The caller selects the
+entry point; the module carries no mode dispatch.
 
 ## Public interface
 
@@ -14,36 +15,29 @@ target identity cold-starts the residual filter.
 | --- | --- | --- |
 | `SceneSource` | enum | `COG`, `BORESIGHT`, or `NONE` |
 | `SceneEstimate` | dataclass | Prediction time, source, optional ECEF point, optional `LosPrediction`, and navigation validity |
-| `select_scene` | function | Selects the scene point and predicts co-rotating rates |
-| `acquire_resets_residual` | function | True when TRACKING acquire must cold-start the residual |
+| `cog_scene` | function | Predicts co-rotating rates from the stored target CoG |
+| `boresight_scene` | function | Predicts co-rotating rates from the boresight height-proxy intersect |
 
 ## Inputs and outputs
 
-`select_scene` takes arbiter mode, an optional stored CoG, optional ISS ECI
-position, velocity, and UTC, encoder elevation, height-proxy offset, and Earth
-rotation constants. It returns a `SceneEstimate`.
-
-`acquire_resets_residual` takes previous and new arbiter mode, previous aggregate
-liveness, and previous versus new `blob_id` sets. It returns a boolean.
+`cog_scene` takes an optional stored CoG, optional ISS ECI position, velocity,
+and UTC, and Earth rotation constants. `boresight_scene` takes the optional ISS
+state, encoder elevation, height-proxy offset, Earth rotation constants, and
+WGS-84 scalars. Both return a `SceneEstimate`.
 
 Prediction time `t_utc_s` is ISS UTC when navigation is present. It is not outer
 monotonic now.
 
 ## Behavior
 
-1. SAFE returns source `NONE` and no Earth point.
-2. REWIND and FAST_REWIND return source `BORESIGHT`. With valid ISS, they
-   intersect the current
-   boresight with the height-proxy ellipsoid. That hit is scene rate only. The
-   function does not treat it as a CoG.
-3. TRACKING with a stored CoG returns source `COG` and predicts from that point.
-   TRACKING with no CoG returns source `NONE`.
-4. Missing ISS sets `nav_valid` to false and leaves `los` empty. A valid
-   `LosPrediction` may still hold a 0.0 rate for a stationary scene.
-5. `acquire_resets_residual` is true for a TRACKING blob from a cold aggregate,
-   a blob that leaves REWIND or FAST_REWIND, or a TRACKING blob set with no
-   overlapping
-   `blob_id`. An empty frame does not reset.
+1. `cog_scene` returns source `COG` and the stored point when a CoG exists, and
+   source `NONE` when no CoG exists.
+2. `boresight_scene` returns source `BORESIGHT` always. With valid ISS it
+   intersects the current boresight with the height-proxy ellipsoid. That hit
+   is scene rate only. The function does not treat it as a CoG. A missed ray
+   or absent ISS leaves the point empty.
+3. Missing or partial ISS sets `nav_valid` to false and leaves `los` empty. A
+   valid `LosPrediction` may still hold a 0.0 rate for a stationary scene.
 
 ## Errors and faults
 
@@ -55,9 +49,8 @@ None.
 
 ## Configuration
 
-Height-proxy offset comes from `predictor.cog_height_m`. WGS-84 scalars and Earth
-rate come from `EphemerisConfig`. Blob identity uses IDs assigned by
-`match_blobs` at `vision.blob_iou_match_threshold`.
+Height-proxy offset comes from `predictor.cog_height_m`. WGS-84 scalars and
+Earth rate come from `EphemerisConfig`.
 
 ## Constraints
 

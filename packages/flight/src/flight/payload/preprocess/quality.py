@@ -12,8 +12,8 @@ Flag conditions:
                            SATURATION_PIXEL_LEVEL (post-normalisation).
     INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
 
-MOTION_SMEAR is not raised. Along-track smear is a control cap in outer_rate
-(max_motion_smear_px). FAST_REWIND smears on purpose; exclude those frames by
+MOTION_SMEAR is not raised. Along-track smear is a control cap in the outer rate
+law (max_motion_smear_px). FAST_REWIND smears on purpose; exclude those frames by
 gimbal mode, not a second smear inequality.
 
 Bands are a (C, H, W) array after select_bands. Channel order follows

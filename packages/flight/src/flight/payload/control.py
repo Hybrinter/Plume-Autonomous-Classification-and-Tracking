@@ -39,17 +39,19 @@ from flight.payload.gimbal import (
     GimbalArbiter,
     GimbalRequest,
     RateDecision,
-    acquire_resets_residual,
     apply_confidence_gate,
     apply_min_area_gate,
+    boresight_scene,
+    clip_rate,
+    cog_scene,
     fit_rate_timed,
     inner_step,
     intersect_cog,
-    outer_rate,
     pinhole_error_rad,
     position_rate,
     predict_los,
-    select_scene,
+    rate_decision,
+    smear_cap_rad_s,
 )
 from flight.payload.tracking import (
     EncoderSample,
@@ -201,7 +203,7 @@ class ControlState:
         pose: Position-loop mode and target elevation.
         last_outer_s: Monotonic time of the last outer step, or None.
         commanded_rate_rad_s: Last rate reference.
-        last_rate_decision: Last outer_rate RateDecision, or None on the pose path.
+        last_rate_decision: Last rate_decision RateDecision, or None on the pose path.
         last_e_az: Unactuated optical azimuth error, rad (telemetry only).
     """
 
@@ -247,6 +249,49 @@ class OuterTick:
     request: GimbalRequest | None
     telemetry: list[TelemetryEventMsg]
     fault: FaultCode | None
+
+
+def _acquire_resets_residual(
+    *,
+    previous_mode: GimbalState,
+    new_mode: GimbalState,
+    previous_aggregate_live: bool,
+    previous_blob_ids: frozenset[int],
+    new_blob_ids: frozenset[int],
+) -> bool:
+    """True when TRACKING has acquired a target that needs a cold residual.
+
+    Inputs:
+        previous_mode: Arbiter mode before this outer tick.
+        new_mode: Arbiter mode after this outer tick.
+        previous_aggregate_live: Aggregate liveness before this outer tick.
+        previous_blob_ids: blob_id values on state.arbiter.tracked_blobs before
+            arbiter.step. Those IDs already include ingest_inference IoU match.
+        new_blob_ids: blob_id values on this tick's vision.blobs. Empty when
+            this tick has no vision sample or no accepted aggregate.
+
+    Outputs:
+        bool: True when the residual filter must cold-start.
+
+    Notes:
+        A reset is an acquire, not a loss. Cases:
+        1. First blob from cold (no prior live aggregate).
+        2. Blob that enters TRACKING from REWIND or FAST_REWIND (the hunt moved
+           the gimbal).
+        3. TRACKING blob set with no overlapping blob_id versus the previous
+           tracked set (new object). An empty previous set is not this case;
+           a single miss that cleared tracked_blobs still coasts.
+        A single empty frame while still TRACKING does not reset.
+    """
+    if new_mode is not GimbalState.TRACKING:
+        return False
+    if not new_blob_ids:
+        return False
+    if previous_mode.is_rewind_hunt():
+        return True
+    if not previous_aggregate_live:
+        return True
+    return bool(previous_blob_ids) and previous_blob_ids.isdisjoint(new_blob_ids)
 
 
 @dataclass(frozen=True)
@@ -672,7 +717,7 @@ class PayloadController:
             if in_rewind:
                 r_cog = None
 
-            reset_residual = acquire_resets_residual(
+            reset_residual = _acquire_resets_residual(
                 previous_mode=state.arbiter.gimbal_state,
                 new_mode=new_arbiter.gimbal_state,
                 previous_aggregate_live=state.arbiter.aggregate_live,
@@ -697,19 +742,30 @@ class PayloadController:
                     encoder_endpoint_variance_rad2=seed_angle_var,
                 )
 
-            scene = select_scene(
-                new_arbiter.gimbal_state,
-                r_cog,
-                None if iss is None else iss.r_m,
-                None if iss is None else iss.v_m_s,
-                None if iss is None else iss.utc_s,
-                theta_g_rad,
-                height_m,
-                self.eph.omega_earth_rad_s,
-                self.eph.epoch_utc_s,
-                self.eph.wgs84_a_m,
-                self.eph.wgs84_f,
-            )
+            iss_r = None if iss is None else iss.r_m
+            iss_v = None if iss is None else iss.v_m_s
+            iss_utc = None if iss is None else iss.utc_s
+            if in_rewind:
+                scene = boresight_scene(
+                    iss_r,
+                    iss_v,
+                    iss_utc,
+                    theta_g_rad,
+                    height_m,
+                    self.eph.omega_earth_rad_s,
+                    self.eph.epoch_utc_s,
+                    self.eph.wgs84_a_m,
+                    self.eph.wgs84_f,
+                )
+            else:
+                scene = cog_scene(
+                    r_cog,
+                    iss_r,
+                    iss_v,
+                    iss_utc,
+                    self.eph.omega_earth_rad_s,
+                    self.eph.epoch_utc_s,
+                )
             if scene.los is None:
                 omega_t_nom = 0.0
                 theta_los = 0.0
@@ -805,23 +861,70 @@ class PayloadController:
         else:
             max_decel = self.gimbal.tau_max_nm / self.gimbal.J_kg_m2 if detailed_plant else math.inf
             rate_loop_bandwidth = self.cfg.inner.kp if detailed_plant else math.inf
-            decision = outer_rate(
-                omega_t_nom,
-                omega_res,
-                e_hat,
-                self.cfg.outer.Kp,
-                new_arbiter.gimbal_state,
-                live,
-                theta_g_rad,
-                math.radians(self.gimbal.el_science_max_deg),
-                math.radians(self.gimbal.max_hw_slew_rate_deg_per_s),
+            theta_sci_min = math.radians(self.gimbal.el_science_min_deg)
+            theta_sci_max = math.radians(self.gimbal.el_science_max_deg)
+            omega_hw = math.radians(self.gimbal.max_hw_slew_rate_deg_per_s)
+            omega_sharp = smear_cap_rad_s(
                 exposure_us,
                 self.preprocessing.max_motion_smear_px,
                 self.ifov_band_deg_per_px,
-                math.radians(self.gimbal.el_science_min_deg),
-                max_decel,
-                rate_loop_bandwidth,
             )
+            mode = new_arbiter.gimbal_state
+            if mode.is_rewind_hunt():
+                if theta_g_rad >= theta_sci_max - 1e-9:
+                    decision = RateDecision(
+                        scene_rate_rad_s=omega_t_nom,
+                        requested_relative_rate_rad_s=0.0,
+                        requested_rate_rad_s=0.0,
+                        commanded_rate_rad_s=0.0,
+                        smear_limit_rad_s=omega_sharp,
+                        hardware_limited=False,
+                        science_limited=True,
+                    )
+                else:
+                    if mode is GimbalState.FAST_REWIND:
+                        requested_relative = omega_hw
+                        requested = omega_hw
+                    else:
+                        requested_relative = omega_sharp
+                        requested = omega_t_nom + requested_relative
+                    decision = rate_decision(
+                        omega_t_nom,
+                        requested_relative,
+                        requested,
+                        omega_sharp,
+                        theta_g_rad,
+                        theta_sci_min,
+                        theta_sci_max,
+                        omega_hw,
+                        max_decel,
+                        rate_loop_bandwidth,
+                    )
+            elif mode is GimbalState.TRACKING and live:
+                omega_scene = omega_t_nom + omega_res
+                omega_rel = clip_rate(self.cfg.outer.Kp * e_hat, omega_sharp)
+                decision = rate_decision(
+                    omega_scene,
+                    omega_rel,
+                    omega_scene + omega_rel,
+                    omega_sharp,
+                    theta_g_rad,
+                    theta_sci_min,
+                    theta_sci_max,
+                    omega_hw,
+                    max_decel,
+                    rate_loop_bandwidth,
+                )
+            else:
+                decision = RateDecision(
+                    scene_rate_rad_s=0.0,
+                    requested_relative_rate_rad_s=0.0,
+                    requested_rate_rad_s=0.0,
+                    commanded_rate_rad_s=0.0,
+                    smear_limit_rad_s=omega_sharp,
+                    hardware_limited=False,
+                    science_limited=False,
+                )
             r = decision.commanded_rate_rad_s
             last_rate_decision = decision
             hardware_limited = decision.hardware_limited

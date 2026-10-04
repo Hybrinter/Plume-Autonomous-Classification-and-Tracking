@@ -1,6 +1,7 @@
 # ADR 0006: ISS-attached reliability posture (fail-safe / ground-recoverable)
 
 **Status:** Accepted (2026-05-30)
+**Superseded-by:** ADR-FLIGHT-0008 (SAFE transition contract)
 
 ## Context
 

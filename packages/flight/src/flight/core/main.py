@@ -183,6 +183,7 @@ def main(config_path: str = "config/default.toml") -> None:
         [
             ("payload", apps.payload),
             ("fault", apps.fault),
+            ("system_modes", apps.system_modes),
             ("iss_iface", apps.iss_iface),
             ("thermal", apps.thermal),
             ("electrical", apps.electrical),

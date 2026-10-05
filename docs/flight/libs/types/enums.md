@@ -160,6 +160,7 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `EXIT_SAFE` | Hazardous SAFE exit (`phase: str`) |
 | `UPLOAD_MODEL_CHUNK` | Chunked classifier+segmentor pair upload params |
 | `ACTIVATE_MODEL` | Activate staged inference pair (`version: str`) |
+| `SET_MODE` | Mode request addressed to the mode authority (`mode: str`) |
 | `GIMBAL_STOW` | Stow request addressed to the mode authority (`system_modes` target) |
 | `GIMBAL_HOME` | Payload pose command to the home preset |
 | `GIMBAL_GOTO` | Payload absolute pose command (`el_deg: float`) |

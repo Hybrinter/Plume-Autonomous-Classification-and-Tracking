@@ -277,8 +277,15 @@ def publish_activation(
 ) -> None:
     """Publish an explicit authority activation onto the system bus.
 
-    Test/GSE injection seam only: the harness runs no fake authority, so tests
-    and scenario steps publish the activation record they intend to exercise.
+    Explicit test/scenario fixture only: this bypasses the real authority's
+    arbitration and is not acceptance proof. The injected record is still
+    published verbatim, but the live system-mode authority is seeded coherently
+    first -- when the record's epoch matches the authority epoch and its
+    sequence is strictly newer than the authority's counter, the authority's
+    active snapshot and sequence are advanced to it, so the authority neither
+    boots a contradictory SAFE nor reuses the sequence. A stale or
+    foreign-epoch injection never rewrites the seed (that keeps the
+    stale/conflict injection tests meaningful) and never lowers the counter.
 
     Args:
         system: The wired ValidationSystem whose bus carries the record.
@@ -288,16 +295,20 @@ def publish_activation(
         request_id: Correlated request identity, or None.
         recovery_authorized: Authority-approved EXIT_SAFE recovery flag.
     """
-    system.bus.publish(
-        SystemModeActivatedMsg(
-            msg_type=MessageType.SYSTEM_MODE_ACTIVATED,
-            timestamp_utc=system.clock.wall_clock_iso(),
-            epoch=system.apps.payload.activation_epoch,
-            sequence=sequence,
-            previous_mode=previous_mode,
-            active_mode=mode,
-            reason="injected_activation",
-            request_id=request_id,
-            recovery_authorized=recovery_authorized,
-        )
+    msg = SystemModeActivatedMsg(
+        msg_type=MessageType.SYSTEM_MODE_ACTIVATED,
+        timestamp_utc=system.clock.wall_clock_iso(),
+        epoch=system.apps.payload.activation_epoch,
+        sequence=sequence,
+        previous_mode=previous_mode,
+        active_mode=mode,
+        reason="injected_activation",
+        request_id=request_id,
+        recovery_authorized=recovery_authorized,
     )
+    authority = system.apps.system_modes
+    state = authority.state
+    if msg.epoch == authority.epoch and msg.sequence > state.sequence:
+        state.active = msg
+        state.sequence = msg.sequence
+    system.bus.publish(msg)

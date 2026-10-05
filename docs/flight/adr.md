@@ -31,4 +31,5 @@ These repository-scope decisions apply to flight. They stay under `docs/adr/`.
 | ADR-FLIGHT-0005 | [0005-fast-rewind-mode.md](adr/0005-fast-rewind-mode.md) | FAST_REWIND is an arbiter mode; smear is a control cap | Accepted |
 | ADR-FLIGHT-0006 | [0006-tiled-gsd-conditioned-inference.md](adr/0006-tiled-gsd-conditioned-inference.md) | Flight-owned tiled GSD-conditioned inference | Accepted |
 | ADR-FLIGHT-0007 | [0007-payload-mode-graphs.md](adr/0007-payload-mode-graphs.md) | Payload mode graphs own payload behavior | Accepted |
-| ADR-FLIGHT-0008 | [0008-system-mode-message-separation.md](adr/0008-system-mode-message-separation.md) | Separate system-mode request, notification, and activation messages | Accepted |
+| ADR-FLIGHT-0008 | [0008-system-mode-message-separation.md](adr/0008-system-mode-message-separation.md) | Separate system-mode request, notification, and activation messages | Superseded |
+| ADR-FLIGHT-0009 | [0009-system-mode-authority-integration.md](adr/0009-system-mode-authority-integration.md) | Integrate the real system-mode authority with SAFE-to-INIT recovery | Accepted |

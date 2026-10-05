@@ -107,7 +107,10 @@ class Scenario:
         assertions: The assertions to score/skip, in declaration order.
         steps: Number of deterministic steps to run.
         dt: Seconds to advance per step.
-        initial_mode: Explicit test activation at startup, or None for unsynchronized boot.
+        initial_mode: Explicit fixture activation seeded at startup for tests that
+            need to skip the boot sequence, or None to let the real authority
+            boot SAFE. A declared initial_mode is test setup, not a production
+            fallback path.
     """
 
     name: str

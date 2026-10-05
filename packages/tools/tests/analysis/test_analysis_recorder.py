@@ -9,6 +9,7 @@ from flight.hal.interfaces.gimbal import GimbalPosition
 from flight.libs.config import PactConfig
 from flight.libs.time import ManualClock
 from flight.libs.types import FaultCode, Ok, Result, SystemMode
+from flight.payload.graphs.base import GraphId
 from sim.scene import build_frames, plume_detector
 from sim.sil import SilSystem, build_sil_system, step_once
 from sim.sil.validation import publish_activation
@@ -89,7 +90,12 @@ def test_record_run_advances_clock_once_from_shifted_origin() -> None:
     assert samples
     assert max(sample.t_s for sample in samples) == pytest.approx(3.06)
     assert system.apps.payload.runtime_shell.state is not None
-    assert system.apps.payload.runtime_shell.state.activation.last is None
+    # The real authority boots SAFE on the first tick; record_run publishes no
+    # activation itself, so the only snapshot is that boot record.
+    last = system.apps.payload.runtime_shell.state.activation.last
+    assert last is not None
+    assert last.graph_id is GraphId.SAFE
+    assert last.key.sequence == 1
 
 
 def test_failed_extractor_maps_to_sentinel() -> None:

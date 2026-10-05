@@ -27,9 +27,11 @@ before acquire.
 
 ## Behavior
 
-1. Drain payload activations and safety evidence at the current clock
-   (`poll_activations`). Activations arrive only via explicit
-   `SystemModeActivatedMsg` publications; nothing fabricates authority.
+1. Tick the system-mode authority, then drain payload activations and safety
+   evidence at the current clock (`poll_activations`). Activations are
+   published only by the real `SystemModesApp` (or an explicit test-fixture
+   injection); nothing here fabricates authority. The first authority tick
+   boots SAFE, so the boot activation is visible before the payload's drain.
 2. Catch up the control loops to `now`: seed one `control_tick` at the current
    clock, then advance the shared `ManualClock` in inner-period deadlines
    (`min(current + dt, now)`, terminating within `1e-12`), calling the same
@@ -44,11 +46,14 @@ before acquire.
    decides `WAIT` (no I/O), `DRAIN` (release one buffered frame), or
    `CAPTURE` (acquire and process). Repeated early harness calls spend no
    opportunities; deadline semantics are identical in SIL and production.
-5. Run iss_iface and command_router ticks.
+5. Run iss_iface and command_router ticks, then tick the authority again so a
+   routed `SET_MODE`, `EXIT_SAFE`, or `GIMBAL_STOW` is decided in the same
+   cycle.
 6. Run thermal and electrical handle-commands and sample.
 7. Run model_deploy, storage, and downlink ticks.
 8. Publish one `HeartbeatMsg` per name in `MONITORED_SUBSYSTEMS`.
-9. Run the fault app tick and return updated state.
+9. Run the fault app tick, then tick the authority once more so a fault SAFE
+   request is arbitrated in the same cycle, and return updated state.
 
 `step_once` owns forward advancement of the shared clock to `now` and never rewinds
 it; callers must not advance the clock separately. Vision from a captured frame waits

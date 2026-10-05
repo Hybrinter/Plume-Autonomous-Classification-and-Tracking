@@ -12,7 +12,7 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `MONITORED_SUBSYSTEMS` | constant | Eight heartbeat-emitting subsystem names |
+| `MONITORED_SUBSYSTEMS` | constant | Nine heartbeat-emitting subsystem names |
 | `Drivers` | class | Frozen bundle of HAL drivers, ISS ephemeris, and inference runtime |
 | `SystemApps` | class | Frozen bundle of all constructed apps and core services |
 | `default_bus_policy` | function | Per-message-type queue bounds and overflow rules |
@@ -44,8 +44,8 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 2. `default_bus_policy` assigns `DROP_OLDEST` (max 8192) to telemetry, inference, link,
    heartbeat, product, downlink, and model-deploy message types.
 3. `build_apps` constructs `StorageService` first.
-4. `build_apps` constructs payload, fault, iss_iface, thermal, electrical, command_router,
-   downlink, and model_deploy apps via each app's `from_config`.
+4. `build_apps` constructs payload, fault, system_modes, iss_iface, thermal, electrical,
+   command_router, downlink, and model_deploy apps via each app's `from_config`.
 5. `build_apps` passes `drivers.ephemeris` into `PayloadApp.from_config` with the gimbal,
    sensor, and the `InferenceRuntime` holder.
 6. `build_apps` passes the same storage instance to payload, iss_iface, and model_deploy.
@@ -74,8 +74,8 @@ Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEven
 
 - Imports HAL protocols and apps only. No concrete driver imports.
 - `MONITORED_SUBSYSTEMS` is
-  `("payload", "iss_iface", "thermal", "electrical", "command_router", "storage", "downlink",
-  "model_deploy")`.
+  `("payload", "iss_iface", "thermal", "electrical", "command_router", "system_modes",
+  "storage", "downlink", "model_deploy")`.
 - The fault app receives the `monitored` tuple. It does not monitor itself.
 - `Drivers.ephemeris` is the injected `IssEphemeris` (sim circular Keplerian or real stub).
 - `Drivers.inference` is the `InferenceRuntime` holder: empty with a lazy

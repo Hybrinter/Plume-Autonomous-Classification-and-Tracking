@@ -33,7 +33,7 @@ are deliberately absent rather than falsely marked verified.
 | REQ-AIML-PREP-002 | Calibrated/normalized prism planes, reversible tiling, and finite GSD encoding | unit | unit | test_preprocess_mosaic_calibration; test_preprocess_normalize; test_tiling; test_footprint | verified |
 | REQ-GIMB-HIGH-003 | Envelope clips and the light integrity detector (NaN, encoder freeze) force a stow | SIL | sil | test_integrity; test_sil_closed_loop | verified |
 | REQ-COMM-CMD-001 | Command routing + ARM/EXECUTE two-step + inhibit re-check | SIL | sil | test_routing; test_sil_command_router; scenario:command_route_exec | verified |
-| REQ-SAFE-EXIT-001 | Single latched SAFE; ground EXIT_SAFE gated on fault clear | SIL | sil | test_sil_command_router | verified |
+| REQ-SAFE-EXIT-001 | Single latched SAFE; ground EXIT_SAFE gated on fault clear | SIL | sil | test_sil_command_router, test_mode_graph_acceptance, test_app (system_modes) | verified |
 | REQ-DATA-STORE-001 | Checksummed, quota'd, retention-managed product storage | unit | unit | test_storage | verified |
 | REQ-DATA-LEDGER-001 | Reboot-surviving append-only fault ledger | unit | unit | test_storage | verified |
 | REQ-DATA-DOWNLINK-001 | Prioritized, AOS-gated, budgeted downlink of products | SIL | sil-link-real | test_downlink; test_sil_data_system; scenario:product_downlink | verified |

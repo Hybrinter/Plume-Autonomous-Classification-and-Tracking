@@ -44,8 +44,8 @@ def test_inprocess_backend_builds_steps_and_collects(
     assert capture.gimbal_moved is True
 
 
-def test_inprocess_without_activation_has_unknown_mode_and_no_inference() -> None:
-    """An omitted test activation cannot become implicit IDLE or OPERATE."""
+def test_inprocess_without_fixture_boots_safe_and_no_inference() -> None:
+    """With no initial_mode fixture the real authority boots the system SAFE."""
     backend = InProcessBackend()
     backend.build(replace(_sil_scenario(), initial_mode=None), "profiles/sil.toml")
     try:
@@ -53,18 +53,15 @@ def test_inprocess_without_activation_has_unknown_mode_and_no_inference() -> Non
             backend.step(float(index + 1))
         capture = backend.collect()
         assert capture.inference_count == 0
-        assert capture.mode_activations == ()
-        assert capture.active_mode is None
+        assert capture.mode_activations == (SystemMode.SAFE,)
+        assert capture.active_mode is SystemMode.SAFE
         assert capture.gimbal_moved is False
     finally:
         backend.shutdown()
 
 
-@pytest.mark.parametrize("decision", list(ModeTransitionDecision))
-def test_request_and_record_do_not_change_collected_mode(
-    decision: ModeTransitionDecision,
-) -> None:
-    """Even an accepted transition record is not a behavioral activation."""
+def test_subsystem_request_reaches_authority_and_activates() -> None:
+    """A bus-carried mode request is decided by the real authority into an activation."""
     backend = InProcessBackend()
     backend.build(replace(_sil_scenario(), initial_mode=SystemMode.IDLE), "profiles/sil.toml")
     try:
@@ -81,6 +78,26 @@ def test_request_and_record_do_not_change_collected_mode(
                 reason="requested only",
             )
         )
+        backend.step(2.0)
+        capture = backend.collect()
+        assert capture.active_mode is SystemMode.SAFE
+        assert capture.mode_activations == (SystemMode.IDLE, SystemMode.SAFE)
+        assert capture.inference_count == 0
+    finally:
+        backend.shutdown()
+
+
+@pytest.mark.parametrize("decision", list(ModeTransitionDecision))
+def test_transition_record_alone_does_not_change_collected_mode(
+    decision: ModeTransitionDecision,
+) -> None:
+    """Even an accepted transition record is not a behavioral activation."""
+    backend = InProcessBackend()
+    backend.build(replace(_sil_scenario(), initial_mode=SystemMode.IDLE), "profiles/sil.toml")
+    try:
+        backend.step(1.0)
+        system = backend._system
+        assert system is not None
         system.bus.publish(
             SystemModeTransitionMsg(
                 msg_type=MessageType.SYSTEM_MODE_TRANSITION,

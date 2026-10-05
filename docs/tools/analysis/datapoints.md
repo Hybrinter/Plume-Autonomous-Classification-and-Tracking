@@ -43,7 +43,7 @@ each step.
    rates.
 5. Duplicate signal names raise `ValueError` at registry build time.
 6. `system.mode` reads the last accepted activation, independently of fault-latch evidence.
-   An unsynchronized system has an empty mode, graph, and node label.
+   Before the authority's first activation the mode, graph, and node labels are empty.
 7. Graph-local numbers are NaN outside OPERATE. Residual estimates are NaN outside TRACKING,
    including frozen HOLD and hunt nodes; their stored history is not a current estimate.
 

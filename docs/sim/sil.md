@@ -58,8 +58,10 @@ GSE drives `build_validation_system` and `ValidationHarness`. Tools analysis cal
   runs before optional bind evaluate and before acquire, and it alone advances the
   shared `ManualClock`; harnesses and backends never advance it separately.
 - The harness publishes one `HeartbeatMsg` per entry in `MONITORED_SUBSYSTEMS` each step.
-- Activations enter only through explicit `SystemModeActivatedMsg` records (the
-  `publish_activation` test seam or scenario injection); no synthetic authority runs.
+- The real `SystemModesApp` runs inside `step_once`; activations normally come
+  from that real authority. Explicit fixture exceptions such as
+  `publish_activation` seed the authority coherently and are not acceptance
+  proof.
 - Storage redirects to a temp directory in `build_validation_system`.
 - `SilHarness` and `ValidationHarness` accept an optional `SilEnvironmentBind`.
   Default runs keep pre-rendered `sim.scene.plume` frames.

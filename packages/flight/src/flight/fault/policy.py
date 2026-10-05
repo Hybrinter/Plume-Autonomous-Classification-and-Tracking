@@ -109,7 +109,7 @@ def recovery_authorized(
     Returns:
         True only for an authority-approved EXIT_SAFE recovery: the record is
         marked recovery_authorized, carries a nonempty unspent request_id, moves
-        from SAFE to IDLE under the current epoch, is strictly newer than the
+        from SAFE to INIT under the current epoch, is strictly newer than the
         last observed sequence, and no SAFE-triggering fault fired this tick.
     """
     if not activation.recovery_authorized:
@@ -118,7 +118,7 @@ def recovery_authorized(
         return False
     if activation.previous_mode is not SystemMode.SAFE:
         return False
-    if activation.active_mode is not SystemMode.IDLE:
+    if activation.active_mode is not SystemMode.INIT:
         return False
     if activation.epoch != expected_epoch:
         return False

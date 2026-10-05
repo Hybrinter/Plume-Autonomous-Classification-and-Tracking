@@ -39,6 +39,7 @@ parameters against that schema.
 | `EXIT_SAFE` | `system_modes` | `phase: str` | yes |
 | `UPLOAD_MODEL_CHUNK` | `iss_iface` | chunk fields | no |
 | `ACTIVATE_MODEL` | `model_deploy` | `version: str` | no |
+| `SET_MODE` | `system_modes` | `mode: str` | no |
 | `GIMBAL_STOW` | `system_modes` | none | no |
 | `GIMBAL_HOME` | `payload` | none | no |
 | `GIMBAL_GOTO` | `payload` | `el_deg: float` | no |

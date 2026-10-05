@@ -61,7 +61,9 @@ from flight.payload.gimbal.request import (
     TravelEnvelope,
 )
 from flight.payload.graphs import operate
+from flight.payload.graphs.base import SystemRequestIntent
 from flight.payload.inference import DetectorBackend, InferenceRuntime, ScriptedDetector
+from flight.payload.lifecycle import LifecycleObservation, SelfTestService
 from flight.payload.records import CaptureContext, CapturedVision, VisionSample
 from flight.payload.state import PayloadState, graph_name_of, node_name_of
 from flight.payload.tracking import EncoderSample, ResidualState
@@ -110,6 +112,7 @@ def _build_app(
     gimbal: GimbalActuator | None = None,
     sensor: ImagingSensor | None = None,
     storage: StorageWriter | None = None,
+    selftest_service: SelfTestService | None = None,
 ) -> tuple[PayloadApp, MessageBus, GimbalActuator, ManualClock]:
     """Assemble a PayloadApp over injected doubles and a fresh bus."""
     base = PactConfig()
@@ -140,6 +143,7 @@ def _build_app(
         calib,
         storage if storage is not None else _MemStorage(),
         _EPOCH,
+        selftest_service=selftest_service,
     )
     return app, bus, gimbal, clock
 
@@ -921,7 +925,7 @@ def test_local_fault_same_drain_blocks_release() -> None:
     _publish_mode(bus, SystemMode.SAFE, 2, previous_mode=SystemMode.OPERATE)
     _publish_mode(
         bus,
-        SystemMode.IDLE,
+        SystemMode.INIT,
         3,
         previous_mode=SystemMode.SAFE,
         request_id="req-rec",
@@ -1225,11 +1229,11 @@ def _latched(app: PayloadApp, bus: MessageBus, gimbal: GimbalActuator) -> Payloa
     return state
 
 
-def _authorize_idle(bus: MessageBus, request_id: str, seq: int = 3) -> None:
-    """Publish the authorized SAFE->IDLE recovery activation."""
+def _authorize_init(bus: MessageBus, request_id: str, seq: int = 3) -> None:
+    """Publish the authorized SAFE->INIT recovery activation."""
     _publish_mode(
         bus,
-        SystemMode.IDLE,
+        SystemMode.INIT,
         seq,
         previous_mode=SystemMode.SAFE,
         request_id=request_id,
@@ -1256,13 +1260,34 @@ def test_ordinary_idle_activation_never_releases() -> None:
     assert app.containment.local_latched is True
 
 
-def test_authorized_idle_without_evidence_stays_pending_no_fault() -> None:
+def test_authorized_safe_to_idle_never_releases() -> None:
+    """Regression: the retired SAFE->IDLE recovery shape cannot release the latch."""
+    app, bus, gimbal, _clock = _build_app(_plume_detector())
+    state = _latched(app, bus, gimbal)
+    _publish_mode(
+        bus,
+        SystemMode.IDLE,
+        3,
+        previous_mode=SystemMode.SAFE,
+        request_id="rec-1",
+        recovery_authorized=True,
+    )
+    _publish_safety(
+        bus, sequence=7, observed_s=0.0, safe_latched=False, recovery_request_id="rec-1"
+    )
+    state = app.poll_activations(state, now=2.0)
+    assert app.containment.local_latched is True
+    health = gimbal.read_health()
+    assert isinstance(health, Ok) and health.value.inhibit_confirmed
+
+
+def test_authorized_init_without_evidence_stays_pending_no_fault() -> None:
     """Missing release evidence is pending, not a fault."""
     app, bus, gimbal, _clock = _build_app(_plume_detector())
     fault_sub = bus.subscribe(FaultEventMsg)
     state = _latched(app, bus, gimbal)
     _drain(fault_sub)
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     assert app.containment.local_latched is True
     assert _drain(fault_sub) == []
@@ -1272,7 +1297,7 @@ def test_fresh_matching_evidence_releases_once() -> None:
     """Fresh fault-owned release evidence under a matching request_id releases."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     state = _latched(app, bus, gimbal)
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     assert app.containment.local_latched is True
     _prime_release_health(app, gimbal, clock, 2.0)
@@ -1299,7 +1324,7 @@ def test_malformed_release_evidence_stays_pending(
     app, bus, gimbal, clock = _build_app(_plume_detector())
     fault_sub = bus.subscribe(FaultEventMsg)
     state = _latched(app, bus, gimbal)
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     _drain(fault_sub)
     _prime_release_health(app, gimbal, clock, 2.0)
@@ -1319,7 +1344,7 @@ def test_stale_evidence_sequence_is_ignored() -> None:
     """A nonincreasing evidence sequence cannot replace the latest record."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     state = _latched(app, bus, gimbal)
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     _prime_release_health(app, gimbal, clock, 2.0)
     _publish_safety(bus, sequence=9, observed_s=0.0, recovery_request_id="other")
@@ -1333,7 +1358,7 @@ def test_unsafe_evidence_before_clear_in_same_drain_cannot_release() -> None:
     """Unsafe evidence anywhere in the drain blocks release that tick."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     state = _latched(app, bus, gimbal)
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     _prime_release_health(app, gimbal, clock, 2.0)
     _publish_safety(
@@ -1354,16 +1379,16 @@ def test_replayed_request_id_cannot_release_new_latch() -> None:
     """A consumed recovery request_id cannot release a later latch."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     state = _latched(app, bus, gimbal)
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     _prime_release_health(app, gimbal, clock, 2.0)
     _publish_safety(bus, sequence=7, observed_s=0.0, recovery_request_id="rec-1")
     state = app.poll_activations(state, now=2.0)
     assert app.containment.local_latched is False
-    _publish_mode(bus, SystemMode.SAFE, 4, previous_mode=SystemMode.IDLE)
+    _publish_mode(bus, SystemMode.SAFE, 4, previous_mode=SystemMode.INIT)
     state = app.poll_activations(state, now=3.0)
     assert app.containment.local_latched is True
-    _authorize_idle(bus, "rec-1", seq=5)
+    _authorize_init(bus, "rec-1", seq=5)
     _prime_release_health(app, gimbal, clock, 3.0)
     _publish_safety(bus, sequence=8, observed_s=0.0, recovery_request_id="rec-1")
     state = app.poll_activations(state, now=3.0)
@@ -1378,7 +1403,7 @@ def test_unconfirmed_driver_prevents_release() -> None:
     state = _operate(app, bus, gimbal)
     gimbal.inhibit_failures = 99  # every inhibit attempt reports failure
     app.containment.local_latched = True
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     _publish_safety(bus, sequence=7, observed_s=0.0, recovery_request_id="rec-1")
     state = app.poll_activations(state, now=2.0)
@@ -1391,7 +1416,7 @@ def test_missing_encoder_sample_prevents_release() -> None:
     """Release evidence without a valid encoder sample cannot release."""
     app, bus, gimbal, clock = _build_app(_plume_detector())
     state = _latched(app, bus, gimbal)
-    _authorize_idle(bus, "rec-1")
+    _authorize_init(bus, "rec-1")
     state = app.poll_activations(state, now=2.0)
     clock.advance(2.0)
     pos = gimbal.read_position()  # refresh driver feedback only, not the stream
@@ -1599,3 +1624,99 @@ def test_same_tick_command_and_vision_commit_one_edge() -> None:
     graph = state.graph
     assert isinstance(graph, operate.State)
     assert len([frame for frame, _t in graph.seen_vision]) == 1
+
+
+class _SpySelfTest:
+    """SelfTestService spy: counts invocations and returns one evidence id."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.called = threading.Event()
+
+    def check(
+        self, observation: LifecycleObservation, cancel: threading.Event
+    ) -> Result[str | None, FaultCode]:
+        """Record the call; the bounded probe needs no observation fields."""
+        self.calls += 1
+        self.called.set()
+        return Ok("selftest-evidence")
+
+
+def test_pending_init_recovery_withholds_safe_intents_and_effects() -> None:
+    """Authorized INIT awaiting matching release evidence withholds the contained
+    graph's per-tick SAFE intent without marking it emitted, keeps the actuator
+    inhibited, and submits no lifecycle effects."""
+    selftest = _SpySelfTest()
+    spy = _SpyRateGimbal()
+    app, bus, gimbal, _clock = _build_app(_plume_detector(), gimbal=spy, selftest_service=selftest)
+    request_sub = bus.subscribe(SystemModeRequestMsg)
+    state = _latched(app, bus, gimbal)
+    _drain(request_sub)
+    _authorize_init(bus, "rec-1")
+    state = app.poll_activations(state, now=2.0)
+    assert app.containment.local_latched
+    dt = app.params.config.controller.outer.dt_s
+    now = 2.0
+    for _ in range(4):
+        now += dt
+        state, _outcome = app.advance_outer(state, now=now)
+    assert app.containment.local_latched
+    assert _drain(request_sub) == []
+    assert (3, SystemRequestIntent.SAFE.value) not in app.emitted_intents
+    assert _motion_calls(spy) == []
+    assert not selftest.called.wait(timeout=0.1)
+
+
+def test_matching_release_evidence_ends_pending_window_and_submits_selftest() -> None:
+    """Matching release evidence plus healthy hardware clears containment; the
+    pending window closes and the INIT lifecycle actually submits SELFTEST."""
+    selftest = _SpySelfTest()
+    app, bus, gimbal, clock = _build_app(_plume_detector(), selftest_service=selftest)
+    state = _latched(app, bus, gimbal)
+    _authorize_init(bus, "rec-1")
+    state = app.poll_activations(state, now=2.0)
+    assert app.containment.local_latched
+    _prime_release_health(app, gimbal, clock, 2.0)
+    _publish_safety(
+        bus,
+        sequence=7,
+        observed_s=2.0,
+        safe_latched=False,
+        recovery_request_id="rec-1",
+    )
+    state = app.poll_activations(state, now=2.0)
+    assert not app.containment.local_latched
+    dt = app.params.config.controller.outer.dt_s
+    now = 2.0
+    for _ in range(6):
+        now += dt
+        state, _outcome = app.advance_outer(state, now=now)
+    assert selftest.called.wait(timeout=5.0)
+    app.lifecycle.shutdown(join_timeout_s=0.5)
+
+
+def test_hardware_check_failure_consumes_authorization_and_unmasks_safe_intent() -> None:
+    """A failed hardware release check consumes the authorization; the pending
+    window closes and the contained graph's SAFE intent is no longer withheld."""
+    app, bus, gimbal, _clock = _build_app(_plume_detector())
+    request_sub = bus.subscribe(SystemModeRequestMsg)
+    state = _latched(app, bus, gimbal)
+    _drain(request_sub)
+    _authorize_init(bus, "rec-1")
+    state = app.poll_activations(state, now=2.0)
+    # No fresh hardware feedback: the release check fails, consumes the
+    # request, and keeps the containment latch.
+    _publish_safety(
+        bus,
+        sequence=7,
+        observed_s=2.0,
+        safe_latched=False,
+        recovery_request_id="rec-1",
+    )
+    state = app.poll_activations(state, now=2.0)
+    assert app.containment.local_latched
+    assert "rec-1" in app.containment.consumed_recovery_ids
+    dt = app.params.config.controller.outer.dt_s
+    state, _outcome = app.advance_outer(state, now=2.0 + dt)
+    requests = _drain(request_sub)
+    assert any(r.requested_mode is SystemMode.SAFE for r in requests)

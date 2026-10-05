@@ -147,7 +147,30 @@ def test_safe_latch_held_until_authorized_recovery() -> None:
 
 
 def test_authorized_recovery_releases_latch_and_stamps_request() -> None:
-    """An authorized SAFE->IDLE recovery releases the latch and carries request_id."""
+    """An authorized SAFE->INIT recovery releases the latch and carries request_id."""
+    app, bus = _app()
+    safety = bus.subscribe(SafetyStateMsg)
+    entries = app.initial_entries()
+    bus.publish(_fault(FaultCode.PROCESS_DIED))
+    entries = app.tick(entries, now=1.0)
+    bus.publish(
+        _activation(
+            1,
+            previous_mode=SystemMode.SAFE,
+            active_mode=SystemMode.INIT,
+            request_id="rec-1",
+            recovery_authorized=True,
+        )
+    )
+    entries = app.tick(entries, now=2.0)
+    released = _drain_last(safety)
+    assert released is not None
+    assert not released.safe_latched
+    assert released.recovery_request_id == "rec-1"
+
+
+def test_authorized_safe_to_idle_does_not_release_latch() -> None:
+    """A recovery-flagged SAFE->IDLE record can never release the latch (regression)."""
     app, bus = _app()
     safety = bus.subscribe(SafetyStateMsg)
     entries = app.initial_entries()
@@ -163,10 +186,32 @@ def test_authorized_recovery_releases_latch_and_stamps_request() -> None:
         )
     )
     entries = app.tick(entries, now=2.0)
+    held = _drain_last(safety)
+    assert held is not None
+    assert held.safe_latched
+    assert held.recovery_request_id is None
+
+
+def test_boot_safe_to_init_recovery_stamps_request_without_latch() -> None:
+    """Recovery evidence publishes recovery_request_id even when no fault latched."""
+    app, bus = _app()
+    safety = bus.subscribe(SafetyStateMsg)
+    entries = app.initial_entries()
+    entries = app.tick(entries, now=1.0)
+    bus.publish(
+        _activation(
+            1,
+            previous_mode=SystemMode.SAFE,
+            active_mode=SystemMode.INIT,
+            request_id="rec-boot",
+            recovery_authorized=True,
+        )
+    )
+    entries = app.tick(entries, now=2.0)
     released = _drain_last(safety)
     assert released is not None
     assert not released.safe_latched
-    assert released.recovery_request_id == "rec-1"
+    assert released.recovery_request_id == "rec-boot"
 
 
 def _drain_last(safety: Subscription[SafetyStateMsg]) -> SafetyStateMsg | None:

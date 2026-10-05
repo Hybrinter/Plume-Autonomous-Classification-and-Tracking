@@ -19,6 +19,7 @@ from flight.payload.app import PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.inference import InferenceRuntime, ScriptedDetector
 from flight.payload.preprocess import MosaicCalibration
+from flight.system_modes.app import SystemModesApp
 from flight.thermal.app import ThermalApp
 
 
@@ -43,12 +44,14 @@ def _calib() -> MosaicCalibration:
     return build_identity_calibration(1024, 1024)
 
 
-def test_build_apps_wires_all_five_subsystems() -> None:
-    """build_apps constructs all five subsystem apps over the shared bus/clock."""
+def test_build_apps_wires_all_six_subsystems() -> None:
+    """build_apps constructs all six subsystem apps over the shared bus/clock."""
+    bus = MessageBus()
+    clock = ManualClock()
     apps = build_apps(
         PactConfig(),
-        MessageBus(),
-        ManualClock(),
+        bus,
+        clock,
         _drivers(),
         MONITORED_SUBSYSTEMS,
         _calib(),
@@ -58,9 +61,16 @@ def test_build_apps_wires_all_five_subsystems() -> None:
     assert isinstance(apps, SystemApps)
     assert isinstance(apps.payload, PayloadApp)
     assert isinstance(apps.fault, FaultApp)
+    assert isinstance(apps.system_modes, SystemModesApp)
     assert isinstance(apps.iss_iface, IssIfaceApp)
     assert isinstance(apps.thermal, ThermalApp)
     assert isinstance(apps.electrical, ElectricalApp)
+    # The authority shares the injected bus, clock, and epoch; it has not
+    # activated anything yet (first tick boots SAFE).
+    assert apps.system_modes.bus is bus
+    assert apps.system_modes.clock is clock
+    assert apps.system_modes.epoch == "test"
+    assert apps.system_modes.state.active is None
 
 
 def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
@@ -71,6 +81,7 @@ def test_monitored_subsystems_are_the_heartbeat_producers() -> None:
         "thermal",
         "electrical",
         "command_router",
+        "system_modes",
         "storage",
         "downlink",
         "model_deploy",
@@ -92,4 +103,5 @@ def test_build_apps_shares_one_bus() -> None:
     )
     assert apps.payload.bus is bus
     assert apps.fault.bus is bus
+    assert apps.system_modes.bus is bus
     assert apps.thermal.bus is bus

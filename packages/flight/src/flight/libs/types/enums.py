@@ -210,6 +210,7 @@ class CommandId(enum.Enum):
     SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; target thermal; param limit_c: float
     NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
     EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target system_modes; param phase: str
+    SET_MODE = "SET_MODE"  # non-hazardous; target system_modes; param mode: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
     GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target system_modes; stow request

@@ -110,7 +110,9 @@ class ScenarioSpec:
         actions: timed system actions.
         uplink_key: HMAC key the iss_iface app authenticates inbound packets with.
         config: the PactConfig to wire (scenarios may shrink quotas/budgets to exercise limits).
-        initial_mode: Explicit first-step test activation, or None to remain unsynchronized.
+        initial_mode: Explicit fixture activation published at step 1 for specs that
+            skip the boot sequence, or None to let the real authority boot SAFE.
+            This is test setup, not a production fallback path.
     """
 
     name: str
@@ -360,8 +362,8 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
             title="Power over-limit -> containment and SAFE request",
             description=(
                 "A power draw above the 55 W limit self-reports POWER_OVER_LIMIT; FDIR "
-                "latches containment and requests SAFE without selecting a new graph. "
-                "Motion inhibits; SAFE never stows. Actual authority integration is pending."
+                "latches containment and requests SAFE, and the authority activates "
+                "SAFE after containment. Motion inhibits; SAFE never stows."
             ),
             category="power",
             steps=18,
@@ -399,7 +401,8 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
                 "step_once synthesizes every app's heartbeat each cycle, so a genuine miss "
                 "is not reachable in the deterministic harness; a WATCHDOG_EXPIRE "
                 "FaultEventMsg (the FDIR input a missed heartbeat would raise) is injected "
-                "at step 3 and requests SAFE. No authority activation is synthesized. "
+                "at step 3 and requests SAFE; the authority then activates SAFE after "
+                "containment latches. "
                 "The per-subsystem watchdog miss/heartbeat-age "
                 "signals stay nominal (synthesized)."
             ),
@@ -413,12 +416,13 @@ def _build_scenarios() -> dict[str, ScenarioSpec]:
         ScenarioSpec(
             name="exit_safe_recovery",
             initial_mode=SystemMode.OPERATE,
-            title="EXIT_SAFE ARM/EXECUTE awaits authority",
+            title="EXIT_SAFE ARM/EXECUTE -> authority-mediated INIT",
             description=(
                 "A power spike latches SAFE, then the spike clears; a ground EXIT_SAFE is "
                 "ARMed (step 8) and EXECUTEd (step 9) through the command router to "
-                "system_modes. Containment remains latched without authorized activation; "
-                "actual authority-mediated recovery is deferred to integration."
+                "system_modes. The authority activates SAFE -> INIT once fresh clear "
+                "evidence and health checks pass; INIT HOME may move the gimbal. The "
+                "default verifier stays pending, so there is no automatic IDLE."
             ),
             category="recovery",
             steps=14,

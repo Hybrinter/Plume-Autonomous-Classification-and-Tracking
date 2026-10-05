@@ -46,13 +46,15 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
    inbound `build_tc_packet` bytes, or shrunk storage or downlink quotas.
 2. `_make_pre_step` groups actions and injections by 1-based step index.
 3. Step 1 publishes `initial_mode` when the spec declares it; later work runs actions first,
-   then publishes injection messages on the bus. Omitted initial mode stays unsynchronized.
+   then publishes injection messages on the bus. Omitted initial mode leaves the real
+   authority's boot activation (SAFE) as the start.
 4. `record_run` owns the stepping loop after the hook fires.
 
 `power_over_limit_safe` captures 18 steps: the power fault latches containment and requests
-SAFE. No authority activation is synthesized and no stow is attempted. The selected graph
-remains OPERATE while motion is inhibited. `exit_safe_recovery` exercises routing but remains
-contained until actual authority integration supplies authorized recovery.
+SAFE, and the authority activates SAFE after containment. No stow is attempted.
+`exit_safe_recovery` exercises routing and stays contained until the real authority accepts
+an authorized `SAFE -> INIT` recovery. The default verifier keeps INIT pending, so the
+run never reaches IDLE automatically.
 `gimbal_runaway` uses exact simulated encoder feedback to isolate its freeze injection
 from lower-stop noise rejection. It freezes at step 3 after initial plume acquisition.
 Other scenarios retain their declared configuration and operational defaults are unchanged.

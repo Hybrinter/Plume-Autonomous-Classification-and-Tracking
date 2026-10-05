@@ -6,9 +6,11 @@
 ## Purpose
 
 This module is the `python -m tools.ml_models` command line. It builds a
-finished dataset from a raw tile source, trains models on a finished
-dataset, exports two-input ONNX artifacts, gates acceptance, writes
-classifier/segmentor pair manifests, and converts artifact precision.
+finished dataset from a raw tile source, exposes the unavailable dataset
+analysis, model analysis, and render boundaries, runs the unavailable
+training boundary, exports two-input ONNX artifacts, gates acceptance,
+writes classifier/segmentor pair manifests, and converts artifact
+precision.
 
 ## Public interface
 
@@ -18,11 +20,14 @@ classifier/segmentor pair manifests, and converts artifact precision.
 | `app` | Typer application | `tools.ml_models` command group |
 | `dataset_app` | Typer application | `dataset` subgroup under `app` |
 | `build_command` | function | `dataset build` command |
+| `dataset_analyze_command` | function | `dataset analyze` command |
 | `train_command` | function | `train` command |
 | `export_command` | function | `export` command |
 | `accept_command` | function | `accept` command |
 | `pair_command` | function | `pair` command |
 | `convert_command` | function | `convert` command |
+| `analyze_command` | function | `analyze` command |
+| `render_command` | function | `render` command |
 | `main` | function | Module entry point returning an exit code |
 
 ## Inputs and outputs
@@ -40,6 +45,11 @@ classifier/segmentor pair manifests, and converts artifact precision.
 - `--bin-id`: Zenodo GSD bin name, repeatable. Selects `DEFAULT_BINS` by
   name (`native10` or `gsd15` through `gsd35`); default is every bin.
 - `--spec`: optional `BuildSpec` TOML file.
+
+`dataset analyze` options:
+
+- `--dataset`: finished dataset directory. Required.
+- `--out`: analysis output directory. Required.
 
 `train` options:
 
@@ -87,6 +97,19 @@ classifier/segmentor pair manifests, and converts artifact precision.
   refused for `fp16` beyond one occurrence.
 - `--calib-samples`: INT8 calibration sample count, default 32.
 
+`analyze` options:
+
+- `--run`: training run directory. Required.
+- `--out`: analysis output directory. Required.
+- `--checkpoint`: checkpoint selector, default `best`.
+- `--final-test` / `--no-final-test`: include the final-test evaluation,
+  default off.
+
+`render` options:
+
+- `--evidence`: frozen evidence directory. Required.
+- `--out`: destination figure directory. Required.
+
 `main(argv=None) -> int` returns a process exit code.
 
 ## Behavior
@@ -100,7 +123,10 @@ classifier/segmentor pair manifests, and converts artifact precision.
    through `apply_train_mapping`, and calls `loop.train`. An `Ok` result
    echoes the run directory path; an `Err` becomes `typer.BadParameter`.
    The train modules import lazily inside the command.
-5. `main` runs `app` under the program name `tools.ml_models` and converts
+5. `dataset analyze`, `analyze`, and `render` map their `Result`
+   boundaries to `typer.BadParameter` on `Err`; while the boundaries are
+   unavailable every invocation exits nonzero and creates no output.
+6. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 
 ## Errors and faults
@@ -113,7 +139,8 @@ classifier/segmentor pair manifests, and converts artifact precision.
 destination prints a concise parameter error message. `train` maps
 configuration and run failures to `typer.BadParameter` the same way.
 `export` and `pair` map `Err` results to `typer.BadParameter`. `accept`
-writes the acceptance report and exits nonzero when a gate fails.
+maps an `Err` report to `typer.BadParameter`; while scoring is
+unavailable no acceptance report is written and every call fails.
 Build error cases are listed under
 [`tools.ml_models.dataset.build`](dataset/build.md); run errors under
 [`tools.ml_models.train.loop`](train/loop.md); export errors under

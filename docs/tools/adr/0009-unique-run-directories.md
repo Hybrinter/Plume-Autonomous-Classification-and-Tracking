@@ -1,10 +1,10 @@
 # ADR-TOOLS-0009: Unique run directories refuse overwrite
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-08-28
 **Topic:** tooling
 **Supersedes:** none
-**Superseded-by:** none
+**Superseded-by:** ADR-TOOLS-0018
 **Related:** ADR-TOOLS-0006
 
 ## Context

@@ -5,20 +5,18 @@
 
 ## Purpose
 
-The train package runs a plain-torch loop over finished datasets for the
-GSD-conditioned model families. It covers configuration, run provenance,
-evaluation, objectives, and metrics.
+The train package holds training configuration, run provenance, and
+losses for the GSD-conditioned model families. The training boundary
+itself is unavailable until the evidence training phase lands.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
 | [`config`](train/config.md) | module | Frozen `TrainConfig`, TOML load, overlay, and digest |
-| [`loop`](train/loop.md) | module | Run directory, epoch loop, checkpoints, and artifacts |
+| [`loop`](train/loop.md) | module | Public train boundary (unavailable) |
 | [`provenance`](train/provenance.md) | module | Training geometry and split-leakage checks |
-| [`evaluate`](train/evaluate.md) | module | Exhaustive split scoring for one dataset |
 | [`losses`](train/losses.md) | module | BCE, Dice, and focal objectives |
-| [`metrics`](train/metrics.md) | module | Classifier and segmentor scores |
 
 ## Package interface
 
@@ -27,19 +25,15 @@ import `tools.ml_models.train.loop` and `tools.ml_models.train.config`.
 
 ## Interactions
 
-`loop.train` reads finished datasets through
-`tools.ml_models.dataset.loader` and `tools.ml_models.dataset.store`,
-builds models through `tools.ml_models.arch.registry`, and scores
-validation splits with `tools.ml_models.train.evaluate`. The
-`ml-models train` CLI command in `tools.ml_models.cli` calls
-`loop.train`.
+`loop.train` is the `Result[Path, str]` boundary the `ml-models train`
+CLI command calls; it currently returns an explicit unavailable error.
+`provenance` reads finished-dataset manifests.
 
 ## Constraints
 
-- The package imports torch and returns `Result[Path, str]` at the public
-  boundary.
-- Each run trains on exactly one finished dataset.
-- Checkpoints record `film-log-gsd-v1` or `ignored` conditioning.
+- The package returns `Result[Path, str]` at the public boundary.
+- `train` creates no run directory, model, checkpoint, or summary while
+  unavailable.
 
 ## Related documents
 

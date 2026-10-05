@@ -1,20 +1,21 @@
-"""Parameter and FLOP counts for an untrained or trained logits graph.
+"""Parameter counts and unavailable FLOP resource evidence.
 
-Counts use torch only. FLOPs come from ``FlopCounterMode`` over one dummy
-batch at the configured spatial size.
+Parameter counting is a pure helper over a torch module and remains usable.
+The old FLOP path executed one dummy image input and cannot describe a
+conditioned two-input model; it is unavailable until conditioned resource
+measurement is implemented.
 
 Contains:
-  - count_params: number of trainable and frozen parameters.
-  - count_flops: FLOPs for one forward pass at a given NCHW shape.
+  - count_params: number of parameters in a module.
+  - count_flops: unavailable FLOP boundary.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
 
 from __future__ import annotations
 
-import torch
+from flight.libs.types import Err, Result
 from torch import nn
-from torch.utils.flop_counter import FlopCounterMode
 
 
 def count_params(model: nn.Module) -> int:
@@ -29,23 +30,18 @@ def count_params(model: nn.Module) -> int:
     return int(sum(item.numel() for item in model.parameters()))
 
 
-def count_flops(model: nn.Module, input_shape: tuple[int, ...]) -> int:
-    """Return FLOPs for one forward pass at ``input_shape``.
+def count_flops(model: nn.Module, input_shape: tuple[int, ...]) -> Result[int, str]:
+    """Refuse to measure FLOPs while conditioned resource measurement is unimplemented.
 
     Args:
-        model: A torch module that maps NCHW tensors to logits.
-        input_shape: Dummy input shape, for example ``(1, 4, 256, 256)``.
+        model: A torch module.
+        input_shape: Input shape the removed executor would have used.
 
     Returns:
-        int: Total FLOPs recorded by ``FlopCounterMode``.
+        Result[int, str]: Always Err.
     """
-    was_training = model.training
-    model.eval()
-    device = next(model.parameters()).device
-    dummy = torch.zeros(input_shape, dtype=torch.float32, device=device)
-    with FlopCounterMode(display=False) as flop:
-        with torch.no_grad():
-            model(dummy)
-    if was_training:
-        model.train()
-    return int(flop.get_total_flops())
+    del model, input_shape
+    return Err(
+        "FLOP measurement is unavailable until the conditioned resource "
+        "evidence phase is implemented"
+    )

@@ -1,21 +1,27 @@
-"""Discover, list, and compare inference run directories.
+"""Run-catalog boundary and text formatters for model runs.
 
-A run directory is any folder that contains ``summary.json``.
+The legacy discovery, summary reader, and ranking relied on artifact layouts
+that standard training no longer writes. Those boundaries are unavailable
+until the evidence analysis phase replaces them; they return explicit errors
+rather than empty catalogs or fabricated rows. The formatters remain pure:
+they render rows the caller already holds and never read files.
 
 Contains:
-  - discover_runs: sorted run paths under a parent directory.
-  - load_summary: parse summary.json plus optional eval.json.
-  - rank_runs: sort summaries by a val metric then FLOPs.
-  - format_list / format_compare / format_rank: text tables for the CLI.
+  - discover_runs: unavailable run-directory catalog reader.
+  - load_summary: unavailable run-summary reader.
+  - rank_runs: unavailable stored-summary ranking.
+  - format_list / format_compare / format_rank: text tables over given rows.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
 
 from __future__ import annotations
 
-import json
-import math
 from pathlib import Path
+
+from flight.libs.types import Err, Result
+
+_UNAVAILABLE = "run catalog reading is unavailable until the evidence analysis phase is implemented"
 
 _COMPARE_KEYS: tuple[str, ...] = (
     "run_id",
@@ -35,56 +41,44 @@ _COMPARE_KEYS: tuple[str, ...] = (
 )
 
 
-def discover_runs(root: str | Path) -> tuple[Path, ...]:
-    """Return run directories under ``root`` that contain summary.json.
+def discover_runs(root: str | Path) -> Result[tuple[Path, ...], str]:
+    """Refuse to discover runs while the catalog reader is unimplemented.
 
     Args:
         root: Parent directory, usually ``artifacts/runs``.
 
     Returns:
-        tuple[Path, ...]: Sorted run paths.
+        Result[tuple[Path, ...], str]: Always Err.
     """
-    parent = Path(root)
-    if not parent.is_dir():
-        return ()
-    found: list[Path] = []
-    for path in sorted(parent.iterdir()):
-        if path.is_dir() and (path / "summary.json").is_file():
-            found.append(path)
-    return tuple(found)
+    del root
+    return Err(_UNAVAILABLE)
 
 
-def load_summary(run_dir: str | Path) -> dict[str, object]:
-    """Load summary.json and overlay eval.json test fields when present.
+def load_summary(run_dir: str | Path) -> Result[dict[str, object], str]:
+    """Refuse to load a run summary while the catalog reader is unimplemented.
 
     Args:
         run_dir: Run directory.
 
     Returns:
-        dict[str, object]: Combined identity and metrics.
-
-    Raises:
-        FileNotFoundError: If summary.json is missing.
+        Result[dict[str, object], str]: Always Err.
     """
-    root = Path(run_dir)
-    payload = json.loads((root / "summary.json").read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("summary.json must be an object")
-    eval_path = root / "eval.json"
-    if eval_path.is_file():
-        eval_payload = json.loads(eval_path.read_text(encoding="utf-8"))
-        if not isinstance(eval_payload, dict):
-            raise ValueError("eval.json must be an object")
-        split = str(eval_payload.get("split", "test"))
-        prefix = "test_" if split == "test" else f"{split}_"
-        for key, value in eval_payload.items():
-            if key in {"split", "checkpoint", "kind", "arch"}:
-                continue
-            prefixed = f"{prefix}{key}"
-            payload[prefixed] = value
-    payload.setdefault("run_id", root.name)
-    payload["path"] = str(root)
-    return payload
+    del run_dir
+    return Err(_UNAVAILABLE)
+
+
+def rank_runs(runs: tuple[Path, ...], metric: str) -> Result[tuple[dict[str, object], ...], str]:
+    """Refuse to rank stored run summaries while the reader is unimplemented.
+
+    Args:
+        runs: Run directories.
+        metric: Score name such as ``mean_iou``, ``f1``, or ``bce``.
+
+    Returns:
+        Result[tuple[dict[str, object], ...], str]: Always Err.
+    """
+    del runs, metric
+    return Err(_UNAVAILABLE)
 
 
 def _cell(value: object) -> str:
@@ -96,14 +90,14 @@ def _cell(value: object) -> str:
     return str(value)
 
 
-def format_list(runs: tuple[Path, ...]) -> str:
-    """Return a text table of discovered runs.
+def format_list(rows: tuple[dict[str, object], ...]) -> str:
+    """Return a text table of already-loaded summary rows.
 
     Args:
-        runs: Run directories.
+        rows: Summary dicts, one per run.
 
     Returns:
-        str: Header plus one row per run.
+        str: Header plus one row per summary.
     """
     headers = (
         "run_id",
@@ -116,71 +110,24 @@ def format_list(runs: tuple[Path, ...]) -> str:
         "dataset_hash",
     )
     lines = ["\t".join(headers)]
-    for path in runs:
-        row = load_summary(path)
+    for row in rows:
         lines.append("\t".join(_cell(row.get(key, "")) for key in headers))
     return "\n".join(lines) + "\n"
 
 
-def format_compare(runs: tuple[Path, ...]) -> str:
-    """Return a side-by-side table of selected summary and eval fields.
+def format_compare(rows: tuple[dict[str, object], ...]) -> str:
+    """Return a side-by-side table of already-loaded summary rows.
 
     Args:
-        runs: Run directories to compare.
+        rows: Summary dicts, one per run.
 
     Returns:
-        str: Header plus one row per run.
+        str: Header plus one row per summary.
     """
     lines = ["\t".join(_COMPARE_KEYS)]
-    for path in runs:
-        row = load_summary(path)
+    for row in rows:
         lines.append("\t".join(_cell(row.get(key, "")) for key in _COMPARE_KEYS))
     return "\n".join(lines) + "\n"
-
-
-def _metric_value(row: dict[str, object], metric: str) -> float:
-    """Return the scalar used to rank ``row`` for ``metric``."""
-    candidates: tuple[object, ...] = (
-        row.get(f"val_{metric}"),
-        row.get(metric),
-        row.get("best_val_metric"),
-    )
-    for item in candidates:
-        if isinstance(item, (int, float)):
-            return float(item)
-    return math.nan
-
-
-def _flops_value(row: dict[str, object]) -> float:
-    """Return FLOPs as a float, or +inf when missing."""
-    item = row.get("flops")
-    if isinstance(item, (int, float)):
-        return float(item)
-    return math.inf
-
-
-def rank_runs(runs: tuple[Path, ...], metric: str) -> tuple[dict[str, object], ...]:
-    """Sort run summaries by val metric, then by FLOPs ascending.
-
-    Args:
-        runs: Run directories.
-        metric: Score name such as ``mean_iou``, ``f1``, or ``bce``.
-
-    Returns:
-        tuple[dict[str, object], ...]: Ranked ``load_summary`` rows. ``bce`` is
-        minimized. Other metrics are maximized.
-    """
-    rows = tuple(load_summary(path) for path in runs)
-    minimize = metric == "bce"
-
-    def sort_key(row: dict[str, object]) -> tuple[float, float]:
-        score = _metric_value(row, metric)
-        if math.isnan(score):
-            score = math.inf if minimize else -math.inf
-        ordered = score if minimize else -score
-        return (ordered, _flops_value(row))
-
-    return tuple(sorted(rows, key=sort_key))
 
 
 def format_rank(rows: tuple[dict[str, object], ...]) -> str:

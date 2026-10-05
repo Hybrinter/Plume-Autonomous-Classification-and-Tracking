@@ -11,6 +11,7 @@ from flight.hal.interfaces import GimbalHealth, GimbalPosition, GimbalRateComman
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
 from flight.libs.messages import (
+    CommandAckMsg,
     FaultEventMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
@@ -21,6 +22,7 @@ from flight.libs.messages import (
 )
 from flight.libs.time import ManualClock
 from flight.libs.types import (
+    AckStatus,
     DownlinkPriority,
     Err,
     FaultCode,
@@ -613,6 +615,35 @@ def test_ground_goto_latches_pose_mode() -> None:
     published = cmd_sub.get_nowait()
     assert published.mode is GimbalCommandMode.ABSOLUTE
     assert published.el_value_deg == 20.0
+
+
+@pytest.mark.parametrize("command_id", ["GIMBAL_HOLD", "GIMBAL_RESUME"])
+def test_declared_graph_commands_rejected_until_runtime_cutover(command_id: str) -> None:
+    """Declared HOLD/RESUME opcodes ack REJECTED COMMAND_INVALID; pose intent unchanged."""
+    app, bus, _gimbal, _clock = _build_app(_plume_detector())
+    ack_sub = bus.subscribe(CommandAckMsg)
+    prior_mode = app.pose_intent.mode
+    prior_el_deg = app.pose_intent.el_deg
+    bus.publish(
+        RoutedCommandMsg(
+            msg_type=MessageType.ROUTED_COMMAND,
+            timestamp_utc="t",
+            target="payload",
+            command_id=command_id,
+            params={},
+            source="ground",
+            seq=7,
+        )
+    )
+    app.handle_commands()
+    ack = ack_sub.get_nowait()
+    assert ack.status is AckStatus.REJECTED
+    assert ack.fault_code is FaultCode.COMMAND_INVALID
+    assert ack.command_id == command_id
+    assert ack.seq == 7
+    assert ack.detail == "unsupported command"
+    assert app.pose_intent.mode is prior_mode
+    assert app.pose_intent.el_deg == prior_el_deg
 
 
 def test_process_frame_preserves_measured_zero_slew() -> None:

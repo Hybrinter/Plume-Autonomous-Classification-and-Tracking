@@ -137,8 +137,11 @@ of shell services.
   imaging/inference policy. `Edge[NodeT]`: source, target, trigger, optional typed `CommandId`.
 - Explicit triggers cover vision acquire, coast exhaustion, rewind timer, limb arrival, command,
   effect completion, and verified stability. Guards remain explicit code, not callable tables.
-- `validate_spec()` returns `Result`; reject missing endpoints, invalid initial nodes, duplicate
-  or ambiguous edges, and malformed command edges. Ambiguous matches must fail, not take first.
+- `validate_spec()` returns `Result`; reject missing endpoints, invalid initial nodes, exact
+  duplicate edges for any trigger, malformed command edges, and multiple command destinations
+  sharing `(source, command_id)`. Ambiguous command matches must fail, not take first.
+  Distinct-target automatic edges sharing `(source, trigger)` are legal: guard exclusivity
+  belongs to the concrete graph, which selects its directed target edge in code.
 - `TickInputs`: explicit monotonic `now_s`, timestamp string when emitting records, encoder and
   navigation observations, optional vision, typed effect results, and command candidate.
 - Separate immutable `GraphState` union and typed per-node state. Share genuinely common operate
@@ -819,4 +822,5 @@ to prove an architecture refactor.
 | PR | Branch | Base | Status | Evidence | Blockers |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `devin/payload-graphs-01-design-contract` | `main` @ `37aa8f8` | accepted and published; commit `031f9ed` | PR https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/108; `check_docs.py --strict` ok and `check_adr.py --strict` ok after preserving stale ignored source caches outside the source tree; raw logs retained | teammate interface agreement pending (external gate before authority integration) |
-| 2 | `devin/payload-graphs-02-primitives` | `devin/payload-graphs-01-design-contract` @ `031f9ed` | director review accepted; ready for publication | Focused controller/gimbal/app/encoder selector: 86 passed; migrated analysis consumer: 12 passed; post-review reference/analysis tests: 20 passed; scoped Ruff and mypy passed; import contracts: 18 kept; strict docs and decision-record checks passed. Raw final and initial logs retained separately under `/tmp/pact-pr2-*.log`. | none |
+| 2 | `devin/payload-graphs-02-primitives` | `devin/payload-graphs-01-design-contract` @ `031f9ed` | accepted and published; commit `d1b5bcb` | PR https://github.com/Hybrinter/Plume-Autonomous-Classification-and-Tracking/pull/109; focused controller/gimbal/app/encoder selector: 86 passed; migrated analysis consumer: 12 passed; post-review reference/analysis tests: 20 passed; scoped Ruff and mypy passed; import contracts: 18 kept; strict docs and decision-record checks passed. Raw final and initial logs retained separately under `/tmp/pact-pr2-*.log`. | none |
+| 3 | `devin/payload-graphs-03-graph-contracts` | `devin/payload-graphs-02-primitives` @ `d1b5bcb` | director review accepted; ready for publication | Records relocated; typed graph/policy/effect/activation contracts added; HOLD/RESUME declarations remain explicitly unsupported by the current app. Automatic edges permit guarded alternate targets; ambiguous command targets and exact duplicates reject. Initial selector: 124 passed; post-review graph/records/app selector: 60 passed; scoped Ruff/mypy, 20 import contracts, and strict docs passed. Raw final evidence retained under `/tmp/pact-pr3-rework-*.log`. | teammate authority agreement remains pending before integration |

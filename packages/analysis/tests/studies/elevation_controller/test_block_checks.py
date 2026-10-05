@@ -12,12 +12,13 @@ from flight.libs.config import ControllerConfig, EphemerisConfig, GimbalConfig, 
 from flight.libs.messages import BlobMeta, GimbalCommandMsg, InferenceResultMsg
 from flight.libs.time import ManualClock
 from flight.libs.types import GimbalCommandMode, GimbalState, MessageType, Ok
-from flight.payload.control import PayloadController, VisionSample
+from flight.payload.control import PayloadController
 from flight.payload.gimbal.inner import inner_step
 from flight.payload.gimbal.outer import clip_rate, rate_decision, smear_cap_rad_s
 from flight.payload.gimbal.predictor import predict_los
 from flight.payload.gimbal.rate_fit import fit_rate
 from flight.payload.gimbal.request import GimbalRequest
+from flight.payload.records import VisionSample
 from flight.payload.tracking.residual import (
     EncoderSample,
     ResidualFilter,

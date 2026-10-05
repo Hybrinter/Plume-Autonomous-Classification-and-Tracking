@@ -16,6 +16,7 @@ TP/FP/TN/FN refer to the explicitly selected operating point.
 | `MetricDefinition` | dataclass | Name, direction, formula, population, aggregation, undefined policy, limitations, unit |
 | `CLASSIFIER_DEFINITIONS` | constant | Definitions for the classifier point, ranking, and loss metrics |
 | `CALIBRATION_DEFINITIONS` | constant | Definitions for Brier and ECE |
+| `SEGMENTATION_DEFINITIONS` | constant | Definitions for the segmentation overlap, area, loss, and pixel diagnostics |
 | `metric_definition` | function | Name lookup; `Result` boundary |
 
 ## Inputs and outputs
@@ -42,8 +43,25 @@ missing, `average_precision` is unavailable without positive labels
 unavailable with a reason. `CALIBRATION_DEFINITIONS` covers
 `brier_score` (mean `(p - y) ** 2`) and `expected_calibration_error`
 (support-weighted absolute gaps over occupied equal-width bins). Every
-definition declares the cohort population: every eligible image once,
-with no augmentation or training-resampling weighting.
+classifier and calibration definition declares the cohort population:
+every eligible image once, with no augmentation or training-resampling
+weighting.
+
+`SEGMENTATION_DEFINITIONS` covers the overlap means (per-image
+`TP/(TP+FP+FN)` and Dice over nonempty-truth and all-annotated images,
+with empty/empty defined as one), pooled global confusion ratios,
+per-image and pixel-weighted BCE and Brier means, area errors in pixels
+and in square metres by local GSD, verified-negative foreground/blob
+rates, truth-class Brier and probability-residual means, the approximate
+histogram pixel ROC and AP, and the exact occupied-bin pixel ECE.
+Overlap, precision, recall, and the pixel ranking scores maximize;
+signed area errors and probability residuals are descriptive; the rest
+minimize. Shared policies state that metrics are unavailable when no
+eligible observations or a zero denominator exists, ROC needs both truth
+classes, and AP needs positives; limitations record correlated pixels,
+the local-GSD area approximation, the exclusion of empty images from
+positive-truth headlines, and approximate histogram ranking with
+explicit thresholds and aggregation.
 
 ## Errors and faults
 

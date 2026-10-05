@@ -15,6 +15,7 @@ extracts blobs. The payload app talks to `DetectorBackend` only. The shared pure
 | Name | Kind | Description |
 | --- | --- | --- |
 | `DetectorBackend` | protocol | `detect(frame) -> Result[InferenceResultMsg, FaultCode]` |
+| `Detector.warm_up` | method | One synthetic pass through both models; `Result[None, FaultCode]` |
 | `TiledScore` | dataclass | Tile logits, positive flags, and probability masks |
 | `infer_tiles` | function | Pure gated classification and segmentation orchestration |
 | `Detector` | class | Tiling, inference, mask stitching, and blob extraction |
@@ -55,6 +56,11 @@ not on `DetectorBackend`.
    is missing.
 7. `OnnxDetector` constructs `OnnxClassifier` and `OnnxSegmentor` at init.
    `ScriptedDetector.load_mask` slices a new full-frame mask into configured tiles.
+8. `Detector.warm_up(images, gsd, cancel)` runs one synthetic tile through the
+   classifier and then the segmentor unconditionally - a classifier-negative
+   warmup still exercises the segmentor so both model paths load and validate.
+   It validates the returned shapes, finiteness, and ranges like `detect`,
+   checks cancellation between stages, and publishes nothing.
 
 ## Errors and faults
 

@@ -44,6 +44,7 @@ from flight.libs.time import ManualClock
 from flight.libs.types import MessageType, Ok, SystemMode
 from flight.payload.calibration_io import build_identity_calibration
 from flight.payload.graphs.base import GraphId
+from flight.payload.lifecycle import InitializationVerifier
 from flight.payload.state import PayloadState, graph_name_of, node_name_of
 
 from sim.sil.environment_bind import SilEnvironmentBind
@@ -77,6 +78,8 @@ def build_validation_system(
     sim_inputs: SimDriverInputs | None = None,
     uplink_key: bytes = b"sil-test-key-0000000000000000000",
     activation_epoch: str = "sil",
+    *,
+    initialization_verifier: InitializationVerifier | None = None,
 ) -> ValidationSystem:
     """Wire the flight apps over the env-selected drivers on a fresh bus, for any profile.
 
@@ -94,6 +97,8 @@ def build_validation_system(
             required by select_drivers when any selected axis is 'sim'.
         uplink_key: The HMAC-SHA256 secret the iss_iface app uses to authenticate inbound
             TC packets. Defaults to a fixed test key; pass explicitly in command-path tests.
+        initialization_verifier: Optional deterministic INIT verifier seam forwarded to
+            the payload app; None keeps the pending-by-default production verifier.
 
     Returns:
         A ValidationSystem holding the wired apps, the shared bus/clock, and the
@@ -107,6 +112,10 @@ def build_validation_system(
         Storage is redirected to a fresh temp directory so the deterministic in-process harness
         is hermetic (no repo pollution) and isolated per build; the flight entry keeps the
         configured data_root.
+
+        The builder passes ``synchronous_lifecycle=True``. INIT effects run on the
+        control thread inside each poll, and the lifecycle daemon does not start.
+        SilHarness and the GSE in-process backend share this ManualClock path.
     """
     config = replace(
         config,
@@ -116,7 +125,16 @@ def build_validation_system(
     drivers = select_drivers(config, clock, sim_inputs)
     calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
     apps = build_apps(
-        config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key, activation_epoch
+        config,
+        bus,
+        clock,
+        drivers,
+        MONITORED_SUBSYSTEMS,
+        calib,
+        uplink_key,
+        activation_epoch,
+        initialization_verifier=initialization_verifier,
+        synchronous_lifecycle=True,
     )
     return ValidationSystem(
         apps=apps,

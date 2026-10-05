@@ -24,8 +24,11 @@ deterministically. GSE imports this surface and does not touch flight compositio
 **`build_validation_system(config, clock, sim_inputs=None, uplink_key=..., activation_epoch="sil") -> ValidationSystem`**
 
 - Inputs: `PactConfig` (driver axes intact), `ManualClock`, optional `SimDriverInputs`,
-  uplink HMAC key, and the authority epoch forwarded to `build_apps` (default test
-  epoch `"sil"`).
+  uplink HMAC key, the authority epoch forwarded to `build_apps` (default test
+  epoch `"sil"`), and an optional keyword-only `InitializationVerifier` forwarded
+  to the payload app (None keeps the pending-by-default production verifier).
+  The builder passes `synchronous_lifecycle=True`. INIT effects run on the
+  control thread inside each poll, and the lifecycle worker does not start.
 - Output: `ValidationSystem` with HAL protocol-typed driver fields.
 
 **`ValidationHarness.step(now) -> None`**
@@ -58,7 +61,8 @@ deterministically. GSE imports this surface and does not touch flight compositio
 1. `build_validation_system` redirects storage to a fresh temp directory.
 2. It creates a new `MessageBus` and calls `select_drivers` with the supplied config.
 3. It builds identity mosaic calibration from sensor dimensions.
-4. It wires every app via `build_apps` with `MONITORED_SUBSYSTEMS`.
+4. It wires every app via `build_apps` with `MONITORED_SUBSYSTEMS` and a
+   synchronous lifecycle executor.
 5. `ValidationHarness` seeds `_now` from the shared clock plus the payload
    `PayloadState` and FDIR watchdog entries, then steps like `SilHarness`.
    `step_once` owns clock advancement; the harness never advances it separately.

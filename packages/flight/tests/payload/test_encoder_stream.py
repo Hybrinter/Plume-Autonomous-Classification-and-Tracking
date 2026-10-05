@@ -12,7 +12,7 @@ from flight.libs.time import ManualClock
 from flight.libs.types import DownlinkPriority, FaultCode, Ok, Result
 from flight.payload.app import EncoderStream, PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
-from flight.payload.inference import DetectorBackend, ScriptedDetector
+from flight.payload.inference import DetectorBackend, InferenceRuntime, ScriptedDetector
 
 _ENCODER_HISTORY_MAX = 4096
 
@@ -42,7 +42,7 @@ def _build_app(detector: DetectorBackend) -> PayloadApp:
         sensor,
         gimbal,
         eph,
-        detector,
+        InferenceRuntime.from_scripted(detector),
         bus,
         clock,
         calib,

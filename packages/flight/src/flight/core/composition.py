@@ -59,7 +59,8 @@ from flight.libs.messages import (
 )
 from flight.libs.time import Clock
 from flight.payload.app import PayloadApp
-from flight.payload.inference import DetectorBackend
+from flight.payload.inference import InferenceRuntime
+from flight.payload.lifecycle import InitializationVerifier
 from flight.payload.preprocess import MosaicCalibration
 from flight.thermal.app import ThermalApp
 
@@ -127,16 +128,18 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
 
 @dataclass(frozen=True)
 class Drivers:
-    """Bundle of injected HAL drivers + the detector backend for one composition.
+    """Bundle of injected HAL drivers + the inference runtime for one composition.
 
     The composition root (flight entry or SIL) constructs the concrete implementations;
-    build_apps consumes only the Protocol types.
+    build_apps consumes only the Protocol types. `inference` is the lazy
+    InferenceRuntime holder -- empty with a lazy factory on the real path,
+    explicitly scripted in sim/test composition.
     """
 
     sensor: ImagingSensor
     gimbal: GimbalActuator
     ephemeris: IssEphemeris
-    detector: DetectorBackend
+    inference: InferenceRuntime
     station: StationLink
     thermal_sensor: ScalarSensor
     power_sensor: ScalarSensor
@@ -171,6 +174,9 @@ def build_apps(
     calib: MosaicCalibration,
     uplink_key: bytes,
     activation_epoch: str,
+    *,
+    initialization_verifier: InitializationVerifier | None = None,
+    synchronous_lifecycle: bool = False,
 ) -> SystemApps:
     """Construct every subsystem app wired to the shared bus and clock.
 
@@ -188,6 +194,13 @@ def build_apps(
             and the apps themselves stay key-file-agnostic.
         activation_epoch: The authority epoch for this run (uuid4 in flight, a fixed
             deterministic value in SIL). Apps never generate epochs themselves.
+        initialization_verifier: Optional INIT verification seam; None keeps the
+            pending-by-default production verifier. Sim selection never implies a
+            passing verifier.
+        synchronous_lifecycle: When true, the payload executor pumps INIT
+            effects on the control thread and does not start its daemon.
+            Defaults to false so flight keeps the lazy worker. The SIL
+            validation builder passes true.
 
     Returns:
         A SystemApps with all five apps constructed.
@@ -199,12 +212,14 @@ def build_apps(
             drivers.sensor,
             drivers.gimbal,
             drivers.ephemeris,
-            drivers.detector,
+            drivers.inference,
             bus,
             clock,
             calib,
             storage,
             activation_epoch,
+            verifier=initialization_verifier,
+            synchronous_lifecycle=synchronous_lifecycle,
         ),
         fault=FaultApp.from_config(config, bus, clock, monitored, activation_epoch),
         iss_iface=IssIfaceApp.from_config(

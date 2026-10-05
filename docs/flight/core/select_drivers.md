@@ -30,28 +30,25 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
 - Inputs: `PactConfig`, injected `Clock`, optional `SimDriverInputs`.
 - Output: `Drivers` with each axis resolved.
 - Raises `ValueError` when any axis is `sim` and `sim_inputs` is `None`.
-- Raises `SystemExit` when real-sensor exposure or gain setup returns `Err`.
-- Raises `ValueError` when the real compute axis loads an ONNX file whose
-  shapes do not match the inference I/O contract.
 
 ## Behavior
 
 1. Read `config.drivers` axis values.
 2. **Sensor axis:** `sim` selects `SimSensor` and `SimScalarSensor` pairs for thermal and
-   power. `real` selects `RealSensor`, applies initial exposure and gain, and selects
-   `RealScalarSensor` for both scalars.
+   power. `real` selects `RealSensor` and `RealScalarSensor` for both scalars.
+   No startup exposure or gain is applied here: the payload's graph-owned
+   imaging policy applies settings through its stop/apply/start handling once
+   a policy activates.
 3. **Gimbal axis:** `sim` selects `SimGimbal`. `real` selects `RealGimbal`.
 4. **Ephemeris axis:** `sim` selects `SimIssEphemeris`. `real` selects
    `RealIssEphemeris`.
-5. **Compute axis:** `sim` uses the passed `ScriptedDetector`. `real` constructs
-   `OnnxDetector` from the paths returned by `resolve_quantized_path` on
-   `inference.segmentor_model_path` and `inference.classifier_model_path`.
-   `use_int8` true selects `<stem>.int8.onnx`. The logit threshold and
-   `fault.inference_timeout_ms` feeds the detect-time fault threshold. The model
-   contract uses a dynamic tile batch: image `(None, C, tile_h, tile_w)`, GSD
-   `(None, 2)`, classifier `(None, 1)`, and segmentor
-   `(None, 1, tile_h, tile_w)`. Grid and reference GSD come from
-   `InferenceConfig`.
+5. **Compute axis:** `sim` returns `InferenceRuntime.from_scripted` over the
+   passed `ScriptedDetector` - an explicit preinstalled scripted session.
+   `real` returns an empty `InferenceRuntime` carrying the lazy
+   `OnnxRuntimeFactory(config)`: no model file is read and no ONNX session is
+   constructed here; the INIT lifecycle calls `load`, which resolves the
+   quantized artifact paths, verifies digests and the I/O contract, and returns
+   a typed `Err` on failure without raising.
 6. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
 7. Return the assembled `Drivers` dataclass.
 
@@ -59,9 +56,7 @@ Real driver SDK modules import lazily inside the `real` branches only.
 
 ## Errors and faults
 
-- `ValueError`: a `sim` axis without `sim_inputs`, or a real ONNX artifact
-  whose shapes do not match the inference I/O contract.
-- `SystemExit`: real-sensor exposure or gain command failure.
+- `ValueError`: a `sim` axis without `sim_inputs`.
 
 ## Messages
 

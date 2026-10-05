@@ -88,8 +88,13 @@ from flight.payload.graphs.base import (
     ActivationDisposition,
     ActivationSnapshot,
     ActivationState,
+    EffectIntent,
     EffectivePolicy,
+    EffectKind,
+    EffectResult,
+    EffectStatus,
     GraphId,
+    InitVerificationResult,
     NodeOutcome,
     SystemRequestIntent,
     TickInputs,
@@ -105,7 +110,18 @@ from flight.payload.imaging import (
     plan_capture,
     record_capture,
 )
-from flight.payload.inference import DetectorBackend
+from flight.payload.inference import InferenceRuntime
+from flight.payload.lifecycle import (
+    ExactHomeArrival,
+    HomeArrivalService,
+    InitializationVerifier,
+    LifecycleExecutor,
+    LifecycleObservation,
+    LifecycleToken,
+    ObservedSelfTest,
+    PendingInitializationVerifier,
+    SelfTestService,
+)
 from flight.payload.preprocess import (
     MosaicCalibration,
     SmearRateSource,
@@ -271,6 +287,20 @@ class CaptureShell:
 
 
 @dataclass(slots=True)
+class LifecycleShell:
+    """Control-side buffers the executor poll fills and the graph consumes.
+
+    results queues terminal lifecycle effect results for the next INIT
+    runtime.step; verification holds the one verification result ready to
+    inject. Reentry and cancellation clear both so stale completions can
+    never reach a newer activation.
+    """
+
+    results: list[EffectResult] = field(default_factory=list)
+    verification: InitVerificationResult | None = None
+
+
+@dataclass(slots=True)
 class RuntimeShell:
     """Latest control-committed PayloadState shared with the capture loop.
 
@@ -292,7 +322,8 @@ class PayloadApp:
         sensor: ImagingSensor driver.
         gimbal: GimbalActuator driver.
         ephemeris: IssEphemeris driver.
-        detector: DetectorBackend.
+        inference: InferenceRuntime holder (empty until a verified load).
+        lifecycle: Bounded executor driving INIT effect intents.
         servo: Mode-free ServoController (rate/position law + inner PI).
         params: GraphParameters projection for pure graph functions.
         bus: Typed MessageBus.
@@ -309,7 +340,8 @@ class PayloadApp:
     sensor: ImagingSensor
     gimbal: GimbalActuator
     ephemeris: IssEphemeris
-    detector: DetectorBackend
+    inference: InferenceRuntime
+    lifecycle: LifecycleExecutor
     servo: ServoController
     params: GraphParameters
     bus: MessageBus
@@ -335,6 +367,7 @@ class PayloadApp:
     stow_progress: StowProgress = field(default_factory=StowProgress)
     emitted_intents: set[tuple[int, str]] = field(default_factory=set)
     capture_shell: CaptureShell = field(default_factory=CaptureShell)
+    lifecycle_shell: LifecycleShell = field(default_factory=LifecycleShell)
     runtime_shell: RuntimeShell = field(default_factory=RuntimeShell)
 
     @staticmethod
@@ -343,14 +376,24 @@ class PayloadApp:
         sensor: ImagingSensor,
         gimbal: GimbalActuator,
         ephemeris: IssEphemeris,
-        detector: DetectorBackend,
+        inference: InferenceRuntime,
         bus: MessageBus,
         clock: Clock,
         calib: MosaicCalibration,
         storage: StorageWriter,
         activation_epoch: str,
+        *,
+        selftest_service: SelfTestService | None = None,
+        home_service: HomeArrivalService | None = None,
+        verifier: InitializationVerifier | None = None,
+        effect_deadline_s: float = 30.0,
+        synchronous_lifecycle: bool = False,
     ) -> PayloadApp:
         """Assemble a PayloadApp from a PactConfig and injected services.
+
+        ``synchronous_lifecycle`` defaults to false so flight keeps the lazy
+        lifecycle daemon. SIL and GSE pass true and pump effects on the
+        control thread.
 
         Raises:
             ValueError: Invalid channel layout, inference geometry, or an
@@ -384,7 +427,15 @@ class PayloadApp:
             sensor=sensor,
             gimbal=gimbal,
             ephemeris=ephemeris,
-            detector=detector,
+            inference=inference,
+            lifecycle=LifecycleExecutor(
+                runtime=inference,
+                selftest=selftest_service or ObservedSelfTest(params),
+                home_arrival=home_service or ExactHomeArrival(params),
+                verifier=verifier or PendingInitializationVerifier(),
+                effect_deadline_s=effect_deadline_s,
+                synchronous=synchronous_lifecycle,
+            ),
             servo=ServoController.from_config(cfg.controller, cfg.gimbal),
             params=params,
             bus=bus,
@@ -558,7 +609,15 @@ class PayloadApp:
         with self.state_lock:
             if not self.containment.local_latched:
                 self.containment.generation += 1
+                engaged = True
+            else:
+                engaged = False
             self.containment.local_latched = True
+        if engaged:
+            # A fresh latch invalidates every in-flight lifecycle generation.
+            self.lifecycle.cancel()
+            self.lifecycle_shell.results.clear()
+            self.lifecycle_shell.verification = None
 
     def _latch_containment(self, reason: str) -> None:
         """Engage the local inhibit latch and request driver containment once."""
@@ -575,7 +634,13 @@ class PayloadApp:
         physical encoder history is retained), inhibits until the destination
         graph emits its first outcome, and bumps both revisions so queued
         capture and computed actuation from the old activation are obsolete.
+        Any in-flight INIT lifecycle generation is cancelled first: same-mode
+        reentry reruns the lifecycle under a fresh token and cannot inherit
+        stale completions, evidence, or candidates.
         """
+        self.lifecycle.cancel()
+        self.lifecycle_shell.results.clear()
+        self.lifecycle_shell.verification = None
         with self.state_lock:
             self.vision_queue.clear()
         self._inhibit_motion("activation")
@@ -606,6 +671,21 @@ class PayloadApp:
             control_revision=state.control_revision + 1,
             last_outer_s=now,
         )
+        if snapshot.graph_id is GraphId.OPERATE and self.inference.snapshot() is None:
+            # Fail closed at entry, not on the first committed outcome: an
+            # unverified runtime never sees an enabled OPERATE policy. A
+            # capture-only request keeps acquisition (inference already off);
+            # motion stays inhibited either way. The emitted marker matches
+            # the per-outcome gate so exactly one fault/SAFE fires per
+            # activation.
+            seq = snapshot.key.sequence
+            if policy.inference.enabled:
+                reset = replace(reset, policy=self.params.default_policy(False))
+                marker = (seq, "unverified_inference_runtime")
+                if marker not in self.emitted_intents:
+                    self.emitted_intents.add(marker)
+                    self._publish_fault(FaultCode.MODEL_CORRUPT, "inference runtime unverified")
+                    self._emit_intent(SystemRequestIntent.SAFE, reset)
         inputs = self._tick_inputs(reset, now, timestamp_utc=self.clock.wall_clock_iso())
         graph = runtime.initial_state(snapshot.graph_id, inputs, params)
         return replace(reset, graph=graph)
@@ -841,7 +921,11 @@ class PayloadApp:
         action; graph telemetry events are deferred until the reference commit
         succeeds, so a failed actuator metadata operation never publishes the
         committed-edge events for a transition that did not take effect.
+        OPERATE outcomes additionally pass the unverified-runtime gate: while
+        the inference holder is empty, motion stays inhibited and an
+        inference-enabled policy fails closed.
         """
+        outcome = self._enforce_runtime_readiness(state, outcome)
         for code in outcome.faults:
             self._publish_fault(code, "graph outcome fault")
             if code in _CONTAINING_FAULTS:
@@ -862,6 +946,8 @@ class PayloadApp:
             if commit.fault is not None:
                 return current, issued
         last = state.activation.last
+        if outcome.effects and not self.containment.local_latched:
+            self._submit_lifecycle(current, outcome.effects, now)
         for event in outcome.events:
             self.bus.publish(
                 replace(
@@ -874,6 +960,149 @@ class PayloadApp:
                 )
             )
         return current, issued
+
+    def _enforce_runtime_readiness(
+        self, state: PayloadState, outcome: _NodeOutcomeUnion
+    ) -> _NodeOutcomeUnion:
+        """Fail closed while OPERATE runs without a verified inference runtime.
+
+        An empty runtime holder means no verified session exists for this
+        activation path. The committed reference is forced to inhibit
+        regardless of the node outcome, so an unverified OPERATE can never
+        command motion. When the resolved policy still requests inference the
+        policy is additionally forced off and one MODEL_CORRUPT fault plus one
+        SAFE request is published per activation; a capture-only policy
+        (acquisition on, inference off) may still acquire frames but motion
+        remains inhibited.
+        """
+        if not isinstance(state.graph, operate.State):
+            return outcome
+        if self.inference.snapshot() is not None:
+            return outcome
+        reference = outcome.reference
+        if not isinstance(reference, InhibitReference):
+            reference = InhibitReference("inference runtime unverified")
+        policy = outcome.policy
+        if policy.inference.enabled:
+            policy = self.params.default_policy(False)
+            last = state.activation.last
+            seq = last.key.sequence if last is not None else -1
+            marker = (seq, "unverified_inference_runtime")
+            if marker not in self.emitted_intents:
+                self.emitted_intents.add(marker)
+                self._publish_fault(FaultCode.MODEL_CORRUPT, "inference runtime unverified")
+                self._emit_intent(SystemRequestIntent.SAFE, state)
+        return replace(outcome, reference=reference, policy=policy)
+
+    def _lifecycle_token(self, state: PayloadState) -> LifecycleToken | None:
+        """Build the exact executor token for the committed state."""
+        last = state.activation.last
+        if last is None:
+            return None
+        return LifecycleToken(
+            activation_key=last.key,
+            control_revision=state.control_revision,
+            containment_generation=self.containment.generation,
+        )
+
+    def _submit_lifecycle(
+        self, state: PayloadState, effects: tuple[EffectIntent, ...], now: float
+    ) -> None:
+        """Dispatch graph-emitted effects under the exact current token."""
+        token = self._lifecycle_token(state)
+        if token is None:
+            return
+        self.lifecycle.submit(effects, token, now)
+
+    def _poll_lifecycle(self, state: PayloadState, now: float, inputs: TickInputs) -> PayloadState:
+        """Drain executor completions for the current INIT activation.
+
+        Control-side only. Terminal effect results queue for the next
+        runtime.step through the lifecycle shell; a verified warm candidate is
+        installed here on the control owner, which bumps the policy revision
+        (so every in-flight capture and schedule context goes stale) and only
+        then hands the VERIFIED result to the graph. A failed install reports
+        the fault and fails the VERIFY_INIT effect so the graph emits its own
+        fault/SAFE once. Compact lifecycle telemetry reports effect status and
+        runtime readiness; the worker never publishes.
+        """
+        token = self._lifecycle_token(state)
+        if token is None:
+            return state
+        graph = state.graph
+        home_target = (
+            graph.home_target_rad
+            if isinstance(graph, init.State)
+            else math.radians(self.params.config.gimbal.home_el_deg)
+        )
+        poll = self.lifecycle.poll(
+            token,
+            LifecycleObservation(inputs=inputs, home_target_rad=home_target, issued_s=0.0),
+            now,
+        )
+        last = state.activation.last
+        for result in poll.results:
+            self.lifecycle_shell.results.append(result)
+            self._publish_telemetry(
+                "lifecycle_effect",
+                {
+                    "kind": result.kind.value,
+                    "effect_id": result.effect_id,
+                    "status": result.status.value,
+                    "fault": result.fault.value,
+                    "activation_epoch": last.key.epoch if last is not None else "",
+                    "activation_sequence": last.key.sequence if last is not None else -1,
+                },
+            )
+        if poll.install is not None:
+            # One atomic promotion: the holder install, the policy-revision
+            # bump, and the runtime-shell update commit inside a single
+            # state_lock window (state -> holder order matches the capture
+            # path). The revision change alone invalidates in-flight capture
+            # contexts and the armed schedule phase; no schedule mutation is
+            # needed from the control worker. Promotion requires the current
+            # INIT graph under the same generation: a failed graph, a latch,
+            # or a superseded activation drops the candidate quietly.
+            with self.state_lock:
+                shell_state = self.runtime_shell.state
+                current = shell_state if shell_state is not None else state
+                promotable = (
+                    isinstance(current.graph, init.State)
+                    and not current.graph.failed
+                    and not self.containment.local_latched
+                    and self._lifecycle_token(current) == token
+                )
+                installed = self.inference.install_verified(poll.install) if promotable else None
+                if isinstance(installed, Ok):
+                    state = replace(state, policy_revision=state.policy_revision + 1)
+                    self.runtime_shell.state = state
+                    self.runtime_shell.generation = state.control_revision
+            if isinstance(installed, Ok):
+                self._publish_telemetry(
+                    "inference_runtime",
+                    {
+                        "ready": True,
+                        "identity": poll.install.identity,
+                        "activation_epoch": last.key.epoch if last is not None else "",
+                        "activation_sequence": (last.key.sequence if last is not None else -1),
+                    },
+                )
+                if poll.verification is not None:
+                    self.lifecycle_shell.verification = poll.verification
+            elif installed is not None:
+                self._publish_fault(installed.error, "inference runtime install failed")
+                self.lifecycle_shell.results.append(
+                    EffectResult(
+                        activation_key=token.activation_key,
+                        effect_id=EffectKind.VERIFY_INIT.value,
+                        kind=EffectKind.VERIFY_INIT,
+                        status=EffectStatus.FAILED,
+                        fault=installed.error,
+                    )
+                )
+        elif poll.verification is not None:
+            self.lifecycle_shell.verification = poll.verification
+        return state
 
     def _publish_pointing(
         self,
@@ -1124,7 +1353,23 @@ class PayloadApp:
                 # historical interval when the physical sample arrives.
                 if self.containment.local_latched:
                     current = replace(current, servo=self._invalidate_encoder(current.servo))
-                current, _edge = self._drain_commands(current, t, None)
+                if isinstance(current.graph, init.State):
+                    # Lifecycle deadlines and cancellations still progress with
+                    # no fresh feedback; nothing fabricates arrival evidence.
+                    # The INIT graph still evaluates each due tick with
+                    # truthful inputs (stale or absent encoder, live health),
+                    # so an expired effect or a failed verification reaches the
+                    # graph even when no new sample arrives.
+                    inputs = self._tick_inputs(
+                        current, t, timestamp_utc=self.clock.wall_clock_iso()
+                    )
+                    current = self._poll_lifecycle(current, t, inputs)
+                    current, edge = self._drain_commands(current, t, None)
+                    if not edge and isinstance(current.graph, init.State):
+                        current, issued = self._step_graph(current, inputs, t)
+                        command_issued = command_issued or issued
+                else:
+                    current, _edge = self._drain_commands(current, t, None)
                 continue
             vision: CapturedVision | None = None
             with self.state_lock:
@@ -1168,13 +1413,11 @@ class PayloadApp:
                         current, t, None, blocked_reason="flagged vision"
                     )
                 else:
+                    if isinstance(current.graph, init.State):
+                        current = self._poll_lifecycle(current, t, inputs)
                     current, edge = self._drain_commands(current, t, inputs)
                     if not edge and current.graph is not None:
-                        new_graph, outcome = runtime.step(
-                            current.graph, inputs, self._params(current)
-                        )
-                        current = replace(current, graph=new_graph)
-                        current, issued = self._commit_outcome(current, outcome.outcome, t)
+                        current, issued = self._step_graph(current, inputs, t)
                         command_issued = command_issued or issued
                 self._publish_pointing(current, t, encoder, vision)
             else:
@@ -1213,6 +1456,40 @@ class PayloadApp:
             payload_node=node_name_of(current),
         )
         return current, outcome_msg
+
+    def _step_graph(
+        self, current: PayloadState, inputs: TickInputs, now: float
+    ) -> tuple[PayloadState, bool]:
+        """Step the live graph once, injecting queued lifecycle completions.
+
+        For INIT, buffered executor results and a pending verification are
+        appended to this tick's inputs and consumed atomically, so a terminal
+        completion is handed to exactly one step. Other graphs step on the
+        inputs unchanged.
+        """
+        assert current.graph is not None
+        step_inputs = inputs
+        if isinstance(current.graph, init.State) and (
+            self.lifecycle_shell.results or self.lifecycle_shell.verification is not None
+        ):
+            step_inputs = replace(
+                inputs,
+                effect_results=inputs.effect_results + tuple(self.lifecycle_shell.results),
+                verification=self.lifecycle_shell.verification,
+            )
+            self.lifecycle_shell.results.clear()
+            self.lifecycle_shell.verification = None
+        new_graph, outcome = runtime.step(current.graph, step_inputs, self._params(current))
+        current = replace(current, graph=new_graph)
+        committed, issued = self._commit_outcome(current, outcome.outcome, now)
+        if isinstance(committed.graph, init.State) and committed.graph.failed:
+            # A failed INIT ends this lifecycle generation: MODEL_CORRUPT is
+            # not a containing fault, so the executor cancellation cannot rely
+            # on the containment latch.
+            self.lifecycle.cancel()
+            self.lifecycle_shell.results.clear()
+            self.lifecycle_shell.verification = None
+        return committed, issued
 
     def advance_inner(self, state: PayloadState, now: float) -> PayloadState:
         """Catch up the inner servo cadence to `now` in T_in steps.
@@ -1372,7 +1649,7 @@ class PayloadApp:
         return CaptureContext(
             activation_key=last.key,
             policy_revision=latest.policy_revision,
-            model_version="",
+            model_version=self.inference.identity,
             containment_generation=self.containment.generation,
         )
 
@@ -1623,6 +1900,11 @@ class PayloadApp:
         self.capture_shell.schedule = schedule
         if not run_inference:
             return state, TickOutcome(raw.frame_id, None, False)
+        session = self.inference.snapshot()
+        if session is None or session.identity != context.model_version:
+            # No verified runtime, or the context was stamped under a session
+            # that has since been replaced: fail closed with no detection.
+            return state, TickOutcome(raw.frame_id, None, False)
         stacked = stack_channels(np.asarray(raw.mosaic))
         if isinstance(stacked, Err):
             self._publish_fault(stacked.error, f"stack failed frame_id={raw.frame_id}")
@@ -1685,7 +1967,7 @@ class PayloadApp:
             tile_gsd_m=tile_gsd,
         )
 
-        detect_result = self.detector.detect(processed)
+        detect_result = session.backend.detect(processed)
         if isinstance(detect_result, Err):
             with self.state_lock:
                 shell = self.runtime_shell.state
@@ -1700,7 +1982,7 @@ class PayloadApp:
                     raw.frame_id, None, False, graph_name_of(current), node_name_of(current)
                 )
             return state, self._fault_outcome(raw.frame_id, detect_result.error, state)
-        inference = detect_result.value
+        inference = replace(detect_result.value, model_version=session.identity)
 
         stored: tuple[str, str, int] | None = None
         pre_store = self._latest(state)
@@ -1729,7 +2011,6 @@ class PayloadApp:
                 return state, TickOutcome(
                     raw.frame_id, None, False, graph_name_of(latest), node_name_of(latest)
                 )
-            context = replace(context, model_version=inference.model_version)
             self.bus.publish(inference)
             if stored is not None:
                 self._publish_product_ref(*stored)
@@ -1739,11 +2020,18 @@ class PayloadApp:
         )
 
     def _context_stale(self, context: CaptureContext, state: PayloadState) -> bool:
-        """True when the capture context no longer matches the control-latest state."""
+        """True when the capture context no longer matches the control-latest state.
+
+        The runtime-identity token drops results when a new verified session
+        installed mid-flight; a same-identity reload still invalidates through
+        the policy-revision bump the install performs.
+        """
         last = state.activation.last
         if last is None or last.key != context.activation_key:
             return True
         if context.policy_revision != state.policy_revision:
+            return True
+        if context.model_version != self.inference.identity:
             return True
         if context.containment_generation != self.containment.generation:
             return True
@@ -2182,6 +2470,7 @@ class PayloadApp:
                 shutdown = self.gimbal.shutdown()
                 if isinstance(shutdown, Err):
                     self._publish_fault(shutdown.error, "gimbal shutdown failed")
+            self.lifecycle.shutdown()
             self._stop_acquisition()
 
     def _publish_sync_request(self, state: PayloadState) -> None:

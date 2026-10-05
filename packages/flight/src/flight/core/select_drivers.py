@@ -45,8 +45,8 @@ from flight.hal.interfaces import (
 )
 from flight.libs.config import PactConfig
 from flight.libs.time import Clock
-from flight.libs.types import MosaicFrame, Ok
-from flight.payload.inference import DetectorBackend, ScriptedDetector
+from flight.libs.types import MosaicFrame
+from flight.payload.inference import InferenceRuntime, OnnxRuntimeFactory, ScriptedDetector
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,15 +73,19 @@ def select_drivers(
     """Resolve the driver axis vector to a concrete Drivers bundle.
 
     Per-axis rules (from config.drivers):
-      - sensor: 'sim' -> SimSensor(frames); 'real' -> RealSensor(clock) then command
-        the configured startup exposure/gain (SystemExit on Err -- an unusable camera
-        at startup is unrecoverable).
+      - sensor: 'sim' -> SimSensor(frames); 'real' -> RealSensor(clock). The real
+        camera gets NO startup exposure/gain here: the payload's graph-owned
+        imaging policy applies settings through its own stop/apply/start
+        handling once a policy activates.
       - thermal_sensor + power_sensor follow the sensor axis: 'sim' ->
         SimScalarSensor(readings); 'real' -> RealScalarSensor().
       - gimbal: 'sim' -> SimGimbal(clock, cfg); 'real' -> RealGimbal(clock, cfg).
       - ephemeris: 'sim' -> SimIssEphemeris(clock, cfg); 'real' -> RealIssEphemeris().
-      - compute: 'sim' -> the passed ScriptedDetector; 'real' -> OnnxDetector
-        (classifier + segmentor artifacts, I/O contract from inference config).
+      - compute: 'sim' -> an explicit scripted InferenceRuntime over the passed
+        ScriptedDetector; 'real' -> an EMPTY InferenceRuntime carrying the lazy
+        OnnxRuntimeFactory. Nothing reads model files or constructs an ONNX
+        session here; the INIT lifecycle loads and verifies a session before
+        the runtime can serve detection.
       - link: 'sim' -> SimStationLink(inbound_packets); 'real' -> RealStationLink(cfg, clock).
 
     Args:
@@ -93,13 +97,13 @@ def select_drivers(
         A Drivers bundle with each axis resolved to a sim stand-in or a real driver.
 
     Raises:
-        ValueError: If any selected axis is 'sim' but sim_inputs is None, or the
-            real ONNX artifacts fail the inference I/O contract.
-        SystemExit: If the real-sensor startup exposure or gain command fails.
+        ValueError: If any selected axis is 'sim' but sim_inputs is None. Real
+            model artifacts no longer fail here: the lazy factory reports load
+            failures as typed Results during the INIT lifecycle.
 
     Notes:
-        Real driver SDK modules (PySpin/onnxruntime/socket) are imported lazily
-        inside their 'real' branches, so this module imports SDK-free. flight.core.main
+        Real driver SDK modules (PySpin/socket) are imported lazily inside
+        their 'real' branches, so this module imports SDK-free. flight.core.main
         and sim.sil are the only other places allowed to construct drivers. Each branch
         local is typed with its HAL Protocol, so the Drivers(...) construction type-checks
         with no cast or type: ignore.
@@ -124,14 +128,7 @@ def select_drivers(
     else:
         from flight.hal.drivers_real import RealScalarSensor, RealSensor
 
-        real_sensor = RealSensor(clock=clock)
-        exposure_result = real_sensor.set_exposure_us(config.sensor.capture.initial_exposure_us)
-        if not isinstance(exposure_result, Ok):
-            raise SystemExit(f"camera exposure setup failed: {exposure_result.error}")
-        gain_result = real_sensor.set_gain_db(config.sensor.capture.initial_gain_db)
-        if not isinstance(gain_result, Ok):
-            raise SystemExit(f"camera gain setup failed: {gain_result.error}")
-        sensor = real_sensor
+        sensor = RealSensor(clock=clock)
         thermal_sensor = RealScalarSensor()
         power_sensor = RealScalarSensor()
 
@@ -158,32 +155,12 @@ def select_drivers(
 
         ephemeris = RealIssEphemeris()
 
-    # --- compute (detector backend) ---
-    detector: DetectorBackend
+    # --- compute (lazy inference runtime) ---
+    inference: InferenceRuntime
     if env.compute == "sim":
-        detector = _require_inputs().detector
+        inference = InferenceRuntime.from_scripted(_require_inputs().detector)
     else:
-        from flight.payload.inference import OnnxDetector
-        from flight.payload.inference.artifact_path import resolve_quantized_path
-
-        inf = config.inference
-        bands = len(inf.input_bands)
-        tile_height = inf.input_height_px // inf.tile_rows
-        tile_width = inf.input_width_px // inf.tile_cols
-        detector = OnnxDetector(
-            segmentor_model_path=resolve_quantized_path(inf.segmentor_model_path, inf.use_int8),
-            classifier_model_path=resolve_quantized_path(inf.classifier_model_path, inf.use_int8),
-            confidence_gate=config.controller.vision.confidence_gate,
-            min_blob_area_px=config.controller.vision.min_blob_area_px,
-            logit_threshold=inf.classifier_logit_threshold,
-            latency_budget_ms=config.fault.inference_timeout_ms,
-            grid=(inf.tile_rows, inf.tile_cols),
-            gsd_reference_m=inf.gsd_reference_m,
-            expected_input_shape=(None, bands, tile_height, tile_width),
-            expected_gsd_shape=(None, 2),
-            expected_segmentor_output_shape=(None, 1, tile_height, tile_width),
-            expected_classifier_output_shape=(None, 1),
-        )
+        inference = InferenceRuntime(factory=OnnxRuntimeFactory(config))
 
     # --- link (station transport) ---
     station: StationLink
@@ -198,7 +175,7 @@ def select_drivers(
         sensor=sensor,
         gimbal=gimbal,
         ephemeris=ephemeris,
-        detector=detector,
+        inference=inference,
         station=station,
         thermal_sensor=thermal_sensor,
         power_sensor=power_sensor,

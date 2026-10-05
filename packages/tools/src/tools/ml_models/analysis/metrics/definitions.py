@@ -114,9 +114,227 @@ CALIBRATION_DEFINITIONS = (
 )
 
 
+_SEGMENTATION_FORMULAS = (
+    (
+        "foreground_iou_mean_positive_images",
+        "Mean TP/(TP+FP+FN) over nonempty truth images.",
+        "nonempty_truth_images",
+        "equal_image_mean",
+        "dimensionless",
+    ),
+    (
+        "foreground_dice_mean_positive_images",
+        "Mean 2*TP/(2*TP+FP+FN) over nonempty truth images.",
+        "nonempty_truth_images",
+        "equal_image_mean",
+        "dimensionless",
+    ),
+    (
+        "foreground_iou_mean_all_annotated_images",
+        "Mean image foreground IoU; empty/empty is one.",
+        "all_annotated_images",
+        "equal_image_mean",
+        "dimensionless",
+    ),
+    (
+        "foreground_dice_mean_all_annotated_images",
+        "Mean image foreground Dice; empty/empty is one.",
+        "all_annotated_images",
+        "equal_image_mean",
+        "dimensionless",
+    ),
+    (
+        "foreground_iou_global",
+        "Pooled TP/(TP+FP+FN).",
+        "all_annotated_pixels",
+        "pooled_pixel_counts",
+        "dimensionless",
+    ),
+    (
+        "foreground_dice_global",
+        "Pooled 2*TP/(2*TP+FP+FN).",
+        "all_annotated_pixels",
+        "pooled_pixel_counts",
+        "dimensionless",
+    ),
+    (
+        "foreground_precision_global",
+        "Pooled TP/(TP+FP).",
+        "all_annotated_pixels",
+        "pooled_pixel_counts",
+        "dimensionless",
+    ),
+    (
+        "foreground_recall_global",
+        "Pooled TP/(TP+FN).",
+        "all_annotated_pixels",
+        "pooled_pixel_counts",
+        "dimensionless",
+    ),
+    (
+        "binary_cross_entropy_mean_images",
+        "Mean per-image unweighted pixel BCE.",
+        "all_annotated_images",
+        "equal_image_mean",
+        "dimensionless",
+    ),
+    (
+        "binary_cross_entropy_mean_pixels",
+        "Sum image_mean_BCE*image_pixels/total_pixels.",
+        "all_annotated_pixels",
+        "pixel_weighted_image_means",
+        "dimensionless",
+    ),
+    (
+        "brier_score_mean_images",
+        "Mean per-image mean (p-y)^2.",
+        "all_annotated_images",
+        "equal_image_mean",
+        "dimensionless",
+    ),
+    (
+        "brier_score_mean_pixels",
+        "Sum image_mean_Brier*image_pixels/total_pixels.",
+        "all_annotated_pixels",
+        "pixel_weighted_image_means",
+        "dimensionless",
+    ),
+    (
+        "area_signed_error_mean_px",
+        "Mean predicted_area_px-truth_area_px.",
+        "all_annotated_images",
+        "equal_image_mean",
+        "pixels",
+    ),
+    (
+        "area_absolute_error_mean_px",
+        "Mean abs(predicted_area_px-truth_area_px).",
+        "all_annotated_images",
+        "equal_image_mean",
+        "pixels",
+    ),
+    (
+        "area_signed_error_mean_m2",
+        "Mean (predicted_area_px-truth_area_px)*lateral_GSD*along_GSD.",
+        "images_with_gsd",
+        "equal_image_mean_local_gsd_approximation",
+        "square_metres",
+    ),
+    (
+        "area_absolute_error_mean_m2",
+        "Mean abs(predicted_area_px-truth_area_px)*lateral_GSD*along_GSD.",
+        "images_with_gsd",
+        "equal_image_mean_local_gsd_approximation",
+        "square_metres",
+    ),
+    (
+        "verified_negative_any_foreground_rate",
+        "Fraction with any raw predicted foreground pixel.",
+        "verified_negative_empty_images",
+        "equal_image_mean",
+        "fraction",
+    ),
+    (
+        "verified_negative_any_blob_rate",
+        "Fraction with any blob surviving threshold and minimum area.",
+        "verified_negative_empty_images",
+        "equal_image_mean",
+        "fraction",
+    ),
+    (
+        "verified_negative_false_blobs_mean",
+        "Mean retained four-connected component count.",
+        "verified_negative_empty_images",
+        "equal_image_mean",
+        "blobs_per_image",
+    ),
+    (
+        "foreground_brier_score",
+        "Mean (p-1)^2 over truth foreground pixels.",
+        "truth_foreground_pixels",
+        "truth_class_pixel_weighted_image_means",
+        "dimensionless",
+    ),
+    (
+        "background_brier_score",
+        "Mean p^2 over truth background pixels.",
+        "truth_background_pixels",
+        "truth_class_pixel_weighted_image_means",
+        "dimensionless",
+    ),
+    (
+        "foreground_probability_residual_mean",
+        "Mean p-1 over truth foreground pixels.",
+        "truth_foreground_pixels",
+        "truth_class_pixel_weighted_image_means",
+        "dimensionless",
+    ),
+    (
+        "background_probability_residual_mean",
+        "Mean p over truth background pixels.",
+        "truth_background_pixels",
+        "truth_class_pixel_weighted_image_means",
+        "dimensionless",
+    ),
+    (
+        "pixel_roc_auc_histogram",
+        "ROC trapezoidal area with equal-width probability bins treated as ties.",
+        "all_annotated_pixels",
+        "fixed_width_probability_histogram_approximation",
+        "dimensionless",
+    ),
+    (
+        "pixel_average_precision_histogram",
+        "Recall-increment AP with equal-width probability bins treated as ties.",
+        "all_annotated_pixels",
+        "fixed_width_probability_histogram_approximation",
+        "dimensionless",
+    ),
+    (
+        "pixel_expected_calibration_error",
+        "Sum occupied-bin count/N * abs(mean_probability-positive_fraction).",
+        "all_annotated_pixels",
+        "exact_support_weighted_equal_width_bins",
+        "dimensionless",
+    ),
+)
+SEGMENTATION_DEFINITIONS = tuple(
+    MetricDefinition(
+        name=name,
+        direction="MAXIMIZE"
+        if name.startswith("foreground_iou")
+        or name.startswith("foreground_dice")
+        or name
+        in (
+            "foreground_precision_global",
+            "foreground_recall_global",
+            "pixel_roc_auc_histogram",
+            "pixel_average_precision_histogram",
+        )
+        else "DESCRIPTIVE"
+        if name.startswith("area_signed") or "probability_residual" in name
+        else "MINIMIZE",
+        formula=formula,
+        population=population,
+        aggregation=aggregation,
+        undefined_policy=(
+            "Unavailable when no eligible observations or a denominator is zero; "
+            "ROC needs both classes and AP needs positives."
+        ),
+        limitations=(
+            "Pixels are correlated. GSD area is a local approximation. Empty "
+            "images cannot inflate positive-image headlines. Histogram ranking "
+            "is approximate; thresholds and aggregation are explicit."
+        ),
+        unit=unit,
+    )
+    for name, formula, population, aggregation, unit in _SEGMENTATION_FORMULAS
+)
+
+
 def metric_definition(name: str) -> Result[MetricDefinition, str]:
     """Look up an explicit scientific definition, never infer metric direction."""
-    for definition in CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS:
+    for definition in CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS + SEGMENTATION_DEFINITIONS:
         if definition.name == name:
             return Ok(definition)
     return Err(f"unknown metric definition {name!r}")

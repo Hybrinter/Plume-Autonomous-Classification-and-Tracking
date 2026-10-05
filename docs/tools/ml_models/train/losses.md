@@ -26,6 +26,7 @@ classifier and the segmentor.
 | `weighted_batch_loss` | function | Batch mean times a source weight |
 | `dice_term` | function | Batch mean soft Dice |
 | `focal_term` | function | Batch mean focal loss |
+| `LossComponents` | dataclass | Per-image total plus each active term |
 | `PlumeLoss` | class | Weighted BCE/focal plus Dice module |
 | `build_loss` | function | Construct a `PlumeLoss` from a name |
 
@@ -33,7 +34,9 @@ classifier and the segmentor.
 
 All losses take raw logits and targets of matching shape: `(N, 1)` for
 the classifier and `(N, 1, H, W)` for the segmentor. Per-sample helpers
-return `(N,)`; `PlumeLoss.forward` returns a scalar.
+return `(N,)`; `PlumeLoss.forward` returns a scalar, and
+`PlumeLoss.per_sample_components` returns a `LossComponents` of `(N,)`
+tensors before the equal-image batch mean.
 
 `build_loss(name, pos_weight=0.0, focal_gamma=2.0, focal_alpha=0.25)`
 returns the configured module.
@@ -45,8 +48,13 @@ returns the configured module.
 2. `pos_weight` applies only to the BCE pixel term; values at or below
    zero disable it.
 3. Dice is computed on sigmoid probabilities with a smoothing constant.
-4. `weighted_batch_loss` multiplies a batch mean by a source weight; the
-   training loop does not use it, since dataset weights steer sampling.
+4. `per_sample_components` exposes each configured term per image;
+   inactive terms are `None`, `total` is the weighted per-image sum, and
+   `forward` is its batch mean. Component values, gradients, and the
+   objective weights are identical to the batch reduction.
+5. `weighted_batch_loss` multiplies a batch mean by a supplied source
+   weight. The standard training boundary is unavailable and does not
+   call it.
 
 ## Errors and faults
 

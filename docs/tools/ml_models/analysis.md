@@ -27,7 +27,7 @@ row formatters).
 | [`cost`](analysis/cost.md) | module | Parameter counting; unavailable FLOP boundary |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
-| [`metrics`](analysis/metrics.md) | package | Pure metric-core scaffolds |
+| [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration implemented |
 | [`plots`](analysis/plots.md) | package | Figure-render scaffolds and the unavailable render boundary |
 | [`visuals`](analysis/visuals.md) | package | Visual-evidence scaffolds |
 

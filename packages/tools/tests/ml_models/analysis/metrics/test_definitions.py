@@ -15,14 +15,21 @@ from tools.ml_models.analysis.metrics.classifier import (
 from tools.ml_models.analysis.metrics.definitions import (
     CALIBRATION_DEFINITIONS,
     CLASSIFIER_DEFINITIONS,
+    SEGMENTATION_DEFINITIONS,
     MetricDefinition,
     metric_definition,
 )
+from tools.ml_models.analysis.metrics.segmentation import (
+    aggregate_segmentation,
+    score_segmentation_image,
+)
+
+_ALL_DEFINITIONS = CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS + SEGMENTATION_DEFINITIONS
 
 
 def test_metric_definition_lookup() -> None:
     """Every declared name resolves; unknown names are explicit errors."""
-    for definition in CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS:
+    for definition in _ALL_DEFINITIONS:
         found = metric_definition(definition.name)
         assert isinstance(found, Ok)
         assert found.value is definition
@@ -32,7 +39,7 @@ def test_metric_definition_lookup() -> None:
 
 def test_definitions_are_complete_metadata() -> None:
     """Each definition carries direction, formula, and limitation text."""
-    for definition in CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS:
+    for definition in _ALL_DEFINITIONS:
         assert definition.direction in ("MINIMIZE", "MAXIMIZE", "DESCRIPTIVE")
         assert definition.name.isidentifier() or "_" in definition.name
         assert definition.formula.strip()
@@ -41,7 +48,7 @@ def test_definitions_are_complete_metadata() -> None:
         assert definition.undefined_policy.strip()
         assert definition.limitations.strip()
         assert definition.unit.strip()
-    names = [definition.name for definition in CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS]
+    names = [definition.name for definition in _ALL_DEFINITIONS]
     assert len(set(names)) == len(names)
 
 
@@ -54,6 +61,23 @@ def test_produced_metrics_have_definitions() -> None:
     base = score_classifier_baseline(0.5, [1, 0])
     assert isinstance(base, Ok)
     for metric in base.value.metrics:
+        assert isinstance(metric_definition(metric.name), Ok), metric.name
+
+
+def test_segmentation_metrics_have_definitions() -> None:
+    """Every aggregated segmentation metric name resolves to a definition."""
+    rows = []
+    for logits, mask, label, empty in (
+        ([[2.0, -2.0]], [[1, 0]], 1.0, False),
+        ([[-2.0, -2.0]], [[0, 0]], 0.0, True),
+    ):
+        scored = score_segmentation_image(logits, mask, label=label, verified_empty=empty)
+        assert isinstance(scored, Ok)
+        rows.append(scored.value)
+    aggregate = aggregate_segmentation(tuple(rows))
+    assert isinstance(aggregate, Ok)
+    assert aggregate.value.metrics
+    for metric in aggregate.value.metrics:
         assert isinstance(metric_definition(metric.name), Ok), metric.name
 
 

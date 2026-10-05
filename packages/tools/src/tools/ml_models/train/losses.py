@@ -22,7 +22,9 @@ Contains:
   - focal_dice_per_sample: per-image focal loss plus per-image Dice.
   - weighted_batch_loss: batch mean multiplied by a source weight.
   - dice_term / focal_term: the two imbalance-aware building blocks.
-  - PlumeLoss: weighted BCE, Dice, and focal combination.
+  - LossComponents: per-image total plus each active term before the batch mean.
+  - PlumeLoss: weighted BCE, Dice, and focal combination; per_sample_components
+    exposes the configured terms before their equal-image batch reduction.
   - build_loss: construct a PlumeLoss from a name.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -234,6 +236,16 @@ def focal_term(
     return focal_per_sample(logits, targets, gamma, alpha).mean()
 
 
+@dataclass(frozen=True, slots=True)
+class LossComponents:
+    """Configured, differentiable per-image terms; inactive terms are absent."""
+
+    total: torch.Tensor
+    bce: torch.Tensor | None
+    focal: torch.Tensor | None
+    dice: torch.Tensor | None
+
+
 class PlumeLoss(nn.Module):
     """Weighted sum of a pixel term and an overlap term.
 
@@ -277,31 +289,34 @@ class PlumeLoss(nn.Module):
         )
         self.register_buffer("pos_weight", weight)
 
-    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """Return the scalar objective for one batch.
-
-        Args:
-            logits: torch.Tensor[float32] raw logits.
-            targets: torch.Tensor[float32] targets in {0, 1}, same shape.
-
-        Returns:
-            torch.Tensor: Scalar loss.
-        """
-        total = torch.zeros((), dtype=logits.dtype, device=logits.device)
+    def per_sample_components(self, logits: torch.Tensor, targets: torch.Tensor) -> LossComponents:
+        """Expose the configured terms before their equal-image batch reduction."""
+        total = torch.zeros(logits.shape[0], dtype=logits.dtype, device=logits.device)
+        bce: torch.Tensor | None = None
+        focal: torch.Tensor | None = None
+        dice: torch.Tensor | None = None
         if self.pixel_weight > 0.0:
             if self.use_focal:
-                pixel = focal_term(logits, targets, self.focal_gamma, self.focal_alpha)
+                focal = focal_per_sample(logits, targets, self.focal_gamma, self.focal_alpha)
+                total = total + self.pixel_weight * focal
             else:
                 weight = self.pos_weight
-                pixel = nn.functional.binary_cross_entropy_with_logits(
+                raw = nn.functional.binary_cross_entropy_with_logits(
                     logits,
                     targets.to(dtype=logits.dtype),
                     pos_weight=weight.to(dtype=logits.dtype) if weight is not None else None,
+                    reduction="none",
                 )
-            total = total + self.pixel_weight * pixel
+                bce = _mean_per_sample(raw)
+                total = total + self.pixel_weight * bce
         if self.dice_weight > 0.0:
-            total = total + self.dice_weight * dice_term(logits, targets)
-        return total
+            dice = dice_per_sample(logits, targets)
+            total = total + self.dice_weight * dice
+        return LossComponents(total=total, bce=bce, focal=focal, dice=dice)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Return the mean configured per-image objective for one batch."""
+        return self.per_sample_components(logits, targets).total.mean()
 
 
 def build_loss(

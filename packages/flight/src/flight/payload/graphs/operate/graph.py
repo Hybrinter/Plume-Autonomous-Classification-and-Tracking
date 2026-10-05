@@ -74,7 +74,8 @@ def spec(params: GraphParameters) -> GraphSpec[OperateNode]:
     Outputs:
         GraphSpec[OperateNode]: The four-node tracking graph with all edges.
     """
-    policy = params.default_policy(enabled=True)
+    resolved = params.operating_policy()
+    policy = resolved.value if isinstance(resolved, Ok) else params.default_policy(enabled=False)
     return GraphSpec(
         graph_id=GraphId.OPERATE,
         nodes=(
@@ -148,11 +149,16 @@ def _inhibit(
     """Same-state inhibit outcome.
 
     ``enabled`` selects the imaging policy. Stale feedback passes true and
-    keeps acquisition and inference. Other callers leave it false.
+    resolves the current node's configured policy so node overrides still
+    apply while inhibited; other callers leave it false for the fully off
+    policy. Containment, flags, and activation mismatches can never be
+    overridden back on. An invalid resolved node policy fails closed:
+    inhibit, off policy, COMMAND_INVALID fault, and SAFE intent -- the same
+    contract the nodes emit on a resolver Err.
 
     Inputs:
         state: Current OPERATE state; returned unchanged.
-        params: Graph parameters supplying the default policy.
+        params: Graph parameters supplying the policy resolver.
         reason: Inhibit reference reason.
         system_request: Optional SAFE intent.
         faults: Fault codes raised with this inhibit.
@@ -162,11 +168,34 @@ def _inhibit(
         tuple[State, GraphOutcome[OperateNode]]: Unchanged state and an
             inhibit outcome with no transition.
     """
+    policy = params.default_policy(enabled=False)
+    if enabled:
+        match state.node:
+            case OperateNode.TRACKING:
+                node_override = params.config.payload_policy.tracking
+            case OperateNode.REWIND:
+                node_override = params.config.payload_policy.rewind
+            case OperateNode.FAST_REWIND:
+                node_override = params.config.payload_policy.fast_rewind
+            case OperateNode.HOLD:
+                node_override = params.config.payload_policy.hold
+        resolved = params.operating_policy(node_override)
+        if isinstance(resolved, Err):
+            return state, GraphOutcome(
+                node=state.node,
+                outcome=NodeOutcome(
+                    reference=InhibitReference(reason=reason),
+                    policy=policy,
+                    system_request=SystemRequestIntent.SAFE,
+                    faults=(resolved.error,),
+                ),
+            )
+        policy = resolved.value
     return state, GraphOutcome(
         node=state.node,
         outcome=NodeOutcome(
             reference=InhibitReference(reason=reason),
-            policy=params.default_policy(enabled=enabled),
+            policy=policy,
             system_request=system_request,
             faults=faults,
         ),

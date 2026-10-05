@@ -21,6 +21,8 @@ from flight.libs.config import (
     GimbalConfig,
     InferenceConfig,
     LinkConfig,
+    PayloadPolicyConfig,
+    PayloadPolicyOverrideConfig,
     PreprocessingConfig,
     SensorConfig,
     StorageConfig,
@@ -56,6 +58,7 @@ _SECTION_TO_DATACLASS = {
     "command_router": CommandRouterConfig,
     "ephemeris": EphemerisConfig,
     "drivers": DriverConfig,
+    "payload_policy": PayloadPolicyConfig,
 }
 
 
@@ -77,6 +80,13 @@ def _compare_defaults(
         for field in dataclasses.fields(type(dataclass_value)):
             key = f"{path}.{field.name}"
             if field.name not in toml_value:
+                if (
+                    isinstance(dataclass_value, PayloadPolicyOverrideConfig)
+                    and getattr(dataclass_value, field.name) is None
+                ):
+                    # Policy override fields default to None (inherit); an
+                    # empty TOML table is the explicit no-override form.
+                    continue
                 mismatches.append(f"{key}: missing from TOML")
                 continue
             _compare_defaults(

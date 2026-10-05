@@ -280,6 +280,56 @@ def test_stored_ifov_must_match_pitch_and_focal_length(tmp_path: Path) -> None:
     assert "ifov_band_deg_per_px" in result.error
 
 
+def test_payload_policy_section_loads_empty_inheritance() -> None:
+    """[payload_policy.*] tables load with every field defaulting to inherit."""
+    result = load_config(_DEFAULT_TOML)
+    assert isinstance(result, Ok)
+    policy = result.value.payload_policy
+    for override in (
+        policy.operate,
+        policy.tracking,
+        policy.rewind,
+        policy.fast_rewind,
+        policy.hold,
+    ):
+        assert override.acquisition_enabled is None
+        assert override.capture_interval_s is None
+        assert override.duty_cycle is None
+        assert override.exposure_us is None
+        assert override.gain_db is None
+        assert override.publish_products is None
+        assert override.inference_enabled is None
+        assert override.every_n_frames is None
+
+
+def test_payload_policy_override_values_load(tmp_path: Path) -> None:
+    """Set override fields round-trip through the TOML merge."""
+    result = load_config(
+        _DEFAULT_TOML,
+        _override(
+            tmp_path,
+            "[payload_policy.operate]\nduty_cycle = 1.0\n"
+            "[payload_policy.tracking]\nexposure_us = 100.0\nevery_n_frames = 3\n",
+        ),
+    )
+    assert isinstance(result, Ok)
+    policy = result.value.payload_policy
+    assert policy.operate.duty_cycle == 1.0
+    assert policy.operate.exposure_us is None
+    assert policy.tracking.exposure_us == 100.0
+    assert policy.tracking.every_n_frames == 3
+    assert policy.hold.duty_cycle is None
+
+
+def test_payload_policy_range_rejected(tmp_path: Path) -> None:
+    """Out-of-range override fields fail validation, not silent clamping."""
+    result = load_config(
+        _DEFAULT_TOML, _override(tmp_path, "[payload_policy.operate]\nduty_cycle = 1.5\n")
+    )
+    assert isinstance(result, Err)
+    assert "duty_cycle" in result.error
+
+
 def test_all_profiles_still_validate() -> None:
     """Every committed deployment profile passes the strengthened validation."""
     for profile in ("sil", "sil-link-real", "pil", "hil"):

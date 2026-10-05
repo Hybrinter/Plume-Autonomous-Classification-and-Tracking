@@ -30,7 +30,9 @@ The OPERATE graph orchestrator: spec, edges, initial state, one-tick step, and
 1. Activation mismatch, containment, and flagged vision inhibit with the
    disabled policy. Containment and flagged vision also emit a SAFE intent.
 2. Stale or missing encoder feedback inhibits the motion reference and keeps
-   the enabled imaging and inference policy.
+   the enabled imaging and inference policy resolved for the current node:
+   the operate override applies first, then the live node's `tracking`,
+   `rewind`, `fast_rewind`, or `hold` override.
 3. A valid routed command commits before automatic edges; guard failures
    return `Err(COMMAND_INVALID)` with the state untouched.
 4. Accepted vision commits `VISION_ACQUIRED` before limb arrival and the

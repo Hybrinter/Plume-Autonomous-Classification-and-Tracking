@@ -94,9 +94,17 @@ from flight.payload.graphs.base import (
     SystemRequestIntent,
     TickInputs,
     accept_activation,
+    validate_policy,
 )
 from flight.payload.graphs.operate.state import accept_vision
 from flight.payload.graphs.parameters import GraphParameters
+from flight.payload.imaging import (
+    CaptureDecision,
+    CaptureSchedule,
+    capture_wait_s,
+    plan_capture,
+    record_capture,
+)
 from flight.payload.inference import DetectorBackend
 from flight.payload.preprocess import (
     MosaicCalibration,
@@ -199,16 +207,6 @@ class ContainmentState:
 
 
 @dataclass(slots=True)
-class ImagingDuty:
-    """Acquire-opportunity counter for the capture duty floor.
-
-    Opportunity 1 is the first loop. A duty of 0.5 captures even opportunities.
-    """
-
-    opportunities: int = 0
-
-
-@dataclass(slots=True)
 class ActuatorSafety:
     """Mutable shell state for driver evidence and bounded recovery accounting."""
 
@@ -256,10 +254,20 @@ class StowProgress:
 
 @dataclass(slots=True)
 class CaptureShell:
-    """Mutable capture-loop bookkeeping: acquisition state + applied settings."""
+    """Mutable capture-loop bookkeeping: transport state plus planning phase.
+
+    acquisition_on and applied_capture mirror the driver transport; schedule
+    is the pure plan/record phase state, reset whenever the capture context
+    changes. pending_fault queues an imaging fault for the control owner to
+    consume and contain; applied_revision marks the last policy revision that
+    emitted the compact applied-policy telemetry record.
+    """
 
     acquisition_on: bool = False
     applied_capture: tuple[float, float] | None = None
+    schedule: CaptureSchedule = field(default_factory=CaptureSchedule)
+    pending_fault: FaultCode | None = None
+    applied_revision: int | None = None
 
 
 @dataclass(slots=True)
@@ -323,7 +331,6 @@ class PayloadApp:
     actuator_io_lock: threading.Lock = field(default_factory=threading.Lock)
     actuator_safety: ActuatorSafety = field(default_factory=ActuatorSafety)
     encoder_stream: EncoderStream = field(default_factory=EncoderStream)
-    imaging_duty: ImagingDuty = field(default_factory=ImagingDuty)
     command_dedup: CommandDedup = field(default_factory=CommandDedup)
     stow_progress: StowProgress = field(default_factory=StowProgress)
     emitted_intents: set[tuple[int, str]] = field(default_factory=set)
@@ -346,7 +353,10 @@ class PayloadApp:
         """Assemble a PayloadApp from a PactConfig and injected services.
 
         Raises:
-            ValueError: Invalid channel layout or inference geometry.
+            ValueError: Invalid channel layout, inference geometry, or an
+                operate/node payload policy that resolves to an invalid
+                combination; an invalid policy is a startup configuration
+                failure, never a degraded runtime one.
         """
         if (
             cfg.sensor.height_px != cfg.inference.input_height_px
@@ -358,13 +368,25 @@ class PayloadApp:
         if any(b not in cfg.sensor.channel_layout for b in cfg.inference.input_bands):
             raise ValueError("input_bands must be a subset of channel_layout")
         detailed = not isinstance(gimbal, GimbalRateActuator)
+        params = GraphParameters(config=cfg, detailed_plant=detailed)
+        policy_cfg = cfg.payload_policy
+        node_overrides = (
+            policy_cfg.tracking,
+            policy_cfg.rewind,
+            policy_cfg.fast_rewind,
+            policy_cfg.hold,
+        )
+        for override in (None, *node_overrides):
+            resolved = params.operating_policy(override)
+            if isinstance(resolved, Err):
+                raise ValueError(f"invalid payload policy: {resolved.error.value}")
         return PayloadApp(
             sensor=sensor,
             gimbal=gimbal,
             ephemeris=ephemeris,
             detector=detector,
             servo=ServoController.from_config(cfg.controller, cfg.gimbal),
-            params=GraphParameters(config=cfg, detailed_plant=detailed),
+            params=params,
             bus=bus,
             clock=clock,
             calib=calib,
@@ -509,14 +531,23 @@ class PayloadApp:
         to request SAFE. Only codes in _CONTAINING_FAULTS from the "payload"
         subsystem latch here; every drained containing record also marks the
         drain unsafe so a matching recovery clear in the same pass can never
-        release.
+        release. A queued imaging pending_fault from the capture loop is
+        consumed once under the same drain and always latches, so camera
+        faults contain through the control owner without the capture loop
+        ever calling the gimbal.
         """
         batch: list[FaultEventMsg] = []
         while not self.local_fault_sub.empty():
             batch.append(self.local_fault_sub.get_nowait())
-        unsafe = any(
-            event.subsystem == "payload" and event.fault_code in _CONTAINING_FAULTS
-            for event in batch
+        with self.state_lock:
+            pending = self.capture_shell.pending_fault
+            self.capture_shell.pending_fault = None
+        unsafe = (
+            any(
+                event.subsystem == "payload" and event.fault_code in _CONTAINING_FAULTS
+                for event in batch
+            )
+            or pending is not None
         )
         if unsafe:
             self._latch_containment("payload local fault")
@@ -558,13 +589,19 @@ class PayloadApp:
             commanded_rate_rad_s=0.0,
         )
         params = self._params(state)
-        declared = runtime.spec(snapshot.graph_id, params)
+        entry = runtime.entry_policy(snapshot.graph_id, params)
+        if isinstance(entry, Err):
+            # Startup validation normally prevents this path: fail closed off
+            # and queue control-owned containment rather than run an
+            # unresolved policy.
+            self._imaging_fault(entry.error, "entry policy resolution failed")
+        policy = entry.value if isinstance(entry, Ok) else self.params.default_policy(False)
         reset = replace(
             state,
             servo=servo,
             graph=None,
             reference=InhibitReference("activation"),
-            policy=EffectivePolicy(imaging=declared.imaging, inference=declared.inference),
+            policy=policy,
             policy_revision=state.policy_revision + 1,
             control_revision=state.control_revision + 1,
             last_outer_s=now,
@@ -1318,82 +1355,231 @@ class PayloadApp:
             commanded_rate_rad_s=0.0,
         )
 
+    def _capture_context(self, latest: PayloadState) -> CaptureContext | None:
+        """Stamp the capture context for the control-latest committed state.
+
+        Inputs:
+            latest: The committed state read under state_lock by the caller.
+
+        Outputs:
+            CaptureContext | None: The context tokens for `latest`, or None
+                while unactivated. The caller reads containment.generation
+                under the same lock that produced `latest`.
+        """
+        last = latest.activation.last
+        if last is None:
+            return None
+        return CaptureContext(
+            activation_key=last.key,
+            policy_revision=latest.policy_revision,
+            model_version="",
+            containment_generation=self.containment.generation,
+        )
+
+    def _imaging_fault(
+        self,
+        code: FaultCode,
+        detail: str,
+        context: CaptureContext | None = None,
+        state: PayloadState | None = None,
+    ) -> bool:
+        """Queue imaging containment for the control owner and publish the fault.
+
+        The capture loop never calls the gimbal: a real imaging policy or HAL
+        failure sets pending_fault (consumed once by _poll_local_faults, which
+        latches containment on the next control poll) and publishes the
+        original FaultEventMsg, both inside one state_lock window so the
+        staleness check and the publication stay atomic. Global camera-control
+        failures (setters, start, stop) pass no context: their physical
+        effects persist across activations and always report. Frame-scoped
+        acquire/drain results pass `context`: a stale completion is dropped
+        with False and neither publishes nor queues anything, so an old
+        activation's failure can never poison the newer one.
+
+        Inputs:
+            code: The original HAL or policy fault code.
+            detail: Stage description for the fault record.
+            context: Optional frame-scoped context to match atomically.
+            state: Fallback committed state when the shell has none.
+
+        Outputs:
+            bool: True when the fault was queued and published as current;
+                False when a provided context no longer matches.
+        """
+        with self.state_lock:
+            if context is not None:
+                shell = self.runtime_shell.state
+                current = shell if shell is not None else state
+                if current is None or self._context_stale(context, current):
+                    return False
+            self.capture_shell.pending_fault = code
+            self._publish_fault(code, detail)
+        return True
+
+    def _publish_applied_policy(
+        self,
+        context: CaptureContext,
+        policy: EffectivePolicy,
+        state: PayloadState | None = None,
+    ) -> bool:
+        """Emit the compact applied-policy record once per current revision.
+
+        The match, the revision mark, and the publish all run inside one
+        state_lock window: a stale or superseded context records nothing, so
+        a superseded application can never emit the old policy. An enabled
+        policy additionally requires the containment latch to be clear; an
+        explicitly requested off policy may be recorded while contained
+        because off is factual. No lock is held across HAL calls.
+
+        Inputs:
+            context: Capture context stamped for this application.
+            policy: The requested policy now in effect.
+            state: Fallback committed state when the shell has none.
+
+        Outputs:
+            bool: True when the context is current (event emitted unless the
+                revision was already recorded); False when stale.
+        """
+        with self.state_lock:
+            shell = self.runtime_shell.state
+            current = shell if shell is not None else state
+            if current is None or self._capture_context(current) != context:
+                return False
+            if policy.imaging.acquisition_enabled and self.containment.local_latched:
+                return False
+            if self.capture_shell.applied_revision == context.policy_revision:
+                return True
+            self.capture_shell.applied_revision = context.policy_revision
+            key = context.activation_key
+            self._publish_telemetry(
+                "imaging_policy",
+                {
+                    "policy_revision": context.policy_revision,
+                    "activation_epoch": key.epoch,
+                    "activation_sequence": key.sequence,
+                    "acquisition_enabled": policy.imaging.acquisition_enabled,
+                    "exposure_us": policy.imaging.exposure_us,
+                    "gain_db": policy.imaging.gain_db,
+                    "capture_interval_s": policy.imaging.capture_interval_s,
+                    "duty_cycle": policy.imaging.duty_cycle,
+                    "publish_products": policy.imaging.publish_products,
+                    "inference_enabled": policy.inference.enabled,
+                    "every_n_frames": policy.inference.every_n_frames,
+                },
+            )
+        return True
+
     def capture_once(self, state: PayloadState, now: float) -> tuple[PayloadState, TickOutcome]:
-        """One conservative capture cycle under the committed policy.
+        """One planned capture cycle under the committed policy.
 
         The control-owned latest state and the capture context are stamped
         atomically before any settings/start/acquire work: a blocked call may
         span an activation, and both the off decision and the context tokens
-        must honor that snapshot. Imaging off means the sensor is stopped and
-        no acquire/detect runs; when on, exposure/gain apply on change, the
-        duty floor gates acquire opportunities, and a captured frame runs
-        process_frame. Returns the passed state unchanged -- capture never
-        commits graph or servo state.
+        must honor that snapshot. Unactivated, contained, or disabled policy
+        forces acquisition off -- no acquire/detect/drain runs. The complete
+        policy is validated before any HAL call; settings apply only while
+        stopped (a changed exposure/gain stops first, then sets exposure,
+        gain, and restarts), with the context rechecked before and after
+        every potentially blocking stage. plan_capture then decides WAIT,
+        DRAIN, or CAPTURE; a captured frame runs process_frame. Returns the
+        passed state unchanged -- capture never commits graph or servo state.
         """
         with self.state_lock:
             shell = self.runtime_shell.state
             latest = shell if shell is not None else state
-            last = latest.activation.last
-            context = (
-                CaptureContext(
-                    activation_key=last.key,
-                    policy_revision=latest.policy_revision,
-                    model_version="",
-                    containment_generation=self.containment.generation,
-                )
-                if last is not None
-                else None
-            )
+            context = self._capture_context(latest)
+            contained = self.containment.local_latched
+        if not math.isfinite(now):
+            self._imaging_fault(FaultCode.COMMAND_INVALID, "nonfinite capture time")
+            return state, TickOutcome(0, FaultCode.COMMAND_INVALID, False)
         policy = latest.policy
-        if not policy.imaging.acquisition_enabled:
+        if context is None or contained or not policy.imaging.acquisition_enabled:
             if self.capture_shell.acquisition_on:
                 stopped = self._stop_acquisition()
                 if isinstance(stopped, Err):
                     return state, TickOutcome(0, stopped.error, False)
+            # Only an explicitly requested off policy records as applied; a
+            # forced stop of a still-enabled policy emits nothing.
+            if context is not None and not policy.imaging.acquisition_enabled:
+                self._publish_applied_policy(context, policy, state)
             return state, TickOutcome(0, None, False)
+        limits = self.params.policy_limits
+        valid = validate_policy(policy.imaging, policy.inference, limits)
+        if isinstance(valid, Err):
+            self._imaging_fault(valid.error, "imaging policy invalid")
+            return state, TickOutcome(0, valid.error, False)
+        capture = (policy.imaging.exposure_us, policy.imaging.gain_db)
+        if self.capture_shell.acquisition_on and self.capture_shell.applied_capture != capture:
+            stopped = self._stop_acquisition()
+            if isinstance(stopped, Err):
+                return state, TickOutcome(0, stopped.error, False)
         if not self.capture_shell.acquisition_on:
-            capture = (policy.imaging.exposure_us, policy.imaging.gain_db)
+            if self._context_stale(context, self._latest(state)):
+                return state, TickOutcome(0, None, False)
             exposure = self.sensor.set_exposure_us(capture[0])
             if isinstance(exposure, Err):
-                self._publish_fault(exposure.error, "imaging exposure apply failed")
+                self._imaging_fault(exposure.error, "imaging exposure apply failed")
                 return state, TickOutcome(0, exposure.error, False)
+            if self._context_stale(context, self._latest(state)):
+                return state, TickOutcome(0, None, False)
             gain = self.sensor.set_gain_db(capture[1])
             if isinstance(gain, Err):
-                self._publish_fault(gain.error, "imaging gain apply failed")
+                self._imaging_fault(gain.error, "imaging gain apply failed")
                 return state, TickOutcome(0, gain.error, False)
+            if self._context_stale(context, self._latest(state)):
+                return state, TickOutcome(0, None, False)
             started = self.sensor.start_acquisition()
             if isinstance(started, Err):
-                self._publish_fault(started.error, "imaging sensor start failed")
+                self._imaging_fault(started.error, "imaging sensor start failed")
                 return state, TickOutcome(0, started.error, False)
             self.capture_shell.acquisition_on = True
             self.capture_shell.applied_capture = capture
-        capture = (policy.imaging.exposure_us, policy.imaging.gain_db)
-        if self.capture_shell.applied_capture != capture:
-            exposure = self.sensor.set_exposure_us(capture[0])
-            if isinstance(exposure, Err):
-                self._publish_fault(exposure.error, "imaging exposure apply failed")
-                return state, TickOutcome(0, exposure.error, False)
-            gain = self.sensor.set_gain_db(capture[1])
-            if isinstance(gain, Err):
-                self._publish_fault(gain.error, "imaging gain apply failed")
-                return state, TickOutcome(0, gain.error, False)
-            self.capture_shell.applied_capture = capture
-        if not self.capture_this_opportunity():
+            if self._context_stale(context, self._latest(state)):
+                stopped = self.sensor.stop_acquisition()
+                if isinstance(stopped, Err):
+                    self._imaging_fault(stopped.error, "imaging sensor stop failed")
+                    return state, TickOutcome(0, stopped.error, False)
+                self.capture_shell.acquisition_on = False
+                self.capture_shell.applied_capture = None
+                return state, TickOutcome(0, None, False)
+        # One context-current application seam: emits the applied-policy
+        # telemetry once per revision, for a fresh start and for an already
+        # running camera, and confirms the context outlived the HAL work.
+        if not self._publish_applied_policy(context, policy, state):
+            return state, TickOutcome(0, None, False)
+        planned = plan_capture(self.capture_shell.schedule, policy, context, now, limits)
+        if isinstance(planned, Err):
+            self._imaging_fault(planned.error, "imaging plan rejected")
+            return state, TickOutcome(0, planned.error, False)
+        self.capture_shell.schedule = planned.value.schedule
+        if self._context_stale(context, self._latest(state)):
+            return state, TickOutcome(0, None, False)
+        decision = planned.value.decision
+        if decision is CaptureDecision.WAIT:
+            return state, TickOutcome(0, None, False)
+        if decision is CaptureDecision.DRAIN:
             drained = self.sensor.drain_frame()
             if isinstance(drained, Err):
-                self._publish_fault(drained.error, "imaging sensor buffer drain")
+                faulted = self._imaging_fault(
+                    drained.error, "imaging sensor buffer drain", context, state
+                )
+                return state, TickOutcome(0, drained.error if faulted else None, False)
             return state, TickOutcome(0, None, False)
         acquired = self.sensor.acquire_frame()
         if isinstance(acquired, Err):
-            self._publish_fault(acquired.error, "imaging sensor stall")
-            return state, TickOutcome(0, acquired.error, False)
+            faulted = self._imaging_fault(acquired.error, "imaging sensor stall", context, state)
+            return state, TickOutcome(0, acquired.error if faulted else None, False)
         return self.process_frame(acquired.value, state, now, context=context)
 
     def _stop_acquisition(self) -> Result[None, FaultCode]:
-        """Stop the camera stream; only a confirmed stop clears applied state."""
+        """Stop the camera stream; only a confirmed stop clears applied state.
+
+        A failed stop retains acquisition_on and the applied settings, queues
+        the fault for control-owned containment, and returns the Err.
+        """
         stopped = self.sensor.stop_acquisition()
         if isinstance(stopped, Err):
-            self._publish_fault(stopped.error, "imaging sensor stop failed")
+            self._imaging_fault(stopped.error, "imaging sensor stop failed")
             return stopped
         self.capture_shell.acquisition_on = False
         self.capture_shell.applied_capture = None
@@ -1413,27 +1599,29 @@ class PayloadApp:
         detect the context tokens are rechecked against the passed state: a
         stale activation key or policy revision, or an engaged containment
         latch, drops the result before inference/product publication and
-        enqueue. An explicit gimbal_pos injects the shutter-time actuator
-        position for synchronous SIL/test callers that own no control loop.
+        enqueue. The accepted capture is counted once through record_capture;
+        when inference is disabled or not due this frame returns fault-free
+        without preprocessing, detection, products, or vision, so a skipped
+        frame never becomes an empty observation or a miss. An explicit
+        gimbal_pos injects the shutter-time actuator position for synchronous
+        SIL/test callers that own no control loop.
         """
         if context is None:
             with self.state_lock:
                 shell = self.runtime_shell.state
                 latest = shell if shell is not None else state
-                last = latest.activation.last
-                if last is None:
-                    return state, TickOutcome(raw.frame_id, None, False)
-                context = CaptureContext(
-                    activation_key=last.key,
-                    policy_revision=latest.policy_revision,
-                    model_version="",
-                    containment_generation=self.containment.generation,
-                )
+                context = self._capture_context(latest)
+            if context is None:
+                return state, TickOutcome(raw.frame_id, None, False)
         else:
             latest = self._latest(state)
         if self._context_stale(context, latest):
             return state, TickOutcome(raw.frame_id, None, False)
-        if not latest.policy.inference.enabled:
+        schedule, run_inference = record_capture(
+            self.capture_shell.schedule, context, latest.policy.inference
+        )
+        self.capture_shell.schedule = schedule
+        if not run_inference:
             return state, TickOutcome(raw.frame_id, None, False)
         stacked = stack_channels(np.asarray(raw.mosaic))
         if isinstance(stacked, Err):
@@ -1560,17 +1748,6 @@ class PayloadApp:
         if context.containment_generation != self.containment.generation:
             return True
         return self.containment.local_latched
-
-    def capture_this_opportunity(self) -> bool:
-        """Return whether this acquire opportunity should capture a frame.
-
-        The opportunity index starts at 1. Capture when the running floor of
-        index * duty_cycle increases. Duty 0.5 therefore captures even indexes.
-        """
-        duty = self.sensor_cfg.capture.duty_cycle
-        self.imaging_duty.opportunities += 1
-        index = self.imaging_duty.opportunities
-        return math.floor(index * duty) > math.floor((index - 1) * duty)
 
     def note_gimbal_feedback(self, position: GimbalPosition) -> None:
         """Record encoder feedback on a tick that does not capture."""
@@ -1941,7 +2118,10 @@ class PayloadApp:
         while unsynced the request repeats on the watchdog cadence. The control
         worker owns activation drain, commands, inner/outer advance, heartbeat,
         and every gimbal HAL call; the capture loop (this thread) may block on
-        acquire/detect without ever committing graph or servo state.
+        acquire/detect without ever committing graph or servo state. After each
+        capture call the loop sleeps until the armed opportunity deadline, and
+        no longer than one outer period, so a policy change is still observed
+        on that bound.
         """
         self._inhibit_motion("boot")
         boot = self.initial_state()
@@ -1981,11 +2161,16 @@ class PayloadApp:
         control_thread.start()
         try:
             while not stop_event.is_set():
-                now = self.clock.monotonic_s()
+                call_now = self.clock.monotonic_s()
                 snap = self._latest(boot)
-                self.capture_once(snap, now)
-                interval = snap.policy.imaging.capture_interval_s
-                stop_event.wait(timeout=max(interval, self.servo.cfg.inner.dt_s))
+                self.capture_once(snap, call_now)
+                timeout = capture_wait_s(
+                    self.capture_shell.schedule.next_opportunity_s,
+                    call_now,
+                    self.clock.monotonic_s(),
+                    self.params.config.controller.outer.dt_s,
+                )
+                stop_event.wait(timeout=timeout)
         finally:
             stop_event.set()
             control_thread.join(timeout=1.0)

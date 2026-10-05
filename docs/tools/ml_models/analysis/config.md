@@ -2,36 +2,56 @@
 
 **Source:** `packages/tools/src/tools/ml_models/analysis/config.py`
 **Kind:** module
-**Status:** stub
 
 ## Purpose
 
-This module declares the frozen configuration records for the analysis,
-evaluation, and render boundaries.
+This module declares the strict frozen configuration records for the
+dataset-analysis, model-analysis, evaluation, and render boundaries, and
+the TOML codecs and digests that give each measurement a stable scientific
+identity separate from render style.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `DatasetAnalysisConfig` | dataclass | `dataset` and `out` fields |
-| `ModelAnalysisConfig` | dataclass | `run`, `out`, `checkpoint`, `final_test` fields |
-| `EvaluationConfig` | dataclass | `kind`, `split`, `batch_size`, `device` fields |
-| `PlotConfig` | dataclass | `formats` and `dpi` fields |
+| `PlotConfig` | dataclass | Formats, dpi, figure size, and font size |
+| `ScoreConfig` | dataclass | Probability, matching, bin, and threshold-grid settings |
+| `CaptureConfig` | dataclass | Retention mode and capture budgets |
+| `GeneralizationConfig` | dataclass | Stratification edges and interval budget |
+| `EvaluationConfig` | dataclass | Kind, split, batching, and nested score/capture settings |
+| `DatasetAnalysisConfig` | dataclass | Dataset path, output, and nested settings |
+| `ModelAnalysisConfig` | dataclass | Run, output, checkpoint, final-test, and nested settings |
+| `load_dataset_analysis_config` | function | Strict TOML load; `Result` boundary |
+| `load_model_analysis_config` | function | Strict TOML load; `Result` boundary |
+| `load_plot_config` | function | Strict TOML load; `Result` boundary |
+| `write_config` | function | Exclusive nested-TOML write; `Result` boundary |
+| `config_digest` | function | SHA-256 of scientific settings, excluding `out` and `plot` |
+| `render_digest` | function | SHA-256 of a measurement id plus `PlotConfig` |
 
 ## Inputs and outputs
 
-Constructor arguments only. Defaults: `checkpoint` is `"best"`,
-`final_test` is `False`, `batch_size` is `2`, `device` is `"cpu"`,
-`formats` is `("png", "svg")`, and `dpi` is `300`.
+Constructors take typed arguments and raise `ValueError` on violation.
+Loaders take a TOML `Path` and return `Result[config, str]`.
+`write_config` takes a destination `Path` and a config and returns
+`Result[None, str]`. `config_digest` and `render_digest` return lowercase
+64-hex strings.
 
 ## Behavior
 
-The records are frozen slots dataclasses. This scaffold declares the field
-shapes and defaults only; strict validation lands in a later phase.
+Every record validates at construction: probabilities lie in `[0, 1]`,
+bins and batch sizes are positive exact integers, edge lists are finite,
+nonnegative, and strictly increasing, and paths are nonblank. Loaders
+reject missing files, malformed TOML, unknown fields, and invalid values.
+`write_config` serializes nested settings as TOML sections, omits `None`
+optionals, and refuses to overwrite an existing file. `config_digest`
+changes when inputs, checkpoint, settings, or seed change but not when
+`out` or `plot` change; `render_digest` changes with the measurement id
+or any render setting.
 
 ## Errors and faults
 
-None at this layer.
+Validation failures raise `ValueError`. I/O and TOML failures return
+`Err` strings. Overwrite attempts on `write_config` return `Err`.
 
 ## Messages
 
@@ -39,12 +59,17 @@ None.
 
 ## Configuration
 
-None.
+These records are the configuration. `ModelAnalysisConfig.dataset` is an
+optional evaluation-only dataset override and stays `None` unless set.
 
 ## Constraints
 
-- `kind` values are `classifier` or `segmentor`; `split` values are
-  `train`, `val`, or `test`.
+- All records are frozen slots dataclasses with `extra="forbid"`.
+- `formats` are limited to `png`, `svg`, and `pdf`, unique and nonempty.
+- `examples_per_family` cannot exceed `max_preview_images`.
+- Scientific identity excludes `out` and `plot`; render identity pairs the
+  frozen measurement id with `PlotConfig`.
+- No scoring, capture, or rendering executes from this module.
 
 ## Related documents
 

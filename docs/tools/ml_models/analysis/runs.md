@@ -5,37 +5,39 @@
 
 ## Purpose
 
-This module discovers training run directories, loads their
-`summary.json` plus optional `eval.json` overlays, and renders list,
-compare, and rank tables.
+This module holds the run-catalog boundary and text table formatters.
+The catalog readers are unavailable until the evidence analysis phase
+lands; the formatters remain pure over caller-supplied rows.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `discover_runs` | function | Run directories holding `summary.json`, sorted |
-| `load_summary` | function | One run row: summary fields plus `test_*` overlay |
-| `format_list` | function | One line per run directory |
-| `format_compare` | function | Side-by-side table of run rows |
-| `rank_runs` | function | Rows ordered by validation metric then FLOPs |
-| `format_rank` | function | Ranked table of run rows |
+| `discover_runs` | function | Run-directory catalog reader; returns `Err` while unimplemented |
+| `load_summary` | function | Run-summary reader; returns `Err` while unimplemented |
+| `rank_runs` | function | Stored-summary ranking; returns `Err` while unimplemented |
+| `format_list` | function | One line per summary row |
+| `format_compare` | function | Side-by-side table of summary rows |
+| `format_rank` | function | Compare table in the caller's order |
 
 ## Inputs and outputs
 
-Functions take run `Path` values and return plain dicts or formatted
-strings.
+`discover_runs(root) -> Result[tuple[Path, ..], str]`,
+`load_summary(run_dir) -> Result[dict[str, object], str]`, and
+`rank_runs(runs, metric) -> Result[tuple[dict[str, object], ..], str]`.
+The formatters take `tuple[dict[str, object], ..]` rows and return text.
 
 ## Behavior
 
-`discover_runs` lists immediate children with a `summary.json`.
-`load_summary` merges `summary.json` with `eval.json` keys prefixed
-`test_`. `rank_runs` orders by the named metric (higher first) and breaks
-ties on FLOPs.
+The three readers return `Err` with an explicit unavailable message on
+every call. The formatters render the given rows and never read files.
+No ranking fallback over supplied rows remains.
 
 ## Errors and faults
 
-`load_summary` raises `FileNotFoundError` when `summary.json` is absent.
-Malformed JSON surfaces as `json.JSONDecodeError`.
+`discover_runs`, `load_summary`, and `rank_runs` always return `Err`.
+The formatters do not raise on missing fields; absent cells render
+empty.
 
 ## Messages
 
@@ -47,11 +49,10 @@ None.
 
 ## Constraints
 
-- Run discovery is one directory level deep.
-- Ranking ignores runs missing the metric or a numeric FLOPs field.
+- Readers fail closed: no empty catalogs or fabricated rows.
+- Formatters consume supplied rows only and perform no I/O.
 
 ## Related documents
 
 - [`tools.ml_models.analysis`](../analysis.md)
 - [`tools.ml_models.analysis.pareto`](pareto.md)
-- [`tools.ml_models.train.loop`](../train/loop.md)

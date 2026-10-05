@@ -1,55 +1,43 @@
 # tools.ml_models.analysis.plots
 
-**Source:** `packages/tools/src/tools/ml_models/analysis/plots.py`
-**Kind:** module
+**Source:** `packages/tools/src/tools/ml_models/analysis/plots/`
+**Kind:** package
+**Status:** stub
 
 ## Purpose
 
-This module renders training-run figures: loss and metric history from
-`history.csv`, plus prediction overlays and failure mosaics from
-`predictions.npz`.
+The plots package is the scaffold for figure rendering over frozen
+captured evidence; no figure is produced yet. This package replaces the
+removed report-figure module; the legacy `history_figures`,
+`overlay_figures`, `failure_figures`, and `save_figures` APIs are gone.
 
-## Public interface
+## Contents
 
-| Name | Kind | Description |
+| Item | Type | Description |
 | --- | --- | --- |
-| `LabeledFigure` | dataclass | One figure with its output stem |
-| `save_figures` | function | Write figures to a directory as PNG |
-| `history_figures` | function | Loss and metric curves from `history.csv` |
-| `overlay_figures` | function | Prediction overlays from `predictions.npz` |
-| `failure_figures` | function | Worst-case failure mosaics |
+| [`common`](plots/common.md) | module | Figure/export conventions and the render boundary (unavailable) |
+| [`dataset`](plots/dataset.md) | module | Dataset-analysis figures (scaffold) |
+| [`training`](plots/training.md) | module | Training-history figures (scaffold) |
+| [`classifier`](plots/classifier.md) | module | Classifier-evidence figures (scaffold) |
+| [`segmentation`](plots/segmentation.md) | module | Segmentation-evidence figures (scaffold) |
+| [`generalization`](plots/generalization.md) | module | Generalization-evidence figures (scaffold) |
 
-## Inputs and outputs
+## Package interface
 
-Figure builders take run artifact paths and return `LabeledFigure` lists;
-`save_figures` writes PNG files and returns their paths.
+`tools.ml_models.analysis.plots.__init__` carries a module docstring only.
+The render boundary lives in `tools.ml_models.analysis.plots.common`.
 
-## Behavior
+## Interactions
 
-Matplotlib uses the non-interactive `Agg` backend. `history_figures`
-reads the CSV; `overlay_figures` and `failure_figures` read the
-probability arrays and apply `sigmoid` from `train.metrics` to logits.
-
-## Errors and faults
-
-Missing artifacts raise `FileNotFoundError`; malformed arrays surface
-as numpy errors.
-
-## Messages
-
-None.
-
-## Configuration
-
-None.
+The `render_analysis` boundary is unavailable; plotting consumes frozen
+evidence only and never reruns inference.
 
 ## Constraints
 
-- The module imports matplotlib eagerly with the `Agg` backend.
-- Figures close after saving; no GUI is required.
+- Rendering is unavailable until the plotting phase lands.
+- Figures derive only from captured evidence records.
 
 ## Related documents
 
 - [`tools.ml_models.analysis`](../analysis.md)
-- [`tools.ml_models.analysis.report`](report.md)
-- [`tools.ml_models.train.metrics`](../train/metrics.md)
+- [`tools.ml_models.cli`](../cli.md)

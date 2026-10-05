@@ -5,29 +5,30 @@
 
 ## Purpose
 
-This module counts model parameters and forward-pass FLOPs for
-architecture records in run summaries and Pareto tables.
+This module counts model parameters. The one-input FLOP executor is
+removed; the FLOP boundary is unavailable until conditioned resource
+measurement lands.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `count_params` | function | Total trainable parameters of a torch module |
-| `count_flops` | function | Forward FLOPs for one input shape via `FlopCounterMode` |
+| `count_params` | function | Total parameters of a torch module |
+| `count_flops` | function | FLOP boundary; returns `Err` while unimplemented |
 
 ## Inputs and outputs
 
-`count_params(model) -> int`. `count_flops(model, input_shape) -> int`
-expects a full `(N, C, H, W)` tuple.
+`count_params(model) -> int`. `count_flops(model, input_shape) ->
+Result[int, str]` expects a full `(N, C, H, W)` tuple.
 
 ## Behavior
 
-`count_params` sums `numel` over parameters. `count_flops` runs one forward
-pass under `torch.utils.flop_counter.FlopCounterMode` on a zero input.
+`count_params` sums `numel` over parameters. `count_flops` returns an
+explicit unavailable error and never executes the model.
 
 ## Errors and faults
 
-`count_flops` raises whatever the forward pass or flop counter raises.
+`count_flops` always returns `Err`.
 
 ## Messages
 
@@ -39,9 +40,7 @@ None.
 
 ## Constraints
 
-- Models run on CPU with a zero tensor.
-- Only single-input module calls are counted; conditioned models are
-  profiled through wrapper modules.
+- No dummy-input forward pass runs at the FLOP boundary.
 
 ## Related documents
 

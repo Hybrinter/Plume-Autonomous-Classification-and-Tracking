@@ -5,42 +5,44 @@
 
 ## Purpose
 
-This module builds the cost-versus-quality Pareto frontier over run
-directories and selects the quality knee: the cheapest point that holds
-the baseline score within a small spread.
+This module holds the pure cost-versus-quality Pareto helpers: frontier
+selection, the quality knee, seed collapsing, and table rendering. The
+run-reader boundary `frontier_points` is unavailable until the catalog
+reader lands.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
 | `FrontierPoint` | dataclass | Run row projected to cost and score fields |
-| `frontier_points` | function | Rows filtered by kind, split, and metric |
+| `frontier_points` | function | Run-directory reader boundary; returns `Err` while unimplemented |
 | `mean_by_arch` | function | Per-architecture mean across seeds |
 | `pareto_front` | function | Non-dominated points ordered by cost |
 | `knee` | function | Cheapest point within `spread` of the baseline holder |
 | `knee_neighbors` | function | Contiguous front slice around the knee |
 | `score_spread` | function | Seed-to-seed score range for one arch |
-| `substitute_arch_placeholder` | function | `{arch}` substitution in table text |
+| `substitute_arch_placeholder` | function | Architecture placeholder substitution in space TOML |
 | `orient_score` | function | Negate minimized metrics for comparisons |
 | `format_pareto` | function | Front rendered as a table |
 
 ## Inputs and outputs
 
-`frontier_points(rows, metric, split=...)` consumes `load_summary` rows;
-`pareto_front`, `knee`, and `format_pareto` work on `FrontierPoint`
-tuples.
+`frontier_points(runs, metric, cost_key=.., kind=.., split=..,
+run_ids=..) -> Result[tuple[FrontierPoint, ..], str]`. The pure
+helpers consume `FrontierPoint` tuples and return points, floats, or
+text.
 
 ## Behavior
 
-`frontier_points` drops rows missing the metric, split, or cost fields and
-negates minimized metrics. `pareto_front` keeps non-dominated points,
-ties broken by the first-seen cheaper arch. `knee` rejects an empty front,
-a negative spread, or a missing baseline holder.
+`frontier_points` returns `Err` for an unknown cost key or split and an
+explicit unavailable `Err` on every call. `pareto_front` keeps
+non-dominated points, ties broken by the first-seen cheaper arch. `knee`
+rejects an empty front, a negative spread, or a missing baseline holder.
 
 ## Errors and faults
 
-`frontier_points` raises `ValueError` on an unknown split or cost key.
-`knee` and `knee_neighbors` raise `ValueError` on invalid inputs.
+`frontier_points` returns `Err` on every call. `knee` and
+`knee_neighbors` raise `ValueError` on invalid inputs.
 `substitute_arch_placeholder` raises `ValueError` on empty, missing, or
 ambiguous placeholders.
 
@@ -54,8 +56,8 @@ None.
 
 ## Constraints
 
-- Frontier comparisons use the requested split only.
-- Ranking uses the best validation metric for the matching metric name.
+- Frontier comparisons use one explicit split only.
+- The reader boundary fails closed; no point is fabricated.
 
 ## Related documents
 

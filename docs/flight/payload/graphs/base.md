@@ -31,13 +31,15 @@ effect identities, and activation-key acceptance.
 | `validate_spec` | function | `Result[None, FaultCode]` topology validation |
 | `command_target` | function | `Result[NodeT, FaultCode]` directed command-edge resolution |
 | `accept_activation` | function | `Result[ActivationDecision, FaultCode]` activation classification |
+| `transition_event` | function | Compact `node_transition` `TelemetryEventMsg` for committed edges |
 
 ## Inputs and outputs
 
 Validators and resolvers take plain values and return `Result`. `TickInputs`
 carries monotonic time, an ISO timestamp, the activation key, encoder,
 navigation, scoped vision, health, an optional routed command candidate,
-effect results, an optional verification result, and stow-completion evidence.
+effect results, an optional verification result, stow-completion evidence, and an
+optional predictor reference change.
 
 ## Behavior
 

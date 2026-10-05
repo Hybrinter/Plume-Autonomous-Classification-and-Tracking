@@ -7,7 +7,7 @@ This exercises the complete ingest path:
 
 The ScriptedDetector ignores the tensor content and detects from a fixed probability mask,
 so a plume-rendered scene plus a plume mask yields a stable, strong off-boresight blob every
-frame -- exactly what drives the gimbal arbiter to TRACKING.
+frame -- exactly what drives the operate graph to TRACKING.
 
 Contains:
   - build_frames: N radiometrically-plausible (3, 1544, 2064) uint16 MosaicFrame buffers

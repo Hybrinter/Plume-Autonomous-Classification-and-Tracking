@@ -11,7 +11,8 @@ from flight.core.select_drivers import SimDriverInputs
 from flight.hal.drivers_sim import SimGimbal, SimSensor
 from flight.libs.config import DriverConfig, EphemerisConfig, PactConfig, SensorConfig
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, Ok
+from flight.libs.types import Ok, SystemMode
+from flight.payload.graphs import operate
 from sim.environment import (
     Environment,
     EnvironmentConfig,
@@ -28,6 +29,7 @@ from sim.sil import (
     bind_sil_environment,
     build_sil_system,
     build_validation_system,
+    publish_activation,
 )
 
 
@@ -278,6 +280,7 @@ def test_true_elevation_moves_ecef_projected_centroid() -> None:
         ephemeris=system.apps.payload.ephemeris,
     )
     harness = SilHarness(system, bind=bind)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     centroids: list[tuple[float, float]] = []
     elevations: list[float] = []
     now = 0.0
@@ -290,7 +293,6 @@ def test_true_elevation_moves_ecef_projected_centroid() -> None:
         centroids.append(centroid)
         elevations.append(system.gimbal.true_el_deg)
         assert bind.last_hal_iss is not None
-        clock.advance(1.0)
     assert elevations[-1] > elevations[0]
     first_u, first_v = centroids[0]
     last_u, last_v = centroids[-1]
@@ -399,6 +401,10 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
             base.sensor,
             capture=dataclasses.replace(base.sensor.capture, duty_cycle=1.0),
         ),
+        gimbal=dataclasses.replace(
+            base.gimbal,
+            simulation=dataclasses.replace(base.gimbal.simulation, encoder_noise_deg=0.0),
+        ),
     )
     clock = ManualClock(monotonic_s=clock0)
     detector = plume_detector()
@@ -425,6 +431,7 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
         ephemeris=system.apps.payload.ephemeris,
     )
     harness = SilHarness(system, bind=bind)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     now = clock0
     for _ in range(4):
         now += step_dt
@@ -434,23 +441,31 @@ def test_ecef_column_predictor_engages_with_aligned_shutter(
         queue = system.apps.payload.vision_queue
         assert queue
         vision = queue[-1]
-        assert vision.t_s == pytest.approx(now)
-        assert vision.theta_g_rad is not None
+        assert vision.sample.t_s == pytest.approx(now)
+        assert vision.sample.theta_g_rad is not None
         assert any(
             abs(sample.t_s - now) <= 1.0e-9 for sample in system.apps.payload.encoder_stream.samples
         )
         assert system.apps.payload._encoder_angle_at(now) is not None
-        clock.advance(step_dt)
     state = harness._payload_state
-    assert state.arbiter.gimbal_state is GimbalState.TRACKING
-    assert state.target.r_cog_ecef_m is not None
-    assert abs(state.target.last_omega_t_nom) > 1.0e-6
-    assert abs(state.target.last_omega_scene_el) > 1.0e-6
+    graph = state.graph
+    assert isinstance(graph, operate.State)
+    assert graph.node is operate.OperateNode.TRACKING
+    assert graph.target.r_cog_ecef_m is not None
+    assert abs(graph.target.last_omega_t_nom) > 1.0e-6
+    assert abs(graph.target.last_omega_scene_el) > 1.0e-6
 
 
 def test_missing_encoder_bracket_leaves_theta_g_none() -> None:
     """A shutter time with no encoder bracket stays rejected, not a false prediction."""
-    config = PactConfig()
+    base = PactConfig()
+    config = dataclasses.replace(
+        base,
+        gimbal=dataclasses.replace(
+            base.gimbal,
+            simulation=dataclasses.replace(base.gimbal.simulation, encoder_noise_deg=0.0),
+        ),
+    )
     clock = ManualClock()
     detector = plume_detector()
     system = build_sil_system(
@@ -463,6 +478,7 @@ def test_missing_encoder_bracket_leaves_theta_g_none() -> None:
         power_readings=[30.0],
     )
     harness = SilHarness(system)
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
     harness.step(1.0)
     samples = system.apps.payload.encoder_stream.samples
     assert samples
@@ -471,10 +487,14 @@ def test_missing_encoder_bracket_leaves_theta_g_none() -> None:
     raw = dataclasses.replace(build_frames(1)[0], timestamp_s=10.0)
     state, _ = system.apps.payload.process_frame(raw, harness._payload_state, 10.0)
     vision = system.apps.payload.vision_queue[-1]
-    assert vision.t_s == 10.0
-    assert vision.theta_g_rad is None
-    assert vision.p_cog is not None
-    assert state.target.r_cog_ecef_m is None
+    assert vision.sample.t_s == 10.0
+    assert vision.sample.theta_g_rad is None
+    assert vision.sample.blobs
+    graph = state.graph
+    assert isinstance(graph, operate.State)
+    assert graph.target.r_cog_ecef_m is None
     state, _ = system.apps.payload.advance_outer(state, 1.0)
-    assert state.target.r_cog_ecef_m is None
-    assert state.target.last_omega_t_nom == 0.0
+    graph = state.graph
+    assert isinstance(graph, operate.State)
+    assert graph.target.r_cog_ecef_m is None
+    assert graph.target.last_omega_t_nom == 0.0

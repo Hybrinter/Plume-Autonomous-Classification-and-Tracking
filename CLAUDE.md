@@ -28,8 +28,8 @@ The flight software is the `uv` workspace under `packages/`:
   sim; not STE-mirrored). `tools.analysis` is SIL capture/plots; `analysis.*` is design studies.
 
 Tests for each member live under `packages/<member>/tests/` and mirror the tree inside
-`src/<package>/`. Example: `packages/flight/src/flight/payload/gimbal/arbiter.py` maps to
-`packages/flight/tests/payload/gimbal/test_arbiter.py`. Tests stay out of `src/` so Hatch
+`src/<package>/`. Example: `packages/flight/src/flight/payload/gimbal/inner.py` maps to
+`packages/flight/tests/payload/gimbal/test_inner.py`. Tests stay out of `src/` so Hatch
 does not pack them into the flight wheel. Do not add a `tests/<package>/` folder named after
 the installable package (`flight`, `sim`, `tools`, `gse`, `analysis`); that name collides with
 the source tree under mypy. Tests that are not twins of a source module (script checks, package
@@ -70,7 +70,7 @@ constructs itself.
 
 `flight.core` is the only composition root for flight (and `sim.sil` for SIL). It alone:
 constructs the `MessageBus`, the `Clock`, and the concrete HAL drivers; calls
-`flight.core.composition.build_apps(config, bus, clock, drivers, monitored)` to wire every app;
+`flight.core.composition.build_apps(config, bus, clock, drivers, monitored, calib, uplink_key, activation_epoch)` to wire every app;
 and runs them via `flight.core.scheduler.Scheduler` (one daemon thread per app's
 `run(stop_event)`).
 
@@ -96,14 +96,14 @@ bus; only compact records do.
 
 ---
 
-## Pure-Core Contract (controller, arbiter, tracking, watchdog, policy)
+## Pure-Core Contract (payload graphs, tracking, watchdog, policy)
 
 The decision cores are **pure functions**: no I/O, no bus access, no clock reads, no logging. They
 map inputs (including `now` and current state) to outputs (new state + messages) deterministically.
-This holds for `PayloadController.inner_step` / `outer_step`, `GimbalArbiter.step`,
-the residual filter (`predict` / `update` / `rewind_update`), `inner_step`,
-`outer_rate`, `check_integrity`, and the FDIR `check_heartbeats` /
-`decide_mode_change`.
+This holds for the payload graph modules under `flight.payload.graphs` (`init`/`operate`/`safe`/`stow`/`idle`),
+the residual filter (`predict` / `update` / `rewind_update`), `ServoController.inner_step` /
+`reference_rate`, `rate_decision`, `check_integrity`, and the FDIR `check_heartbeats` /
+`decide_mode_request`.
 
 **Invariant:** never add I/O, bus access, side effects, or a clock source inside a pure core. Time
 is passed in as a `now: float` argument (monotonic seconds). Any new core logic must be expressible
@@ -166,7 +166,8 @@ Every app that runs a persistent loop emits `HeartbeatMsg` periodically (in its 
 `watchdog_interval_s`, default 5 s). The FDIR watchdog (`flight.fault`) monitors the subsystems in
 `flight.core.composition.MONITORED_SUBSYSTEMS` and emits `WATCHDOG_EXPIRE` after
 `watchdog_max_miss_count` (default 3) consecutive misses; `flight.fault.policy` routes that (and
-the other SAFE-triggering faults) to `ModeChangeMsg(SAFE)`.
+the other SAFE-triggering faults) to `SystemModeRequestMsg(SAFE)` for the external mode
+authority; the payload's own containment latch inhibits motion locally and independently.
 
 **Implementation pattern:** loops use `stop_event.wait(timeout=interval)`, not `time.sleep`, so
 shutdown is immediate. The deterministic SIL harness stands in for these per-app heartbeats by

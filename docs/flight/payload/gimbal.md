@@ -5,15 +5,14 @@
 
 ## Purpose
 
-The gimbal package holds pure elevation control logic: the pointing FSM, scene
-selection, inner and outer laws, CoG geometry, pose requests, pre-arbiter safety
-gates, and the light integrity detector.
+The gimbal package holds pure elevation control logic: scene
+selection, inner and outer laws, CoG geometry, mode-free control references,
+safety gates, and the light integrity detector.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`arbiter`](gimbal/arbiter.md) | pure module | TRACKING / REWIND / FAST_REWIND / SAFE FSM |
 | [`inner`](gimbal/inner.md) | pure module | PI plus computed torque |
 | [`outer`](gimbal/outer.md) | pure module | Smear cap, stopping governor, and `RateDecision` primitives |
 | [`scene`](gimbal/scene.md) | pure module | CoG / boresight scene prediction entry points |
@@ -30,8 +29,8 @@ gates, and the light integrity detector.
 
 ## Package interface
 
-Re-exports: `ArbiterState`, `CameraGeometry`, `ControlReference`,
-`GimbalArbiter`, `GimbalRequest`, `InhibitReference`, `InnerResult`,
+Re-exports: `CameraGeometry`, `ControlReference`,
+`InhibitReference`, `InnerResult`,
 `IntegrityResult`, `LosPrediction`, `PoseReference`, `RateDecision`,
 `RateReference`, `RayHit`, `SceneEstimate`, `SceneSource`, `StowReference`,
 `TravelEnvelope`, `apply_confidence_gate`, `apply_min_area_gate`,
@@ -43,16 +42,15 @@ Re-exports: `ArbiterState`, `CameraGeometry`, `ControlReference`,
 
 ## Interactions
 
-Pure cores return `GimbalRequest` and `TelemetryEventMsg` values to
-`PayloadController` and the app shell. The shell maps pose requests onto
-`GimbalActuator` HAL calls and writes torque from the inner loop. No gimbal module
-accesses the bus or HAL directly.
+Pure cores return `RateDecision`, `ControlReference`, and telemetry records to
+the payload graphs and the app shell. The shell maps references onto
+`GimbalActuator` HAL calls and writes torque from the inner loop. No gimbal
+module accesses the bus or HAL directly.
 
 ## Constraints
 
-All modules are pure. `GimbalArbiter._transition_event` uses an injected
-`timestamp_utc`. `GimbalRequest` never travels on the bus. There is no gimbal
-azimuth command.
+All modules are pure and mode-free: reference records carry numeric envelopes,
+not mode or graph names. There is no gimbal azimuth command.
 
 ## Related documents
 

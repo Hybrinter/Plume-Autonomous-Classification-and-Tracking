@@ -51,6 +51,7 @@ def test_build_apps_wires_all_five_subsystems() -> None:
         MONITORED_SUBSYSTEMS,
         _calib(),
         b"test-key-00000000000000000000000",
+        "test",
     )
     assert isinstance(apps, SystemApps)
     assert isinstance(apps.payload, PayloadApp)
@@ -85,6 +86,7 @@ def test_build_apps_shares_one_bus() -> None:
         MONITORED_SUBSYSTEMS,
         _calib(),
         b"test-key-00000000000000000000000",
+        "test",
     )
     assert apps.payload.bus is bus
     assert apps.fault.bus is bus

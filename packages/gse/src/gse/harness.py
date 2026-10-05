@@ -49,7 +49,7 @@ from flight.libs.messages import (
     CommandAckMsg,
     GimbalCommandMsg,
     InferenceResultMsg,
-    ModeChangeMsg,
+    SystemModeActivatedMsg,
 )
 from flight.libs.time import ManualClock
 from flight.libs.types import AckStatus, Err, SystemMode
@@ -61,6 +61,7 @@ from sim.sil import (
     build_validation_system,
     load_profile_config,
 )
+from sim.sil.validation import publish_activation
 
 from gse.scenario import CommandStep, Scenario
 from gse.station import StationEmulator
@@ -83,7 +84,8 @@ class TelemetryCapture:
     Fields:
         inference_count: Number of InferenceResultMsg published over the run.
         gimbal_moved: True if elevation left the origin and is not sitting at stow.
-        mode_changes: The SystemMode of every ModeChangeMsg, in publication order.
+        mode_activations: Published activation modes in delivery order, for audit only.
+        active_mode: Last mode accepted by the payload, or None before synchronization.
         acks: The AckStatus of every CommandAckMsg observed on the bus, in order.
         downlink_packets: Raw CCSDS TM datagrams the StationEmulator received over UDP
             (empty for an all-sim link, where no real socket carries downlink).
@@ -91,7 +93,8 @@ class TelemetryCapture:
 
     inference_count: int
     gimbal_moved: bool
-    mode_changes: tuple[SystemMode, ...]
+    mode_activations: tuple[SystemMode, ...]
+    active_mode: SystemMode | None
     acks: tuple[AckStatus, ...]
     downlink_packets: tuple[bytes, ...]
 
@@ -182,7 +185,7 @@ class InProcessBackend:
         self._emulator: StationEmulator | None = None
         self._inf_sub: Subscription[InferenceResultMsg] | None = None
         self._gimbal_sub: Subscription[GimbalCommandMsg] | None = None
-        self._mode_sub: Subscription[ModeChangeMsg] | None = None
+        self._mode_sub: Subscription[SystemModeActivatedMsg] | None = None
         self._ack_sub: Subscription[CommandAckMsg] | None = None
         self._link_real = False
 
@@ -251,28 +254,28 @@ class InProcessBackend:
 
         self._inf_sub = system.bus.subscribe(InferenceResultMsg)
         self._gimbal_sub = system.bus.subscribe(GimbalCommandMsg)
-        self._mode_sub = system.bus.subscribe(ModeChangeMsg)
+        self._mode_sub = system.bus.subscribe(SystemModeActivatedMsg)
         self._ack_sub = system.bus.subscribe(CommandAckMsg)
 
         self._system = system
         self._harness = ValidationHarness(system)
+        if scenario.initial_mode is not None:
+            publish_activation(system, scenario.initial_mode, sequence=1)
 
     def step(self, now: float) -> None:
-        """Advance every subsystem one cycle via the harness, then step the ManualClock.
+        """Advance every subsystem one cycle via the harness.
 
         Args:
-            now: Monotonic seconds for the arbiter/watchdog (caller-advanced per step).
+            now: Monotonic seconds for the graphs and watchdog (caller-advanced
+                per step).
 
         Notes:
-            The payload catch-up methods step the plant at frozen clock time. The
-            ManualClock advances after the step so a later integrate does not double-count.
+            step_once owns the shared ManualClock and advances it forward to
+            ``now`` inside the cycle; this method does not advance it again.
         """
         if self._harness is None:
             raise RuntimeError("build() must be called before step()")
         self._harness.step(now)
-        delta = now - self._clock.monotonic_s()
-        if delta > 0.0:
-            self._clock.advance(delta)
 
     def inject_command(self, step: CommandStep) -> None:
         """Send one command live for a real link; a no-op (pre-baked) for a sim link.
@@ -294,13 +297,14 @@ class InProcessBackend:
         """Drain subscriptions + emulator UDP into a TelemetryCapture for scoring.
 
         Returns:
-            TelemetryCapture: inference count, gimbal-moved flag, ordered mode changes,
+            TelemetryCapture: inference count, gimbal-moved flag, activation history and
+            the terminal accepted mode,
             ordered ack statuses, and (real link only) the downlink datagrams the
             StationEmulator received.
 
         Notes:
             gimbal_moved is True only when elevation left the origin and is not at the
-            stow pose. SAFE-only stow to +90 deg does not count as tracking motion.
+            stow pose. A STOW move does not count as tracking motion.
         """
         if (
             self._system is None
@@ -323,7 +327,8 @@ class InProcessBackend:
             not_stow = abs(el_deg - stow_el) > _GIMBAL_MOVED_TOLERANCE_DEG
             gimbal_moved = off_origin and not_stow
 
-        mode_changes = tuple(m.new_mode for m in self._drain(self._mode_sub))
+        mode_activations = tuple(m.active_mode for m in self._drain(self._mode_sub))
+        active_mode = self._harness.payload_system_mode() if self._harness is not None else None
         acks = tuple(a.status for a in self._drain(self._ack_sub))
 
         downlink: tuple[bytes, ...] = ()
@@ -333,7 +338,8 @@ class InProcessBackend:
         return TelemetryCapture(
             inference_count=inference_count,
             gimbal_moved=gimbal_moved,
-            mode_changes=mode_changes,
+            mode_activations=mode_activations,
+            active_mode=active_mode,
             acks=acks,
             downlink_packets=downlink,
         )

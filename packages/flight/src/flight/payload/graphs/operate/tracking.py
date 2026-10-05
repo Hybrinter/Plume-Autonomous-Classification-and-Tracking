@@ -196,6 +196,9 @@ def step(
             vision_disposition = matching[-1]
 
     state = bookkeep_vision(state, vision, inputs, params)
+    # Vision establishes aggregate liveness; navigation only contributes an
+    # optional nominal-rate prediction. This permits startup and tracking
+    # through an ephemeris outage.
     live = state.aggregate_live
     e_hat = float(residual.x[0])
     omega_res = float(residual.x[1])

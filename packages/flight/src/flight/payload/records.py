@@ -1,8 +1,9 @@
 """Payload records: compact observation and activation-context value types (pure).
 
 IssSample and VisionSample are the shell-facing observations consumed by the
-pure control core. ActivationKey, CaptureContext, CapturedVision, and
-HealthSample are typed values for the graph contract; they carry data only.
+pure control core. CaptureContext, CapturedVision, and HealthSample are typed
+values for the graph contract; they carry data only. ActivationKey lives in
+flight.libs.types.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from flight.libs.messages import BlobMeta
+from flight.libs.types import ActivationKey
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,19 +60,6 @@ class IssSample:
 
 
 @dataclass(frozen=True, slots=True)
-class ActivationKey:
-    """Authority-scoped activation identity: session epoch plus sequence.
-
-    Attributes:
-        epoch: Composition-root-provided session epoch.
-        sequence: Authority-owned activation sequence within the epoch.
-    """
-
-    epoch: str
-    sequence: int
-
-
-@dataclass(frozen=True, slots=True)
 class CaptureContext:
     """Identity of the capture work a vision sample or product belongs to.
 
@@ -78,11 +67,14 @@ class CaptureContext:
         activation_key: Activation under which the capture ran.
         policy_revision: Applied imaging/inference policy revision.
         model_version: Runtime model identity used for inference.
+        containment_generation: Containment generation at capture start; a
+            latch engagement since then makes the captured work stale.
     """
 
     activation_key: ActivationKey
     policy_revision: int
     model_version: str
+    containment_generation: int = 0
 
 
 @dataclass(frozen=True, slots=True)

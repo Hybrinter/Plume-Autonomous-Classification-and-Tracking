@@ -35,10 +35,12 @@ step into tidy long and per-group wide pandas frames.
 
 ## Behavior
 
-1. Subscribe to all nineteen message types before step 1.
-2. Seed payload `ControlState` and FDIR watchdog entries.
-3. Each step: add `dt` to `now`, run optional `pre_step`, call `step_once`, then
-   advance the shared clock. `step_once` catch-up runs before acquire.
+1. Subscribe to all registered message types before step 1.
+2. Seed payload `PayloadState` without a graph and FDIR watchdog entries.
+3. Start `now` at the injected clock origin. Each step adds `dt` to the target,
+   runs optional `pre_step`, and calls `step_once`. The SIL composition root advances
+   the shared clock through control ticks before acquisition. The recorder does not
+   advance the clock a second time.
 4. Drain passive subscriptions, take a non-mutating device snapshot, build a
    `SampleContext`.
 5. Evaluate every signal in `REGISTRY`. Extractor exceptions become NaN or "".
@@ -66,6 +68,8 @@ None.
   `read_stow_switch`.
 - Replay cursors and station send counts remain private sim-driver field reads.
 - Never mutates flight state beyond what `step_once` and the optional hook do.
+- Capture does not choose a startup mode. Scenarios must inject an explicit activation when
+  imaging or motion is required.
 
 ## Related documents
 

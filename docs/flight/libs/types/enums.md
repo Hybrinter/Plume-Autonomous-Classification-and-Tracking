@@ -12,8 +12,8 @@ across subsystems.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SystemMode` | enum | Top-level operational mode |
-| `GimbalState` | enum | Gimbal arbiter state |
+| `SystemMode` | enum | Top-level operational mode (exactly five) |
+| `ModeTransitionDecision` | enum | Authority decision on a mode request |
 | `GimbalCommandMode` | enum | Gimbal command axis interpretation |
 | `FaultCode` | enum | Enumerated fault conditions |
 | `Band` | enum | Prism RGB band names |
@@ -28,25 +28,22 @@ across subsystems.
 
 ### SystemMode
 
-| Member | Description |
-| --- | --- |
-| `IDLE` | Default idle mode |
-| `ACTIVE` | Inference and gimbal running |
-| `SCAN` | Nadir scan, no active target |
-| `MODEL_UPLINK` | Model upload session |
-| `DATA_DOWNLINK` | Data downlink session |
-| `SAFE` | Fault-induced minimal activity |
-
-### GimbalState
+Exactly five modes; the names double as the payload graph vocabulary.
 
 | Member | Description |
 | --- | --- |
-| `TRACKING` | Closed-loop pointing or limb wait with `r=0` |
-| `REWIND` | Smear-capped hunt toward the science limb after TRACKING loss |
-| `FAST_REWIND` | Hardware-slew hunt after the sharp REWIND window |
-| `SAFE` | Gimbal inhibited; position loop drives stow |
+| `IDLE` | Quiescent graph entered only by an accepted activation (not an implicit default) |
+| `STOW` | Bounded stow move plus verified hold |
+| `SAFE` | Fault-induced minimal activity; motion inhibited |
+| `INIT` | Initialization effect chain plus verification-wait readiness |
+| `OPERATE` | Science tracking, hunts, and manual hold |
 
-`GimbalState.is_rewind_hunt` returns true for `REWIND` and `FAST_REWIND`.
+### ModeTransitionDecision
+
+| Member | Description |
+| --- | --- |
+| `ACCEPTED` | The authority accepted the requested transition |
+| `DENIED` | The authority denied the requested transition |
 
 ### GimbalCommandMode
 
@@ -76,6 +73,15 @@ across subsystems.
 | `CALIBRATION_INVALID` | Startup calibration integrity failure |
 | `FRAME_MALFORMED` | Per-frame geometry violation |
 | `GIMBAL_FAULT` | Driver-level gimbal failure |
+| `GIMBAL_ENCODER_INVALID` | Nonfinite or malformed encoder feedback |
+| `GIMBAL_CONTROLLER_ERROR` | Gimbal controller reported an internal error |
+| `GIMBAL_THERMAL` | Gimbal thermal limit |
+| `GIMBAL_SAFETY_TIMEOUT` | Safety window elapsed unconfirmed |
+| `GIMBAL_CLOSED_LOOP_LOSS` | Closed-loop feedback lost |
+| `GIMBAL_STALE_FEEDBACK` | Encoder feedback aged beyond freshness bound |
+| `GIMBAL_TIME_MAPPING` | HAL timestamp mapping failed |
+| `GIMBAL_DUTY_EXHAUSTED` | Actuator duty budget exhausted |
+| `GIMBAL_WATCHDOG_UNCONFIRMED` | Watchdog inhibit unconfirmed by the driver |
 | `EPHEMERIS_FAULT` | ISS ephemeris read failed |
 | `COMMAND_CRC_FAIL` | CCSDS packet CRC or length failure |
 | `COMMAND_AUTH_FAIL` | HMAC authentication failure |
@@ -108,7 +114,8 @@ across subsystems.
 ### MessageType
 
 Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMBAL_COMMAND`,
-`TELEMETRY_EVENT`, `FAULT_EVENT`, `HEARTBEAT`, `MODE_CHANGE`, `COMMAND`, `ROUTED_COMMAND`,
+`TELEMETRY_EVENT`, `FAULT_EVENT`, `HEARTBEAT`, `SYSTEM_MODE_REQUEST`, `SYSTEM_MODE_TRANSITION`,
+`SYSTEM_MODE_ACTIVATED`, `SYSTEM_MODE_SYNC_REQUEST`, `COMMAND`, `ROUTED_COMMAND`,
 `SAFETY_STATE`, `STORAGE_WRITE`, `PRODUCT_REF`, `DOWNLINK_ITEM`, `UPLINK_CHUNK`, `COMMAND_ACK`,
 `LINK_STATE`, `MODEL_STAGED`, `MODEL_DEPLOY`.
 
@@ -153,11 +160,11 @@ Discriminant for every bus message: `PROCESSED_FRAME`, `INFERENCE_RESULT`, `GIMB
 | `EXIT_SAFE` | Hazardous SAFE exit (`phase: str`) |
 | `UPLOAD_MODEL_CHUNK` | Chunked classifier+segmentor pair upload params |
 | `ACTIVATE_MODEL` | Activate staged inference pair (`version: str`) |
-| `GIMBAL_STOW` | Payload stow via the position loop |
-| `GIMBAL_HOME` | Payload home via the position loop |
-| `GIMBAL_GOTO` | Payload absolute pose (`el_deg: float`) |
-| `GIMBAL_HOLD` | Declared graph-vocabulary hold; rejected by the current app as unsupported |
-| `GIMBAL_RESUME` | Declared graph-vocabulary resume; rejected by the current app as unsupported |
+| `GIMBAL_STOW` | Stow request addressed to the mode authority (`system_modes` target) |
+| `GIMBAL_HOME` | Payload pose command to the home preset |
+| `GIMBAL_GOTO` | Payload absolute pose command (`el_deg: float`) |
+| `GIMBAL_HOLD` | Payload graph hold at the captured elevation |
+| `GIMBAL_RESUME` | Payload graph resume from HOLD to TRACKING |
 
 ### ParamKind
 

@@ -1,6 +1,5 @@
 """Payload gimbal control: pointing FSM, inner/outer laws, and safety gates (pure).
 
-arbiter -- TRACKING / REWIND / FAST_REWIND / SAFE mode selection;
 inner -- PI + computed torque;
 outer -- smear clip, stopping governor, and RateDecision primitives;
 scene -- CoG / boresight scene prediction entry points;
@@ -10,11 +9,10 @@ intersect -- pinhole CoG and boresight height-ellipsoid intersect;
 predictor -- co-rotating elevation and unactuated azimuth rates;
 geo -- mount / LVLH / WGS-84 helpers;
 pointing -- pinhole boresight error;
-request -- typed pose command and mode-free control references;
+request -- typed mode-free control references;
 safety -- confidence and area gates.
 """
 
-from flight.payload.gimbal.arbiter import ArbiterState, GimbalArbiter
 from flight.payload.gimbal.inner import InnerResult, inner_step
 from flight.payload.gimbal.integrity import IntegrityResult, check_integrity
 from flight.payload.gimbal.intersect import (
@@ -39,7 +37,6 @@ from flight.payload.gimbal.predictor import LosPrediction, predict_los
 from flight.payload.gimbal.rate_fit import fit_rate, fit_rate_timed
 from flight.payload.gimbal.request import (
     ControlReference,
-    GimbalRequest,
     InhibitReference,
     PoseReference,
     RateReference,
@@ -56,11 +53,8 @@ from flight.payload.gimbal.scene import (
 )
 
 __all__ = [
-    "ArbiterState",
     "CameraGeometry",
     "ControlReference",
-    "GimbalArbiter",
-    "GimbalRequest",
     "InhibitReference",
     "InnerResult",
     "IntegrityResult",

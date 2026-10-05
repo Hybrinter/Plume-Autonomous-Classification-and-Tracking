@@ -24,18 +24,20 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 
 - Output: queue policy for each registered message type.
 
-**`build_apps(config, bus, clock, drivers, monitored, calib, uplink_key) -> SystemApps`**
+**`build_apps(config, bus, clock, drivers, monitored, calib, uplink_key, activation_epoch) -> SystemApps`**
 
 - Inputs: `PactConfig`, shared `MessageBus`, `Clock`, `Drivers`, monitored subsystem names,
-  `MosaicCalibration`, uplink HMAC key bytes.
+  `MosaicCalibration`, uplink HMAC key bytes, and the mandatory `activation_epoch`
+  forwarded to the payload, fault, and router apps.
 - Output: wired `SystemApps`.
 
 ## Behavior
 
-1. `default_bus_policy` assigns `NEVER_DROP` (max 1024) to command, fault, ack, mode,
-   upload, and storage-write message types.
+1. `default_bus_policy` assigns `NEVER_DROP` (max 1024) to command, fault, ack, all
+   mode request/transition/activation/sync types, safety evidence (`SafetyStateMsg`
+   is `NEVER_DROP`), upload, and storage-write message types.
 2. `default_bus_policy` assigns `DROP_OLDEST` (max 8192) to telemetry, inference, link,
-   heartbeat, product, downlink, model-deploy, and safety message types.
+   heartbeat, product, downlink, and model-deploy message types.
 3. `build_apps` constructs `StorageService` first.
 4. `build_apps` constructs payload, fault, iss_iface, thermal, electrical, command_router,
    downlink, and model_deploy apps via each app's `from_config`.
@@ -53,7 +55,8 @@ None at the library level. Driver construction errors occur in the caller.
 modules.
 
 Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEventMsg`,
-`ModeChangeMsg`, `ModelStagedMsg`, `UploadChunkMsg`, `StorageWriteMsg`,
+`SystemModeRequestMsg`, `SystemModeTransitionMsg`, `SystemModeActivatedMsg`,
+`SystemModeSyncRequestMsg`, `ModelStagedMsg`, `UploadChunkMsg`, `StorageWriteMsg`,
 `TelemetryEventMsg`, `ProcessedFrameMsg`, `InferenceResultMsg`, `LinkStateMsg`,
 `GimbalCommandMsg`, `HeartbeatMsg`, `ProductRefMsg`,
 `DownlinkItemMsg`, `ModelDeployStateMsg`, `SafetyStateMsg`.

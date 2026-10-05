@@ -9,7 +9,7 @@ blob_iou_match_threshold = 0.25
 min_blob_area_px = 15
 queue_depth = 4
 
-[controller.arbiter]
+[controller.operate]
 release_persistence_frames = 5
 limb_arrival_deg = 0.5
 max_observation_age_s = 0.25

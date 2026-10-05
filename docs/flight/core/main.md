@@ -40,7 +40,7 @@ every app, and runs them under the thread scheduler until shutdown.
    electrical, command_router, storage, downlink, model_deploy.
 8. Start the scheduler.
 9. Run the startup health gate for `watchdog_interval_s * 3.0` seconds. Publish
-   `ModeChangeMsg(SAFE)` when any monitored subsystem misses a first heartbeat.
+   a `SystemModeRequestMsg(SAFE)` when any monitored subsystem misses a first heartbeat.
 10. Register a SIGTERM handler that sets a shutdown event.
 11. Call `scheduler.supervise` until SIGTERM or `KeyboardInterrupt`.
 12. Call `scheduler.stop` in a `finally` block.
@@ -50,7 +50,7 @@ every app, and runs them under the thread scheduler until shutdown.
 Startup raises `SystemExit` for config load failure, calibration load failure, uplink key
 load failure, or real-sensor exposure/gain command failure.
 
-The startup health gate publishes `ModeChangeMsg(SAFE)` with `requested_by="startup_health_gate"`
+The startup health gate publishes a `SystemModeRequestMsg(SAFE)` with `requested_by="startup_health_gate"`
 when heartbeats are incomplete.
 
 The scheduler publishes `FaultEventMsg(PROCESS_DIED)` when an app thread exhausts restart
@@ -60,7 +60,7 @@ attempts.
 
 **Subscribes:** `HeartbeatMsg` (startup health gate).
 
-**Publishes:** `ModeChangeMsg` (failed startup health gate).
+**Publishes:** `SystemModeRequestMsg` (failed startup health gate).
 
 ## Configuration
 

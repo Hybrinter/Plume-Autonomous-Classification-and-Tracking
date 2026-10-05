@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from flight.libs.types import ActivationKey
 from flight.payload.graphs.base import EffectKind
-from flight.payload.records import ActivationKey
 
 
 class InitNode(Enum):

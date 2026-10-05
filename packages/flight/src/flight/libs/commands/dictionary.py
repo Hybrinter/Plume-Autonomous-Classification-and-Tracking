@@ -75,7 +75,7 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
     ),
     CommandId.EXIT_SAFE: CommandSpec(
         CommandId.EXIT_SAFE,
-        "fault",
+        "system_modes",
         (ParamSpec("phase", ParamKind.STR),),
         hazardous=True,
     ),
@@ -96,7 +96,7 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("version", ParamKind.STR),),
         hazardous=False,
     ),
-    CommandId.GIMBAL_STOW: CommandSpec(CommandId.GIMBAL_STOW, "payload", (), hazardous=False),
+    CommandId.GIMBAL_STOW: CommandSpec(CommandId.GIMBAL_STOW, "system_modes", (), hazardous=False),
     CommandId.GIMBAL_HOME: CommandSpec(CommandId.GIMBAL_HOME, "payload", (), hazardous=False),
     CommandId.GIMBAL_GOTO: CommandSpec(
         CommandId.GIMBAL_GOTO,

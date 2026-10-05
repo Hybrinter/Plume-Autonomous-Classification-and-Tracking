@@ -24,10 +24,10 @@ command router shell owns the bus, clock, and armed state.
 - `unroutable_detail`: fault detail string or `None`
 - `new_armed`: updated `(source, command_id) -> arm_time_s` map
 
-**`route_command(command, routable_targets, hazardous_ids, safe_latched, armed, now, arm_window_s) -> RouteResult`**
+**`route_command(command, routable_targets, hazardous_ids, safe_latched, safety_fresh, armed, now, arm_window_s) -> RouteResult`**
 
-- Inputs: validated command, routable target set, hazardous ID set, SAFE-latch flag, armed
-  map, monotonic seconds, ARM window seconds.
+- Inputs: validated command, routable target set, hazardous ID set, SAFE-latch flag,
+  safety-freshness flag, armed map, monotonic seconds, ARM window seconds.
 - Output: `RouteResult` for the shell to publish.
 
 ## Behavior
@@ -42,8 +42,8 @@ command router shell owns the bus, clock, and armed state.
    an accepted ack with detail `"armed"`. Do not dispatch.
 5. When hazardous and `params.phase` is `"EXECUTE"`, require a prior ARM within
    `arm_window_s`. Reject when ARM is missing or expired.
-6. When hazardous EXECUTE and `safe_latched` is true, reject all commands except
-   `EXIT_SAFE`.
+6. When hazardous EXECUTE and `safe_latched` is true, or fresh safety evidence
+   is missing or stale, reject all commands except `EXIT_SAFE` (fail closed).
 7. On valid hazardous EXECUTE, dispatch `RoutedCommandMsg` and remove the arm entry.
 8. When hazardous with any other phase, reject with detail
    `"hazardous phase must be ARM/EXECUTE"`.
@@ -67,7 +67,9 @@ The caller passes `arm_window_s` from `command_router.arm_window_s`.
 
 - No bus access, no clock reads, no I/O, no logging.
 - Hazardous commands use a two-step ARM then EXECUTE sequence.
-- `EXIT_SAFE` is the only hazardous command allowed while SAFE-latched.
+- `EXIT_SAFE` is the only hazardous command allowed while SAFE-latched; every
+  other hazardous EXECUTE also fails closed while safety evidence is stale or
+  missing. Routing never grants authority by itself.
 
 ## Related documents
 

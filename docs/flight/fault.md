@@ -6,27 +6,29 @@
 ## Purpose
 
 The fault package runs FDIR for the flight software. It watches subsystem heartbeats, routes
-`FaultEventMsg` values to mode changes, and publishes the SAFE latch state. Producing subsystems
-raise their own faults; this package routes them and emits `WATCHDOG_EXPIRE` when heartbeats stop.
+`FaultEventMsg` values to SAFE requests for the external mode authority, and publishes the
+fault-owned safety evidence. Producing subsystems raise their own faults; this package routes
+them and emits `WATCHDOG_EXPIRE` when heartbeats stop.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`app`](fault/app.md) | module | FDIR app shell: bus I/O, watchdog cycle, SAFE exit handling |
+| [`app`](fault/app.md) | module | FDIR app shell: bus I/O, watchdog cycle, recovery gating |
 | [`watchdog`](fault/watchdog.md) | pure module | Heartbeat miss counting and `WATCHDOG_EXPIRE` emission |
-| [`policy`](fault/policy.md) | pure module | SAFE-triggering fault set and mode-change message construction |
+| [`policy`](fault/policy.md) | pure module | SAFE-triggering fault set and mode-request construction |
 
 ## Package interface
 
 Re-exports `FaultApp`, `WatchdogEntry`, `build_entries`, `check_heartbeats`, `SAFE_TRIGGERING_FAULTS`,
-`decide_mode_change`, `enter_safe_mode`, and `exit_safe_mode`.
+`decide_mode_request`, `enter_safe_request`, and `recovery_authorized`.
 
 ## Interactions
 
-The fault app subscribes to `HeartbeatMsg`, `FaultEventMsg`, and `RoutedCommandMsg`. It publishes
-`ModeChangeMsg`, `SafetyStateMsg`, and `CommandAckMsg`. The composition root passes the monitored
-subsystem name tuple from `MONITORED_SUBSYSTEMS`. The fault app does not use HAL drivers.
+The fault app subscribes to `HeartbeatMsg`, `FaultEventMsg`, and `SystemModeActivatedMsg`. It
+publishes `SystemModeRequestMsg` and `SafetyStateMsg`. The composition root passes the
+monitored subsystem name tuple from `MONITORED_SUBSYSTEMS` and the activation epoch. The
+fault app does not use HAL drivers.
 
 ## Constraints
 

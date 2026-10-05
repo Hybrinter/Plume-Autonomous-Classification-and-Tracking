@@ -12,7 +12,7 @@ ValidationSystem is Protocol-typed (HAL Protocols only), so it carries whatever 
 the axes selected without the holder ever naming a concrete driver.
 
 ValidationHarness is the general single-threaded stepper: it reuses sim.sil.stepping.step_once
-(the one source of truth for a cycle) and threads the payload ControlState + FDIR watchdog entries
+(the one source of truth for a cycle) and threads the payload PayloadState + FDIR watchdog entries
 in and out, exactly as SilHarness does, but over the Protocol-typed ValidationSystem.
 
 Contains:
@@ -29,6 +29,7 @@ from __future__ import annotations
 # stdlib
 import tempfile
 from dataclasses import dataclass, replace
+from typing import Protocol
 
 # internal
 from flight.core.composition import MONITORED_SUBSYSTEMS, SystemApps, build_apps
@@ -38,10 +39,12 @@ from flight.fault.watchdog import WatchdogEntry
 from flight.hal.interfaces import GimbalActuator, ImagingSensor, ScalarSensor, StationLink
 from flight.libs.bus import MessageBus
 from flight.libs.config import PactConfig
+from flight.libs.messages import SystemModeActivatedMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import GimbalState, Ok
+from flight.libs.types import MessageType, Ok, SystemMode
 from flight.payload.calibration_io import build_identity_calibration
-from flight.payload.control import ControlState
+from flight.payload.graphs.base import GraphId
+from flight.payload.state import PayloadState, graph_name_of, node_name_of
 
 from sim.sil.environment_bind import SilEnvironmentBind
 from sim.sil.stepping import step_once
@@ -73,6 +76,7 @@ def build_validation_system(
     clock: ManualClock,
     sim_inputs: SimDriverInputs | None = None,
     uplink_key: bytes = b"sil-test-key-0000000000000000000",
+    activation_epoch: str = "sil",
 ) -> ValidationSystem:
     """Wire the flight apps over the env-selected drivers on a fresh bus, for any profile.
 
@@ -111,7 +115,9 @@ def build_validation_system(
     bus = MessageBus()
     drivers = select_drivers(config, clock, sim_inputs)
     calib = build_identity_calibration(config.sensor.height_px, config.sensor.width_px)
-    apps = build_apps(config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key)
+    apps = build_apps(
+        config, bus, clock, drivers, MONITORED_SUBSYSTEMS, calib, uplink_key, activation_epoch
+    )
     return ValidationSystem(
         apps=apps,
         bus=bus,
@@ -137,19 +143,37 @@ class ValidationHarness:
         """
         self._system = system
         self._bind = bind
-        self._now = 0.0
-        self._payload_state: ControlState = system.apps.payload.controller.initial_state()
+        self._now = system.clock.monotonic_s()
+        self._payload_state: PayloadState = system.apps.payload.initial_state()
         self._fault_entries: dict[str, WatchdogEntry] = system.apps.fault.initial_entries()
 
-    def payload_gimbal_state(self) -> GimbalState:
-        """Return the payload arbiter's current GimbalState (test/inspection accessor)."""
-        return self._payload_state.arbiter.gimbal_state
+    def payload_graph(self) -> str | None:
+        """Return the active payload GraphId value, or None before activation."""
+        name = graph_name_of(self._payload_state)
+        return name if name else None
+
+    def payload_node(self) -> str | None:
+        """Return the active graph node value, or None before activation."""
+        name = node_name_of(self._payload_state)
+        return name if name else None
+
+    def payload_system_mode(self) -> SystemMode | None:
+        """Return the system mode of the last accepted activation, or None.
+
+        Derived from the accepted SystemModeActivatedMsg snapshot only; a fault
+        latch or a mode request never appears here.
+        """
+        last = self._payload_state.activation.last
+        if last is None:
+            return None
+        return _GRAPH_TO_MODE[last.graph_id]
 
     def step(self, now: float) -> None:
         """Advance every subsystem one cycle over the shared bus (delegates to step_once).
 
         Args:
-            now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
+            now: Target monotonic seconds for the graphs and watchdog;
+                step_once advances the shared clock forward to it.
         """
         self._now = now
         system = self._system
@@ -166,11 +190,12 @@ class ValidationHarness:
         )
 
     def run_steps(self, count: int, dt: float = 1.0) -> None:
-        """Run count deterministic steps, advancing `now` and the shared clock by dt each step.
+        """Run count deterministic steps, advancing `now` by dt each step.
 
-        Advancing the shared ManualClock each step lets time-integrating sim drivers (e.g. the
-        SimGimbal first-order dynamics) integrate between steps; for real drivers the advanced
-        `now` still drives the arbiter and watchdog deterministically.
+        step_once owns the shared ManualClock: each step advances it forward
+        to the step's `now`, so callers never advance the clock separately.
+        For real drivers the advanced `now` still drives the graphs and
+        watchdog deterministically.
 
         Args:
             count: Number of steps to run.
@@ -180,7 +205,6 @@ class ValidationHarness:
         for _ in range(count):
             now += dt
             self.step(now)
-            self._system.clock.advance(dt)
 
 
 def load_profile_config(config_path: str, override_path: str) -> PactConfig:
@@ -203,3 +227,59 @@ def load_profile_config(config_path: str, override_path: str) -> PactConfig:
     if not isinstance(result, Ok):
         raise ValueError(f"config load failed: {result.error}")
     return result.value
+
+
+_GRAPH_TO_MODE: dict[GraphId, SystemMode] = {
+    GraphId.IDLE: SystemMode.IDLE,
+    GraphId.STOW: SystemMode.STOW,
+    GraphId.SAFE: SystemMode.SAFE,
+    GraphId.INIT: SystemMode.INIT,
+    GraphId.OPERATE: SystemMode.OPERATE,
+}
+
+
+class ActivationTarget(Protocol):
+    """Structural holder for explicit activation injection (SilSystem/ValidationSystem)."""
+
+    @property
+    def apps(self) -> SystemApps: ...
+    @property
+    def bus(self) -> MessageBus: ...
+    @property
+    def clock(self) -> ManualClock: ...
+
+
+def publish_activation(
+    system: ActivationTarget,
+    mode: SystemMode,
+    sequence: int = 1,
+    previous_mode: SystemMode | None = None,
+    request_id: str | None = None,
+    recovery_authorized: bool = False,
+) -> None:
+    """Publish an explicit authority activation onto the system bus.
+
+    Test/GSE injection seam only: the harness runs no fake authority, so tests
+    and scenario steps publish the activation record they intend to exercise.
+
+    Args:
+        system: The wired ValidationSystem whose bus carries the record.
+        mode: The activated SystemMode (maps onto the same-named payload graph).
+        sequence: Authority activation sequence under the system epoch.
+        previous_mode: Previously active mode, or None on initial activation.
+        request_id: Correlated request identity, or None.
+        recovery_authorized: Authority-approved EXIT_SAFE recovery flag.
+    """
+    system.bus.publish(
+        SystemModeActivatedMsg(
+            msg_type=MessageType.SYSTEM_MODE_ACTIVATED,
+            timestamp_utc=system.clock.wall_clock_iso(),
+            epoch=system.apps.payload.activation_epoch,
+            sequence=sequence,
+            previous_mode=previous_mode,
+            active_mode=mode,
+            reason="injected_activation",
+            request_id=request_id,
+            recovery_authorized=recovery_authorized,
+        )
+    )

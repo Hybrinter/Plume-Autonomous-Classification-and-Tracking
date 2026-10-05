@@ -36,18 +36,17 @@ parameters against that schema.
 | `PING` | `core` | none | no |
 | `NOOP` | `core` | none | no |
 | `SET_THERMAL_LIMIT` | `thermal` | `limit_c: float` | no |
-| `EXIT_SAFE` | `fault` | `phase: str` | yes |
+| `EXIT_SAFE` | `system_modes` | `phase: str` | yes |
 | `UPLOAD_MODEL_CHUNK` | `iss_iface` | chunk fields | no |
 | `ACTIVATE_MODEL` | `model_deploy` | `version: str` | no |
-| `GIMBAL_STOW` | `payload` | none | no |
+| `GIMBAL_STOW` | `system_modes` | none | no |
 | `GIMBAL_HOME` | `payload` | none | no |
 | `GIMBAL_GOTO` | `payload` | `el_deg: float` | no |
 | `GIMBAL_HOLD` | `payload` | none | no |
 | `GIMBAL_RESUME` | `payload` | none | no |
 
-`GIMBAL_HOLD` and `GIMBAL_RESUME` are declared graph-vocabulary commands. The
-current payload app has no handler for them and rejects them as unsupported;
-execution arrives with the runtime cutover.
+`system_modes` commands are addressed to the external mode authority; the
+payload HOLD/RESUME/GOTO commands execute as OPERATE-graph command edges.
 
 ## Inputs and outputs
 

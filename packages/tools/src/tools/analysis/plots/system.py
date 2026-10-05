@@ -17,7 +17,7 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
     """Build the system-rollup figures from the system wide frame."""
     candidates = [
         common.categorical_timeline(
-            wide, "system.mode", name="system_mode", title="System mode (from SafetyStateMsg)"
+            wide, "system.mode", name="system_mode", title="System mode (accepted activation)"
         ),
         common.line_panel(
             wide,

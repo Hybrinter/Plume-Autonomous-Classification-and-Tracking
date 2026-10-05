@@ -1,14 +1,34 @@
-"""SIL integration: command routing (ingress->route->execute->ack) and SAFE enter/exit."""
+"""SIL integration: command routing (ingress->route->execute->ack) and SAFE request/recovery."""
 
+from dataclasses import replace
+
+from flight.libs.bus import Subscription
 from flight.libs.commands import build_tc_packet
 from flight.libs.config import PactConfig
-from flight.libs.messages import CommandAckMsg, ModeChangeMsg, RoutedCommandMsg
+from flight.libs.messages import (
+    CommandAckMsg,
+    RoutedCommandMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
+)
 from flight.libs.time import ManualClock
-from flight.libs.types import AckStatus, GimbalState, SystemMode
+from flight.libs.types import AckStatus, SystemMode
 from sim.scene import build_frames, plume_detector
-from sim.sil import SilHarness, build_sil_system
+from sim.sil import SilHarness, build_sil_system, publish_activation
 
 _KEY = b"sil-test-key-0000000000000000000"
+
+
+def _config() -> PactConfig:
+    """Default config with zeroed sim encoder noise (keeps the 0-deg bound fresh)."""
+    base = PactConfig()
+    return replace(
+        base,
+        gimbal=replace(
+            base.gimbal,
+            simulation=replace(base.gimbal.simulation, encoder_noise_deg=0.0),
+        ),
+    )
 
 
 def test_command_routed_executed_and_acked() -> None:
@@ -38,21 +58,28 @@ def test_command_routed_executed_and_acked() -> None:
     assert exec_acks  # both ingress + thermal-execution acks are ACCEPTED
 
 
-def test_safe_entered_then_exited_via_arm_execute() -> None:
-    """Power over-limit latches SAFE; a ground EXIT_SAFE (ARM->EXECUTE) recovers once cleared."""
+def test_safe_request_then_authorized_recovery() -> None:
+    """Power over-limit latches containment and raises a SAFE request to the authority.
+
+    The request alone never selects a graph: the payload graph stays OPERATE while
+    hardware is inhibited. EXIT_SAFE ARM/EXECUTE route to the authority target, and a
+    recovery-authorized IDLE activation releases the latch once fault evidence confirms.
+    """
     system = build_sil_system(
-        PactConfig(),
+        _config(),
         ManualClock(),
         build_frames(20),
         plume_detector(),
         inbound_packets=[],
         thermal_readings=[20.0],
-        # spike over 55 W (latch SAFE) then hold 10 W so EXIT_SAFE's fault-clear gate opens
         power_readings=[10.0, 10.0, 80.0, 80.0, 10.0],
     )
     harness = SilHarness(system)
-    modes = system.bus.subscribe(ModeChangeMsg)
+    requests = system.bus.subscribe(SystemModeRequestMsg)
     acks = system.bus.subscribe(CommandAckMsg)
+    activations = system.bus.subscribe(SystemModeActivatedMsg)
+
+    publish_activation(system, SystemMode.OPERATE, sequence=1)
 
     now = 0.0
 
@@ -61,13 +88,14 @@ def test_safe_entered_then_exited_via_arm_execute() -> None:
         for _ in range(steps):
             now += 1.0
             harness.step(now)
-            system.clock.advance(1.0)
 
-    advance(4)  # by step 3-4 power is over-limit -> SAFE latched
-    assert harness.payload_gimbal_state() is GimbalState.SAFE
-    assert SystemMode.SAFE in [m.new_mode for m in _drain(modes)]
+    advance(4)
+    reqs = _drain(requests)
+    assert any(r.requested_mode is SystemMode.SAFE and r.requested_by == "fault" for r in reqs)
+    assert harness.payload_system_mode() is SystemMode.OPERATE
+    assert system.apps.payload.containment.local_latched
 
-    advance(3)  # power now reads 10 W (cleared) -> the triggering fault clears
+    advance(3)
 
     system.station.enqueue(
         build_tc_packet("EXIT_SAFE", {"phase": "ARM"}, "ground", 1, _KEY, apid=1)
@@ -76,19 +104,33 @@ def test_safe_entered_then_exited_via_arm_execute() -> None:
     system.station.enqueue(
         build_tc_packet("EXIT_SAFE", {"phase": "EXECUTE"}, "ground", 2, _KEY, apid=1)
     )
-    advance(1)  # router routes EXECUTE -> fault app publishes ModeChangeMsg(IDLE)
-    advance(1)  # arbiter polls the IDLE mode change at the next cycle and leaves SAFE
-
-    assert harness.payload_gimbal_state() is not GimbalState.SAFE
-    exit_acks = [
-        a for a in _drain(acks) if a.command_id == "EXIT_SAFE" and a.status is AckStatus.ACCEPTED
+    advance(1)
+    rejected = [
+        a for a in _drain(acks) if a.command_id == "EXIT_SAFE" and a.status is AckStatus.REJECTED
     ]
-    assert exit_acks  # the fault app emitted an ACCEPTED execution ack for EXIT_SAFE
+    assert not rejected
+    assert harness.payload_system_mode() is SystemMode.OPERATE
+    assert system.apps.payload.containment.local_latched
+
+    publish_activation(
+        system,
+        SystemMode.IDLE,
+        sequence=2,
+        previous_mode=SystemMode.SAFE,
+        request_id="rec-1",
+        recovery_authorized=True,
+    )
+    advance(2)
+
+    assert not system.apps.payload.containment.local_latched
+    assert harness.payload_system_mode() is SystemMode.IDLE
+    accepted = _drain(activations)
+    assert accepted and accepted[-1].recovery_authorized
 
 
-def _drain(subscription: object) -> list:  # type: ignore[type-arg]
+def _drain[T](subscription: Subscription[T]) -> list[T]:
     """Drain all pending messages from a subscription into a list (order-preserving)."""
-    out: list = []  # type: ignore[type-arg]
-    while not subscription.empty():  # type: ignore[attr-defined]
-        out.append(subscription.get_nowait())  # type: ignore[attr-defined]
+    out: list[T] = []
+    while not subscription.empty():
+        out.append(subscription.get_nowait())
     return out

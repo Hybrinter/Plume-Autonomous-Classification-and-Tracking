@@ -1,14 +1,15 @@
 """Driver-agnostic single-step body for the SIL harness and the GSE in-process backend.
 
-step_once reproduces exactly one deterministic SIL cycle: poll mode changes, catch up
-the inner and outer loops to ``now``, optionally bind the simulated world at shutter,
-acquire and process one payload frame when the duty gate is due (otherwise drain one
-unread frame), apply prior-cycle payload pose commands, sample housekeeping, pump the
-ISS bridge, publish per-subsystem liveness heartbeats, then run the FDIR tick. It is
-Protocol-typed (ImagingSensor /
-GimbalActuator / MessageBus) so both SilHarness and the GSE InProcessBackend can
-reuse it without depending on concrete drivers. State (payload ControlState + the
-FDIR watchdog entries) is threaded in and out, never held in this module.
+step_once reproduces exactly one deterministic SIL cycle: drain activations and
+safety evidence, catch up the inner and outer control loops to ``now``, optionally
+bind the simulated world at shutter, run one conservative capture cycle (acquire +
+process when the policy/duty gate is due, otherwise drain one unread frame), apply
+routed payload commands, pump the ISS bridge, run the command router, sample
+housekeeping, tick storage/downlink, publish per-subsystem liveness heartbeats,
+then run the FDIR tick. It is Protocol-typed (ImagingSensor / GimbalActuator /
+MessageBus) so both SilHarness and the GSE InProcessBackend can reuse it without
+depending on concrete drivers. State (payload PayloadState + the FDIR watchdog
+entries) is threaded in and out, never held in this module.
 
 Contains:
   - SilCycleBind: optional world evaluate + driver feed after catch-up
@@ -29,8 +30,8 @@ from flight.hal.interfaces import GimbalActuator, ImagingSensor
 from flight.libs.bus import MessageBus
 from flight.libs.messages import HeartbeatMsg
 from flight.libs.time import ManualClock
-from flight.libs.types import MessageType, Ok
-from flight.payload.control import ControlState
+from flight.libs.types import MessageType
+from flight.payload.state import PayloadState
 
 from sim.environment.records import EnvSample
 
@@ -46,35 +47,27 @@ class SilCycleBind(Protocol):
 
 def _catch_up_loops(
     apps: SystemApps,
+    clock: ManualClock,
     now: float,
-    payload_state: ControlState,
-    safe_commanded: bool,
-    safe_cleared: bool,
-) -> ControlState:
-    """Advance inner and outer loops to ``now`` with interleaved outer ticks.
+    payload_state: PayloadState,
+) -> PayloadState:
+    """Advance the shared clock to ``now`` in inner-period control ticks.
 
-    A first step with ``last_outer_s is None`` stamps loop origins, runs inner
-    through ``now`` so encoder samples exist, then outer, then trailing inner.
-    Later steps run inner-then-outer for each ``T_out`` slice, then trailing
-    inner to ``now``.
+    The control loops are seeded once at the current clock, then the clock
+    advances to ``now`` in increments of the payload inner period
+    (``min(current + dt, now)``, terminating within 1e-12) with the same
+    ``control_tick`` seam invoked at each deadline. Physical device time
+    therefore progresses even while the actuator is inhibited -- no torque
+    writes or forged timestamps are needed to advance simulated plants.
     """
-    dt_out = apps.payload.controller.cfg.outer.dt_s
-    t_out = payload_state.last_outer_s
-    if t_out is None:
-        payload_state = apps.payload.advance_inner(payload_state, now)
-        payload_state, _ = apps.payload.advance_outer(
-            payload_state, now, safe_commanded, safe_cleared
-        )
-        return apps.payload.advance_inner(payload_state, now)
-    while t_out + dt_out <= now + 1e-12:
-        t_out = t_out + dt_out
-        payload_state = apps.payload.advance_inner(payload_state, t_out)
-        payload_state, _ = apps.payload.advance_outer(
-            payload_state, t_out, safe_commanded, safe_cleared
-        )
-        safe_commanded = False
-        safe_cleared = False
-    return apps.payload.advance_inner(payload_state, now)
+    dt = apps.payload.servo.cfg.inner.dt_s
+    state = apps.payload.control_tick(payload_state, clock.monotonic_s())
+    t = clock.monotonic_s()
+    while t < now:
+        t = min(t + dt, now)
+        clock.advance(t - clock.monotonic_s())
+        state = apps.payload.control_tick(state, clock.monotonic_s())
+    return state
 
 
 def step_once(
@@ -84,62 +77,50 @@ def step_once(
     bus: MessageBus,
     clock: ManualClock,
     now: float,
-    payload_state: ControlState,
+    payload_state: PayloadState,
     fault_entries: dict[str, WatchdogEntry],
     bind: SilCycleBind | None = None,
-) -> tuple[ControlState, dict[str, WatchdogEntry]]:
+) -> tuple[PayloadState, dict[str, WatchdogEntry]]:
     """Advance every subsystem one deterministic cycle over the shared bus.
 
-    Order: poll mode changes -> per-T_out inner-then-outer catch-up to ``now`` ->
-    optional bind.pre_step -> acquire and process one payload frame when the imaging
-    duty gate is due, otherwise drain one unread frame -> apply payload pose commands
-    from the prior cycle -> ISS bridge pump -> command router -> housekeeping
+    Order: drain payload activations/safety evidence at the current clock
+    -> inner-period control ticks that advance the shared clock to ``now``
+    (routed payload commands commit inside the outer tick) -> optional
+    bind.pre_step (one control-owned feedback sample first, so a non-grid
+    shutter has actual encoder evidence) -> one conservative capture cycle
+    -> ISS bridge pump -> command router -> housekeeping
     handle-commands + sample -> storage/downlink ticks -> heartbeats -> FDIR tick.
-    Catch-up before acquire leaves encoder samples through shutter time. Ground pose
-    commands routed this cycle apply on a later cycle's catch-up.
+    This function owns forward advancement of the shared clock to ``now`` and
+    never rewinds it; callers must not advance the clock separately. Activations
+    arrive only via explicit SystemModeActivatedMsg publications; nothing here
+    fabricates authority.
 
     Args:
         apps: The wired SystemApps (payload / fault / iss_iface / thermal / electrical).
         sensor: The imaging sensor Protocol the payload acquires or drains this cycle.
-        gimbal: The gimbal actuator Protocol whose position feeds the payload controller.
+        gimbal: The gimbal actuator Protocol whose position feeds the payload servo.
         bus: The shared in-process MessageBus all apps publish/subscribe on.
         clock: The ManualClock supplying wall-clock timestamps for the heartbeats.
-        now: Monotonic seconds for the arbiter and watchdog (advanced by the caller).
-        payload_state: The payload ControlState threaded in from the previous cycle.
+        now: Target monotonic seconds for the graphs and watchdog; step_once
+            advances the shared clock forward to it (never backward).
+        payload_state: The payload PayloadState threaded in from the previous cycle.
         fault_entries: The FDIR watchdog entries threaded in from the previous cycle.
         bind: Optional world evaluate + driver feed run after catch-up, before acquire.
 
     Returns:
-        A tuple of the new payload ControlState and the new FDIR watchdog entries.
+        A tuple of the new payload PayloadState and the new FDIR watchdog entries.
 
     Notes:
         Driver-agnostic by construction: it imports only HAL Protocols + apps, never a
         concrete driver, so the GSE in-process backend reuses it verbatim. The body is the
         single source of truth for one SIL cycle; SilHarness.step delegates here.
     """
-    safe_commanded, safe_cleared = apps.payload.poll_mode_changes()
-    payload_state = _catch_up_loops(apps, now, payload_state, safe_commanded, safe_cleared)
+    payload_state = apps.payload.poll_activations(payload_state, clock.monotonic_s())
+    payload_state = _catch_up_loops(apps, clock, now, payload_state)
+    apps.payload.sample_feedback()
     if bind is not None:
         bind.pre_step(now)
-    if apps.payload.capture_this_opportunity():
-        acquired = sensor.acquire_frame()
-        if isinstance(acquired, Ok):
-            pos = gimbal.read_position()
-            payload_state, _ = apps.payload.process_frame(
-                acquired.value,
-                payload_state,
-                now,
-                gimbal_pos=pos.value if isinstance(pos, Ok) else None,
-                safe_commanded=safe_commanded,
-                safe_cleared=safe_cleared,
-            )
-    else:
-        drained = sensor.drain_frame()
-        if isinstance(drained, Ok):
-            pos = gimbal.read_position()
-            if isinstance(pos, Ok):
-                apps.payload.note_gimbal_feedback(pos.value)
-    apps.payload.handle_commands()
+    payload_state, _capture = apps.payload.capture_once(payload_state, now)
 
     apps.iss_iface.tick()
     apps.command_router.tick()

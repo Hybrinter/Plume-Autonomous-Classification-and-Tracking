@@ -2,6 +2,7 @@ name = "closed_loop_pointing"
 profile = "sil"
 steps = 8
 dt = 1.0
+initial_mode = "OPERATE"
 
 [scene]
 num_frames = 8

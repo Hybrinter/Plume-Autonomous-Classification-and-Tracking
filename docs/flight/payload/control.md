@@ -6,122 +6,85 @@
 
 ## Purpose
 
-`PayloadController` is the pure cascaded elevation controller. It exposes
-`inner_step` and `outer_step`. The inner path keeps the detailed-plant encoder
-rate fit and PI state. The outer path uses timestamped encoder increments,
-predictor events, vision replay, and the rate law.
+`ServoController` is the pure mode-free servo core. It maps a typed
+`ControlReference` produced by the active payload graph onto a bounded rate
+reference, then advances the encoder ring, the polynomial rate estimate, and
+the PI + computed-torque inner loop. It holds no graph, mode, or vision
+knowledge; SAFE and inhibit reach it only as references.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `EncoderState` | dataclass | Timestamped encoder samples, last angle, and measured rate |
+| `EncoderState` | dataclass | Encoder sample ring, last angle, and measured rate |
 | `InnerControlState` | dataclass | Inner PI integrator, last inner time, and last torque |
-| `IntegrityState` | dataclass | Freeze strike counter |
-| `TargetState` | dataclass | Stored CoG and last scene-rate terms |
-| `PoseState` | dataclass | Position-loop mode and target elevation |
-| `ControlState` | dataclass | Nested records grouped by the loop that updates them |
-| `InnerTick` | dataclass | Updated state and detailed-plant torque |
-| `OuterTick` | dataclass | Updated state, optional pose request, telemetry, and fault |
-| `PayloadController` | dataclass | Immutable cascaded control core |
-| `PayloadController.from_config` | static method | Builds the control core from typed config |
-| `PayloadController.initial_state` | method | Cold TRACKING state and empty residual history |
-| `PayloadController.ingest_inference` | method | Gates blobs and creates a vision sample |
-| `PayloadController.inner_step` | method | Updates the detailed-plant PI path |
-| `PayloadController.outer_step` | method | Submits events and computes the outer rate |
+| `IntegrityState` | dataclass | Encoder-freeze strike counter |
+| `ServoState` | dataclass | The physical-plant memory threaded across inner ticks |
+| `InnerTick` | dataclass | Updated `ServoState` plus the torque command |
+| `ServoController` | dataclass | Immutable mode-free servo core |
+| `ServoController.from_config` | static method | Builds the core from typed config slices |
+| `ServoController.initial_state` | method | Empty encoder ring, zeroed PI and rate |
+| `ServoController.reference_rate` | method | Maps a reference onto a bounded absolute rate |
+| `ServoController.inner_step` | method | Pushes the encoder, fits the rate, emits torque |
 
 ## Inputs and outputs
 
-`from_config` takes controller, sensor, gimbal, ephemeris, and preprocessing
-slices. `inner_step` takes a raw encoder angle and optional encoder sample time.
-`outer_step` takes an `EncoderSample`, an optional `VisionSample`, an optional
-`IssSample` (both defined in `flight.payload.records`), SAFE flags, and an
-optional explicit `PredictorReferenceChange`.
-
-`OuterTick.state.residual_history` contains the bounded event history.
-`OuterTick.state.residual` is the snapshot of `estimate_at` at the last
-TRACKING tick. `inner_step` writes `EncoderState`, `InnerControlState`, and
-`commanded_rate_rad_s`. `outer_step` writes arbiter, residual, `TargetState`,
-`PoseState`, `last_outer_s`, `commanded_rate_rad_s`, and `last_rate_decision`.
+`from_config` takes `ControllerConfig` and `GimbalConfig` slices (inner,
+position, and integrity sections plus plant values). `reference_rate` takes a
+`ControlReference`, the current encoder elevation in radians, and the
+`detailed_plant` flag; it returns `Result[float, FaultCode]` -
+`Err(COMMAND_INVALID)` on an invalid reference or nonfinite elevation, `0.0`
+for an `InhibitReference`. `inner_step` takes the `ServoState`, `now`, one
+`EncoderSample`, the committed reference, and an optional inner period; it
+returns an `InnerTick` with the updated state and the commanded torque.
 
 ## Behavior
 
-1. `ingest_inference` applies confidence and area gates, matches blobs, and
-   forms the area-weighted centroid of every accepted component. It stores the
-   frame ID and shutter time in the queued sample.
-2. `inner_step` appends one `EncoderSample` to `EncoderState.samples`, trims
-   the ring to `rate_fit_n`, fits `measured_rate_rad_s`, and runs the
-   detailed-plant PI. The measured rate remains available for inner integrity
-   checks and simulation. It is not an outer residual-estimator input.
-3. `outer_step` updates CoG from vision while TRACKING. It cold-starts the
-   residual on TRACKING acquire. An identity reset drops the stored CoG unless
-   this frame wrote a new intersect. It then calls `cog_scene` or
-   `boresight_scene`. Residual
-   encoder, nominal, and vision events run only in TRACKING. REWIND and
-   FAST_REWIND freeze the residual and set `TargetState.r_cog_ecef_m` to `None`.
-4. Residual replay uses encoder angle displacement, encoder uncertainty, and
-   reversal uncertainty. A vision event is accepted only when its shutter time
-   has an exact encoder sample or a valid bracket. TRACKING acquire seeds the
-   checkpoint at shutter when the sample carries a shutter encoder angle. A
-   missing shutter angle leaves the checkpoint angle unset.
-5. `cog_scene` supplies the nominal elevation rate of a frozen ECEF CoG in
-   TRACKING; `boresight_scene` supplies the boresight height-proxy hit in
-   REWIND and FAST_REWIND.
-   Missing ISS is
-   unknown navigation. It is not a zero-rate scene. An IoU-matched CoG
-   replacement rebases residual rate with the old CoG at the current ISS time.
-   ISS motion between ticks is not a reference jump.
-6. The tracking/rewind path composes the scene and relative terms at the
-   caller and calls `rate_decision`; it stores
-   `RateDecision.commanded_rate_rad_s` on `ControlState.commanded_rate_rad_s`.
-   It also stores the `RateDecision` on `last_rate_decision`. The pose path
-   leaves `last_rate_decision` empty. TRACKING matches
-   `omega_t_nom + omega_t_res` and smear-caps only `Kp * e`. REWIND matches
-   boresight-ground `omega_el` and hunts at `+omega_sharp`. FAST_REWIND hunts at
-   `+omega_hw` without the nominal term. Residual
-   is ignored and is not fed boresight rates. Visual tracking can run without
-   navigation. The pose path writes a float `r` from `position_rate`.
-7. STOW, HOME, and ABSOLUTE requests override tracking through the position loop.
-   SAFE zeros tracking and SAFE exit resets the residual checkpoint. REWIND and
-   FAST_REWIND do
-   not drop the inner encoder samples. A single TRACKING miss keeps the residual
-   and CoG. Acquire from cold, from REWIND or FAST_REWIND, or from unmatched blob
-   IDs resets the
-   residual. That reset also drops the prior CoG unless this frame produced a new
-   intersect.
-8. The state starts with `inner.last_inner_s` and `last_outer_s` set to `None`.
+1. `reference_rate` validates the reference with `validate_reference`, then
+   maps it: `InhibitReference` to zero, `PoseReference`/`StowReference` through
+   `position_rate` clipped by the position cap and the envelope rate cap, and
+   `RateReference` through the directional `stopping_cap` guard against the
+   science-boundary guard offset. The unbounded (production) form of
+   `stopping_cap` leaves outward rates at zero on an exhausted bound.
+2. `inner_step` appends the sample to the bounded encoder ring
+   (`rate_fit_n` entries), fits `measured_rate_rad_s` with
+   `fit_rate_timed`, and runs the PI through `gimbal.inner_step`.
+3. An `InhibitReference` or an invalid reference produces a zero tick: the
+   encoder frame still updates but the integrator, torque, and commanded rate
+   reset to zero.
+4. At a hardware stop the inbound rate estimate is dropped while the command
+   points off the stop, so a one-count phantom rate cannot command torque into
+   the stop.
+5. The inner state starts with `last_inner_s` set to `None`.
 
 ## Errors and faults
 
-`OuterTick.fault` is `None`; the app shell publishes integrity and HAL faults.
-Residual event dispositions are retained by the history API and are available
-to telemetry integration.
+`reference_rate` returns `Err(COMMAND_INVALID)` on a failed
+`validate_reference` or a nonfinite encoder elevation; `inner_step` degrades
+that to a zero tick so no torque leaves the core. The shell latches
+containment and publishes the fault.
 
 ## Messages
 
-None. The pure core returns `GimbalRequest` and `TelemetryEventMsg` values. The
-app shell publishes them.
+None. The core returns records; the app shell publishes any telemetry.
 
 ## Configuration
 
-The controller reads nested vision, arbiter, inner, outer, residual, position,
-integrity, and predictor config. `predictor.cog_height_m` is the tracking-proxy
-intersect height. `outer.rewind_sharp_max_s` is the REWIND window before FAST_REWIND.
-The
-residual config supplies continuous acceleration density, encoder and reversal
-uncertainty, interpolation and timing limits, and history horizon. Gimbal
-geometry, plant values, WGS-84 values, and smear budget remain injected typed
-config.
+The core reads the `inner`, `position`, and `integrity` slices of
+`ControllerConfig` plus `GimbalConfig` plant and envelope values. The
+`science_boundary_guard_deg` offset bounds `RateReference` travel; `K_pos` and
+`r_max_deg_per_s` bound the position loop.
 
 ## Constraints
 
-The module performs no I/O, bus access, or clock reads. State is immutable. The
-inner path remains available for the detailed simulation plant. Production
-hardware uses the rate-command HAL path selected by the app shell.
+The module performs no I/O, bus access, or clock reads. State records are
+frozen dataclasses. Time, encoder samples, and the control reference are
+arguments. The servo is mode-free: graphs emit references and the shell maps
+activations; nothing here branches on a mode or graph name.
 
 ## Related documents
 
 - [`flight.payload.gimbal`](gimbal.md)
-- [`flight.payload.gimbal.scene`](gimbal/scene.md)
-- [`flight.payload.tracking`](tracking.md)
+- [`flight.payload.gimbal.request`](gimbal/request.md)
+- [`flight.payload.state`](state.md)
 - [`flight.payload.app`](app.md)

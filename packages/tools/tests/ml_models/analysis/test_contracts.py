@@ -16,6 +16,7 @@ from tools.ml_models.analysis.contracts import (
     NamedCount,
     SampleKey,
     SplitEvidence,
+    StratumEvidence,
 )
 
 _HEX = "a" * 64
@@ -540,6 +541,20 @@ def test_split_evidence_defaults() -> None:
     assert evidence.checkpoint_hash is None
     named = _split(metrics=(MetricValue(name="iou", value=0.5, status="AVAILABLE"),))
     assert named.metrics[0].name == "iou"
+
+
+def test_stratum_identity_keeps_missing_values_distinct() -> None:
+    """Missing bins cannot collide with literal names or colon-containing identifiers."""
+    support = MetricSupport(unit="IMAGE", n=1)
+    records = tuple(
+        StratumEvidence(name=name, value=value, metrics=(), support=support)
+        for name, value in (("gsd_bin", None), ("gsd_bin", "None"), ("a:b", "c"), ("a", "b:c"))
+    )
+    assert _split(strata=records).strata == records
+    with pytest.raises(ValueError):
+        _split(strata=(records[0], records[0]))
+    with pytest.raises(ValueError):
+        StratumEvidence(name="x", value="", metrics=(), support=support)
 
 
 def test_split_evidence_validation() -> None:

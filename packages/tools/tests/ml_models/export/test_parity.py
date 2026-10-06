@@ -222,11 +222,18 @@ def test_export_manifest_contents(tmp_path: Path) -> None:
 
 
 def test_exported_pair_cannot_promote_without_acceptance(
-    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Real exports pass shape gates; blocked acceptance blocks pairing."""
+    import tools.ml_models.export.accept as accept_module
     from tools.ml_models.export.accept import accept_artifact
     from tools.ml_models.export.pair import write_pair_manifest
+
+    monkeypatch.setattr(
+        accept_module,
+        "evaluate_split",
+        lambda *_args, **_kwargs: Err("required quality evidence unavailable"),
+    )
 
     inference = InferenceConfig()
     artifacts: dict[str, Path] = {}
@@ -316,10 +323,10 @@ def test_export_refuses_existing_files(tmp_path: Path) -> None:
     assert artifact.read_bytes() == b"keep"
 
 
-def test_full_acceptance_flow_fails_closed(
+def test_full_acceptance_flow_uses_shared_evidence(
     tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
 ) -> None:
-    """accept_artifact refuses to score while the evaluator is unavailable."""
+    """A real exported artifact yields exhaustive evidence through the restored evaluator."""
     from tools.ml_models.export.accept import accept_artifact
 
     ckpt, _model = _checkpoint(tmp_path)
@@ -336,5 +343,10 @@ def test_full_acceptance_flow_fails_closed(
         min_accuracy=0.0,
         max_latency_ms=1000.0,
     )
-    assert isinstance(report, Err)
-    assert "unavailable" in report.error
+    assert isinstance(report, Ok), report
+    assert report.value["accepted"] is True
+    assert report.value["sha256"] == manifest.sha256
+    evaluation = report.value["evaluation"]
+    assert isinstance(evaluation, dict)
+    assert evaluation["task"] == "classifier"
+    assert evaluation["split"] == "test"

@@ -7,6 +7,7 @@ import pytest
 from flight.libs.types import Err, Ok
 from tools.ml_models.analysis.config import ScoreConfig
 from tools.ml_models.analysis.metrics.segmentation import (
+    SegmentationAccumulator,
     SegmentationEvidence,
     aggregate_segmentation,
     score_segmentation_image,
@@ -15,6 +16,36 @@ from tools.ml_models.analysis.metrics.segmentation import (
 
 def _scores(evidence: SegmentationEvidence) -> dict[str, float | None]:
     return {metric.name: metric.value for metric in evidence.metrics}
+
+
+def test_streaming_accumulator_preserves_scores_without_per_image_histograms() -> None:
+    """Scalar retention plus a pooled histogram preserves unequal-size exact evidence."""
+    cfg = ScoreConfig(pixel_histogram_bins=8, n_calibration_bins=4)
+    first = score_segmentation_image(
+        [[2.0, -2.0], [0.0, -4.0]],
+        [[1, 0], [1, 0]],
+        label=1.0,
+        verified_empty=False,
+        cfg=cfg,
+    )
+    second = score_segmentation_image(
+        [[-2.0, 3.0, -1.0]],
+        [[0, 0, 0]],
+        label=0.0,
+        verified_empty=True,
+        cfg=cfg,
+    )
+    assert isinstance(first, Ok) and isinstance(second, Ok)
+    direct = aggregate_segmentation((first.value, second.value))
+    accumulator = SegmentationAccumulator()
+    assert isinstance(accumulator.add(first.value), Ok)
+    assert isinstance(accumulator.add(second.value), Ok)
+    streamed = accumulator.result()
+    assert isinstance(direct, Ok) and isinstance(streamed, Ok)
+    assert streamed.value == direct.value
+    assert all(not row.histogram.positive_counts for row in accumulator._rows)
+    assert sum(streamed.value.histogram.positive_counts) == 2
+    assert sum(streamed.value.histogram.negative_counts) == 5
 
 
 def test_partial_overlap_and_anisotropic_area() -> None:

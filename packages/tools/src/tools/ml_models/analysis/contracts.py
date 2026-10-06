@@ -14,6 +14,7 @@ Contains:
   - ArtifactRef: content-addressed reference to a bundle file.
   - DatasetIdentity, CodeIdentity, CheckpointIdentity: provenance records.
   - AvailabilityRecord: explicit output status with reasons.
+  - StratumEvidence: one named cohort value with metrics and support.
   - SplitEvidence: task/split/dataset identity plus metrics and artifacts.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -495,6 +496,24 @@ class AvailabilityRecord:
 
 
 @dataclass(frozen=True, slots=True, config=_SCHEMA)
+class StratumEvidence:
+    """Named cohort value with explicit support and independently computed scores."""
+
+    name: str
+    value: str | None
+    metrics: tuple[MetricValue, ...]
+    support: MetricSupport
+
+    @model_validator(mode="after")
+    def _bounds(self) -> StratumEvidence:
+        _require_nonblank(self.name, "stratum name")
+        if self.value is not None:
+            _require_nonblank(self.value, "stratum value")
+        _check_unique_names(tuple(metric.name for metric in self.metrics), "stratum metric")
+        return self
+
+
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
 class SplitEvidence:
     """Evidence for one task and split of one dataset.
 
@@ -521,6 +540,7 @@ class SplitEvidence:
     artifacts: tuple[ArtifactRef, ...] = field(default=())
     support: MetricSupport = field(default_factory=lambda: MetricSupport(unit="IMAGE", n=0))
     warnings: tuple[str, ...] = field(default=())
+    strata: tuple[StratumEvidence, ...] = field(default=())
 
     @model_validator(mode="after")
     def _bounds(self) -> SplitEvidence:
@@ -532,4 +552,7 @@ class SplitEvidence:
         _check_unique_names(tuple(m.name for m in self.metrics), "metric")
         _check_unique_names(tuple(c.name for c in self.curves), "curve")
         _check_unique_names(tuple(a.path for a in self.artifacts), "artifact path")
+        identities = tuple((stratum.name, stratum.value) for stratum in self.strata)
+        if len(set(identities)) != len(identities):
+            raise ValueError("stratum identities must be unique")
         return self

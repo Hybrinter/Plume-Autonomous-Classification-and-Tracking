@@ -34,7 +34,8 @@ identity records for datasets, code, and checkpoints.
 | `CodeIdentity` | dataclass | Revision/dirty provenance with explicit unknown state |
 | `CheckpointIdentity` | dataclass | Checkpoint hash, task, arch, and training dataset |
 | `AvailabilityRecord` | dataclass | One output's availability with reason and requirement |
-| `SplitEvidence` | dataclass | Task/split/dataset identity plus metrics, curves, and artifacts |
+| `StratumEvidence` | dataclass | Named cohort value with metrics and support |
+| `SplitEvidence` | dataclass | Task/split/dataset identity plus metrics, curves, artifacts, and strata |
 
 ## Inputs and outputs
 
@@ -53,8 +54,10 @@ Curve `x`/`y` lengths must match; thresholds are empty or aligned, and a
 `None` threshold may mark the predict-none operating point. `HISTOGRAM`
 curves require `n_bins >= 2` and a descriptive note; `EXACT` curves cannot
 carry `n_bins`. Artifact paths are safe relative POSIX paths. `UNAVAILABLE`
-and `SKIPPED` availability records require reasons. `SplitEvidence`
-requires unique metric names, curve names, and artifact paths.
+and `SKIPPED` availability records require reasons. `StratumEvidence`
+requires a nonblank name, a nonblank value when present, and unique
+metric names. `SplitEvidence` requires unique metric names, curve names,
+artifact paths, and stratum `(name, value)` identities.
 
 ## Errors and faults
 

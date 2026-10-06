@@ -7,7 +7,8 @@
 
 The visuals package assembles visual evidence: deterministic bounded
 gallery selection, dataset preview-gallery rendering, and
-classifier prediction-overlay rendering over verified preview bytes.
+classifier/segmentor prediction-overlay rendering over verified
+preview bytes.
 
 ## Contents
 
@@ -15,7 +16,7 @@ classifier prediction-overlay rendering over verified preview bytes.
 | --- | --- | --- |
 | [`selection`](visuals/selection.md) | module | Deterministic bounded gallery selection |
 | [`dataset`](visuals/dataset.md) | module | Dataset preview-gallery rendering |
-| [`predictions`](visuals/predictions.md) | module | Prediction-overlay visuals over frozen galleries (classifier) |
+| [`predictions`](visuals/predictions.md) | module | Prediction-overlay visuals over frozen galleries (classifier and segmentor) |
 
 ## Package interface
 
@@ -26,7 +27,8 @@ only.
 
 `predictions` renders `PredictionGallery` selections produced by
 `analysis.prediction_selections` against capture-supplied preview
-NPZ bytes; segmentation visuals remain deferred to PR14.
+NPZ bytes; segmentor pages consume frozen display arrays from
+`analysis.prediction_display` without re-matching or re-scoring.
 
 ## Constraints
 

@@ -18,8 +18,8 @@ Contains:
   - cost: parameter counting and explicitly partial resource evidence.
   - runs: unavailable catalog readers and pure text formatters.
   - pareto: pure frontier/knee helpers and the unavailable reader boundary.
-  - metrics: pure metric cores; classifier/calibration/segmentation
-    implemented.
+  - metrics: pure metric cores; classifier/calibration/segmentation/
+    spatial implemented.
   - plots: figure export and dataset figure rendering; the general
     render boundary stays unavailable.
   - visuals: bounded gallery selection and dataset preview rendering.

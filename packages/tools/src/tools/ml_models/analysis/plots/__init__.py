@@ -12,5 +12,8 @@ Contains:
   - segmentation: segmentation-evidence figures.
   - generalization: generalization-evidence figures.
 
-Everything except the unavailable render boundary is a scaffold.
+`common` supplies the export boundary and the unavailable general
+render entry point; `dataset` and `training` are implemented renderers
+over their frozen recipes; `classifier`, `segmentation`, and
+`generalization` remain scaffolds.
 """

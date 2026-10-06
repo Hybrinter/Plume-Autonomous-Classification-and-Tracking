@@ -332,9 +332,202 @@ SEGMENTATION_DEFINITIONS = tuple(
 )
 
 
+_LOCALIZATION_FORMULAS = (
+    (
+        "truth_components",
+        "Count all unfiltered four-connected explicit truth components.",
+        "exact_component_count",
+        "component",
+    ),
+    (
+        "predicted_components",
+        "Count four-connected prediction components passing the configured blob area gate.",
+        "exact_component_count",
+        "component",
+    ),
+    (
+        "matched_components",
+        "Maximum-cardinality eligible one-to-one IoU matches, then maximum summed IoU.",
+        "exact_component_count",
+        "component",
+    ),
+    (
+        "unmatched_truth_components",
+        "Truth component count minus eligible matches.",
+        "exact_component_count",
+        "component",
+    ),
+    (
+        "unmatched_prediction_components",
+        "Retained prediction component count minus eligible matches.",
+        "exact_component_count",
+        "component",
+    ),
+    (
+        "component_precision",
+        "Eligible matches / retained prediction components.",
+        "pooled_retained_prediction_match_fraction",
+        "dimensionless",
+    ),
+    (
+        "component_recall",
+        "Eligible matches / all unfiltered truth components.",
+        "pooled_truth_match_fraction",
+        "dimensionless",
+    ),
+    (
+        "component_f1",
+        "2 * eligible matches / (truth components + retained prediction components).",
+        "pooled_component_f1",
+        "dimensionless",
+    ),
+    (
+        "split_truth_components",
+        "Truth components intersecting more than one retained prediction component.",
+        "truths_overlapping_multiple_retained_predictions",
+        "component",
+    ),
+    (
+        "merge_predicted_components",
+        "Retained prediction components intersecting more than one truth component.",
+        "retained_predictions_overlapping_multiple_truths",
+        "component",
+    ),
+)
+LOCALIZATION_DEFINITIONS = tuple(
+    MetricDefinition(
+        name=name,
+        direction="MAXIMIZE"
+        if name in ("component_precision", "component_recall", "component_f1")
+        else "DESCRIPTIVE",
+        formula=formula,
+        population=(
+            "Explicit-mask four-connected components; truth unfiltered, predictions area-gated."
+        ),
+        aggregation=aggregation,
+        undefined_policy=(
+            "Rates are unavailable at zero denominator; F1 is zero with supported errors."
+        ),
+        limitations=(
+            "Components do not prove physical plume independence. Matching IoU and blob "
+            "gates are diagnostic settings. Counts include misses and spurious retained "
+            "components."
+        ),
+        unit=unit,
+    )
+    for name, formula, aggregation, unit in _LOCALIZATION_FORMULAS
+) + tuple(
+    MetricDefinition(
+        name="matched_centroid_error_" + unit + "_" + reduction,
+        direction="MINIMIZE",
+        formula=(
+            "Euclidean distance between matched component pixel-center centroids."
+            if unit == "px"
+            else "hypot(dx * lateral_GSD, dy * along_GSD) for eligible matched components."
+        ),
+        population="Eligible matched components with requested distance geometry only.",
+        aggregation="matched_component_conditional_" + reduction,
+        undefined_policy=(
+            "Unavailable with no eligible matches or absent recorded GSD for metre distances."
+        ),
+        limitations=(
+            "Conditional on matching; inspect miss-inclusive localization success curves "
+            "separately. Ground geometry is a local-GSD approximation. Quantiles use "
+            "linear interpolation."
+        ),
+        unit="pixel" if unit == "px" else "m",
+    )
+    for unit in ("px", "m")
+    for reduction in ("mean", "median", "p95")
+)
+_BOUNDARY_FORMULAS = (
+    (
+        "boundary_precision",
+        "Predicted interior-boundary pixels within inclusive configured tolerance of "
+        "truth / predicted boundary pixels.",
+        "pooled_predicted_boundary_hit_fraction",
+        "dimensionless",
+    ),
+    (
+        "boundary_recall",
+        "Truth interior-boundary pixels within inclusive configured tolerance of "
+        "prediction / truth boundary pixels.",
+        "pooled_truth_boundary_hit_fraction",
+        "dimensionless",
+    ),
+    (
+        "boundary_f1",
+        "Harmonic mean of pooled boundary precision and recall; zero for supported no-hit cases.",
+        "harmonic_pooled_boundary_hit_rates",
+        "dimensionless",
+    ),
+    (
+        "boundary_missed_images",
+        "Images with nonempty truth boundary and empty prediction boundary.",
+        "exact_image_count",
+        "image",
+    ),
+    (
+        "boundary_spurious_images",
+        "Images with empty truth boundary and nonempty prediction boundary.",
+        "exact_image_count",
+        "image",
+    ),
+    ("boundary_empty_images", "Images with both boundaries empty.", "exact_image_count", "image"),
+)
+BOUNDARY_DEFINITIONS = tuple(
+    MetricDefinition(
+        name=name,
+        direction="MAXIMIZE"
+        if name in ("boundary_precision", "boundary_recall", "boundary_f1")
+        else "DESCRIPTIVE",
+        formula=formula,
+        population="All explicitly annotated images; one-pixel interior four-neighbour boundaries.",
+        aggregation=aggregation,
+        undefined_policy=(
+            "Zero-denominator rates and both-empty F1 unavailable; supported no-hit rates/F1 zero."
+        ),
+        limitations=(
+            "Outside-image pixels are background for erosion. Inclusive pixel tolerance "
+            "is diagnostic; configured physical tolerance requires recorded GSD and "
+            "overrides pixel tolerance."
+        ),
+        unit=unit,
+    )
+    for name, formula, aggregation, unit in _BOUNDARY_FORMULAS
+) + tuple(
+    MetricDefinition(
+        name="boundary_" + statistic + "_" + unit + "_mean",
+        direction="MINIMIZE",
+        formula="Per-image mean of pooled bidirectional nearest-boundary distances."
+        if statistic == "asd"
+        else "Per-image linear 95th percentile of pooled bidirectional nearest-boundary distances.",
+        population="Images with both boundaries nonempty and requested distance geometry.",
+        aggregation="equal_image_mean_conditional_on_both_nonempty_boundaries",
+        undefined_policy=(
+            "Unavailable when either boundary is empty, or metre geometry lacks recorded GSD."
+        ),
+        limitations=(
+            "Conditional distances do not include detection misses; missed/spurious/"
+            "empty image counts are separate. Metres use anisotropic local GSD: "
+            "x lateral, y along."
+        ),
+        unit="pixel" if unit == "px" else "m",
+    )
+    for statistic in ("asd", "hd95")
+    for unit in ("px", "m")
+)
+
+
 def metric_definition(name: str) -> Result[MetricDefinition, str]:
     """Look up an explicit scientific definition, never infer metric direction."""
-    for definition in CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS + SEGMENTATION_DEFINITIONS:
+    for definition in (
+        CLASSIFIER_DEFINITIONS
+        + CALIBRATION_DEFINITIONS
+        + SEGMENTATION_DEFINITIONS
+        + LOCALIZATION_DEFINITIONS
+        + BOUNDARY_DEFINITIONS
+    ):
         if definition.name == name:
             return Ok(definition)
     return Err(f"unknown metric definition {name!r}")

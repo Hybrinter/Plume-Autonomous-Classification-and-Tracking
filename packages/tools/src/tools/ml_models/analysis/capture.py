@@ -6,7 +6,8 @@ mechanical: it never derives scores, labels, groups, or bins, and it never
 transforms the supplied arrays.
 
 Contains:
-  - CaptureRow: evaluator-supplied scalar record with selection flags.
+  - CaptureRow: evaluator-supplied scalar record with selection flags and
+    optional frozen spatial evidence.
   - CaptureSink: sink protocol with add/abort/close/references.
   - BoundedCaptureSink: disk sink with bounded preview selection and a byte
     budget covering persisted payload and cached arrays.
@@ -21,7 +22,7 @@ import hashlib
 import io
 import json
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, field
 from pathlib import Path
 from typing import BinaryIO, Literal, Protocol, runtime_checkable
 
@@ -40,6 +41,7 @@ from tools.ml_models.analysis.contracts import (
     MetricValue,
     SampleKey,
 )
+from tools.ml_models.analysis.metrics.spatial import SpatialRow
 
 _SCHEMA = ConfigDict(extra="forbid")
 
@@ -76,6 +78,9 @@ class CaptureRow:
             family.
         array_view: Array provenance tag; ``CANONICAL`` marks arrays in the
             canonical orientation regardless of the stored transform element.
+        spatial: Frozen component-matching and boundary evidence for segmentor
+            rows; ``None`` for classifier rows. Compact records only - no
+            dense arrays are retained here.
     """
 
     key: SampleKey
@@ -88,6 +93,7 @@ class CaptureRow:
     false_positive: StrictBool = False
     false_negative: StrictBool = False
     array_view: Literal["CANONICAL"] = "CANONICAL"
+    spatial: SpatialRow | None = field(default=None)
 
     @model_validator(mode="after")
     def _bounds(self) -> CaptureRow:

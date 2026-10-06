@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from tools.ml_models.analysis.capture import CaptureRow
 from tools.ml_models.analysis.config import CaptureConfig, EvaluationConfig, ScoreConfig
 from tools.ml_models.analysis.contracts import ArtifactRef
 from tools.ml_models.analysis.evaluate import evaluate_split
+from tools.ml_models.analysis.metrics.spatial import SpatialRow, aggregate_spatial
 from tools.ml_models.dataset.augment import ELEMENT_NAMES, apply_dihedral
 from tools.ml_models.dataset.manifest import (
     ShardCount,
@@ -424,3 +426,166 @@ def test_compact_capture_integration(
     assert result.value.artifacts
     assert not (tmp_path / "capture" / ".incomplete").exists()
     assert not (tmp_path / "capture" / "full").exists()
+
+
+class _CollectSink:
+    """Pass-through CaptureSink that keeps every row for inspection."""
+
+    def __init__(self) -> None:
+        self.rows: list[CaptureRow] = []
+        self.closed = 0
+        self.aborted = False
+
+    def add(
+        self, row: CaptureRow, *, image: np.ndarray, target: np.ndarray, logits: np.ndarray
+    ) -> Ok[None]:
+        self.rows.append(row)
+        return Ok(None)
+
+    def abort(self, reason: str) -> Ok[None]:
+        self.aborted = True
+        return Ok(None)
+
+    def close(self) -> Ok[None]:
+        self.closed += 1
+        return Ok(None)
+
+    def references(self) -> tuple[ArtifactRef, ...]:
+        return ()
+
+
+def _spatial_rows(sink: _CollectSink) -> tuple[SpatialRow, ...]:
+    rows = tuple(row.spatial for row in sink.rows)
+    assert rows and all(row is not None for row in rows)
+    return cast("tuple[SpatialRow, ...]", rows)
+
+
+def test_segmentor_spatial_metrics_equal_frozen_capture_aggregation(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """Split evidence appends the exact spatial aggregate of captured rows."""
+    dataset = _small_dataset(tmp_path, build_synthetic_dataset)
+    sink = _CollectSink()
+    result = evaluate_split(
+        MarkerModel("segmentor"),
+        dataset,
+        load_manifest(dataset / "dataset.json"),
+        EvaluationConfig(kind="segmentor", split="test", score=ScoreConfig(pixel_histogram_bins=8)),
+        capture=sink,
+    )
+    assert isinstance(result, Ok), result
+    metrics = {metric.name: metric for metric in result.value.metrics}
+    for name in (
+        "truth_components",
+        "component_recall",
+        "matched_centroid_error_px_mean",
+        "boundary_precision",
+        "boundary_f1",
+    ):
+        assert name in metrics
+    assert "localization_success_px" in {curve.name for curve in result.value.curves}
+    aggregate = aggregate_spatial(_spatial_rows(sink))
+    assert isinstance(aggregate, Ok)
+    expected = {metric.name: metric.value for metric in aggregate.value.metrics}
+    for name, value in expected.items():
+        assert metrics[name].value == value
+    expected_curves = {curve.name: curve for curve in aggregate.value.curves}
+    for curve in result.value.curves:
+        if curve.name in expected_curves:
+            assert curve == expected_curves[curve.name]
+
+
+def test_spatial_metrics_batch_invariance_and_row_identity(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """Batch size changes neither spatial metrics nor per-row spatial records."""
+    dataset = _small_dataset(tmp_path, build_synthetic_dataset)
+    manifest = load_manifest(dataset / "dataset.json")
+    metrics, by_key = [], []
+    for batch_size in (1, 7):
+        sink = _CollectSink()
+        result = evaluate_split(
+            MarkerModel("segmentor"),
+            dataset,
+            manifest,
+            EvaluationConfig(
+                kind="segmentor",
+                split="test",
+                batch_size=batch_size,
+                score=ScoreConfig(pixel_histogram_bins=8),
+            ),
+            capture=sink,
+        )
+        assert isinstance(result, Ok), result
+        metrics.append({metric.name: metric.value for metric in result.value.metrics})
+        by_key.append({row.key: row.spatial for row in sink.rows})
+    assert metrics[0] == metrics[1]
+    assert by_key[0] == by_key[1]
+    assert by_key[0] and all(spatial is not None for spatial in by_key[0].values())
+
+
+def test_spatial_scoring_failure_aborts_capture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    build_synthetic_dataset: Callable[..., Path],
+) -> None:
+    """A spatial-scoring Err aborts evaluation and capture; nothing is Ok."""
+    import tools.ml_models.analysis.evaluate as evaluate_module
+
+    dataset = _small_dataset(tmp_path, build_synthetic_dataset)
+    sink = _CollectSink()
+
+    def broken(*args: object, **kwargs: object) -> Err[str]:
+        return Err("spatial scoring rejected the row")
+
+    monkeypatch.setattr(evaluate_module, "score_spatial", broken)
+    result = evaluate_split(
+        MarkerModel("segmentor"),
+        dataset,
+        load_manifest(dataset / "dataset.json"),
+        EvaluationConfig(kind="segmentor", split="test", score=ScoreConfig(pixel_histogram_bins=8)),
+        capture=sink,
+    )
+    assert isinstance(result, Err)
+    assert "spatial scoring rejected the row" in result.error
+    assert sink.aborted
+
+
+def test_classifier_never_calls_spatial_core(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    build_synthetic_dataset: Callable[..., Path],
+) -> None:
+    """Classifier evaluation skips spatial scoring and captures None rows."""
+    import tools.ml_models.analysis.evaluate as evaluate_module
+
+    dataset = _small_dataset(tmp_path, build_synthetic_dataset)
+    sink = _CollectSink()
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise AssertionError("spatial core ran during classifier evaluation")
+
+    monkeypatch.setattr(evaluate_module, "score_spatial", boom)
+    result = evaluate_split(
+        MarkerModel(),
+        dataset,
+        load_manifest(dataset / "dataset.json"),
+        EvaluationConfig(kind="classifier", split="test"),
+        capture=sink,
+    )
+    assert isinstance(result, Ok), result
+    assert sink.rows and all(row.spatial is None for row in sink.rows)
+
+
+def test_mismatched_spatial_conventions_fail_closed() -> None:
+    """Rows scored under different thresholds cannot aggregate to success."""
+    from tools.ml_models.analysis.metrics.spatial import score_spatial
+
+    truth = np.zeros((1, 8, 8), dtype=np.float32)
+    truth[0, :5, :4] = 1.0
+    logits = np.zeros((1, 8, 8), dtype=np.float32)
+    logits[0, :5, :4] = 2.0
+    first = score_spatial(logits, truth, cfg=ScoreConfig(blob_probability_threshold=0.5))
+    second = score_spatial(logits, truth, cfg=ScoreConfig(blob_probability_threshold=0.6))
+    assert isinstance(first, Ok) and isinstance(second, Ok)
+    assert isinstance(aggregate_spatial((first.value, second.value)), Err)

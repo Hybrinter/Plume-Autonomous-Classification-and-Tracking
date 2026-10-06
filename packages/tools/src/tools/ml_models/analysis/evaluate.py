@@ -37,6 +37,11 @@ from tools.ml_models.analysis.metrics.segmentation import (
     SegmentationRow,
     score_segmentation_image,
 )
+from tools.ml_models.analysis.metrics.spatial import (
+    SpatialRow,
+    aggregate_spatial,
+    score_spatial,
+)
 from tools.ml_models.dataset.augment import ELEMENT_NAMES, apply_dihedral, legal_elements
 from tools.ml_models.dataset.loader import ShardDataset
 from tools.ml_models.dataset.manifest import DatasetManifest, load_manifest, shard_dir
@@ -66,6 +71,7 @@ class _Cohort:
     logits: list[float] = field(default_factory=list)
     labels: list[float] = field(default_factory=list)
     segmentation: SegmentationAccumulator = field(default_factory=SegmentationAccumulator)
+    spatial: list[SpatialRow] = field(default_factory=list)
     objectives: dict[str, list[float]] = field(default_factory=dict)
     groups: set[str] = field(default_factory=set)
     n: int = 0
@@ -77,11 +83,17 @@ class _Cohort:
         segmentation: SegmentationRow | None,
         objectives: dict[str, float],
         group_id: str,
+        spatial: SpatialRow | None = None,
     ) -> Result[None, str]:
         if segmentation is not None:
+            if spatial is None:
+                return Err("segmentor cohort rows require spatial diagnostics")
             added = self.segmentation.add(segmentation)
             if isinstance(added, Err):
                 return added
+            self.spatial.append(spatial)
+        elif spatial is not None:
+            return Err("classifier cohort rows carry no spatial diagnostics")
         if logit is not None:
             self.logits.append(logit)
             self.labels.append(label)
@@ -101,6 +113,14 @@ class _Cohort:
         )
         if isinstance(measured, Err):
             return measured
+        metrics = measured.value.metrics
+        curves = measured.value.curves
+        if cfg.kind == "segmentor":
+            spatial = aggregate_spatial(tuple(self.spatial))
+            if isinstance(spatial, Err):
+                return spatial
+            metrics += spatial.value.metrics
+            curves += spatial.value.curves
         support = replace(
             measured.value.support,
             counts=measured.value.support.counts
@@ -116,7 +136,7 @@ class _Cohort:
             for name in ("objective_loss", "objective_bce", "objective_focal", "objective_dice")
             for values in (self.objectives.get(name, []),)
         )
-        return Ok((measured.value.metrics + objectives, measured.value.curves, support))
+        return Ok((metrics + objectives, curves, support))
 
 
 def _objective_rows(
@@ -147,6 +167,7 @@ def _row_metrics(
     segmentation: SegmentationRow | None,
     objective: dict[str, float],
     cfg: ScoreConfig,
+    spatial: SpatialRow | None = None,
 ) -> tuple[tuple[MetricValue, ...], float, bool, bool]:
     if segmentation is None:
         measured = score_classifier(logits, [label], cfg)
@@ -189,6 +210,12 @@ def _row_metrics(
                 ("background_probability_residual", segmentation.background_probability_residual),
             )
         )
+        if spatial is None:
+            raise ValueError("segmentor rows require spatial diagnostics")
+        measured_spatial = aggregate_spatial((spatial,))
+        if isinstance(measured_spatial, Err):
+            raise ValueError(measured_spatial.error)
+        metrics += measured_spatial.value.metrics
         fp = segmentation.verified_empty and segmentation.predicted_area_px > 0
         fn = segmentation.target_area_px > 0 and segmentation.predicted_area_px == 0
         failure = 1.0 - segmentation.iou
@@ -292,6 +319,7 @@ def _evaluate(
                 raw_gsd = (float(gsd[index, 0]), float(gsd[index, 1]))
                 logits = logits_array[position]
                 segmentation = None
+                spatial = None
                 if cfg.kind == "segmentor":
                     measured = score_segmentation_image(
                         logits,
@@ -304,16 +332,25 @@ def _evaluate(
                     if isinstance(measured, Err):
                         return measured
                     segmentation = measured.value
+                    spatial_row = score_spatial(
+                        logits,
+                        targets_array[position],
+                        gsd=raw_gsd,
+                        cfg=cfg.score,
+                    )
+                    if isinstance(spatial_row, Err):
+                        return spatial_row
+                    spatial = spatial_row.value
                 logit = float(logits[0]) if cfg.kind == "classifier" else None
                 for cohort in (total, bins.setdefault(row.bin_id, _Cohort())):
                     added = cohort.add(
-                        label, logit, segmentation, objectives[position], row.group_id
+                        label, logit, segmentation, objectives[position], row.group_id, spatial
                     )
                     if isinstance(added, Err):
                         return added
                 if capture is not None:
                     metrics, failure, fp, fn = _row_metrics(
-                        logits, label, segmentation, objectives[position], cfg.score
+                        logits, label, segmentation, objectives[position], cfg.score, spatial
                     )
                     captured = capture.add(
                         CaptureRow(
@@ -334,6 +371,7 @@ def _evaluate(
                             failure_score=failure,
                             false_positive=fp,
                             false_negative=fn,
+                            spatial=spatial,
                         ),
                         image=images_array[position],
                         target=targets_array[position],

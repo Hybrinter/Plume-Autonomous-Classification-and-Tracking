@@ -53,8 +53,8 @@ returns the configured module.
    `forward` is its batch mean. Component values, gradients, and the
    objective weights are identical to the batch reduction.
 5. `weighted_batch_loss` multiplies a batch mean by a supplied source
-   weight. The standard training boundary is unavailable and does not
-   call it.
+   weight. The training loop reduces `per_sample_components` itself and
+   does not call it.
 
 ## Errors and faults
 

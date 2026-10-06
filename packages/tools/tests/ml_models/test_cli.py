@@ -1,6 +1,7 @@
 """CLI surface tests for the single-dataset ml_models commands."""
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -79,6 +80,21 @@ def test_dataset_analyze_help_and_unavailable(tmp_path: Path) -> None:
         ["dataset", "analyze", "--dataset", str(tmp_path / "ds"), "--out", str(out)],
     )
     assert result.exit_code != 0
+    assert not out.exists()
+
+
+def test_dataset_analyze_cli_refuses_valid_dataset(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """``dataset analyze`` stays unavailable for a finished dataset until rendering lands."""
+    dataset = build_synthetic_dataset(tmp_path / "ds")
+    out = tmp_path / "analysis"
+    result = CliRunner().invoke(
+        app,
+        ["dataset", "analyze", "--dataset", str(dataset), "--out", str(out)],
+    )
+    assert result.exit_code != 0
+    assert "unavailable" in result.output
     assert not out.exists()
 
 

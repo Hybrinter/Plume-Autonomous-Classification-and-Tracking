@@ -6,6 +6,6 @@ Contains:
   - predictions: prediction-overlay visuals over frozen galleries.
 
 `dataset` and `predictions` render verified captured preview bytes;
-`predictions` supports classifier galleries in this phase, with
-segmentation deferred to PR14.
+`predictions` supports classifier panel galleries and segmentor
+extent pages over the frozen display helper.
 """

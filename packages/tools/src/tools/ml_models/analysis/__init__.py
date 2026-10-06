@@ -19,7 +19,13 @@ Contains:
   - training_artifacts: frozen recipe bundle serialization.
   - model_figures: frozen model-chart recipes and scalar reductions.
   - classifier_figures: frozen classifier figure inventory.
+  - segmentation_figures: frozen segmentor extent/localization figure
+    inventory.
+  - generalization_figures: frozen stratum/baseline/heatmap figure
+    copies.
   - model_figure_artifacts: frozen model-figure bundle serialization.
+  - prediction_display: verified segmentor display arrays from cached
+    logits.
   - prediction_selections: whole-cohort prediction gallery selection.
   - prediction_artifacts: frozen prediction preview/manifest codecs.
   - model: model-analysis boundary (unavailable).

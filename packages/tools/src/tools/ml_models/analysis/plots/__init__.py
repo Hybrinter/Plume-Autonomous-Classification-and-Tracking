@@ -14,7 +14,7 @@ Contains:
   - generalization: generalization-evidence figures.
 
 `common` supplies the export boundary and the unavailable general
-render entry point; `dataset`, `training`, and `model`/`classifier`
-are implemented renderers over their frozen recipes; `segmentation`
-and `generalization` remain scaffolds.
+render entry point; `dataset` and `training` render their frozen
+recipes, while `model` and the `classifier`/`segmentation`/
+`generalization` family bindings render frozen model-chart recipes.
 """

@@ -26,6 +26,7 @@ from tools.ml_models.analysis.prediction_selections import (
     prediction_key,
 )
 from tools.ml_models.analysis.visuals.predictions import (
+    LoadedPrediction,
     PredictionPreview,
     PredictionPreviewCapture,
     render_prediction_visuals,
@@ -365,23 +366,6 @@ def test_out_of_bounds_display_indices_rejected() -> None:
     assert isinstance(render_prediction_visuals(captured, PlotConfig(dpi=72)), Err)
 
 
-def test_segmentation_galleries_fail_until_pr14() -> None:
-    rows = _rows()
-    foreign = replace(
-        rows[0],
-        key=replace(rows[0].key, task="segmentor"),
-    )
-    gallery = _gallery((foreign,))
-    captured = PredictionPreviewCapture(
-        previews=(),
-        files=(),
-        galleries=(gallery,),
-    )
-    result = render_prediction_visuals(captured, PlotConfig(dpi=72))
-    assert isinstance(result, Err)
-    assert "PR14" in result.error or "segment" in result.error
-
-
 def test_renderer_never_reselects_or_reads_sources(monkeypatch: pytest.MonkeyPatch) -> None:
     def _bomb(*args: object, **kwargs: object) -> None:
         raise AssertionError("renderer touched capture/selection helpers")
@@ -518,7 +502,7 @@ def test_panel_failure_closes_the_created_page(monkeypatch: pytest.MonkeyPatch) 
     def _failing_panel(
         axes: Axes,
         preview: PredictionPreview | None,
-        loaded: tuple[np.ndarray, float, float] | None,
+        loaded: LoadedPrediction | None,
         row: CaptureRow,
         cfg: PlotConfig,
     ) -> None:

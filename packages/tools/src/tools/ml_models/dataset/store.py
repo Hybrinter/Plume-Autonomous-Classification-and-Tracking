@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import cast
 
 import numpy as np
+from pydantic import TypeAdapter
+
+from tools.ml_models.dataset.raw import ObservationMetadata, PreparedMaskState
 
 _ROW_KEYS: tuple[str, ...] = (
     "tile_id",
@@ -30,7 +34,12 @@ _ROW_KEYS: tuple[str, ...] = (
     "element",
     "theta_g_deg",
     "gsd_nominal",
+    "metadata",
+    "prepared_mask_state",
 )
+
+_OBSERVATION_METADATA = TypeAdapter(ObservationMetadata)
+_PREPARED_MASK_STATE: TypeAdapter[PreparedMaskState] = TypeAdapter(PreparedMaskState)
 
 _ROW_REQUIRED: tuple[str, ...] = _ROW_KEYS[:6]
 
@@ -48,6 +57,11 @@ class RowRecord:
         element: Dihedral element. Val and test store ``id``.
         theta_g_deg: Gimbal elevation in degrees, or None when unrecorded.
         gsd_nominal: True when the row GSD is nominal orbit geometry.
+        metadata: Authoritative source observation provenance. Rows from a
+            schema-2 dataset read back with every field unavailable.
+        prepared_mask_state: Actual prepared source mask state. A classifier
+            row can share this state without storing a mask. Rows from a
+            schema-2 dataset read back UNKNOWN.
     """
 
     tile_id: str
@@ -58,6 +72,8 @@ class RowRecord:
     element: str
     theta_g_deg: float | None = None
     gsd_nominal: bool = False
+    metadata: ObservationMetadata = field(default_factory=ObservationMetadata)
+    prepared_mask_state: PreparedMaskState = "UNKNOWN"
 
 
 class ShardWriter:
@@ -323,6 +339,8 @@ def _row_payload(row: RowRecord) -> dict[str, object]:
         "element": row.element,
         "theta_g_deg": row.theta_g_deg,
         "gsd_nominal": row.gsd_nominal,
+        "metadata": _metadata_payload(row.metadata),
+        "prepared_mask_state": _prepared_state_payload(row.prepared_mask_state),
     }
 
 
@@ -360,6 +378,20 @@ def _row_from_payload(raw: dict[str, object]) -> RowRecord:
             raise ValueError("theta_g_deg must be finite")
     if not isinstance(gsd_nominal, bool):
         raise ValueError("gsd_nominal must be a boolean")
+    if "metadata" in raw:
+        try:
+            metadata = _OBSERVATION_METADATA.validate_python(raw["metadata"])
+        except ValueError as exc:
+            raise ValueError(f"metadata is invalid: {exc}") from exc
+    else:
+        metadata = ObservationMetadata()
+    if "prepared_mask_state" in raw:
+        try:
+            prepared = _PREPARED_MASK_STATE.validate_python(raw["prepared_mask_state"])
+        except ValueError as exc:
+            raise ValueError(f"prepared_mask_state is invalid: {exc}") from exc
+    else:
+        prepared = "UNKNOWN"
     return RowRecord(
         tile_id=tile_id,
         group_id=group_id,
@@ -369,7 +401,46 @@ def _row_from_payload(raw: dict[str, object]) -> RowRecord:
         element=element,
         theta_g_deg=theta_g_deg,
         gsd_nominal=gsd_nominal,
+        metadata=metadata,
+        prepared_mask_state=prepared,
     )
+
+
+def _metadata_payload(metadata: ObservationMetadata) -> dict[str, object]:
+    """Serialize validated observation metadata for ``rows.jsonl``.
+
+    Args:
+        metadata: Metadata attached to the row.
+
+    Returns:
+        dict[str, object]: JSON object form.
+
+    Raises:
+        ValueError: If the value is not a valid ObservationMetadata.
+    """
+    try:
+        validated = _OBSERVATION_METADATA.validate_python(asdict(metadata))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"metadata is invalid: {exc}") from exc
+    return cast(dict[str, object], _OBSERVATION_METADATA.dump_python(validated, mode="json"))
+
+
+def _prepared_state_payload(state: PreparedMaskState) -> str:
+    """Validate the prepared mask state literal for ``rows.jsonl``.
+
+    Args:
+        state: Recorded prepared mask state.
+
+    Returns:
+        str: The validated literal.
+
+    Raises:
+        ValueError: If the value is not a known PreparedMaskState.
+    """
+    try:
+        return cast(str, _PREPARED_MASK_STATE.validate_python(state))
+    except ValueError as exc:
+        raise ValueError(f"prepared_mask_state is invalid: {exc}") from exc
 
 
 def _grid_rc(value: object) -> tuple[int, int] | None:

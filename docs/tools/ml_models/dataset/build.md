@@ -58,8 +58,17 @@ is rejected. Zenodo imports are lazy inside the wrapper.
    equal the indexed ref exactly. The float32 image must match the
    indexed `(bands, H, W)` shape and contain only finite unit pixels. A
    mask must be `(1, H, W)` and binary, present exactly when `has_mask`.
+   Source provenance must agree with the pixels: a `MISSING` source
+   annotation state rejects a present mask, and an `EXPLICIT_EMPTY`
+   state rejects a prepared mask with any set pixel. `EXPLICIT_EMPTY`
+   with no prepared mask stays eligible for classifier rows and keeps
+   `has_mask` False; `NONEMPTY` sources may rasterize empty or remain
+   missing.
 7. Each planned row applies its dihedral element to the float32 image and
-   mask and appends them to its shard unchanged.
+   mask and appends them to its shard unchanged. Every stored row copies
+   the ref's `metadata` and records `prepared_mask_state(tile.mask)`,
+   the actual prepared mask state shared across classifier and segmentor
+   copies; a classifier copy does not claim to store a mask.
 8. The manifest records the spec, bins, per-shard counts, GSD ranges, and
    the content hash, then `dataset.json` is written.
 
@@ -72,7 +81,9 @@ index, a duplicate or empty `tile_id`, an empty `group_id`, a non-finite
 or non-positive GSD, a non-binary label, a non-positive indexed size,
 an empty legal-element intersection, a stream that disagrees with the
 index in order, shape, or mask, a non-float32 image, an image pixel
-outside `[0, 1]`, a non-binary mask, a
+outside `[0, 1]`, a non-binary mask, a `MISSING` source annotation
+carrying a mask, an `EXPLICIT_EMPTY` source annotation carrying a
+nonempty prepared mask, a
 `spec.weight_table_id` that disagrees with the loaded table, or no
 selected rows. `OSError` when the destination cannot be created.
 

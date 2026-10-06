@@ -62,9 +62,22 @@ None.
 ## Configuration
 
 Row keys are `tile_id`, `group_id`, `frame_id`, `grid_rc`, `bin_id`,
-`element`, `theta_g_deg`, and `gsd_nominal`. Rows written before the
-angle and nominal fields existed decode with `theta_g_deg` None and
-`gsd_nominal` False. There is no TOML file.
+`element`, `theta_g_deg`, `gsd_nominal`, `metadata`, and
+`prepared_mask_state`. The writer always records both new fields;
+`metadata` is the row's `ObservationMetadata` object and
+`prepared_mask_state` is the literal `UNKNOWN`, `MISSING`, `EMPTY`, or
+`NONEMPTY` state of the prepared source mask shared across task copies,
+including classifier copies that store no mask. Both values are
+revalidated when `close` serializes `rows.jsonl`.
+
+Rows written before the angle and nominal fields existed decode with
+`theta_g_deg` None and `gsd_nominal` False. Schema-2 rows that predate
+the provenance fields decode with a fully unset `ObservationMetadata`
+and `prepared_mask_state` `UNKNOWN`; old rows are never inferred from
+task, label, or pixel content. A present `metadata` field must validate
+as `ObservationMetadata`, and a present `prepared_mask_state` must be
+one of the four literals; explicit nulls, wrong types, and unknown extra
+keys are rejected. There is no TOML file.
 
 ## Constraints
 

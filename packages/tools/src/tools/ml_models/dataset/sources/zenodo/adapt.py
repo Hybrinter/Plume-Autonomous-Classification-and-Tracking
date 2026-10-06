@@ -9,7 +9,12 @@ import numpy as np
 
 from tools.ml_models.dataset.raw import BinSpec, RawTile, RawTileRef
 from tools.ml_models.dataset.sources.zenodo.annotations import rasterize_percent_mask
-from tools.ml_models.dataset.sources.zenodo.archive import build_index, iter_stacks, to_native_stack
+from tools.ml_models.dataset.sources.zenodo.archive import (
+    build_index,
+    iter_stacks,
+    observation_metadata,
+    to_native_stack,
+)
 from tools.ml_models.dataset.sources.zenodo.bands import coerce_descriptions, verify_band_order
 from tools.ml_models.dataset.sources.zenodo.bins import (
     DEFAULT_BINS,
@@ -62,6 +67,7 @@ class ZenodoSource:
                 frame_id=None,
                 grid_rc=None,
                 bin_id=item.bin_id,
+                metadata=observation_metadata(tile),
             )
             for tile in self._index.tiles
             for item in bins

@@ -21,6 +21,7 @@ bin sums are exact.
 | `SegmentationEvidence` | dataclass | Aggregate metrics, curves, support, merged histogram, output availability |
 | `score_segmentation_image` | function | Per-image row computation; `Result` boundary |
 | `aggregate_segmentation` | function | Cohort aggregation over rows; `Result` boundary |
+| `SegmentationAccumulator` | class | Streaming pooled-histogram accumulator for cohort rows |
 
 ## Inputs and outputs
 
@@ -30,7 +31,12 @@ explicit `verified_empty` flag, an optional `(lateral, along-track)` GSD
 pair in metres, and an optional `ScoreConfig`. It returns
 `Result[SegmentationRow, str]`. `aggregate_segmentation` takes a
 nonempty tuple of rows sharing one `ScoreConfig` and returns
-`Result[SegmentationEvidence, str]`.
+`Result[SegmentationEvidence, str]`; an optional `histogram` argument
+supplies a pre-merged `PixelHistogram`, and without it the rows' own
+histograms are merged. `SegmentationAccumulator.add` appends each validated row to
+that pooled histogram, keeping only scalar per-image statistics, and
+`result` aggregates the cohort against the pooled histogram; mixed
+`ScoreConfig` rows return `Err`.
 
 ## Behavior
 

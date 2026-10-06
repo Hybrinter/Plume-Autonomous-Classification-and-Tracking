@@ -8,9 +8,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 from tools.ml_models.dataset.sources.zenodo.archive import (
+    TileRef,
+    acquired_at_utc_of,
     build_index,
     iter_stacks,
     location_id_of,
+    observation_metadata,
     to_native_stack,
 )
 
@@ -87,3 +90,47 @@ def test_location_id_is_leading_token() -> None:
     """The location token is the leading underscore run."""
     assert location_id_of("10003_2020-01-01_0") == "10003"
     assert location_id_of("single") == "single"
+
+
+@pytest.mark.parametrize(
+    "stem,timestamp",
+    [
+        ("10003_2019-01-21T10:56:41.330Z_0", "2019-01-21T10:56:41.330Z"),
+        ("10003_2020-02-29T00:00:00Z_2", "2020-02-29T00:00:00Z"),
+        ("10003_2020-02-30T00:00:00Z_0", None),
+        ("10003_2020-01-01T00-00-00.000Z_0", None),
+        ("10003_2020-01-01T00:00:00+01:00_0", None),
+        ("10003_2020-01-01_0", None),
+        ("prefix_2020-01-01T00:00:00Z_suffix", None),
+        ("bare", None),
+    ],
+)
+def test_only_documented_valid_utc_stems_provide_acquisition_time(
+    stem: str,
+    timestamp: str | None,
+) -> None:
+    assert acquired_at_utc_of(stem) == timestamp
+
+
+def test_zenodo_observation_and_source_annotation_are_not_derived_from_label() -> None:
+    polygon = np.array([[0, 0], [1, 0], [1, 1]], dtype=np.float64)
+    base = TileRef(
+        stem="10003_2019-01-21T10:56:41.330Z_0",
+        location_id="10003",
+        positive=False,
+        member_name="negative/source.tif",
+        polygons=(polygon,),
+        acquired_at_utc="2019-01-21T10:56:41.330Z",
+        annotation_ref="annotations/actual-source.json",
+    )
+    metadata = observation_metadata(base)
+    assert metadata.observation_id == base.stem
+    assert metadata.acquired_at_utc == base.acquired_at_utc
+    assert metadata.conditions == ()
+    assert metadata.annotation_source == "annotations/actual-source.json"
+    assert metadata.source_annotation_state == "NONEMPTY"
+    explicit_empty = observation_metadata(replace(base, polygons=()))
+    assert explicit_empty.source_annotation_state == "EXPLICIT_EMPTY"
+    missing = observation_metadata(replace(base, polygons=None, annotation_ref=None))
+    assert missing.source_annotation_state == "MISSING"
+    assert missing.annotation_source is None

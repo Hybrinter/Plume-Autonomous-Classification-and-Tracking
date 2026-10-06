@@ -1,11 +1,12 @@
 """Finished-dataset manifest and content hash.
 
 Contains:
-  - SCHEMA_VERSION, ShardCount, DatasetManifest.
+  - SCHEMA_VERSION, SUPPORTED_SCHEMA_VERSIONS, ShardCount, DatasetManifest.
   - compute_dataset_hash, write_manifest, load_manifest.
 
-The hash covers every file under the dataset directory except ``dataset.json``.
-Paths are relative, POSIX, and sorted. Each file is digested in 8 MiB chunks.
+New builds write schema 3; schemas 2 and 3 read. The hash covers every
+file under the dataset directory except ``dataset.json``. Paths are
+relative, POSIX, and sorted. Each file is digested in 8 MiB chunks.
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 from tools.ml_models.dataset.augment import AugmentRecipe
 from tools.ml_models.dataset.split import SplitRecipe
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = (2, 3)
 _SCHEMA = ConfigDict(extra="forbid")
 _HASH_CHUNK_BYTES = 8 * 1024 * 1024
 _MANIFEST_NAME = "dataset.json"
@@ -126,7 +128,7 @@ class DatasetManifest:
     @model_validator(mode="after")
     def _bounds(self) -> Self:
         """Reject a bad schema, norm, dtype, band list, or GSD range."""
-        if self.schema_version != SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(
                 f"unsupported dataset schema {self.schema_version}; "
                 f"rebuild the dataset (current schema {SCHEMA_VERSION})"
@@ -226,7 +228,7 @@ def load_manifest(
     if "schema" not in payload:
         raise ValueError("dataset.json missing schema")
     payload["schema_version"] = payload.pop("schema")
-    if payload["schema_version"] != SCHEMA_VERSION:
+    if payload["schema_version"] not in SUPPORTED_SCHEMA_VERSIONS:
         raise ValueError(
             f"dataset schema {payload['schema_version']} is unsupported; "
             f"rebuild the dataset (current schema {SCHEMA_VERSION})"

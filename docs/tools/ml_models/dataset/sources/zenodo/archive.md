@@ -12,9 +12,11 @@ streams GeoTIFF stacks in one forward pass. Nothing extracts to disk.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `TileRef` | dataclass | One corpus image: stem, location, label, member, polygons |
+| `TileRef` | dataclass | One corpus image: stem, location, label, member, polygons, acquisition time, annotation member |
 | `TileIndex` | dataclass | Stems in archive order, `by_stem` lookup |
 | `location_id_of` | function | Leading underscore token of a stem |
+| `acquired_at_utc_of` | function | Strict ISO UTC time parsed from a `location_ISO-UTC_index` stem, or None |
+| `observation_metadata` | function | `ObservationMetadata` for one original tile across all GSD variants |
 | `build_index` | function | Index image stems, presence labels, and polygons |
 | `iter_stacks` | function | Yield `(tile, stack, descriptions)` in archive order |
 | `to_native_stack` | function | Pad or crop a `(C, H, W)` stack to `(C, 120, 120)` |
@@ -35,9 +37,21 @@ order. `to_native_stack(stack)` returns float32 `(C, 120, 120)`.
    a `positive` or `negative` archive directory.
 3. Duplicate image stems keep the first member. A stem without an
    underscore token uses the whole stem as `location_id`.
-4. `iter_stacks` opens the archive in streaming mode, yields each wanted
+4. `acquired_at_utc_of` accepts only the documented
+   `location_ISO-UTC_index` stem form and returns a strict `Z`-suffixed
+   timestamp; unsupported or invalid forms, including synthetic
+   hyphen-separated times, return None. `annotation_ref` records the
+   actual labels-archive member name for the stem.
+5. `observation_metadata(tile)` maps a `TileRef` to
+   `ObservationMetadata`: `observation_id` is the original stem,
+   `acquired_at_utc` the parsed time or None, `annotation_source` the
+   actual annotation member name, and `source_annotation_state` is
+   `MISSING` when no annotation exists, `NONEMPTY` when polygon entries
+   exist, and `EXPLICIT_EMPTY` for an empty polygon list. No dates,
+   labels, or conditions are invented.
+6. `iter_stacks` opens the archive in streaming mode, yields each wanted
    member once, and stops when every tile is served.
-5. `to_native_stack` allows a 2-pixel slack per side, then edge-pads a
+7. `to_native_stack` allows a 2-pixel slack per side, then edge-pads a
    short side and crops a long side from the origin.
 
 ## Errors and faults

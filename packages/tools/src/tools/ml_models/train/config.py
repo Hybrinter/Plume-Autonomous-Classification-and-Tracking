@@ -10,8 +10,28 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Literal, Self
 
+from flight.libs.types import Err
 from pydantic import ConfigDict, TypeAdapter, model_validator
 from pydantic.dataclasses import dataclass
+
+from tools.ml_models.analysis.metrics.definitions import metric_definition
+
+
+def validation_metric(kind: str, name: str = "") -> str:
+    """Resolve defaults and explicit legacy aliases to defined scoring names."""
+    if kind == "classifier":
+        return {
+            "": "average_precision",
+            "pr_auc": "average_precision",
+            "bce": "binary_cross_entropy",
+            "brier": "brier_score",
+        }.get(name, name)
+    return {
+        "": "foreground_iou_mean_positive_images",
+        "mean_iou": "foreground_iou_mean_all_annotated_images",
+        "mean_dice": "foreground_dice_mean_all_annotated_images",
+        "bce": "binary_cross_entropy_mean_images",
+    }.get(name, name)
 
 
 @dataclass(frozen=True, config=ConfigDict(extra="forbid"))
@@ -43,6 +63,9 @@ class TrainConfig:
     eval_interval: int = 1
     max_steps: int | None = None
     val_metric: str = ""
+    selected_checkpoint: Literal["best", "last"] = "best"
+    gradient_diagnostics: bool = False
+    amp_diagnostics: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -77,11 +100,31 @@ class TrainConfig:
         ):
             raise ValueError("invalid focal or positive-class loss weights")
         allowed = (
-            {"accuracy", "precision", "recall", "f1", "roc_auc", "pr_auc", "brier", "bce"}
+            {
+                "accuracy",
+                "precision",
+                "recall",
+                "f1",
+                "roc_auc",
+                "average_precision",
+                "brier_score",
+                "binary_cross_entropy",
+            }
             if self.kind == "classifier"
-            else {"mean_iou", "mean_dice", "mean_iou_blob_gate", "bce"}
+            else {
+                "foreground_iou_mean_positive_images",
+                "foreground_dice_mean_positive_images",
+                "foreground_iou_mean_all_annotated_images",
+                "foreground_dice_mean_all_annotated_images",
+                "foreground_iou_global",
+                "foreground_dice_global",
+                "binary_cross_entropy_mean_images",
+                "brier_score_mean_images",
+            }
         )
-        if self.val_metric and self.val_metric not in allowed:
+        metric = validation_metric(self.kind, self.val_metric)
+        definition = metric_definition(metric)
+        if metric not in allowed or isinstance(definition, Err):
             raise ValueError("validation metric is invalid for the model task")
         return self
 

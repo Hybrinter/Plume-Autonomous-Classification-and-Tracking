@@ -5,16 +5,16 @@
 
 ## Purpose
 
-The train package holds training configuration, run provenance, and
-losses for the GSD-conditioned model families. The training boundary
-itself is unavailable until the evidence training phase lands.
+The train package holds training configuration, run provenance, losses,
+and the imperative evidence-recording training loop for the
+GSD-conditioned model families.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`config`](train/config.md) | module | Frozen `TrainConfig`, TOML load, overlay, and digest |
-| [`loop`](train/loop.md) | module | Public train boundary (unavailable) |
+| [`config`](train/config.md) | module | Frozen `TrainConfig`, TOML load, overlay, digest, and metric aliases |
+| [`loop`](train/loop.md) | module | Public train boundary; durable run evidence and checkpoints |
 | [`provenance`](train/provenance.md) | module | Training geometry and split-leakage checks |
 | [`losses`](train/losses.md) | module | BCE, Dice, and focal objectives |
 
@@ -26,14 +26,17 @@ import `tools.ml_models.train.loop` and `tools.ml_models.train.config`.
 ## Interactions
 
 `loop.train` is the `Result[Path, str]` boundary the `ml-models train`
-CLI command calls; it currently returns an explicit unavailable error.
-`provenance` reads finished-dataset manifests.
+CLI command calls; `Ok` carries the run directory. `provenance` reads
+finished-dataset manifests; `loop` evaluates through
+`tools.ml_models.analysis.evaluate` and records through
+`tools.ml_models.analysis.training`.
 
 ## Constraints
 
 - The package returns `Result[Path, str]` at the public boundary.
-- `train` creates no run directory, model, checkpoint, or summary while
-  unavailable.
+- Torch, the architecture registry, the loader, losses, and the
+  evaluator are imported lazily inside `loop.train`; importing the
+  package never requires torch.
 
 ## Related documents
 

@@ -1,8 +1,9 @@
-"""Training configuration, provenance, and the unavailable training boundary.
+"""Training configuration, provenance, and the evidence-recording loop.
 
 Contains:
-  - config: frozen TrainConfig, strict TOML load, overlay, and digest.
-  - loop: public train boundary; unavailable until evidence training lands.
+  - config: frozen TrainConfig, strict TOML load, overlay, digest, and
+    validation-metric aliases.
+  - loop: public train boundary; durable run evidence and checkpoints.
   - provenance: training geometry and cross-dataset split-leakage checks.
   - losses: BCE, Dice, and focal objectives.
 

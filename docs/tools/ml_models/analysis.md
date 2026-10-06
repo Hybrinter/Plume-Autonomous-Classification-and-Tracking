@@ -22,10 +22,10 @@ formatters).
 | [`capture`](analysis/capture.md) | module | Bounded prediction/evidence sink |
 | [`evaluate`](analysis/evaluate.md) | module | Exhaustive split-evaluation boundary |
 | [`dataset`](analysis/dataset.md) | module | Dataset-analysis boundary (unavailable) |
-| [`training`](analysis/training.md) | module | History analysis (scaffold) |
+| [`training`](analysis/training.md) | module | Strict training records, epoch reduction, selection, and history reader |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
 | [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
-| [`cost`](analysis/cost.md) | module | Parameter counting; unavailable FLOP boundary |
+| [`cost`](analysis/cost.md) | module | Parameter counts and a partial two-input operation bound |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
 | [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration implemented |

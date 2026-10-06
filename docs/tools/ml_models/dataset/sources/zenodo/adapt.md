@@ -31,10 +31,14 @@ rasterized mask when the tile is annotated.
    not the label, controls segmentor eligibility (`has_mask`).
 2. All dates and bins at one location share `group_id`, so group splits
    never separate variants of a location.
-3. Each image streams once; per bin the native reflectance is
+3. Each ref carries `archive.observation_metadata(tile)` for the
+   original image; the same observation identity is shared across GSD
+   bins, task copies, and augmentations. Stems outside the documented
+   `location_ISO-UTC_index` form leave `acquired_at_utc` None.
+4. Each image streams once; per bin the native reflectance is
    `resample_area`-downsampled and clipped to `[0, 1]`, and the mask is
    rasterized at the same output grid.
-4. Stored GSD is `actual_gsd(bin)`: `1200 / (W, H)` of the rounded grid.
+5. Stored GSD is `actual_gsd(bin)`: `1200 / (W, H)` of the rounded grid.
 
 ## Errors and faults
 

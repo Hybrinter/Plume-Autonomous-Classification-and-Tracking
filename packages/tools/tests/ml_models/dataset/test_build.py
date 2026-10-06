@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
@@ -11,8 +12,15 @@ from tools.ml_models.cli import main
 from tools.ml_models.dataset.augment import ELEMENT_NAMES, SHAPE_PRESERVING, apply_dihedral
 from tools.ml_models.dataset.build import build_dataset, build_flight
 from tools.ml_models.dataset.loader import ShardDataset
-from tools.ml_models.dataset.manifest import load_manifest
-from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
+from tools.ml_models.dataset.manifest import compute_dataset_hash, load_manifest
+from tools.ml_models.dataset.raw import (
+    BinSpec,
+    ConditionTag,
+    GsdPair,
+    ObservationMetadata,
+    RawTile,
+    RawTileRef,
+)
 from tools.ml_models.dataset.sources.flight import FlightTileWrite, write_flight_tile_dir
 from tools.ml_models.dataset.spec import BuildSpec
 from tools.ml_models.dataset.split import SplitRecipe, assign_group_splits
@@ -20,6 +28,7 @@ from tools.ml_models.dataset.store import (
     RowRecord,
     read_gsd,
     read_images,
+    read_labels,
     read_masks,
     read_rows,
 )
@@ -613,3 +622,308 @@ def test_build_rejects_non_finite_theta(tmp_path: Path) -> None:
     source = MemorySource(tiles)
     with pytest.raises(ValueError, match="theta_g_deg"):
         build_dataset(source, tmp_path / "ds", BuildSpec())
+
+
+def _meta_tile(
+    tile_id: str,
+    group_id: str,
+    bin_id: str,
+    metadata: ObservationMetadata,
+    mask: np.ndarray | None,
+    *,
+    label: float = 1.0,
+    has_mask: bool | None = None,
+    gsd: GsdPair = GsdPair(10.0, 10.0),
+) -> RawTile:
+    """One 4x4 isotropic-GSD tile carrying explicit observation metadata."""
+    return RawTile(
+        ref=RawTileRef(
+            tile_id=tile_id,
+            group_id=group_id,
+            label=label,
+            has_mask=mask is not None if has_mask is None else has_mask,
+            gsd=gsd,
+            height=4,
+            width=4,
+            frame_id=None,
+            grid_rc=None,
+            bin_id=bin_id,
+            metadata=metadata,
+        ),
+        image=np.full((3, 4, 4), 0.5, dtype=np.float32),
+        mask=mask,
+    )
+
+
+def _observed_groups() -> tuple[tuple[RawTile, ...], dict[str, tuple[ObservationMetadata, str]]]:
+    """Three groups, two GSD variants each, one observation id per group."""
+    positive = np.zeros((1, 4, 4), dtype=np.uint8)
+    positive[0, 0, 0] = 1
+    empty = np.zeros((1, 4, 4), dtype=np.uint8)
+    expected: dict[str, tuple[ObservationMetadata, str]] = {
+        "g0": (
+            ObservationMetadata(
+                observation_id="obs-g0",
+                acquired_at_utc="2020-02-29T10:56:41Z",
+                conditions=(ConditionTag(name="weather", value="recorded-clear"),),
+                annotation_source="labels/obs-g0.json",
+                annotation_version="r1",
+                source_annotation_state="NONEMPTY",
+            ),
+            "NONEMPTY",
+        ),
+        "g1": (
+            ObservationMetadata(
+                observation_id="obs-g1",
+                annotation_source="labels/obs-g1.json",
+                source_annotation_state="EXPLICIT_EMPTY",
+            ),
+            "EMPTY",
+        ),
+        "g2": (
+            ObservationMetadata(
+                observation_id="obs-g2",
+                annotation_source="labels/obs-g2.json",
+                source_annotation_state="NONEMPTY",
+            ),
+            "EMPTY",
+        ),
+    }
+    masks = {"g0": positive, "g1": empty, "g2": empty}
+    tiles = tuple(
+        _meta_tile(
+            f"{group}-{bin_id}",
+            group,
+            bin_id,
+            expected[group][0],
+            masks[group],
+            gsd=gsd,
+        )
+        for group in ("g0", "g1", "g2")
+        for bin_id, gsd in (("low", GsdPair(10.0, 10.0)), ("high", GsdPair(20.0, 20.0)))
+    )
+    return tiles, expected
+
+
+def test_observation_metadata_shared_across_variants_tasks_and_elements(
+    tmp_path: Path,
+) -> None:
+    """One observation id survives both bins, both tasks, and every element."""
+    tiles, expected = _observed_groups()
+    dest = tmp_path / "ds"
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
+    seen_ids: set[str] = set()
+    group_states: dict[str, set[str]] = {}
+    for task in ("classifier", "segmentor"):
+        for shard in _shard_dirs(dest, task):
+            rows = read_rows(shard)
+            stored_gsd = read_gsd(shard)
+            for row_index, row in enumerate(rows):
+                metadata, _state = expected[row.group_id]
+                assert row.metadata == metadata
+                expected_pair = (10.0, 10.0) if row.bin_id == "low" else (20.0, 20.0)
+                np.testing.assert_allclose(stored_gsd[row_index], expected_pair, rtol=1e-6)
+                seen_ids.add(cast(str, row.metadata.observation_id))
+                group_states.setdefault(row.group_id, set()).add(row.prepared_mask_state)
+    assert seen_ids == {"obs-g0", "obs-g1", "obs-g2"}
+    assert group_states["g0"] == {"NONEMPTY"}
+    assert group_states["g1"] == {"EMPTY"}
+    assert group_states["g2"] == {"EMPTY"}
+    train_rows = _rows_by_split(dest, "classifier")["train"]
+    assert {row.element for row in train_rows} == set(ELEMENT_NAMES)
+    for group, (metadata, state) in expected.items():
+        segmentor_rows = [
+            row
+            for rows in _rows_by_split(dest, "segmentor").values()
+            for row in rows
+            if row.group_id == group
+        ]
+        assert segmentor_rows, group
+        assert all(row.metadata == metadata for row in segmentor_rows)
+        assert all(row.prepared_mask_state == state for row in segmentor_rows)
+
+
+def test_classifier_negative_missing_mask_records_prepared_missing(tmp_path: Path) -> None:
+    """A classifier-only tile keeps prepared MISSING and no segmentor rows."""
+    positive = np.zeros((1, 4, 4), dtype=np.uint8)
+    positive[0, 0, 0] = 1
+    tiles = tuple(
+        _meta_tile(
+            f"t{index}",
+            f"g{index}",
+            "",
+            ObservationMetadata(observation_id=f"obs-{index}", source_annotation_state="NONEMPTY"),
+            positive,
+        )
+        for index in range(3)
+    ) + (
+        _meta_tile(
+            "t-neg",
+            "g0",
+            "",
+            ObservationMetadata(observation_id="obs-neg", source_annotation_state="MISSING"),
+            None,
+            label=0.0,
+        ),
+    )
+    dest = tmp_path / "ds"
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
+    rows = [
+        row
+        for rows in _rows_by_split(dest, "classifier").values()
+        for row in rows
+        if row.tile_id == "t-neg"
+    ]
+    assert rows
+    assert all(row.prepared_mask_state == "MISSING" for row in rows)
+    assert all(row.metadata.observation_id == "obs-neg" for row in rows)
+    assert not [
+        row
+        for rows in _rows_by_split(dest, "segmentor").values()
+        for row in rows
+        if row.tile_id == "t-neg"
+    ]
+
+
+def test_explicit_empty_source_without_mask_records_prepared_missing(tmp_path: Path) -> None:
+    """A known explicit-empty annotation with no prepared mask stays legal."""
+    positive = np.zeros((1, 4, 4), dtype=np.uint8)
+    positive[0, 0, 0] = 1
+    tiles = tuple(
+        _meta_tile(
+            f"t{index}",
+            f"g{index}",
+            "",
+            ObservationMetadata(observation_id=f"obs-{index}", source_annotation_state="NONEMPTY"),
+            positive,
+        )
+        for index in range(3)
+    ) + (
+        _meta_tile(
+            "t-empty",
+            "g0",
+            "",
+            ObservationMetadata(
+                observation_id="obs-empty", source_annotation_state="EXPLICIT_EMPTY"
+            ),
+            None,
+            label=0.0,
+        ),
+    )
+    dest = tmp_path / "ds"
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
+    rows = [
+        row
+        for rows in _rows_by_split(dest, "classifier").values()
+        for row in rows
+        if row.tile_id == "t-empty"
+    ]
+    assert rows
+    assert all(row.prepared_mask_state == "MISSING" for row in rows)
+    assert not [
+        row
+        for rows in _rows_by_split(dest, "segmentor").values()
+        for row in rows
+        if row.tile_id == "t-empty"
+    ]
+
+
+def test_source_annotation_mask_contradictions_are_rejected(tmp_path: Path) -> None:
+    """A mask contradicting its recorded source annotation state fails the build."""
+    positive = np.zeros((1, 4, 4), dtype=np.uint8)
+    positive[0, 0, 0] = 1
+    good = tuple(
+        _meta_tile(
+            f"t{index}",
+            f"g{index}",
+            "",
+            ObservationMetadata(observation_id=f"obs-{index}"),
+            positive,
+        )
+        for index in range(2)
+    )
+    missing_with_mask = _meta_tile(
+        "t-bad",
+        "g2",
+        "",
+        ObservationMetadata(observation_id="obs-bad", source_annotation_state="MISSING"),
+        positive,
+    )
+    with pytest.raises(ValueError, match="MISSING"):
+        build_dataset(MemorySource(good + (missing_with_mask,)), tmp_path / "a", BuildSpec())
+    empty_with_positive_mask = _meta_tile(
+        "t-bad",
+        "g2",
+        "",
+        ObservationMetadata(observation_id="obs-bad", source_annotation_state="EXPLICIT_EMPTY"),
+        positive,
+    )
+    with pytest.raises(ValueError, match="EXPLICIT_EMPTY"):
+        build_dataset(MemorySource(good + (empty_with_positive_mask,)), tmp_path / "b", BuildSpec())
+
+
+def test_schema2_fixture_reads_unchanged_with_unknown_metadata(tmp_path: Path) -> None:
+    """A schema-2 fixture reads with unknown metadata and is never mutated."""
+    tiles = _paired_bins()
+    dest = tmp_path / "ds"
+    build_dataset(MemorySource(tiles), dest, BuildSpec())
+    for rows_path in sorted(dest.rglob("rows.jsonl")):
+        lines = []
+        for line in rows_path.read_text(encoding="utf-8").splitlines():
+            payload = json.loads(line)
+            payload.pop("metadata", None)
+            payload.pop("prepared_mask_state", None)
+            lines.append(json.dumps(payload, separators=(",", ":")))
+        rows_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    manifest_path = dest / "dataset.json"
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["schema"] = 2
+    manifest_payload["dataset_hash"] = compute_dataset_hash(dest)
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2) + "\n", encoding="utf-8")
+    before = {
+        path.relative_to(dest).as_posix(): path.read_bytes()
+        for path in dest.rglob("*")
+        if path.is_file()
+    }
+    loaded = load_manifest(manifest_path)
+    assert loaded.schema_version == 2
+    for task in ("classifier", "segmentor"):
+        for split_name in ("train", "val", "test"):
+            split_dir = dest / task / split_name
+            if not split_dir.is_dir():
+                continue
+            for shard in split_dir.iterdir():
+                for row in read_rows(shard):
+                    assert row.metadata == ObservationMetadata()
+                    assert row.prepared_mask_state == "UNKNOWN"
+    after = {
+        path.relative_to(dest).as_posix(): path.read_bytes()
+        for path in dest.rglob("*")
+        if path.is_file()
+    }
+    assert before == after
+    fresh = tmp_path / "ds3"
+    build_dataset(MemorySource(tiles), fresh, BuildSpec())
+    assert load_manifest(fresh / "dataset.json").schema_version == 3
+    for task in ("classifier", "segmentor"):
+        for split_name in ("train", "val", "test"):
+            old_dir = dest / task / split_name
+            if not old_dir.is_dir():
+                continue
+            for shard in sorted(old_dir.iterdir()):
+                twin = fresh / task / split_name / shard.name
+                np.testing.assert_array_equal(read_images(shard), read_images(twin))
+                np.testing.assert_array_equal(read_gsd(shard), read_gsd(twin))
+                np.testing.assert_array_equal(read_labels(shard), read_labels(twin))
+                old_masks, new_masks = read_masks(shard), read_masks(twin)
+                assert (old_masks is None) == (new_masks is None)
+                if old_masks is not None and new_masks is not None:
+                    np.testing.assert_array_equal(old_masks, new_masks)
+                dataset = ShardDataset(shard, loaded.gsd_reference_m, task, channels=3)
+                image, _gsd, target = dataset[0]
+                assert image.shape[0] == 3
+                assert target.shape[0] == 1
+    manifest_payload["schema"] = 4
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="schema"):
+        load_manifest(manifest_path)

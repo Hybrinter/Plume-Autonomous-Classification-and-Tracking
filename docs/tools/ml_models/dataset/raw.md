@@ -14,6 +14,10 @@ dataset build reads it.
 | --- | --- | --- |
 | `Domain` | alias | `str`; the value `unit` |
 | `GsdPair` | class | Pixel ground distance at a tile center, lateral then along-track; re-exported from `flight.payload.gimbal.footprint` |
+| `ConditionTag` | class | One explicitly recorded categorical condition, never inferred from pixels |
+| `ObservationMetadata` | class | Authoritative source observation identity, UTC time, conditions, and annotation provenance |
+| `PreparedMaskState` | alias | Literal `UNKNOWN`, `MISSING`, `EMPTY`, or `NONEMPTY` |
+| `prepared_mask_state` | function | Classify a prepared binary mask without using its class label |
 | `BinSpec` | class | One named GSD bin recorded on the finished dataset |
 | `RawTileRef` | class | Row identity and geometry without pixel arrays |
 | `RawTile` | class | One raw tile: a `RawTileRef` plus image and optional mask |
@@ -30,13 +34,30 @@ dataset build reads it.
 pixels. `bins` is empty when the source has no named bins.
 
 `RawTileRef` fields: `tile_id`, `group_id`, `label`, `has_mask`, `gsd`,
-`height`, `width`, `frame_id`, `grid_rc`, `bin_id`, `theta_g_deg`, and
-`gsd_nominal`. `theta_g_deg` is the gimbal elevation in degrees or None when the source
+`height`, `width`, `frame_id`, `grid_rc`, `bin_id`, `theta_g_deg`,
+`gsd_nominal`, and `metadata`. `theta_g_deg` is the gimbal elevation in degrees or None when the source
 does not record one; `gsd_nominal` marks nominal orbit geometry when the
 capture did not carry a measured value. `RawTile.image` is float32
 `(C, H, W)` in the unit interval, where `(H, W)` is the indexed
 `(height, width)`. `RawTile.mask` is `(1, H, W)` or None and is present
 exactly when `has_mask` is True.
+
+`metadata` is a validated `ObservationMetadata` and defaults to every
+field unset. `observation_id` names the one original source observation
+behind all GSD-bin variants, task copies, and augmentations of the tile;
+it does not assert statistical independence. `acquired_at_utc` is a
+strict ISO UTC timestamp ending in `Z` or None. `conditions` is a tuple
+of uniquely named `ConditionTag` entries a recorder supplied; a source
+never infers them. `annotation_source` and `annotation_version` name the
+source annotation artifact. `source_annotation_state` is `UNKNOWN`,
+`MISSING`, `EXPLICIT_EMPTY`, or `NONEMPTY`: `NONEMPTY` records that
+source annotation entries exist, not that a rasterized plume mask is
+nonempty.
+
+`prepared_mask_state(mask)` classifies the actual prepared binary mask
+the source carries: `MISSING` for no mask, `NONEMPTY` for a mask with a
+set pixel, `EMPTY` otherwise. It never uses the class label and never
+claims that a missing mask is verified empty.
 
 ## Behavior
 

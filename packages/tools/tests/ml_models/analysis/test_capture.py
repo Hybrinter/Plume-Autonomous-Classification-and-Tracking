@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 from pathlib import Path
@@ -11,9 +12,11 @@ import numpy as np
 import pytest
 import tools.ml_models.analysis.capture as capture_module
 from flight.libs.types import Err, Ok, Result
+from pydantic import TypeAdapter
 from tools.ml_models.analysis.capture import BoundedCaptureSink, CaptureRow, CaptureSink
 from tools.ml_models.analysis.config import CaptureConfig
 from tools.ml_models.analysis.contracts import ArtifactRef, MetricSupport, MetricValue, SampleKey
+from tools.ml_models.analysis.metrics.spatial import score_spatial
 
 
 class _Sink:
@@ -663,3 +666,34 @@ def test_unselected_candidates_do_not_consume_preview_budget(tmp_path: Path) -> 
     assert meta["selected"] == [entry for entry in meta["selected"] if entry["status"] == "KEPT"]
     assert meta["omitted_previews"] == 0
     assert len(meta["selected"]) == len(prospective)
+
+
+def test_capture_row_spatial_roundtrip_and_legacy_default() -> None:
+    """Spatial records serialize as compact nested dicts; old rows load None."""
+    truth = np.zeros((1, 8, 8), dtype=np.float32)
+    truth[0, :5, :4] = 1.0
+    logits = np.zeros((1, 8, 8), dtype=np.float32)
+    logits[0, :5, :4] = 2.0
+    scored = score_spatial(logits, truth)
+    assert isinstance(scored, Ok)
+    row = CaptureRow(
+        key=_key(),
+        group_id="g0",
+        bin_id="b0",
+        label=1.0,
+        gsd_m=(0.5, 0.5),
+        metrics=(_metric(),),
+        failure_score=0.5,
+        spatial=scored.value,
+    )
+    payload = json.loads(json.dumps(dataclasses.asdict(row), sort_keys=True))
+    spatial = payload["spatial"]
+    assert spatial["localization"]["matches"]
+    assert "unmatched_truth" in spatial["localization"]
+    assert "tolerance" in spatial["boundary"]
+    parsed = TypeAdapter(CaptureRow).validate_python(payload)
+    assert parsed == row
+    assert json.loads(json.dumps(dataclasses.asdict(parsed), sort_keys=True)) == payload
+    legacy = {key: value for key, value in payload.items() if key != "spatial"}
+    parsed_legacy = TypeAdapter(CaptureRow).validate_python(legacy)
+    assert parsed_legacy.spatial is None

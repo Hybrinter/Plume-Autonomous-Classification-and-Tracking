@@ -48,15 +48,19 @@ optional `CaptureSink` that receives every evaluated row.
    dtype, and finiteness are required. The model is run under
    `model.eval()` and `torch.inference_mode()`, and every module's prior
    `training` flag is restored on exit.
-5. Per row, classifier logits or a `SegmentationRow` plus optional
-   `objective_*` components feed a total cohort and one `gsd_bin` stratum
-   cohort per `bin_id`; classifier cohorts score through
-   `score_classifier`, segmentor cohorts through the pooled-histogram
-   `SegmentationAccumulator`.
+5. Per row, classifier logits or a `SegmentationRow` plus a `SpatialRow`
+   (from `score_spatial` at the configured blob, mask, and tolerance
+   settings) plus optional `objective_*` components feed a total cohort
+   and one `gsd_bin` stratum cohort per `bin_id`; classifier cohorts
+   score through `score_classifier`, segmentor cohorts through the
+   pooled-histogram `SegmentationAccumulator` plus `aggregate_spatial`
+   over the frozen spatial rows, which appends component, boundary, and
+   localization-success evidence unchanged.
 6. When `capture` is supplied, each evaluated row is offered as a
    `CaptureRow` with evaluator-derived metrics, failure score, and
    false-positive/false-negative flags, plus canonical image/target/logit
-   arrays (`array_view` `CANONICAL`).
+   arrays (`array_view` `CANONICAL`). Segmentor rows carry their frozen
+   `SpatialRow` in `CaptureRow.spatial`; classifier rows carry `None`.
 7. The returned `SplitEvidence` carries cohort metrics, curves, support
    with an `n_groups` named count, `gsd_bin` strata, capture artifact
    references, and warnings for excluded copies, inverted views, and
@@ -99,4 +103,5 @@ objective placement on the device is caller-owned.
 - [`tools.ml_models.analysis.contracts`](contracts.md)
 - [`tools.ml_models.analysis.capture`](capture.md)
 - [`tools.ml_models.analysis.metrics.segmentation`](metrics/segmentation.md)
+- [`tools.ml_models.analysis.metrics.spatial`](metrics/spatial.md)
 - [`tools.ml_models.analysis.metrics.classifier`](metrics/classifier.md)

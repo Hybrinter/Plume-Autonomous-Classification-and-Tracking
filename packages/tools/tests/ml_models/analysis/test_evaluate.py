@@ -1,5 +1,6 @@
 """Cohort traversal and canonical input oracles for exhaustive evaluation."""
 
+import hashlib
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -21,6 +22,7 @@ from tools.ml_models.dataset.manifest import (
     load_manifest,
     write_manifest,
 )
+from tools.ml_models.dataset.raw import ObservationMetadata
 from tools.ml_models.dataset.store import (
     RowRecord,
     ShardWriter,
@@ -176,6 +178,9 @@ def _small_dataset(
     include_empty_mask: bool = True,
     split: str = "test",
     elements: tuple[str, ...] = ("id",),
+    metadata: ObservationMetadata | None = None,
+    gsd_nominal: bool = False,
+    schema_version: int | None = None,
 ) -> Path:
     template = load_manifest(builder(tmp_path / "template", n=3) / "dataset.json")
     root = tmp_path / "small"
@@ -211,6 +216,8 @@ def _small_dataset(
                             grid_rc=None,
                             bin_id="near" if height == 2 else "far",
                             element=element,
+                            gsd_nominal=gsd_nominal,
+                            metadata=(metadata if metadata is not None else ObservationMetadata()),
                         ),
                     )
             writer.close()
@@ -225,6 +232,8 @@ def _small_dataset(
                 )
             )
     manifest = replace(template, shards=tuple(counts), dataset_hash=compute_dataset_hash(root))
+    if schema_version is not None:
+        manifest = replace(manifest, schema_version=schema_version)
     write_manifest(root / "dataset.json", manifest)
     return root
 
@@ -589,3 +598,86 @@ def test_mismatched_spatial_conventions_fail_closed() -> None:
     second = score_spatial(logits, truth, cfg=ScoreConfig(blob_probability_threshold=0.6))
     assert isinstance(first, Ok) and isinstance(second, Ok)
     assert isinstance(aggregate_spatial((first.value, second.value)), Err)
+
+
+def test_captured_rows_retain_recorded_metadata_and_nominal_flag(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """Recorded observation provenance and a nominal flag reach capture rows unchanged."""
+    from tools.ml_models.dataset.raw import ConditionTag
+
+    metadata = ObservationMetadata(
+        observation_id="obs-9",
+        acquired_at_utc="2026-02-03T04:05:06Z",
+        conditions=(ConditionTag(name="sky", value="clear"),),
+        annotation_source="survey",
+    )
+    dataset = _small_dataset(tmp_path, build_synthetic_dataset, metadata=metadata, gsd_nominal=True)
+    sink = _CollectSink()
+    result = evaluate_split(
+        MarkerModel(),
+        dataset,
+        load_manifest(dataset / "dataset.json"),
+        EvaluationConfig(kind="classifier", split="test"),
+        capture=sink,
+    )
+    assert isinstance(result, Ok), result
+    assert sink.rows
+    assert all(row.metadata == metadata for row in sink.rows)
+    assert all(row.gsd_nominal is True for row in sink.rows)
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "nominal", "expected"),
+    [
+        (2, False, None),
+        (2, True, True),
+        (3, False, False),
+        (3, True, True),
+    ],
+)
+def test_gsd_nominal_propagation_respects_manifest_schema(
+    tmp_path: Path,
+    build_synthetic_dataset: Callable[..., Path],
+    schema_version: int,
+    nominal: bool,
+    expected: bool | None,
+) -> None:
+    """A recorded nominal flag stays; a False flag is explicit on schema 3 only."""
+    dataset = _small_dataset(
+        tmp_path,
+        build_synthetic_dataset,
+        gsd_nominal=nominal,
+        schema_version=schema_version,
+    )
+    sink = _CollectSink()
+    result = evaluate_split(
+        MarkerModel(),
+        dataset,
+        load_manifest(dataset / "dataset.json"),
+        EvaluationConfig(kind="classifier", split="test"),
+        capture=sink,
+    )
+    assert isinstance(result, Ok), result
+    assert sink.rows
+    assert all(row.gsd_nominal is expected for row in sink.rows)
+
+
+def test_captured_rows_record_the_verified_manifest_hash(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """Every captured row carries the manifest digest bound to the evidence."""
+    dataset = _small_dataset(tmp_path, build_synthetic_dataset)
+    sink = _CollectSink()
+    result = evaluate_split(
+        MarkerModel(),
+        dataset,
+        load_manifest(dataset / "dataset.json"),
+        EvaluationConfig(kind="classifier", split="test"),
+        capture=sink,
+    )
+    assert isinstance(result, Ok), result
+    expected = hashlib.sha256((dataset / "dataset.json").read_bytes()).hexdigest()
+    assert result.value.dataset_manifest_hash == expected
+    assert sink.rows
+    assert {row.dataset_manifest_hash for row in sink.rows} == {expected}

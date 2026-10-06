@@ -30,7 +30,14 @@ orientation regardless of the transform recorded in `key.element`.
 `spatial` is an optional frozen `SpatialRow` carrying compact component
 geometry, matches, unmatched identifiers, and boundary statistics for
 segmentor rows — `None` for classifier rows and for rows persisted by
-older writers. It retains no dense arrays.
+older writers. It retains no dense arrays. `metadata` carries the
+recorded `ObservationMetadata` provenance copied from the stored row and
+defaults to all-unavailable; `gsd_nominal` records whether the stored row
+declared nominal GSD and stays `None` when the source schema cannot say.
+`dataset_manifest_hash` carries the manifest digest the evaluator
+verified against the on-disk `dataset.json`; when recorded it must be a
+lowercase SHA-256 and stays `None` for rows persisted by older writers.
+Rows persisted by older writers load all of these defaults unchanged.
 
 `BoundedCaptureSink.create(out, cfg, dataset=...) -> Result` validates and
 reserves the output; the direct constructor raises on the same failures.

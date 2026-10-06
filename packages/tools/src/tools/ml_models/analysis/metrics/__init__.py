@@ -9,7 +9,6 @@ Contains:
   - localization: component matching and miss-inclusive success curves.
   - boundary: boundary distances and inclusive tolerance scores.
   - spatial: shared localization/boundary rows and frozen aggregation.
-  - generalization: strata and group-level uncertainty (scaffold).
-
-Only generalization remains a scaffold.
+  - generalization: captured-cohort strata, train-only baselines, and
+    recorded-group bootstrap intervals.
 """

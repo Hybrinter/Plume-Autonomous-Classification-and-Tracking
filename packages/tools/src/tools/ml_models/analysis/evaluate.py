@@ -372,6 +372,15 @@ def _evaluate(
                             false_positive=fp,
                             false_negative=fn,
                             spatial=spatial,
+                            metadata=row.metadata,
+                            dataset_manifest_hash=manifest_hash,
+                            gsd_nominal=(
+                                True
+                                if row.gsd_nominal
+                                else False
+                                if manifest.schema_version >= 3
+                                else None
+                            ),
                         ),
                         image=images_array[position],
                         target=targets_array[position],

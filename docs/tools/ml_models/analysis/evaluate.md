@@ -61,6 +61,12 @@ optional `CaptureSink` that receives every evaluated row.
    false-positive/false-negative flags, plus canonical image/target/logit
    arrays (`array_view` `CANONICAL`). Segmentor rows carry their frozen
    `SpatialRow` in `CaptureRow.spatial`; classifier rows carry `None`.
+   `CaptureRow.metadata` copies the stored row's observation provenance
+   unchanged; `CaptureRow.gsd_nominal` is `True` for recorded nominal
+   rows, `False` when a schema-3 manifest records non-nominal GSD, and
+   `None` when a schema-2 source cannot say. `CaptureRow.dataset_manifest_hash`
+   copies the SHA-256 the evaluator verified over the source
+   `dataset.json`.
 7. The returned `SplitEvidence` carries cohort metrics, curves, support
    with an `n_groups` named count, `gsd_bin` strata, capture artifact
    references, and warnings for excluded copies, inverted views, and

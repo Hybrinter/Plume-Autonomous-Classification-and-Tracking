@@ -26,13 +26,14 @@ formatters).
 | [`dataset_figures`](analysis/dataset_figures.md) | module | Frozen dataset figure-coordinate recipes |
 | [`dataset_previews`](analysis/dataset_previews.md) | module | Bounded exact preview capture with semantic channel mapping |
 | [`dataset_render`](analysis/dataset_render.md) | module | Figure/preview orchestration and rendered-bundle publication |
+| [`generalization_artifacts`](analysis/generalization_artifacts.md) | module | Frozen generalization-evidence bundle codecs |
 | [`training`](analysis/training.md) | module | Strict training records, epoch reduction, selection, and history reader |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
 | [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
 | [`cost`](analysis/cost.md) | module | Parameter counts and a partial two-input operation bound |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
-| [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration/segmentation/spatial implemented |
+| [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration/segmentation/spatial/generalization implemented |
 | [`plots`](analysis/plots.md) | package | Figure export and dataset figure renderers; the general render boundary stays unavailable |
 | [`visuals`](analysis/visuals.md) | package | Gallery selection and dataset preview-gallery rendering |
 

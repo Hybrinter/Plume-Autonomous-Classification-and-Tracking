@@ -12,6 +12,8 @@ Contains:
   - dataset_figures: frozen dataset figure-coordinate recipes.
   - dataset_previews: bounded exact preview capture.
   - dataset_render: figure/preview orchestration and bundle publication.
+  - generalization_artifacts: frozen generalization-evidence bundle
+    codecs.
   - training: strict training records, epoch reduction, and readers.
   - model: model-analysis boundary (unavailable).
   - summaries: tagged versioned summary records.
@@ -19,7 +21,7 @@ Contains:
   - runs: unavailable catalog readers and pure text formatters.
   - pareto: pure frontier/knee helpers and the unavailable reader boundary.
   - metrics: pure metric cores; classifier/calibration/segmentation/
-    spatial implemented.
+    spatial/generalization implemented.
   - plots: figure export and dataset figure rendering; the general
     render boundary stays unavailable.
   - visuals: bounded gallery selection and dataset preview rendering.

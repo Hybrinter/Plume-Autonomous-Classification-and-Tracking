@@ -2,20 +2,19 @@
 
 **Source:** `packages/tools/src/tools/ml_models/analysis/visuals/`
 **Kind:** package
-**Status:** stub
 
 ## Purpose
 
-The visuals package is the scaffold for visual-evidence assembly:
-deterministic selections, dataset-row visuals, and prediction overlays.
-Every submodule is unimplemented and no visual is produced yet.
+The visuals package assembles visual evidence: deterministic bounded
+gallery selection and dataset preview-gallery rendering are
+implemented; prediction overlays remain a scaffold.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`selection`](visuals/selection.md) | module | Representative/failure selection (scaffold) |
-| [`dataset`](visuals/dataset.md) | module | Dataset-row visuals (scaffold) |
+| [`selection`](visuals/selection.md) | module | Deterministic bounded gallery selection |
+| [`dataset`](visuals/dataset.md) | module | Dataset preview-gallery rendering |
 | [`predictions`](visuals/predictions.md) | module | Prediction-overlay visuals (scaffold) |
 
 ## Package interface

@@ -85,15 +85,33 @@ def build_command(
 def dataset_analyze_command(
     dataset: Annotated[Path, typer.Option(..., help="Finished dataset directory.")],
     out: Annotated[Path, typer.Option(..., help="Analysis output directory.")],
+    config: Annotated[
+        Path | None,
+        typer.Option(help="DatasetAnalysisConfig TOML; --dataset/--out override its paths."),
+    ] = None,
 ) -> None:
-    """Measure one finished dataset into an evidence bundle.
+    """Measure one finished dataset and publish its evidence bundle."""
+    from dataclasses import replace
 
-    The numerical measurement and publication API is implemented, but the
-    CLI surface is unavailable until dataset rendering is implemented.
-    """
-    raise typer.BadParameter(
-        "dataset analysis CLI is unavailable until dataset rendering is implemented"
+    from flight.libs.types import Err
+
+    from tools.ml_models.analysis.config import (
+        DatasetAnalysisConfig,
+        load_dataset_analysis_config,
     )
+    from tools.ml_models.analysis.dataset import analyze_dataset
+
+    if config is not None:
+        loaded = load_dataset_analysis_config(config)
+        if isinstance(loaded, Err):
+            raise typer.BadParameter(loaded.error)
+        cfg = replace(loaded.value, dataset=str(dataset), out=str(out))
+    else:
+        cfg = DatasetAnalysisConfig(dataset=str(dataset), out=str(out))
+    result = analyze_dataset(cfg)
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(result.value))
 
 
 @app.command("train")

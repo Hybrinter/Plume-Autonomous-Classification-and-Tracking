@@ -28,9 +28,22 @@ under an `.incomplete` marker.
 
 ## Inputs and outputs
 
-`publish_dataset_measurement(measured, cfg) -> Result[Path, str]` takes
+`publish_dataset_measurement(measured, cfg, *, extra_files=(),
+extra_refs=(), extra_outputs=(), code=None) -> Result[Path, str]` takes
 a frozen `DatasetMeasurement` and a `DatasetAnalysisConfig`, and on
 success returns `Ok` with the published bundle directory.
+`extra_files`/`extra_refs` carry pre-rendered artifacts bound by the
+caller (figure bytes, preview captures, render metadata); they extend
+the file and reference lists and are validated by `publish_bundle` like
+every other artifact, so a reference without matching bytes or a
+conflicting path is refused before reservation. `extra_outputs` merge
+into the summary by name: duplicate names inside the batch are
+rejected, a supplied name may replace only the base `figures` or
+`visuals` record (for example flipping `figures` to `AVAILABLE`),
+unique names such as `figure:<identifier>` records are appended, and
+any attempt to replace a measured availability record such as
+timestamps or conditions returns `Err`. `code` defaults to
+`code_identity()` when not supplied.
 
 `code_identity() -> CodeIdentity` runs `git rev-parse HEAD` and
 `git status --porcelain --untracked-files=normal` with bounded timeouts
@@ -42,7 +55,8 @@ claimed and no environment or credentials are read.
 
 ## Bundle layout
 
-The published bundle contains exactly:
+The published bundle contains the measurement-only layout below plus
+any caller-supplied `extra_files`:
 
 - `summary.json`: canonical tagged `DatasetSummary` encoded by
   `encode_summary` and written by `publish_bundle`.
@@ -65,8 +79,9 @@ The published bundle contains exactly:
 Every artifact is declared as a checksummed `ArtifactRef` inside the
 summary; table refs carry exact row counts. The summary itself is
 assembled by `dataset_summary`, which owns the measurement identity,
-metric/split passthrough, and the available/unavailable output record —
-figures and visuals remain `UNAVAILABLE` until the rendering phase.
+metric/split passthrough, and the base availability records — callers
+that render figures or visuals pass `extra_outputs` to replace the base
+`UNAVAILABLE` records.
 
 ## Table schemas
 
@@ -145,13 +160,13 @@ None.
 ## Constraints
 
 - The publisher never traverses or reloads dataset files; every byte
-  comes from the frozen `DatasetMeasurement` and the config.
+  comes from the frozen `DatasetMeasurement`, the config, and
+  caller-supplied extra files.
 - `DatasetMeasurement` is imported for type checking only; the
   `dataset_summary` import is local, avoiding a module cycle with
   `dataset.py`.
-- The `dataset analyze` CLI command stays unavailable until dataset
-  rendering is implemented; this module is reached through
-  `analyze_dataset` only.
+- `code_identity` runs at most once per call; a supplied `code` value
+  is used verbatim.
 
 ## Related documents
 

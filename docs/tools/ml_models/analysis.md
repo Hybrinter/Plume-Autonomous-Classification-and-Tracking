@@ -28,13 +28,15 @@ formatters).
 | [`dataset_render`](analysis/dataset_render.md) | module | Figure/preview orchestration and rendered-bundle publication |
 | [`generalization_artifacts`](analysis/generalization_artifacts.md) | module | Frozen generalization-evidence bundle codecs |
 | [`training`](analysis/training.md) | module | Strict training records, epoch reduction, selection, and history reader |
+| [`training_figures`](analysis/training_figures.md) | module | Frozen training-history figure-coordinate recipes |
+| [`training_artifacts`](analysis/training_artifacts.md) | module | Frozen training-figure recipe bundle serialization |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
 | [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
 | [`cost`](analysis/cost.md) | module | Parameter counts and a partial two-input operation bound |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
 | [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration/segmentation/spatial/generalization implemented |
-| [`plots`](analysis/plots.md) | package | Figure export and dataset figure renderers; the general render boundary stays unavailable |
+| [`plots`](analysis/plots.md) | package | Figure export and dataset/training figure renderers; the general render boundary stays unavailable |
 | [`visuals`](analysis/visuals.md) | package | Gallery selection and dataset preview-gallery rendering |
 
 ## Package interface
@@ -50,8 +52,11 @@ finished dataset into a frozen `DatasetMeasurement`, then
 once, renders them through `plots.dataset` and `visuals.dataset`, and
 publishes one checksummed evidence bundle through
 `dataset_artifacts`. The `dataset analyze` CLI command calls that path
-directly. The `model` boundary and the `plots.common` render boundary
-remain unavailable; `render` fails closed.
+directly. `training_figures` freezes parsed run histories into chart
+recipes once; `plots.training` renders those recipes into bundle bytes
+and `training_artifacts` serializes the recipes themselves. The `model`
+boundary and the `plots.common` render boundary remain unavailable;
+`render` fails closed.
 `cost` profiles torch modules from `tools.ml_models.arch.registry`.
 `runs` and `pareto` format helpers consume caller-supplied rows.
 

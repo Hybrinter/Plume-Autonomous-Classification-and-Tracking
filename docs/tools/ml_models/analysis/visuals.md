@@ -6,8 +6,8 @@
 ## Purpose
 
 The visuals package assembles visual evidence: deterministic bounded
-gallery selection and dataset preview-gallery rendering are
-implemented; prediction overlays remain a scaffold.
+gallery selection, dataset preview-gallery rendering, and
+classifier prediction-overlay rendering over verified preview bytes.
 
 ## Contents
 
@@ -15,7 +15,7 @@ implemented; prediction overlays remain a scaffold.
 | --- | --- | --- |
 | [`selection`](visuals/selection.md) | module | Deterministic bounded gallery selection |
 | [`dataset`](visuals/dataset.md) | module | Dataset preview-gallery rendering |
-| [`predictions`](visuals/predictions.md) | module | Prediction-overlay visuals (scaffold) |
+| [`predictions`](visuals/predictions.md) | module | Prediction-overlay visuals over frozen galleries (classifier) |
 
 ## Package interface
 
@@ -24,7 +24,9 @@ only.
 
 ## Interactions
 
-None yet.
+`predictions` renders `PredictionGallery` selections produced by
+`analysis.prediction_selections` against capture-supplied preview
+NPZ bytes; segmentation visuals remain deferred to PR14.
 
 ## Constraints
 

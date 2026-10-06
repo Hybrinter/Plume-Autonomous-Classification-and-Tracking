@@ -8,12 +8,13 @@ Contains:
   - common: figure/export conventions and the render boundary.
   - dataset: dataset-analysis figures.
   - training: training-history figures.
-  - classifier: classifier-evidence figures.
+  - model: shared model-chart recipe renderer.
+  - classifier: classifier family binding over the model renderer.
   - segmentation: segmentation-evidence figures.
   - generalization: generalization-evidence figures.
 
 `common` supplies the export boundary and the unavailable general
-render entry point; `dataset` and `training` are implemented renderers
-over their frozen recipes; `classifier`, `segmentation`, and
-`generalization` remain scaffolds.
+render entry point; `dataset`, `training`, and `model`/`classifier`
+are implemented renderers over their frozen recipes; `segmentation`
+and `generalization` remain scaffolds.
 """

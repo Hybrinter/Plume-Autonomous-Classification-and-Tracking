@@ -86,16 +86,14 @@ def dataset_analyze_command(
     dataset: Annotated[Path, typer.Option(..., help="Finished dataset directory.")],
     out: Annotated[Path, typer.Option(..., help="Analysis output directory.")],
 ) -> None:
-    """Measure one finished dataset. Unavailable until dataset evidence lands."""
-    from flight.libs.types import Err
+    """Measure one finished dataset into an evidence bundle.
 
-    from tools.ml_models.analysis.config import DatasetAnalysisConfig
-    from tools.ml_models.analysis.dataset import analyze_dataset
-
-    result = analyze_dataset(DatasetAnalysisConfig(dataset=str(dataset), out=str(out)))
-    if isinstance(result, Err):
-        raise typer.BadParameter(result.error)
-    typer.echo(str(result.value))
+    The numerical measurement and publication API is implemented, but the
+    CLI surface is unavailable until dataset rendering is implemented.
+    """
+    raise typer.BadParameter(
+        "dataset analysis CLI is unavailable until dataset rendering is implemented"
+    )
 
 
 @app.command("train")

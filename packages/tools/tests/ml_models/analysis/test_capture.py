@@ -697,3 +697,42 @@ def test_capture_row_spatial_roundtrip_and_legacy_default() -> None:
     legacy = {key: value for key, value in payload.items() if key != "spatial"}
     parsed_legacy = TypeAdapter(CaptureRow).validate_python(legacy)
     assert parsed_legacy.spatial is None
+
+
+def test_capture_row_metadata_roundtrip_and_legacy_default() -> None:
+    """Recorded source metadata and the nominal flag serialize; old rows load defaults."""
+    from tools.ml_models.dataset.raw import ConditionTag, ObservationMetadata
+
+    metadata = ObservationMetadata(
+        observation_id="obs-7",
+        acquired_at_utc="2026-01-02T03:04:05Z",
+        conditions=(ConditionTag(name="sky", value="clear"),),
+        annotation_source="survey",
+        annotation_version="v3",
+        source_annotation_state="NONEMPTY",
+    )
+    row = dataclasses.replace(_row(), metadata=metadata, gsd_nominal=True)
+    payload = json.loads(json.dumps(dataclasses.asdict(row), sort_keys=True))
+    assert payload["metadata"]["acquired_at_utc"] == "2026-01-02T03:04:05Z"
+    assert payload["metadata"]["conditions"] == [{"name": "sky", "value": "clear"}]
+    assert payload["gsd_nominal"] is True
+    parsed = TypeAdapter(CaptureRow).validate_python(payload)
+    assert parsed == row
+    assert parsed.metadata == metadata
+    legacy = {
+        key: value
+        for key, value in payload.items()
+        if key not in ("metadata", "gsd_nominal", "dataset_manifest_hash")
+    }
+    parsed_legacy = TypeAdapter(CaptureRow).validate_python(legacy)
+    assert parsed_legacy.metadata == ObservationMetadata()
+    assert parsed_legacy.gsd_nominal is None
+    assert parsed_legacy.dataset_manifest_hash is None
+
+
+def test_capture_row_rejects_malformed_manifest_hash() -> None:
+    """A recorded manifest hash must be a lowercase SHA-256."""
+    payload = dataclasses.asdict(_row())
+    payload["dataset_manifest_hash"] = "not-a-sha256"
+    with pytest.raises(ValueError):
+        TypeAdapter(CaptureRow).validate_python(payload)

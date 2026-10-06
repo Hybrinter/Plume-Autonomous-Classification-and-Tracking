@@ -6,11 +6,11 @@
 ## Purpose
 
 This module is the `python -m tools.ml_models` command line. It builds a
-finished dataset from a raw tile source, exposes the unavailable dataset
-analysis, model analysis, and render boundaries, runs the unavailable
-training boundary, exports two-input ONNX artifacts, gates acceptance,
-writes classifier/segmentor pair manifests, and converts artifact
-precision.
+finished dataset from a raw tile source, measures and renders a dataset
+evidence bundle, exposes the unavailable model-analysis and render
+boundaries, runs the training loop, exports two-input ONNX artifacts,
+gates acceptance, writes classifier/segmentor pair manifests, and
+converts artifact precision.
 
 ## Public interface
 
@@ -50,6 +50,9 @@ precision.
 
 - `--dataset`: finished dataset directory. Required.
 - `--out`: analysis output directory. Required.
+- `--config`: optional `DatasetAnalysisConfig` TOML file. When supplied,
+  the file is loaded strictly and `--dataset`/`--out` override its two
+  path fields; every other setting comes from the file.
 
 `train` options:
 
@@ -123,12 +126,15 @@ precision.
    through `apply_train_mapping`, and calls `loop.train`. An `Ok` result
    echoes the run directory path; an `Err` becomes `typer.BadParameter`.
    The train modules import lazily inside the command.
-5. `dataset analyze` raises `typer.BadParameter` unconditionally: the
-   numerical measurement and publication API is implemented, but the
-   CLI surface stays unavailable until dataset rendering is
-   implemented. `analyze` and `render` map their `Result` boundaries to
-   `typer.BadParameter` on `Err`; while the boundaries are unavailable
-   every invocation exits nonzero and creates no output.
+5. `dataset analyze` loads the optional `--config` TOML (an unreadable
+   or invalid file fails before measurement), applies the
+   `--dataset`/`--out` override, and calls `analyze_dataset`, which
+   measures the dataset, renders figures and preview galleries, and
+   publishes the evidence bundle. An `Ok` echoes the bundle directory;
+   an `Err` becomes `typer.BadParameter`. `analyze` and `render` map
+   their `Result` boundaries to `typer.BadParameter` on `Err`; while
+   those boundaries are unavailable every invocation exits nonzero and
+   creates no output.
 6. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 

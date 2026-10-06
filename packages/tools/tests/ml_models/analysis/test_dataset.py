@@ -1,5 +1,6 @@
 """Tests for dataset measurement helpers and publication."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -8,19 +9,136 @@ import numpy as np
 import pytest
 from flight.libs.types import Err, Ok
 from tools.ml_models.analysis.artifacts import verify_bundle
-from tools.ml_models.analysis.config import DatasetAnalysisConfig
+from tools.ml_models.analysis.config import (
+    CaptureConfig,
+    DatasetAnalysisConfig,
+    PlotConfig,
+)
 from tools.ml_models.analysis.dataset import analyze_dataset, measure_mask, measure_pixels
+from tools.ml_models.analysis.summaries import DatasetSummary
+from tools.ml_models.dataset.manifest import compute_dataset_hash
 
 
+@pytest.mark.slow
 def test_analyze_dataset_publishes_verifiable_bundle(
     tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
 ) -> None:
-    """A finished dataset measures and publishes a verifiable evidence bundle."""
+    """A finished dataset publishes rendered figures, visuals, and previews."""
     dataset = build_synthetic_dataset(tmp_path / "ds", n=9)
+    before = compute_dataset_hash(dataset)
     out = tmp_path / "analysis-out"
     result = analyze_dataset(DatasetAnalysisConfig(dataset=str(dataset), out=str(out)))
     assert isinstance(result, Ok)
-    assert isinstance(verify_bundle(result.value), Ok)
+    verified = verify_bundle(result.value)
+    assert isinstance(verified, Ok)
+    summary = verified.value
+    assert isinstance(summary, DatasetSummary)
+    rendering = json.loads((out / "rendering.json").read_text(encoding="utf-8"))
+    assert rendering["measurement_id"] == summary.measurement_id
+    assert rendering["render_id"] != summary.measurement_id
+    assert compute_dataset_hash(dataset) == before
+    paths = {ref.path for ref in summary.artifacts}
+    assert {"figure-data.json", "preview-manifest.json", "rendering.json"} <= paths
+    assert any(path.startswith("figures/") for path in paths)
+    assert any(path.startswith("visuals/") for path in paths)
+    outputs = {record.name: record for record in summary.outputs}
+    assert outputs["figures"].status == "AVAILABLE"
+    assert outputs["timestamps"].status == "UNAVAILABLE"
+    assert outputs["timestamps"].reason
+    assert outputs["conditions"].status == "UNAVAILABLE"
+    assert outputs["conditions"].reason
+    figure_outputs = {
+        name[len("figure:") :]: record
+        for name, record in outputs.items()
+        if name.startswith("figure:")
+    }
+    assert figure_outputs
+    assert all(record.status != "SKIPPED" for record in figure_outputs.values())
+    unavailable = {
+        name: record for name, record in figure_outputs.items() if record.status == "UNAVAILABLE"
+    }
+    assert unavailable
+    assert all(record.reason for record in unavailable.values())
+    for name in unavailable:
+        assert f"figures/{name}.png" in paths
+        assert f"figures/{name}.svg" in paths
+
+
+def test_analyze_dataset_cheap_config_publishes_indexed_bundle(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """A minimal plot/capture config still renders figures and indexes skipped galleries."""
+    dataset = build_synthetic_dataset(tmp_path / "ds", n=3)
+    out = tmp_path / "analysis-out"
+    cfg = DatasetAnalysisConfig(
+        dataset=str(dataset),
+        out=str(out),
+        plot=PlotConfig(formats=("png",), dpi=72, width_inches=7.0, height_inches=4.5),
+        capture=CaptureConfig(max_preview_images=0, examples_per_family=0),
+    )
+    result = analyze_dataset(cfg)
+    assert isinstance(result, Ok)
+    verified = verify_bundle(result.value)
+    assert isinstance(verified, Ok)
+    summary = verified.value
+    assert isinstance(summary, DatasetSummary)
+    outputs = {record.name: record for record in summary.outputs}
+    assert outputs["figures"].status == "AVAILABLE"
+    gallery_outputs = [record for name, record in outputs.items() if name.startswith("gallery:")]
+    assert gallery_outputs
+    assert all(record.status != "AVAILABLE" and record.reason for record in gallery_outputs)
+    assert outputs["gallery:representative"].status == "SKIPPED"
+    paths = {ref.path for ref in summary.artifacts}
+    assert "visuals/gallery_unavailable_representative.png" in paths
+    assert not any(path.startswith("previews/") for path in paths)
+
+
+def test_analyze_dataset_render_failure_leaves_no_output(
+    tmp_path: Path,
+    build_synthetic_dataset: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A render-stage failure aborts publication before the output is reserved."""
+    import tools.ml_models.analysis.dataset_render as render_module
+
+    dataset = build_synthetic_dataset(tmp_path / "ds", n=3)
+    out = tmp_path / "analysis-out"
+
+    def fail(measured: object, cfg: object) -> Err[str]:
+        return Err("simulated render failure")
+
+    monkeypatch.setattr(render_module, "publish_rendered_dataset", fail)
+    result = analyze_dataset(DatasetAnalysisConfig(dataset=str(dataset), out=str(out)))
+    assert isinstance(result, Err)
+    assert "simulated render failure" in result.error
+    assert not out.exists()
+
+
+def test_analyze_dataset_figure_render_failure_leaves_no_output(
+    tmp_path: Path,
+    build_synthetic_dataset: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A figure-renderer Err inside the orchestrator aborts before reservation."""
+    import tools.ml_models.analysis.dataset_render as render_module
+
+    dataset = build_synthetic_dataset(tmp_path / "ds", n=3)
+    out = tmp_path / "analysis-out"
+
+    def fail(figures: object, cfg: object) -> Err[str]:
+        return Err("simulated figure codec failure")
+
+    monkeypatch.setattr(render_module, "render_dataset_figures", fail)
+    cfg = DatasetAnalysisConfig(
+        dataset=str(dataset),
+        out=str(out),
+        plot=PlotConfig(formats=("png",), dpi=72, width_inches=7.0, height_inches=4.5),
+        capture=CaptureConfig(max_preview_images=0, examples_per_family=0),
+    )
+    result = analyze_dataset(cfg)
+    assert isinstance(result, Err)
+    assert "figure codec" in result.error
+    assert not out.exists()
 
 
 def test_mask_measurement_counts_unfiltered_four_connected_components() -> None:

@@ -2,21 +2,22 @@
 
 **Source:** `packages/tools/src/tools/ml_models/analysis/plots/`
 **Kind:** package
-**Status:** stub
 
 ## Purpose
 
-The plots package is the scaffold for figure rendering over frozen
-captured evidence; no figure is produced yet. This package replaces the
-removed report-figure module; the legacy `history_figures`,
-`overlay_figures`, `failure_figures`, and `save_figures` APIs are gone.
+The plots package renders figures over frozen evidence. `common`
+exports rendered figures to bundle bytes and keeps the general render
+boundary unavailable; `dataset` renders frozen dataset figure recipes.
+This package replaces the removed report-figure module; the legacy
+`history_figures`, `overlay_figures`, `failure_figures`, and
+`save_figures` APIs are gone.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`common`](plots/common.md) | module | Figure/export conventions and the render boundary (unavailable) |
-| [`dataset`](plots/dataset.md) | module | Dataset-analysis figures (scaffold) |
+| [`common`](plots/common.md) | module | Figure export to bundle bytes and the unavailable render boundary |
+| [`dataset`](plots/dataset.md) | module | Frozen dataset figure rendering |
 | [`training`](plots/training.md) | module | Training-history figures (scaffold) |
 | [`classifier`](plots/classifier.md) | module | Classifier-evidence figures (scaffold) |
 | [`segmentation`](plots/segmentation.md) | module | Segmentation-evidence figures (scaffold) |

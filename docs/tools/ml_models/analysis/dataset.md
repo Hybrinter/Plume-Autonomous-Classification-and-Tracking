@@ -12,7 +12,8 @@ populations; `measure_dataset` freezes the whole dataset into a
 coverage, baselines, and duplicate-content cohorts; `dataset_summary`
 binds that frozen evidence to the config and code identity;
 `analyze_dataset` is the measure-and-publish boundary that delegates
-bundle persistence to `dataset_artifacts`.
+render orchestration and bundle persistence to `dataset_render` and
+`dataset_artifacts`.
 
 ## Public interface
 
@@ -95,16 +96,17 @@ success returns the published evidence-bundle directory.
    the code identity into the measurement id. Required measurement and
    table outputs are `AVAILABLE`; timestamps and conditions are
    `AVAILABLE` only when actually recorded in the dataset, otherwise
-   explicitly `UNAVAILABLE` with a reason; figures and visuals are
-   `UNAVAILABLE` until the rendering phase. Dirty or unknown code
-   state adds a warning, never a fabricated identity.
+   explicitly `UNAVAILABLE` with a reason; the base figures and visuals
+   records are `UNAVAILABLE` until the render stage replaces them.
+   Dirty or unknown code state adds a warning, never a fabricated
+   identity.
 5. `analyze_dataset` refuses an output inside the source dataset or an
    already-existing output, runs `measure_dataset`, then delegates to
-   `publish_dataset_measurement`, which exclusively publishes one
+   `publish_rendered_dataset`, which captures exact previews, renders
+   the frozen figure recipes and galleries, and publishes one
    checksummed bundle; see
+   [`tools.ml_models.analysis.dataset_render`](dataset_render.md) and
    [`tools.ml_models.analysis.dataset_artifacts`](dataset_artifacts.md).
-   The `dataset analyze` CLI command remains unavailable until dataset
-   rendering lands.
 
 ## Errors and faults
 
@@ -146,5 +148,7 @@ None.
 
 - [`tools.ml_models.analysis`](../analysis.md)
 - [`tools.ml_models.analysis.dataset_artifacts`](dataset_artifacts.md)
+- [`tools.ml_models.analysis.dataset_figures`](dataset_figures.md)
+- [`tools.ml_models.analysis.dataset_render`](dataset_render.md)
 - [`tools.ml_models.dataset`](../dataset.md)
 - [`tools.ml_models.cli`](../cli.md)

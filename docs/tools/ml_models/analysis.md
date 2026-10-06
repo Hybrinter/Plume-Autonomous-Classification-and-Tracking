@@ -23,6 +23,9 @@ formatters).
 | [`evaluate`](analysis/evaluate.md) | module | Exhaustive split-evaluation boundary |
 | [`dataset`](analysis/dataset.md) | module | Mask/pixel measurement, whole-dataset measurement, and summary assembly |
 | [`dataset_artifacts`](analysis/dataset_artifacts.md) | module | Frozen-measurement bundle persistence and publication |
+| [`dataset_figures`](analysis/dataset_figures.md) | module | Frozen dataset figure-coordinate recipes |
+| [`dataset_previews`](analysis/dataset_previews.md) | module | Bounded exact preview capture with semantic channel mapping |
+| [`dataset_render`](analysis/dataset_render.md) | module | Figure/preview orchestration and rendered-bundle publication |
 | [`training`](analysis/training.md) | module | Strict training records, epoch reduction, selection, and history reader |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
 | [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
@@ -30,8 +33,8 @@ formatters).
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
 | [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration implemented |
-| [`plots`](analysis/plots.md) | package | Figure-render scaffolds and the unavailable render boundary |
-| [`visuals`](analysis/visuals.md) | package | Visual-evidence scaffolds |
+| [`plots`](analysis/plots.md) | package | Figure export and dataset figure renderers; the general render boundary stays unavailable |
+| [`visuals`](analysis/visuals.md) | package | Gallery selection and dataset preview-gallery rendering |
 
 ## Package interface
 
@@ -41,10 +44,13 @@ Callers import the leaf modules.
 ## Interactions
 
 `evaluate` implements exhaustive split scoring. `dataset` measures a
-finished dataset into a frozen `DatasetMeasurement` and publishes it as
-a checksummed evidence bundle through `dataset_artifacts`; the `model`
-and `plots.common` orchestration boundaries remain unavailable, and the
-`dataset analyze` CLI command stays unavailable until rendering lands.
+finished dataset into a frozen `DatasetMeasurement`, then
+`dataset_render` captures exact previews, derives frozen chart recipes
+once, renders them through `plots.dataset` and `visuals.dataset`, and
+publishes one checksummed evidence bundle through
+`dataset_artifacts`. The `dataset analyze` CLI command calls that path
+directly. The `model` boundary and the `plots.common` render boundary
+remain unavailable; `render` fails closed.
 `cost` profiles torch modules from `tools.ml_models.arch.registry`.
 `runs` and `pareto` format helpers consume caller-supplied rows.
 

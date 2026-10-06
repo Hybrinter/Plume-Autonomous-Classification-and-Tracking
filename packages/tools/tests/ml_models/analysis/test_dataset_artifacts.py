@@ -12,11 +12,17 @@ from flight.libs.types import Err, Ok, Result
 from tools.ml_models.analysis import dataset_artifacts
 from tools.ml_models.analysis.artifacts import (
     BundleFile,
+    artifact_ref,
     publish_bundle,
     read_table,
     verify_bundle,
 )
 from tools.ml_models.analysis.config import DatasetAnalysisConfig
+from tools.ml_models.analysis.contracts import (
+    ArtifactRef,
+    AvailabilityRecord,
+    CodeIdentity,
+)
 from tools.ml_models.analysis.dataset import analyze_dataset, measure_dataset
 from tools.ml_models.analysis.dataset_artifacts import (
     COMPONENTS_SCHEMA,
@@ -24,6 +30,7 @@ from tools.ml_models.analysis.dataset_artifacts import (
     SAMPLES_SCHEMA,
     TABLE_SCHEMAS,
     code_identity,
+    publish_dataset_measurement,
 )
 from tools.ml_models.analysis.summaries import DatasetSummary, Summary
 from tools.ml_models.dataset.manifest import compute_dataset_hash
@@ -33,16 +40,40 @@ def _analyze(dataset: Path, out: Path) -> Result[Path, str]:
     return analyze_dataset(DatasetAnalysisConfig(dataset=str(dataset), out=str(out)))
 
 
+def _publish(
+    dataset: Path,
+    out: Path,
+    *,
+    extra_files: tuple[BundleFile, ...] = (),
+    extra_refs: tuple[ArtifactRef, ...] = (),
+    extra_outputs: tuple[AvailabilityRecord, ...] = (),
+    code: CodeIdentity | None = None,
+) -> Result[Path, str]:
+    """Publish a frozen measurement directly, without the render stage."""
+    measured = measure_dataset(dataset)
+    if isinstance(measured, Err):
+        return measured
+    cfg = DatasetAnalysisConfig(dataset=str(dataset), out=str(out))
+    return publish_dataset_measurement(
+        measured.value,
+        cfg,
+        extra_files=extra_files,
+        extra_refs=extra_refs,
+        extra_outputs=extra_outputs,
+        code=code,
+    )
+
+
 def test_analyze_publishes_verifiable_measurement_bundle(
     tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
 ) -> None:
-    """A valid dataset publishes one complete, verifiable evidence bundle."""
+    """A frozen measurement publishes one complete, verifiable evidence bundle."""
     dataset = build_synthetic_dataset(tmp_path / "ds")
     measured = measure_dataset(dataset)
     assert isinstance(measured, Ok)
     frozen = measured.value
     out = tmp_path / "analysis"
-    result = _analyze(dataset, out)
+    result = _publish(dataset, out)
     assert isinstance(result, Ok)
     assert result.value == out
     assert (out / "summary.json").is_file()
@@ -98,7 +129,7 @@ def test_published_tables_match_frozen_measurements(
     assert isinstance(measured, Ok)
     frozen = measured.value
     out = tmp_path / "analysis"
-    assert isinstance(_analyze(dataset, out), Ok)
+    assert isinstance(_publish(dataset, out), Ok)
     samples = read_table(out / "tables" / "samples.parquet", SAMPLES_SCHEMA)
     assert isinstance(samples, Ok)
     assert len(samples.value) == len(frozen.samples)
@@ -212,7 +243,7 @@ def test_raced_destination_preserves_user_bytes(
         return publish_bundle(target, summary, files, dataset_root=dataset_root)
 
     monkeypatch.setattr(dataset_artifacts, "publish_bundle", racer)
-    result = _analyze(dataset, out)
+    result = _publish(dataset, out)
     assert isinstance(result, Err)
     assert (out / "sentinel.txt").read_bytes() == b"concurrent bytes"
 
@@ -230,7 +261,7 @@ def test_codec_failure_creates_no_output(
         return Err("simulated codec failure")
 
     monkeypatch.setattr(dataset_artifacts, "write_table", broken_codec)
-    result = _analyze(dataset, out)
+    result = _publish(dataset, out)
     assert isinstance(result, Err)
     assert "codec" in result.error
     assert not out.exists()
@@ -258,7 +289,7 @@ def test_publication_write_failure_retains_incomplete_marker(
         return open(self, mode, buffering, encoding, errors, newline)
 
     monkeypatch.setattr(Path, "open", failing)
-    result = _analyze(dataset, out)
+    result = _publish(dataset, out)
     assert isinstance(result, Err)
     assert (out / ".incomplete").is_file()
     assert isinstance(verify_bundle(out), Err)
@@ -282,6 +313,76 @@ def test_preflight_path_failures_return_err_without_output(
     result = _analyze(dataset, out)
     assert isinstance(result, Err)
     assert "preflight" in result.error
+    assert not out.exists()
+
+
+def test_extra_render_artifacts_merge_refs_and_outputs_by_name(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """Bound render bytes extend refs/files; extras replace same-named outputs."""
+    dataset = build_synthetic_dataset(tmp_path / "ds")
+    out = tmp_path / "analysis"
+    data = b"pretend-png"
+    ref = artifact_ref("figures/x.png", data, kind="FIGURE", format="png")
+    assert isinstance(ref, Ok)
+    result = _publish(
+        dataset,
+        out,
+        extra_files=(BundleFile(path="figures/x.png", data=data),),
+        extra_refs=(ref.value,),
+        extra_outputs=(
+            AvailabilityRecord("figures", "AVAILABLE", required=True),
+            AvailabilityRecord("figure:x", "AVAILABLE"),
+        ),
+    )
+    assert isinstance(result, Ok)
+    verified = verify_bundle(out)
+    assert isinstance(verified, Ok)
+    summary = verified.value
+    assert isinstance(summary, DatasetSummary)
+    paths = {ref.path for ref in summary.artifacts}
+    assert "figures/x.png" in paths
+    outputs = {record.name: record for record in summary.outputs}
+    assert outputs["figures"].status == "AVAILABLE"
+    assert outputs["figure:x"].status == "AVAILABLE"
+    assert outputs["tables"].status == "AVAILABLE"
+    assert outputs["visuals"].status == "UNAVAILABLE"
+
+
+def test_duplicate_extra_output_names_and_unbound_files_are_refused(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """Duplicate output names and refs without bytes fail before reservation."""
+    dataset = build_synthetic_dataset(tmp_path / "ds")
+    out = tmp_path / "analysis"
+    duplicate = _publish(
+        dataset,
+        out,
+        extra_outputs=(
+            AvailabilityRecord("figures", "AVAILABLE"),
+            AvailabilityRecord("figures", "UNAVAILABLE", "duplicated"),
+        ),
+    )
+    assert isinstance(duplicate, Err)
+    assert "duplicate" in duplicate.error
+    assert not out.exists()
+    unbound = _publish(
+        dataset,
+        out,
+        extra_files=(BundleFile(path="figures/orphan.png", data=b"x"),),
+    )
+    assert isinstance(unbound, Err)
+    assert not out.exists()
+
+
+def test_render_outputs_cannot_invent_source_metadata_availability(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    dataset = build_synthetic_dataset(tmp_path / "ds")
+    out = tmp_path / "analysis"
+    result = _publish(dataset, out, extra_outputs=(AvailabilityRecord("conditions", "AVAILABLE"),))
+    assert isinstance(result, Err)
+    assert "measured availability" in result.error
     assert not out.exists()
 
 

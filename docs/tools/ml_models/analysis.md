@@ -21,7 +21,8 @@ formatters).
 | [`artifacts`](analysis/artifacts.md) | module | Versioned codecs, identities, publication, and typed tables |
 | [`capture`](analysis/capture.md) | module | Bounded prediction/evidence sink |
 | [`evaluate`](analysis/evaluate.md) | module | Exhaustive split-evaluation boundary |
-| [`dataset`](analysis/dataset.md) | module | Dataset-analysis boundary (unavailable) |
+| [`dataset`](analysis/dataset.md) | module | Mask/pixel measurement, whole-dataset measurement, and summary assembly |
+| [`dataset_artifacts`](analysis/dataset_artifacts.md) | module | Frozen-measurement bundle persistence and publication |
 | [`training`](analysis/training.md) | module | Strict training records, epoch reduction, selection, and history reader |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
 | [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
@@ -39,8 +40,11 @@ Callers import the leaf modules.
 
 ## Interactions
 
-`evaluate`, `dataset`, `model`, and `plots.common` expose the public
-`Result` boundaries; all are unavailable during the scaffold phase.
+`evaluate` implements exhaustive split scoring. `dataset` measures a
+finished dataset into a frozen `DatasetMeasurement` and publishes it as
+a checksummed evidence bundle through `dataset_artifacts`; the `model`
+and `plots.common` orchestration boundaries remain unavailable, and the
+`dataset analyze` CLI command stays unavailable until rendering lands.
 `cost` profiles torch modules from `tools.ml_models.arch.registry`.
 `runs` and `pareto` format helpers consume caller-supplied rows.
 

@@ -7,10 +7,10 @@
 
 The plots package renders figures over frozen evidence. `common`
 exports rendered figures to bundle bytes and keeps the general render
-boundary unavailable; `dataset` renders frozen dataset figure recipes.
-This package replaces the removed report-figure module; the legacy
-`history_figures`, `overlay_figures`, `failure_figures`, and
-`save_figures` APIs are gone.
+boundary unavailable; `dataset`, `training`, and `model` render
+frozen recipes. This package replaces the removed report-figure
+module; the legacy `history_figures`, `overlay_figures`,
+`failure_figures`, and `save_figures` APIs are gone.
 
 ## Contents
 
@@ -19,7 +19,8 @@ This package replaces the removed report-figure module; the legacy
 | [`common`](plots/common.md) | module | Figure export to bundle bytes and the unavailable render boundary |
 | [`dataset`](plots/dataset.md) | module | Frozen dataset figure rendering |
 | [`training`](plots/training.md) | module | Frozen training-history figure rendering |
-| [`classifier`](plots/classifier.md) | module | Classifier-evidence figures (scaffold) |
+| [`model`](plots/model.md) | module | Shared frozen model-chart recipe rendering |
+| [`classifier`](plots/classifier.md) | module | Classifier family binding over the model renderer |
 | [`segmentation`](plots/segmentation.md) | module | Segmentation-evidence figures (scaffold) |
 | [`generalization`](plots/generalization.md) | module | Generalization-evidence figures (scaffold) |
 

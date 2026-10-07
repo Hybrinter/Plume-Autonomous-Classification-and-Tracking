@@ -556,3 +556,26 @@ class SplitEvidence:
         if len(set(identities)) != len(identities):
             raise ValueError("stratum identities must be unique")
         return self
+
+
+@dataclass(frozen=True, slots=True, config=_SCHEMA)
+class SourceSnapshot:
+    """One frozen source-file reference carried by a frozen evidence document.
+
+    Attributes:
+        path: Bundle-relative source snapshot path.
+        sha256: SHA-256 of the frozen source bytes.
+        size_bytes: Frozen source byte count.
+    """
+
+    path: str
+    sha256: str
+    size_bytes: StrictInt
+
+    @model_validator(mode="after")
+    def _bounds(self) -> SourceSnapshot:
+        _require_nonblank(self.path, "path")
+        _require_sha256(self.sha256, "sha256")
+        if self.size_bytes < 0:
+            raise ValueError("size_bytes must be nonnegative")
+        return self

@@ -36,6 +36,7 @@ identity records for datasets, code, and checkpoints.
 | `AvailabilityRecord` | dataclass | One output's availability with reason and requirement |
 | `StratumEvidence` | dataclass | Named cohort value with metrics and support |
 | `SplitEvidence` | dataclass | Task/split/dataset identity plus metrics, curves, artifacts, and strata |
+| `SourceSnapshot` | dataclass | Typed frozen source-file reference (path, hash, size) |
 
 ## Inputs and outputs
 

@@ -185,6 +185,26 @@ def _panels(figure: Figure) -> list[Axes]:
     return [axes for axes in figure.axes if axes.get_visible()]
 
 
+def test_input_xlabel_wraps_complete_display_label() -> None:
+    """The narrow input panel wraps the full display label without truncation."""
+    captured = frozen_visual_fixture()
+    preview = captured.previews[0]
+    labeled = PredictionPreviewCapture(
+        (replace(preview, display_label="Display channels pan, red, nir (not RGB)"),),
+        captured.files,
+        captured.galleries,
+    )
+    figure = _page_figure(labeled)
+    import matplotlib.pyplot as plt
+
+    try:
+        xlabel = _panels(figure)[0].get_xlabel()
+        assert xlabel.replace("\n", " ") == "Display channels pan, red, nir (not RGB)"
+        assert all(len(line) <= 28 for line in xlabel.split("\n"))
+    finally:
+        plt.close(figure)
+
+
 def test_extent_panels_copy_frozen_matches_and_counts() -> None:
     captured = frozen_visual_fixture()
     rendered = _render(captured)

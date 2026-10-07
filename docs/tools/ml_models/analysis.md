@@ -5,12 +5,12 @@
 
 ## Purpose
 
-The analysis package holds the evidence-first analysis scaffold: typed
-evidence records, analysis and evaluation config, the bounded capture
-sink, the exhaustive split evaluation, remaining unavailable entry
-boundaries, pure metric/plot/visual scaffolds, and the retained pure
-helpers (parameter counting, frontier and knee selection, row
-formatters).
+The analysis package holds the evidence-first measurement and
+rendering pipeline: typed evidence records, analysis and evaluation
+config, the bounded capture sink, the exhaustive split evaluation, the
+dataset and model measurement boundaries, the frozen bundle codecs and
+render-only republication, and the retained pure helpers (parameter
+counting, frontier and knee selection, row formatters).
 
 ## Contents
 
@@ -38,13 +38,18 @@ formatters).
 | [`prediction_display`](analysis/prediction_display.md) | module | Verified segmentor display arrays from cached logits |
 | [`prediction_selections`](analysis/prediction_selections.md) | module | Whole-cohort prediction gallery selection |
 | [`prediction_artifacts`](analysis/prediction_artifacts.md) | module | Frozen prediction preview/manifest bundle codecs |
-| [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
+| [`model_inputs`](analysis/model_inputs.md) | module | Verified run/checkpoint/dataset input loading |
+| [`model_measurement`](analysis/model_measurement.md) | module | Selected-checkpoint measurement policy |
+| [`model_summary`](analysis/model_summary.md) | module | Canonical model/training summary assembly |
+| [`model_artifacts`](analysis/model_artifacts.md) | module | Frozen evidence bundle assembly and split-metric tables |
+| [`model_render`](analysis/model_render.md) | module | Frozen-recipe rendering and render-only republication |
+| [`model`](analysis/model.md) | module | The measure-freeze-render-publish boundary |
 | [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
 | [`cost`](analysis/cost.md) | module | Parameter counts and a partial two-input operation bound |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
 | [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration/segmentation/spatial/generalization implemented |
-| [`plots`](analysis/plots.md) | package | Figure export and dataset/training/model figure renderers; the general render boundary stays unavailable |
+| [`plots`](analysis/plots.md) | package | Figure export, dataset/training/model figure renderers, and the render-only bundle boundary |
 | [`visuals`](analysis/visuals.md) | package | Gallery selection and dataset/prediction preview-gallery rendering |
 
 ## Package interface
@@ -74,9 +79,15 @@ paginated recipes rendered by `plots.generalization`.
 `visuals.predictions` renders them over verified preview bytes —
 segmentor rows additionally pass through `prediction_display` for
 frozen display arrays — and
-`prediction_artifacts` serializes previews and the manifest. The `model`
-boundary and the `plots.common` render boundary remain unavailable;
-`render` fails closed.
+`prediction_artifacts` serializes previews and the manifest. The
+`model` boundary loads verified inputs through `model_inputs`,
+measures the selected checkpoint once through `model_measurement`,
+assembles the bundle through `model_artifacts`, renders frozen recipes
+through `model_render`, binds the canonical summary through
+`model_summary`, and publishes exclusively. The `plots.common`
+`render_analysis` boundary re-renders verified dataset and model
+bundles through `dataset_render` and `model_render` without touching
+checkpoints, source datasets, or measurement code.
 `cost` profiles torch modules from `tools.ml_models.arch.registry`.
 `runs` and `pareto` format helpers consume caller-supplied rows.
 

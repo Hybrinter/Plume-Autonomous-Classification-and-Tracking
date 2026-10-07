@@ -281,7 +281,16 @@ def segmentation_figure_data(
             if name.endswith("calibration_reliability")
             else "LINE"
         )
-        figures.append(curve_figure(evidence, name, points=points, style=style))
+        figures.append(
+            curve_figure(
+                evidence,
+                name,
+                points=points,
+                style=style,
+                x_range=(0.0, None) if name.startswith("localization_success") else None,
+                y_range=(0.0, 1.0) if name.startswith("localization_success") else None,
+            )
+        )
     figures.extend(metric_figure(evidence, metric) for metric in evidence.metrics)
     if not spatial:
         figures.append(

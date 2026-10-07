@@ -44,7 +44,8 @@ read.
 `ModelFigure` carries `identifier`, `identity`, axis labels,
 `population`, verbatim `series`/`points`, optional `MATRIX` payloads
 (`x_categories`, `y_categories`, `matrix`, `matrix_support`,
-`matrix_range`), a `reason`, and `notes`. Null cells and points remain
+`matrix_range`), optional display-only `x_range`/`y_range` bounds, a
+`reason`, and `notes`. Null cells and points remain
 missing. A captured curve whose y values are all null keeps its raw
 x/null coordinates and carries `reason` "No eligible captured values
 for this curve", rendering as an explicit placeholder. Intervals keep

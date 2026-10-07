@@ -6,18 +6,22 @@
 ## Purpose
 
 This module orchestrates dataset figure and preview-gallery rendering
-over an already-frozen `DatasetMeasurement`. It never re-measures:
-preview bytes retain exact canonical source arrays, figure coordinates
-are derived once into frozen `DatasetFigure` recipes, and both render
-stages consume those frozen records. One exclusive publisher call
-writes the summary, the numerical evidence, the capture cache, and all
-indexed render artifacts.
+over an already-frozen `DatasetMeasurement`, and re-renders a verified
+dataset bundle without re-measuring it. Preview bytes retain exact
+canonical source arrays, figure coordinates are derived once into
+frozen `DatasetFigure` recipes, and both render stages consume those
+frozen records. One exclusive publisher call writes the summary, the
+numerical evidence, the capture cache, and all indexed render
+artifacts; `render_dataset_bundle` decodes the same persisted recipes
+from a checksum-verified bundle and republishes it with a new
+`PlotConfig`.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
 | `publish_rendered_dataset` | function | Capture, render, and publish one dataset-analysis bundle |
+| `render_dataset_bundle` | function | Re-render a verified dataset bundle without re-measuring |
 
 ## Inputs and outputs
 
@@ -25,6 +29,10 @@ indexed render artifacts.
 DatasetAnalysisConfig) -> Result[Path, str]` takes the frozen
 measurement and resolved config, and returns the published bundle
 directory on `Ok`. `analyze_dataset` calls it after measurement.
+
+`render_dataset_bundle(root: Path, summary: DatasetSummary, cfg:
+PlotConfig, out: Path) -> Result[Path, str]` re-renders a verified
+bundle; `render_analysis` dispatches dataset bundles here.
 
 ## Behavior
 
@@ -51,6 +59,16 @@ directory on `Ok`. `analyze_dataset` calls it after measurement.
 Required rendering failures abort before the output directory is
 reserved. Missing metadata or budget-disabled optional galleries stay
 explicit and produce indexed placeholders; nothing is dropped silently.
+
+`render_dataset_bundle` reads only referenced files from a
+checksum-verified bundle: the frozen `figure-data.json` recipes, the
+`preview-manifest.json` plan and preview bytes, and `config.toml`
+(which must re-digest to the summary's `config_digest`). Rendered
+outputs must reproduce the frozen availability index exactly; the
+republished summary replaces only `FIGURE`, `VISUAL`, and
+`rendering.json` references, and every other file is byte-identical.
+Missing or corrupt frozen documents fail with an actionable
+fresh-analyze-required message.
 
 ## Errors and faults
 

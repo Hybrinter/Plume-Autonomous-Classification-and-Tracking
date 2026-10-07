@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
@@ -362,20 +362,64 @@ def convert_command(
 def analyze_command(
     run: Annotated[Path, typer.Option(..., help="Training run directory to analyze.")],
     out: Annotated[Path, typer.Option(..., help="Analysis output directory.")],
-    checkpoint: Annotated[str, typer.Option(help="Checkpoint selector. Default: best.")] = "best",
-    final_test: Annotated[bool, typer.Option(help="Include the final-test evaluation.")] = False,
+    config: Annotated[
+        Path | None,
+        typer.Option(help="ModelAnalysisConfig TOML; explicit options override it."),
+    ] = None,
+    checkpoint: Annotated[
+        str | None, typer.Option(help="Checkpoint selector: best or last.")
+    ] = None,
+    final_test: Annotated[
+        bool | None, typer.Option(help="Include the final-test evaluation.")
+    ] = None,
+    dataset: Annotated[
+        Path | None,
+        typer.Option(help="External evaluation-only dataset override."),
+    ] = None,
+    batch_size: Annotated[int | None, typer.Option(help="Rows per evaluation batch.")] = None,
+    device: Annotated[str | None, typer.Option(help="Torch device, e.g. cpu.")] = None,
+    retention: Annotated[
+        Literal["COMPACT", "FULL"] | None,
+        typer.Option(help="Capture retention: COMPACT or FULL."),
+    ] = None,
 ) -> None:
-    """Analyze one training run. Unavailable until model evidence lands."""
+    """Analyze one training run and publish its frozen evidence bundle."""
+    from dataclasses import replace
+
     from flight.libs.types import Err
 
-    from tools.ml_models.analysis.config import ModelAnalysisConfig
+    from tools.ml_models.analysis.config import (
+        ModelAnalysisConfig,
+        load_model_analysis_config,
+    )
     from tools.ml_models.analysis.model import analyze_model
 
-    result = analyze_model(
-        ModelAnalysisConfig(
-            run=str(run), out=str(out), checkpoint=checkpoint, final_test=final_test
-        )
-    )
+    if config is not None:
+        loaded = load_model_analysis_config(config)
+        if isinstance(loaded, Err):
+            raise typer.BadParameter(loaded.error)
+        cfg = replace(loaded.value, run=str(run), out=str(out))
+    else:
+        cfg = ModelAnalysisConfig(run=str(run), out=str(out))
+    try:
+        if checkpoint is not None:
+            cfg = replace(cfg, checkpoint=checkpoint)
+        if final_test is not None:
+            cfg = replace(cfg, final_test=final_test)
+        if dataset is not None:
+            cfg = replace(cfg, dataset=str(dataset))
+        if batch_size is not None:
+            cfg = replace(cfg, batch_size=batch_size)
+        if device is not None:
+            cfg = replace(cfg, device=device)
+        if retention is not None:
+            cfg = replace(
+                cfg,
+                capture=replace(cfg.capture, retention=retention),
+            )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    result = analyze_model(cfg)
     if isinstance(result, Err):
         raise typer.BadParameter(result.error)
     typer.echo(str(result.value))
@@ -385,14 +429,22 @@ def analyze_command(
 def render_command(
     evidence: Annotated[Path, typer.Option(..., help="Frozen evidence directory.")],
     out: Annotated[Path, typer.Option(..., help="Destination figure directory.")],
+    config: Annotated[Path | None, typer.Option(help="PlotConfig TOML for the render.")] = None,
 ) -> None:
-    """Render figures from frozen evidence. Unavailable until plotting lands."""
+    """Re-render a frozen evidence bundle without re-measuring it."""
     from flight.libs.types import Err
 
-    from tools.ml_models.analysis.config import PlotConfig
+    from tools.ml_models.analysis.config import PlotConfig, load_plot_config
     from tools.ml_models.analysis.plots.common import render_analysis
 
-    result = render_analysis(evidence, PlotConfig(), out)
+    if config is not None:
+        loaded = load_plot_config(config)
+        if isinstance(loaded, Err):
+            raise typer.BadParameter(loaded.error)
+        plot = loaded.value
+    else:
+        plot = PlotConfig()
+    result = render_analysis(evidence, plot, out)
     if isinstance(result, Err):
         raise typer.BadParameter(result.error)
     typer.echo(str(result.value))

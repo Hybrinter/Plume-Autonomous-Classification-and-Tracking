@@ -6,8 +6,8 @@
 ## Purpose
 
 The plots package renders figures over frozen evidence. `common`
-exports rendered figures to bundle bytes and keeps the general render
-boundary unavailable; `dataset`, `training`, and `model` render
+exports rendered figures to bundle bytes and dispatches the
+render-only bundle boundary; `dataset`, `training`, and `model` render
 frozen recipes. This package replaces the removed report-figure
 module; the legacy `history_figures`, `overlay_figures`,
 `failure_figures`, and `save_figures` APIs are gone.
@@ -16,7 +16,7 @@ module; the legacy `history_figures`, `overlay_figures`,
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`common`](plots/common.md) | module | Figure export to bundle bytes and the unavailable render boundary |
+| [`common`](plots/common.md) | module | Figure export to bundle bytes and the render-only bundle boundary |
 | [`dataset`](plots/dataset.md) | module | Frozen dataset figure rendering |
 | [`training`](plots/training.md) | module | Frozen training-history figure rendering |
 | [`model`](plots/model.md) | module | Shared frozen model-chart recipe rendering |
@@ -31,12 +31,15 @@ The render boundary lives in `tools.ml_models.analysis.plots.common`.
 
 ## Interactions
 
-The `render_analysis` boundary is unavailable; plotting consumes frozen
-evidence only and never reruns inference.
+`render_analysis` verifies a published bundle by checksum, then
+dispatches on the summary kind: dataset bundles render through
+`dataset_render.render_dataset_bundle` and model bundles through
+`model_render.render_model_bundle`. Plotting consumes frozen evidence
+only and never reruns inference.
 
 ## Constraints
 
-- Rendering is unavailable until the plotting phase lands.
+- Rendering consumes frozen recipes only and never reruns inference.
 - Figures derive only from captured evidence records.
 
 ## Related documents

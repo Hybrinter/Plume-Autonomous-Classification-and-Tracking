@@ -494,7 +494,7 @@ def _segmentation_page(
     local = _check_spatial(row)
     _display_image(panels[0], preview, prediction.image)
     panels[0].set_title("Input", fontsize="x-small")
-    panels[0].set_xlabel(textwrap.fill(preview.display_label, 44), fontsize="x-small")
+    panels[0].set_xlabel(textwrap.fill(preview.display_label, 28), fontsize="x-small")
     panels[1].imshow(segmentation.truth, cmap="gray", vmin=0.0, vmax=1.0)
     panels[1].set_title("explicit truth", fontsize="x-small")
     image = panels[2].imshow(segmentation.probability, cmap="viridis", vmin=0.0, vmax=1.0)

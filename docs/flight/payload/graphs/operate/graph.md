@@ -42,6 +42,10 @@ The OPERATE graph orchestrator: spec, edges, initial state, one-tick step, and
    once via `loss_handled`.
 5. On each committed edge the destination node's reference and policy apply
    the same tick and no second transition fires.
+6. A hunt that is still REWIND or FAST_REWIND after `hunt_timeout_s` from
+   hunt entry inhibits and requests SAFE once, with `GIMBAL_SAFETY_TIMEOUT`.
+   Later ticks inhibit and do not request SAFE again. Vision and limb arrival
+   still commit before that timeout.
 
 ## Errors and faults
 

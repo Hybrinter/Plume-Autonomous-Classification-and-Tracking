@@ -27,7 +27,8 @@ and `step(state, inputs, params) -> (State, GraphOutcome[SafeNode])`.
 
 ## Behavior
 
-Every tick returns the same state and an inhibit outcome; SAFE never poses
+Every tick returns the same state and an inhibit outcome. A tick whose
+activation key differs from the state keeps the stored key. SAFE never poses
 or tracks and never writes a CoG.
 
 ## Errors and faults

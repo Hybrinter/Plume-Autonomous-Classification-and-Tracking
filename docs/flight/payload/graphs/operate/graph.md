@@ -36,8 +36,10 @@ The OPERATE graph orchestrator: spec, edges, initial state, one-tick step, and
 3. A valid routed command commits before automatic edges; guard failures
    return `Err(COMMAND_INVALID)` with the state untouched.
 4. Accepted vision commits `VISION_ACQUIRED` before limb arrival and the
-   rewind timer; bounded coast exhaustion commits `COAST_EXHAUSTED` to REWIND
-   away from the limb or HOLD at the limb, exactly once via `loss_handled`.
+   rewind timer. Limb arrival commits `LIMB_ARRIVAL` before `TIMER_EXPIRED`
+   when both are true on one tick. Bounded coast exhaustion commits
+   `COAST_EXHAUSTED` to REWIND away from the limb or HOLD at the limb, exactly
+   once via `loss_handled`.
 5. On each committed edge the destination node's reference and policy apply
    the same tick and no second transition fires.
 

@@ -427,6 +427,28 @@ def test_rewind_timer_promotes_to_fast(
     assert outcome.transition.trigger.value == "timer_expired"
 
 
+def test_rewind_at_limb_outranks_expired_timer(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """Limb arrival commits HOLD when the rewind timer is also expired."""
+    angle = math.radians(params.config.gimbal.el_science_max_deg)
+    horizon = params.config.controller.outer.rewind_sharp_max_s
+    state = _state(
+        key,
+        params,
+        operate.OperateNode.REWIND,
+        loss_handled=True,
+        rewind_entered_s=0.0,
+    )
+    new_state, outcome = operate.step(
+        state, tick(horizon + 0.01, key, encoder_angle_rad=angle), params
+    )
+    assert new_state.node is operate.OperateNode.HOLD
+    assert outcome.transition is not None
+    assert outcome.transition.trigger.value == "limb_arrival"
+    assert new_state.hold.reason is operate.HoldReason.LIMB_WAIT
+
+
 def test_manual_hold_ignores_vision(
     params: GraphParameters,
     tick: TickBuilder,

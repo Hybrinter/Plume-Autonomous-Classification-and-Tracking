@@ -245,8 +245,9 @@ def _automatic_edge(
 ) -> Edge[OperateNode] | None:
     """Evaluate automatic edge guards for the current node, in priority order.
 
-    Accepted vision outranks limb arrival and the rewind timer; the coast
-    exhaustion check is last and commits once per loss via loss_handled.
+    Accepted vision outranks limb arrival, and limb arrival outranks the
+    rewind timer. The coast exhaustion check is last and commits once per
+    loss via loss_handled.
     """
     gimbal = params.config.gimbal
     operate_cfg = params.config.controller.operate

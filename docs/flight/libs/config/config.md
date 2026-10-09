@@ -83,7 +83,7 @@ Nested tables under `[controller]`:
   `queue_depth`
 - `operate`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
 - `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
-- `outer`: `dt_s`, `Kp`, `rewind_sharp_max_s`
+- `outer`: `dt_s`, `Kp`, `rewind_sharp_max_s`, `hunt_timeout_s`
 - `predictor`: `cog_height_m`
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`

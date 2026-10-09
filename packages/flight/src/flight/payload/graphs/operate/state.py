@@ -94,6 +94,8 @@ class State:
         loss_handled: True after coast exhaustion was committed once.
         rewind_entered_s: Monotonic time the hunt began, kept through
             FAST_REWIND, or None outside hunts.
+        hunt_timeout_latched: True after a hunt that never reached the limb
+            requested SAFE once.
         residual: Latest two-state residual Kalman estimate.
         residual_history: Timestamped residual events and posterior anchor.
         target: Stored CoG and scene-rate terms.
@@ -123,6 +125,7 @@ class State:
     last_rate_decision: RateDecision | None = None
     last_e_az: float = 0.0
     vision_disposition: ObservationDisposition | None = None
+    hunt_timeout_latched: bool = False
 
 
 def vision_window_s(params: GraphParameters) -> float:

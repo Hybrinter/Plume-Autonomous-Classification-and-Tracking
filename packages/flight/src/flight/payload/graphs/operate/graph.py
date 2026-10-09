@@ -237,6 +237,13 @@ def _coast_exhausted(
     return empty_release or age_release
 
 
+def _hunt_timed_out(state: State, inputs: TickInputs, params: GraphParameters) -> bool:
+    """True when a hunt has run past hunt_timeout_s without leaving the hunt."""
+    if state.node not in _HUNTS or state.rewind_entered_s is None:
+        return False
+    return inputs.now_s - state.rewind_entered_s >= params.config.controller.outer.hunt_timeout_s
+
+
 def _automatic_edge(
     state: State,
     vision: CapturedVision | None,
@@ -537,8 +544,22 @@ def step(
         if isinstance(committed, Ok):
             return committed.value.state, committed.value.outcome
 
+    if state.node in _HUNTS and state.hunt_timeout_latched:
+        return _inhibit(state, params, "hunt_timeout_latched")
+
     eff_inputs = replace(inputs, vision=vision)
     edge = _automatic_edge(state, vision, inputs, params)
+    if edge is None and _hunt_timed_out(state, inputs, params):
+        latched = replace(state, hunt_timeout_latched=True)
+        return latched, GraphOutcome(
+            node=latched.node,
+            outcome=NodeOutcome(
+                reference=InhibitReference(reason="hunt_timeout"),
+                policy=params.default_policy(enabled=False),
+                system_request=SystemRequestIntent.SAFE,
+                faults=(FaultCode.GIMBAL_SAFETY_TIMEOUT,),
+            ),
+        )
     if edge is not None:
         state = _commit_transition(state, edge, inputs, params)
         new_state, outcome = _node_step_to(edge.target, state, eff_inputs, params)

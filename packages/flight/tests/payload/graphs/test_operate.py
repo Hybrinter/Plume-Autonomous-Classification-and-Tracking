@@ -449,6 +449,34 @@ def test_rewind_at_limb_outranks_expired_timer(
     assert new_state.hold.reason is operate.HoldReason.LIMB_WAIT
 
 
+def test_hunt_timeout_requests_safe_once(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """A hunt that never reaches the limb requests SAFE once, then only inhibits."""
+    state = _state(
+        key,
+        params,
+        operate.OperateNode.FAST_REWIND,
+        loss_handled=True,
+        rewind_entered_s=0.0,
+    )
+    horizon = params.config.controller.outer.hunt_timeout_s
+    new_state, outcome = operate.step(
+        state, tick(horizon, key, encoder_angle_rad=math.radians(20.0)), params
+    )
+    assert new_state.node is operate.OperateNode.FAST_REWIND
+    assert new_state.hunt_timeout_latched is True
+    assert outcome.transition is None
+    assert isinstance(outcome.outcome.reference, InhibitReference)
+    assert outcome.outcome.system_request is SystemRequestIntent.SAFE
+    assert outcome.outcome.faults == (FaultCode.GIMBAL_SAFETY_TIMEOUT,)
+    _, second = operate.step(
+        new_state, tick(horizon + 0.02, key, encoder_angle_rad=math.radians(20.0)), params
+    )
+    assert second.outcome.system_request is None
+    assert isinstance(second.outcome.reference, InhibitReference)
+
+
 def test_manual_hold_ignores_vision(
     params: GraphParameters,
     tick: TickBuilder,

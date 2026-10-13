@@ -1,7 +1,7 @@
 """Tests for the authored TrainConfig and its TOML helpers."""
 
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from tools.ml_models.train.config import (
@@ -9,6 +9,7 @@ from tools.ml_models.train.config import (
     apply_train_mapping,
     config_digest,
     load_train_config,
+    validation_metric,
     write_train_config_toml,
 )
 
@@ -88,3 +89,45 @@ def test_toml_round_trip(tmp_path: Path) -> None:
     assert loaded.kind == "classifier"
     assert loaded.epochs == 2
     assert loaded.dataset == "d1"
+
+
+def test_validation_metric_resolves_defaults_and_aliases() -> None:
+    """Defaults and legacy aliases map to defined scoring names."""
+    assert validation_metric("classifier") == "average_precision"
+    assert validation_metric("classifier", "pr_auc") == "average_precision"
+    assert validation_metric("classifier", "bce") == "binary_cross_entropy"
+    assert validation_metric("classifier", "brier") == "brier_score"
+    assert validation_metric("segmentor") == "foreground_iou_mean_positive_images"
+    assert validation_metric("segmentor", "mean_iou") == (
+        "foreground_iou_mean_all_annotated_images"
+    )
+    assert validation_metric("segmentor", "mean_dice") == (
+        "foreground_dice_mean_all_annotated_images"
+    )
+    assert validation_metric("segmentor", "bce") == "binary_cross_entropy_mean_images"
+    assert validation_metric("classifier", "roc_auc") == "roc_auc"
+
+
+def test_validation_metric_bounds() -> None:
+    """Alias inputs validate; undefined or cross-task metrics are rejected."""
+    assert TrainConfig(kind="classifier", val_metric="bce").val_metric == "bce"
+    assert TrainConfig(kind="classifier", val_metric="pr_auc").val_metric == "pr_auc"
+    assert TrainConfig(kind="segmentor", val_metric="mean_iou").val_metric == "mean_iou"
+    assert TrainConfig(kind="segmentor", val_metric="foreground_iou_mean_positive_images")
+    with pytest.raises(ValueError):
+        TrainConfig(kind="classifier", val_metric="not_a_metric")
+    with pytest.raises(ValueError):
+        TrainConfig(kind="segmentor", val_metric="average_precision")
+    with pytest.raises(ValueError):
+        TrainConfig(kind="classifier", val_metric="mean_iou")
+
+
+def test_checkpoint_selection_and_diagnostics_fields() -> None:
+    """New training controls default safely and validate their literals."""
+    cfg = TrainConfig()
+    assert cfg.selected_checkpoint == "best"
+    assert cfg.gradient_diagnostics is False
+    assert cfg.amp_diagnostics is False
+    assert TrainConfig(selected_checkpoint="last").selected_checkpoint == "last"
+    with pytest.raises(ValueError):
+        TrainConfig(selected_checkpoint=cast(Any, "bestest"))

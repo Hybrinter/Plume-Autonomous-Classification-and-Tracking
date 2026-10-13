@@ -30,7 +30,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 dataset_app = typer.Typer(
-    help="Build a finished dataset from a raw tile source.",
+    help="Build or analyze a finished dataset.",
     no_args_is_help=True,
 )
 app.add_typer(dataset_app, name="dataset")
@@ -79,6 +79,23 @@ def build_command(
         build_zenodo(images_tar, labels_tar, weights_path, out, resolved, _select_bins(bin_id))
     except (OSError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
+
+
+@dataset_app.command("analyze")
+def dataset_analyze_command(
+    dataset: Annotated[Path, typer.Option(..., help="Finished dataset directory.")],
+    out: Annotated[Path, typer.Option(..., help="Analysis output directory.")],
+) -> None:
+    """Measure one finished dataset. Unavailable until dataset evidence lands."""
+    from flight.libs.types import Err
+
+    from tools.ml_models.analysis.config import DatasetAnalysisConfig
+    from tools.ml_models.analysis.dataset import analyze_dataset
+
+    result = analyze_dataset(DatasetAnalysisConfig(dataset=str(dataset), out=str(out)))
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(result.value))
 
 
 @app.command("train")
@@ -215,6 +232,8 @@ def accept_command(
     """Gate an artifact on the finished test split and write an acceptance report."""
     import json
 
+    from flight.libs.types import Err
+
     from tools.ml_models.export.accept import accept_artifact
     from tools.ml_models.export.manifest import acceptance_path, load_manifest
 
@@ -225,16 +244,19 @@ def accept_command(
         raise typer.BadParameter(f"refusing to overwrite {report_path}")
     try:
         model_manifest = load_manifest(manifest)
-        report = accept_artifact(
-            artifact,
-            model_manifest,
-            dataset[0],
-            min_iou=min_iou,
-            min_accuracy=min_accuracy,
-            max_latency_ms=max_latency_ms,
-        )
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
+    result = accept_artifact(
+        artifact,
+        model_manifest,
+        dataset[0],
+        min_iou=min_iou,
+        min_accuracy=min_accuracy,
+        max_latency_ms=max_latency_ms,
+    )
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    report = result.value
     evaluation = report["evaluation"]
     assert isinstance(evaluation, dict)
     payload = {
@@ -315,6 +337,46 @@ def convert_command(
         result = quantize_int8(source, out, dataset=dataset[0], calib_samples=calib_samples)
     else:
         result = convert_fp16(source, out)
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(result.value))
+
+
+@app.command("analyze")
+def analyze_command(
+    run: Annotated[Path, typer.Option(..., help="Training run directory to analyze.")],
+    out: Annotated[Path, typer.Option(..., help="Analysis output directory.")],
+    checkpoint: Annotated[str, typer.Option(help="Checkpoint selector. Default: best.")] = "best",
+    final_test: Annotated[bool, typer.Option(help="Include the final-test evaluation.")] = False,
+) -> None:
+    """Analyze one training run. Unavailable until model evidence lands."""
+    from flight.libs.types import Err
+
+    from tools.ml_models.analysis.config import ModelAnalysisConfig
+    from tools.ml_models.analysis.model import analyze_model
+
+    result = analyze_model(
+        ModelAnalysisConfig(
+            run=str(run), out=str(out), checkpoint=checkpoint, final_test=final_test
+        )
+    )
+    if isinstance(result, Err):
+        raise typer.BadParameter(result.error)
+    typer.echo(str(result.value))
+
+
+@app.command("render")
+def render_command(
+    evidence: Annotated[Path, typer.Option(..., help="Frozen evidence directory.")],
+    out: Annotated[Path, typer.Option(..., help="Destination figure directory.")],
+) -> None:
+    """Render figures from frozen evidence. Unavailable until plotting lands."""
+    from flight.libs.types import Err
+
+    from tools.ml_models.analysis.config import PlotConfig
+    from tools.ml_models.analysis.plots.common import render_analysis
+
+    result = render_analysis(evidence, PlotConfig(), out)
     if isinstance(result, Err):
         raise typer.BadParameter(result.error)
     typer.echo(str(result.value))

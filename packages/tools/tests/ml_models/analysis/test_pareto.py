@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from flight.libs.types import Err
 from tools.ml_models.analysis.pareto import (
     FrontierPoint,
     format_pareto,
@@ -20,115 +21,46 @@ from tools.ml_models.analysis.pareto import (
 )
 
 
-def _write_run(
-    root: Path,
-    name: str,
-    *,
-    kind: str = "segmentor",
-    arch: str = "unet",
-    n_params: int = 1000,
-    flops: int = 2000,
-    **metrics: float | str,
-) -> Path:
+def _write_run(root: Path, name: str, **fields: object) -> Path:
     """Write a minimal summary.json run directory."""
     dest = root / name
     dest.mkdir()
     payload: dict[str, object] = {
         "run_id": name,
-        "kind": kind,
-        "arch": arch,
-        "n_params": n_params,
-        "flops": flops,
+        "kind": "segmentor",
+        "arch": "unet",
+        "n_params": 1000,
+        "flops": 2000,
     }
-    payload.update(metrics)
+    payload.update(fields)
     (dest / "summary.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
     return dest
 
 
-def test_frontier_points_reads_only_the_requested_split(tmp_path: Path) -> None:
-    """A run carrying both splits is read from the requested one, never the other."""
-    both = _write_run(tmp_path, "both", test_mean_iou=0.9, val_mean_iou=0.5)
-
-    on_val = frontier_points((both,), "mean_iou", split="val")
-    on_test = frontier_points((both,), "mean_iou", split="test")
-
-    assert on_val[0].score == pytest.approx(0.5)
-    assert on_test[0].score == pytest.approx(0.9)
-
-
-def test_frontier_points_drops_runs_missing_the_requested_split(tmp_path: Path) -> None:
-    """A val-only run is absent from a test frontier rather than read from val.
-
-    Mixing splits would rank a test-scored finalist against validation-scored
-    rivals, which flatters the rivals because test scores are the pessimistic
-    ones.
-    """
-    val_only = _write_run(tmp_path, "val-only", val_mean_iou=0.7)
-    scored = _write_run(tmp_path, "scored", test_mean_iou=0.6, val_mean_iou=0.8)
-
-    ids = {point.run_id for point in frontier_points((val_only, scored), "mean_iou", split="test")}
-
-    assert ids == {"scored"}
-
-
-def test_frontier_points_uses_best_val_metric_only_for_a_matching_metric(
+def test_frontier_points_fails_closed_while_catalog_is_unavailable(
     tmp_path: Path,
 ) -> None:
-    """best_val_metric stands in for the val score only when it names that metric."""
-    matching = _write_run(tmp_path, "matching", val_metric="mean_iou", best_val_metric=0.4)
-    mismatched = _write_run(tmp_path, "mismatched", val_metric="f1", best_val_metric=0.95)
-
-    points = frontier_points((matching, mismatched), "mean_iou", split="val")
-
-    by_id = {point.run_id: point for point in points}
-    assert by_id["matching"].score == pytest.approx(0.4)
-    assert "mismatched" not in by_id
+    """A readable summary.json still cannot become a frontier point."""
+    run = _write_run(tmp_path, "scored", val_mean_iou=0.6)
+    result = frontier_points((run,), "mean_iou", split="val")
+    assert isinstance(result, Err)
+    assert "unavailable" in result.error
 
 
 def test_frontier_points_rejects_an_unknown_split(tmp_path: Path) -> None:
-    """An unknown split name is refused rather than silently treated as val."""
+    """An unknown split name fails rather than silently treating it as val."""
     run = _write_run(tmp_path, "run", val_mean_iou=0.5)
-
-    with pytest.raises(ValueError, match="unknown split"):
-        frontier_points((run,), "mean_iou", split="train")
-
-
-def test_frontier_points_filters_by_kind_and_drops_missing_fields(tmp_path: Path) -> None:
-    """Kind filter applies and runs without metric or cost are omitted."""
-    segmentor = _write_run(tmp_path, "seg", kind="segmentor", val_mean_iou=0.5)
-    classifier = _write_run(tmp_path, "clf", kind="classifier", val_mean_iou=0.8)
-    no_metric = _write_run(tmp_path, "no-metric", kind="segmentor")
-    no_cost = tmp_path / "no-cost"
-    no_cost.mkdir()
-    (no_cost / "summary.json").write_text(
-        json.dumps({"run_id": "no-cost", "kind": "segmentor", "val_mean_iou": 0.3}) + "\n",
-        encoding="utf-8",
-    )
-
-    points = frontier_points(
-        (segmentor, classifier, no_metric, no_cost),
-        "mean_iou",
-        kind="segmentor",
-    )
-    assert [point.run_id for point in points] == ["seg"]
-
-
-def test_frontier_points_negates_minimized_metrics(tmp_path: Path) -> None:
-    """bce and brier scores are negated so higher is better."""
-    bce_run = _write_run(tmp_path, "bce", val_bce=0.2)
-    brier_run = _write_run(tmp_path, "brier", val_brier=0.3)
-
-    bce_point = frontier_points((bce_run,), "bce")[0]
-    brier_point = frontier_points((brier_run,), "brier")[0]
-    assert bce_point.score == pytest.approx(-0.2)
-    assert brier_point.score == pytest.approx(-0.3)
+    result = frontier_points((run,), "mean_iou", split="train")
+    assert isinstance(result, Err)
+    assert "unknown split" in result.error
 
 
 def test_frontier_points_rejects_unknown_cost_key(tmp_path: Path) -> None:
-    """An unknown cost axis raises ValueError."""
+    """An unknown cost axis returns Err."""
     run = _write_run(tmp_path, "run", val_mean_iou=0.5)
-    with pytest.raises(ValueError, match="unknown cost key"):
-        frontier_points((run,), "mean_iou", cost_key="latency")
+    result = frontier_points((run,), "mean_iou", cost_key="latency")
+    assert isinstance(result, Err)
+    assert "unknown cost key" in result.error
 
 
 def test_pareto_front_excludes_dominated_and_orders_by_cost() -> None:
@@ -151,10 +83,9 @@ def test_pareto_front_tie_keeps_cheaper_then_first_seen() -> None:
     assert [point.run_id for point in front] == ["first"]
 
 
-def test_format_pareto_table_and_metric_orientation(tmp_path: Path) -> None:
+def test_format_pareto_table_and_metric_orientation() -> None:
     """format_pareto prints a header, rows cheapest first, and restores bce sign."""
-    run = _write_run(tmp_path, "run-a", kind="segmentor", arch="unet", val_bce=0.25)
-    point = frontier_points((run,), "bce")[0]
+    point = FrontierPoint("run-a", "unet", "segmentor", -0.25, 1000.0, "/run-a")
     front = pareto_front((point,))
     table = format_pareto(front, "bce", "n_params")
 
@@ -164,17 +95,7 @@ def test_format_pareto_table_and_metric_orientation(tmp_path: Path) -> None:
     assert table.endswith("\n")
 
 
-def test_frontier_points_filters_by_run_ids(tmp_path: Path) -> None:
-    """run_ids keeps one sweep's trials and drops catalog neighbours."""
-    kept = _write_run(tmp_path, "stage2", arch="unet_w16", val_mean_iou=0.55)
-    other = _write_run(tmp_path, "stage1", arch="unet_w32", val_mean_iou=0.60)
-
-    points = frontier_points((kept, other), "mean_iou", run_ids=frozenset({"stage2"}))
-
-    assert {point.run_id for point in points} == {"stage2"}
-
-
-def test_mean_by_arch_averages_seeds_and_picks_a_typical_path(tmp_path: Path) -> None:
+def test_mean_by_arch_averages_seeds_and_picks_a_typical_path() -> None:
     """Seeds of one architecture collapse to their mean score."""
     low = FrontierPoint("a-0", "unet_w16", "segmentor", 0.40, 100.0, "/low")
     mid = FrontierPoint("a-1", "unet_w16", "segmentor", 0.50, 100.0, "/mid")

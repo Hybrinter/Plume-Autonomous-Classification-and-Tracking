@@ -1,10 +1,10 @@
 # ADR-TOOLS-0006: Local filesystem run catalog
 
-**Status:** Accepted
+**Status:** Superseded
 **Date:** 2026-08-27
 **Topic:** tooling
 **Supersedes:** none
-**Superseded-by:** none
+**Superseded-by:** ADR-TOOLS-0018
 **Related:** ADR-TOOLS-0002, ADR-TOOLS-0005
 
 ## Context

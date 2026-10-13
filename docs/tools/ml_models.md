@@ -14,11 +14,11 @@ for model workflows.
 | --- | --- | --- |
 | [`dataset`](ml_models/dataset.md) | package | Raw sources, finished-dataset build, manifest, and loader |
 | [`arch`](ml_models/arch.md) | package | Segmentor and classifier network builders |
-| [`train`](ml_models/train.md) | package | GSD-conditioned training loop, evaluation, and metrics |
+| [`train`](ml_models/train.md) | package | Training config, provenance, and the unavailable train boundary |
 | [`export`](ml_models/export.md) | package | Two-input ONNX export, manifests, acceptance, and pair gates |
-| [`analysis`](ml_models/analysis.md) | package | Run accounting, Pareto ranking, and report rendering |
+| [`analysis`](ml_models/analysis.md) | package | Evidence records, unavailable analysis boundaries, and pure helpers |
 | [`studies`](ml_models/studies.md) | package | Offline band and GSD studies over shared dataset sources |
-| [`cli`](ml_models/cli.md) | module | `python -m tools.ml_models` dataset, train, export, accept, pair, and convert commands |
+| [`cli`](ml_models/cli.md) | module | `python -m tools.ml_models` dataset, train, export, accept, pair, convert, analyze, and render commands |
 | [`__main__`](ml_models/__main__.md) | module | `python -m tools.ml_models` entry shim |
 
 ## Package interface

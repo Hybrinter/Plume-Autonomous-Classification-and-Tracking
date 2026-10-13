@@ -48,7 +48,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from tools.ml_models.analysis.runs import load_summary
+from flight.libs.types import Err, Result
 
 COST_KEYS: frozenset[str] = frozenset({"n_params", "flops"})
 
@@ -80,31 +80,6 @@ class FrontierPoint:
     path: str
 
 
-def _scalar(row: dict[str, object], *keys: str) -> float:
-    """Return the first numeric value among ``keys``, or NaN."""
-    for key in keys:
-        item = row.get(key)
-        if isinstance(item, (int, float)) and not isinstance(item, bool):
-            return float(item)
-    return math.nan
-
-
-def _split_score(row: dict[str, object], metric: str, split: str) -> float:
-    """Return ``metric`` on ``split`` for one run summary, or NaN.
-
-    Notes:
-        ``best_val_metric`` is a valid source only when the summary names the
-        same metric in ``val_metric``, since a run swept on F1 also stores that
-        field and reading it as though it were mean IoU would invent a number.
-    """
-    score = _scalar(row, f"{split}_{metric}")
-    if not math.isnan(score) or split != "val":
-        return score
-    if str(row.get("val_metric", "")) == metric:
-        return _scalar(row, "best_val_metric")
-    return math.nan
-
-
 def frontier_points(
     runs: tuple[Path, ...],
     metric: str,
@@ -112,8 +87,8 @@ def frontier_points(
     kind: str = "",
     split: str = "val",
     run_ids: frozenset[str] | None = None,
-) -> tuple[FrontierPoint, ...]:
-    """Reduce run directories to comparable ``(score, cost)`` points.
+) -> Result[tuple[FrontierPoint, ...], str]:
+    """Refuse to reduce run directories while the catalog reader is unimplemented.
 
     Args:
         runs: Run directories.
@@ -122,49 +97,25 @@ def frontier_points(
         kind: When set, keep only runs of that kind. Comparing a classifier
             against a segmentor is meaningless, so a mixed catalog must be
             filtered.
-        split: ``val`` or ``test``. Every point is read from this split, and a
-            run that does not carry it is dropped rather than read from the
-            other one.
+        split: ``val`` or ``test``. Every point must be read from this split.
         run_ids: When set, keep only runs whose ``run_id`` is in this set.
             A stage-1 recipe sweep and a stage-2 architecture sweep share a
             catalog; mixing them would treat recipe and architecture as one
             comparison.
 
     Returns:
-        tuple[FrontierPoint, ...]: One point per usable run. Runs missing the
-        metric on ``split``, or missing the cost, are dropped.
-
-    Raises:
-        ValueError: If ``cost_key`` or ``split`` is not a known value.
+        Result[tuple[FrontierPoint, ...], str]: Err naming the unknown
+        ``cost_key`` or ``split``, and Err while the catalog reader is
+        unimplemented; no point is fabricated.
     """
+    del runs, metric, kind, run_ids
     if cost_key not in COST_KEYS:
-        raise ValueError(f"unknown cost key {cost_key!r}")
+        return Err(f"unknown cost key {cost_key!r}")
     if split not in SPLITS:
-        raise ValueError(f"unknown split {split!r}; expected val or test")
-    points: list[FrontierPoint] = []
-    for path in runs:
-        row = load_summary(path)
-        if kind and str(row.get("kind", "")) != kind:
-            continue
-        run_id = str(row.get("run_id", path.name))
-        if run_ids is not None and run_id not in run_ids:
-            continue
-        score = _split_score(row, metric, split)
-        cost = _scalar(row, cost_key)
-        if math.isnan(score) or math.isnan(cost):
-            continue
-        oriented = -score if metric in _MINIMIZED_METRICS else score
-        points.append(
-            FrontierPoint(
-                run_id=run_id,
-                arch=str(row.get("arch", "")),
-                kind=str(row.get("kind", "")),
-                score=oriented,
-                cost=cost,
-                path=str(path),
-            )
-        )
-    return tuple(points)
+        return Err(f"unknown split {split!r}; expected val or test")
+    return Err(
+        "run catalog evidence is unavailable until the evidence analysis phase is implemented"
+    )
 
 
 def mean_by_arch(points: tuple[FrontierPoint, ...]) -> tuple[FrontierPoint, ...]:

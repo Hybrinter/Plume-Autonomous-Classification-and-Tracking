@@ -65,6 +65,66 @@ def test_accept_rejects_repeated_dataset_before_any_load(
     assert not isinstance(result.exception, AssertionError)
 
 
+def test_dataset_analyze_help_and_unavailable(tmp_path: Path) -> None:
+    """``dataset analyze`` advertises its options and fails closed."""
+    runner = CliRunner()
+    help_result = runner.invoke(app, ["dataset", "analyze", "--help"])
+    assert help_result.exit_code == 0
+    output = _plain(help_result.output)
+    assert "--dataset" in output
+    assert "--out" in output
+    out = tmp_path / "analysis"
+    result = runner.invoke(
+        app,
+        ["dataset", "analyze", "--dataset", str(tmp_path / "ds"), "--out", str(out)],
+    )
+    assert result.exit_code != 0
+    assert not out.exists()
+
+
+def test_analyze_help_and_unavailable(tmp_path: Path) -> None:
+    """``analyze`` advertises run, checkpoint, and final-test options."""
+    runner = CliRunner()
+    help_result = runner.invoke(app, ["analyze", "--help"])
+    assert help_result.exit_code == 0
+    output = _plain(help_result.output)
+    for option in ("--run", "--out", "--checkpoint", "--final-test"):
+        assert option in output
+    out = tmp_path / "model-analysis"
+    result = runner.invoke(
+        app,
+        [
+            "analyze",
+            "--run",
+            str(tmp_path / "run"),
+            "--out",
+            str(out),
+            "--checkpoint",
+            "last",
+            "--final-test",
+        ],
+    )
+    assert result.exit_code != 0
+    assert not out.exists()
+
+
+def test_render_help_and_unavailable(tmp_path: Path) -> None:
+    """``render`` advertises evidence and output options and fails closed."""
+    runner = CliRunner()
+    help_result = runner.invoke(app, ["render", "--help"])
+    assert help_result.exit_code == 0
+    output = _plain(help_result.output)
+    for option in ("--evidence", "--out"):
+        assert option in output
+    out = tmp_path / "figures"
+    result = runner.invoke(
+        app,
+        ["render", "--evidence", str(tmp_path / "evidence"), "--out", str(out)],
+    )
+    assert result.exit_code != 0
+    assert not out.exists()
+
+
 def test_convert_rejects_bad_dataset_counts_before_any_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

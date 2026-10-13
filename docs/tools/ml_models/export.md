@@ -38,8 +38,9 @@ importing the package never requires them.
 `verify_conditioned_shapes` from `flight.payload.inference.contract`.
 `export` builds models through `tools.ml_models.arch.registry` and reads
 nested training provenance from checkpoints written by
-`tools.ml_models.train.loop`. `accept` evaluates on finished datasets through
-`tools.ml_models.train.evaluate`. `session` uses onnxruntime lazily.
+`tools.ml_models.train.loop`. `accept` validates finished-dataset
+compatibility and reports an unavailable error while scoring is
+unimplemented. `session` uses onnxruntime lazily.
 
 ## Constraints
 

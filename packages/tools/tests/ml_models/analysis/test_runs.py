@@ -1,24 +1,27 @@
-"""Tests for local run discovery and compare tables."""
+"""Tests for the unavailable run-catalog boundary and retained formatters."""
 
 import json
 from pathlib import Path
 
+import tools.ml_models.analysis.runs as runs
+from flight.libs.types import Err
 from tools.ml_models.analysis.runs import (
     discover_runs,
     format_compare,
     format_list,
+    format_rank,
     load_summary,
     rank_runs,
 )
 
 
-def _write_run(root: Path, name: str, kind: str, iou: float) -> Path:
-    """Write a minimal summary.json run directory."""
+def _write_run(root: Path, name: str, iou: float) -> Path:
+    """Write a legacy summary.json run directory."""
     dest = root / name
     dest.mkdir()
     payload = {
         "run_id": name,
-        "kind": kind,
+        "kind": "segmentor",
         "arch": "unet",
         "best_epoch": 1,
         "val_metric": "mean_iou",
@@ -32,38 +35,51 @@ def _write_run(root: Path, name: str, kind: str, iou: float) -> Path:
     return dest
 
 
-def test_discover_and_list(tmp_path: Path) -> None:
-    """discover_runs finds summary.json folders and format_list prints them."""
-    _write_run(tmp_path, "a", "segmentor", 0.5)
-    _write_run(tmp_path, "b", "segmentor", 0.7)
-    (tmp_path / "not-a-run").mkdir()
-    runs = discover_runs(tmp_path)
-    assert [path.name for path in runs] == ["a", "b"]
-    table = format_list(runs)
-    assert "a" in table
-    assert "b" in table
+def test_catalog_readers_return_unavailable(tmp_path: Path) -> None:
+    """Discovery, summary loading, and ranking fail closed on any input."""
+    dest = _write_run(tmp_path, "a", 0.5)
+    for result in (
+        discover_runs(tmp_path),
+        load_summary(dest),
+        rank_runs((dest,), "mean_iou"),
+    ):
+        assert isinstance(result, Err)
+        assert "unavailable" in result.error
 
 
-def test_compare_includes_eval_overlay(tmp_path: Path) -> None:
-    """format_compare shows test metrics from eval.json."""
-    dest = _write_run(tmp_path, "exp", "segmentor", 0.4)
-    (dest / "eval.json").write_text(
-        json.dumps({"split": "test", "n": 3, "mean_iou": 0.6, "kind": "segmentor"}) + "\n",
-        encoding="utf-8",
+def test_format_list_and_compare_render_given_rows() -> None:
+    """The list and compare formatters render already-loaded row dicts."""
+    rows = (
+        {
+            "run_id": "a",
+            "kind": "segmentor",
+            "arch": "unet",
+            "best_epoch": 1,
+            "best_val_metric": 0.5,
+            "n_params": 1000,
+            "flops": 2000,
+            "dataset_hash": "abc",
+        },
     )
-    row = load_summary(dest)
-    assert row["test_mean_iou"] == 0.6
-    table = format_compare((dest,))
-    assert "0.6" in table
-    assert "0.4" in table
+    assert "a" in format_list(rows)
+    table = format_compare(rows)
+    assert "0.5" in table
     assert "1000" in table
     assert "2000" in table
 
 
-def test_rank_orders_higher_val_iou_first(tmp_path: Path) -> None:
-    """rank_runs puts the higher val mean IoU first, then lower FLOPs."""
-    low = _write_run(tmp_path, "low", "segmentor", 0.4)
-    high = _write_run(tmp_path, "high", "segmentor", 0.7)
-    ranked = rank_runs((low, high), "mean_iou")
-    assert ranked[0]["run_id"] == "high"
-    assert ranked[1]["run_id"] == "low"
+def test_no_legacy_sort_fallback_remains() -> None:
+    """The removed ranking fallback has no renamed helper left behind."""
+    assert not hasattr(runs, "sort_rows")
+
+
+def test_format_rank_renders_ranked_rows() -> None:
+    """format_rank prints the compare table in the caller's order."""
+    rows = (
+        {"run_id": "a", "kind": "segmentor", "best_val_metric": 0.5, "flops": 2000},
+        {"run_id": "b", "kind": "segmentor", "best_val_metric": 0.7, "flops": 1500},
+    )
+    table = format_rank(rows)
+    lines = table.splitlines()
+    assert lines[1].startswith("a\t")
+    assert lines[2].startswith("b\t")

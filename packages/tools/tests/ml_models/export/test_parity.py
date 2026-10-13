@@ -14,8 +14,8 @@ from typing import cast
 import numpy as np
 import pytest
 import torch
-from flight.libs.config import InferenceConfig, PactConfig
-from flight.libs.types import FaultCode, Ok, Result
+from flight.libs.config import InferenceConfig
+from flight.libs.types import Err, Ok
 from flight.payload.gimbal.footprint import GSD_REFERENCE_M, to_model_gsd
 from flight.payload.inference.onnx_session import load_onnx_session
 from tools.ml_models.arch.film import CONDITIONING_ID, GsdFilm
@@ -221,19 +221,11 @@ def test_export_manifest_contents(tmp_path: Path) -> None:
     assert raw["partial_gsd"] is False
 
 
-def test_exported_pair_loads_with_flight_metadata_and_config(
+def test_exported_pair_cannot_promote_without_acceptance(
     tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
 ) -> None:
-    """A generated fixed-tile pair loads and stages with its configured metadata."""
-    import json
-
-    from flight.core.model_deploy import ModelDeployService, parse_manifest
-    from flight.libs.bus import MessageBus
-    from flight.libs.messages import ModelStagedMsg, RoutedCommandMsg
-    from flight.libs.time import ManualClock
-    from flight.libs.types import MessageType, ModelDeployState
+    """Real exports pass shape gates; blocked acceptance blocks pairing."""
     from tools.ml_models.export.accept import accept_artifact
-    from tools.ml_models.export.manifest import acceptance_path
     from tools.ml_models.export.pair import write_pair_manifest
 
     inference = InferenceConfig()
@@ -273,10 +265,7 @@ def test_exported_pair_loads_with_flight_metadata_and_config(
             min_accuracy=0.0,
             max_latency_ms=1000.0,
         )
-        assert acceptance["accepted"] is True
-        acceptance_path(artifact).write_text(
-            json.dumps({"accepted": True, "sha256": manifest.sha256}), encoding="utf-8"
-        )
+        assert isinstance(acceptance, Err)
         artifacts[kind] = artifact
         manifests[kind] = manifest
     assert (
@@ -292,53 +281,9 @@ def test_exported_pair_loads_with_flight_metadata_and_config(
         sidecar_path(artifacts["segmentor"]),
         pair_path,
     )
-    assert isinstance(pair_result, Ok), pair_result
-    pair_blob = pair_path.read_bytes()
-    parsed = parse_manifest(pair_blob)
-    assert parsed is not None
-    assert parsed.grid == (inference.tile_rows, inference.tile_cols)
-    assert parsed.frame_hw == (inference.input_height_px, inference.input_width_px)
-    assert parsed.tile_hw == (
-        inference.input_height_px // inference.tile_rows,
-        inference.input_width_px // inference.tile_cols,
-    )
-
-    class _Storage:
-        def read(self, _entry_id: str) -> Result[bytes, FaultCode]:
-            return Ok(pair_blob)
-
-    bus = MessageBus()
-    service = ModelDeployService.from_config(
-        PactConfig(),
-        bus,
-        ManualClock(),
-        _Storage(),
-    )
-    bus.publish(
-        ModelStagedMsg(
-            msg_type=MessageType.MODEL_STAGED,
-            timestamp_utc="t",
-            entry_id="pair-entry",
-            sha256=hashlib.sha256(pair_blob).hexdigest(),
-            version="",
-        )
-    )
-    service.tick()
-    assert service.state.state is ModelDeployState.STAGED
-    bus.publish(
-        RoutedCommandMsg(
-            msg_type=MessageType.ROUTED_COMMAND,
-            timestamp_utc="t",
-            target="model_deploy",
-            command_id="ACTIVATE_MODEL",
-            params={"version": parsed.version},
-            source="ground",
-            seq=1,
-        )
-    )
-    service.tick()
-    assert service.state.state.name == ModelDeployState.ACTIVE.name
-    assert service.state.active_version == parsed.version
+    assert isinstance(pair_result, Err)
+    assert "acceptance report" in pair_result.error
+    assert not pair_path.exists()
 
 
 def test_dynamic_spatial_research_export_fails_flight_shape_gate(tmp_path: Path) -> None:
@@ -371,8 +316,10 @@ def test_export_refuses_existing_files(tmp_path: Path) -> None:
     assert artifact.read_bytes() == b"keep"
 
 
-def test_full_acceptance_flow(tmp_path: Path, build_synthetic_dataset: Callable[..., Path]) -> None:
-    """accept_artifact scores a real session on a finished test split."""
+def test_full_acceptance_flow_fails_closed(
+    tmp_path: Path, build_synthetic_dataset: Callable[..., Path]
+) -> None:
+    """accept_artifact refuses to score while the evaluator is unavailable."""
     from tools.ml_models.export.accept import accept_artifact
 
     ckpt, _model = _checkpoint(tmp_path)
@@ -389,7 +336,5 @@ def test_full_acceptance_flow(tmp_path: Path, build_synthetic_dataset: Callable[
         min_accuracy=0.0,
         max_latency_ms=1000.0,
     )
-    assert report["hash_ok"] is True
-    assert report["contract_ok"] is True
-    assert report["accepted"] is True
-    assert report["metric"] == "accuracy"
+    assert isinstance(report, Err)
+    assert "unavailable" in report.error

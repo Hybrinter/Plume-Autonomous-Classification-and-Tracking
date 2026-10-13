@@ -70,4 +70,3 @@ sigmoid is baked in.
 
 - [`tools.ml_models.train`](../train.md)
 - [`tools.ml_models.train.loop`](loop.md)
-- [`tools.ml_models.train.metrics`](metrics.md)

@@ -5,40 +5,52 @@
 
 ## Purpose
 
-The analysis package scores finished model artifacts and training runs:
-parameter and FLOP accounting, run-directory summaries and ranking, Pareto
-frontiers, and report rendering.
+The analysis package holds the evidence-first analysis scaffold: typed
+evidence records, analysis and evaluation config, the capture protocol,
+unavailable entry boundaries, pure metric/plot/visual scaffolds, and the
+retained pure helpers (parameter counting, frontier and knee selection,
+row formatters).
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`cost`](analysis/cost.md) | module | Parameter and FLOP counters |
-| [`runs`](analysis/runs.md) | module | Run discovery, summaries, and rank tables |
-| [`pareto`](analysis/pareto.md) | module | Cost-versus-quality frontier and knee selection |
-| [`plots`](analysis/plots.md) | module | History, overlay, and failure figures |
-| [`report`](analysis/report.md) | module | `report.md` and figure bundle writer |
+| [`contracts`](analysis/contracts.md) | module | Sample-key, metric, and split-evidence records |
+| [`config`](analysis/config.md) | module | Analysis, evaluation, and plot config records |
+| [`artifacts`](analysis/artifacts.md) | module | Versioned codecs and publication (scaffold) |
+| [`capture`](analysis/capture.md) | module | Prediction/evidence sink protocol |
+| [`evaluate`](analysis/evaluate.md) | module | Split-evaluation boundary (unavailable) |
+| [`dataset`](analysis/dataset.md) | module | Dataset-analysis boundary (unavailable) |
+| [`training`](analysis/training.md) | module | History analysis (scaffold) |
+| [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
+| [`summaries`](analysis/summaries.md) | module | Canonical summary assembly (scaffold) |
+| [`cost`](analysis/cost.md) | module | Parameter counting; unavailable FLOP boundary |
+| [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
+| [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
+| [`metrics`](analysis/metrics.md) | package | Pure metric-core scaffolds |
+| [`plots`](analysis/plots.md) | package | Figure-render scaffolds and the unavailable render boundary |
+| [`visuals`](analysis/visuals.md) | package | Visual-evidence scaffolds |
 
 ## Package interface
 
-`tools.ml_models.analysis.__init__` carries a module docstring only. Callers
-import the leaf modules.
+`tools.ml_models.analysis.__init__` carries a module docstring only.
+Callers import the leaf modules.
 
 ## Interactions
 
-`runs`, `pareto`, `plots`, and `report` operate on local run directories
-written by `tools.ml_models.train.loop`. `cost` profiles torch modules
-from `tools.ml_models.arch.registry`.
+`evaluate`, `dataset`, `model`, and `plots.common` expose the public
+`Result` boundaries; all are unavailable during the scaffold phase.
+`cost` profiles torch modules from `tools.ml_models.arch.registry`.
+`runs` and `pareto` format helpers consume caller-supplied rows.
 
 ## Constraints
 
-- `plots` and `report` consume the run artifacts written for a training
-  run; they do not recompute metrics.
+- Unavailable boundaries return explicit `Err` values and create no
+  outputs; no dummy numbers or empty-success results are produced.
 - Torch imports happen inside the modules that need them.
 
 ## Related documents
 
 - [`tools.ml_models`](../ml_models.md)
-- [`tools.ml_models.train.loop`](../train/loop.md)
 - [`tools.ml_models.dataset`](../dataset.md)
 - [`tools`](../tools.md)

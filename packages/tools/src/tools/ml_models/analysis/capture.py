@@ -40,8 +40,10 @@ from tools.ml_models.analysis.contracts import (
     FiniteNumber,
     MetricValue,
     SampleKey,
+    is_sha256,
 )
 from tools.ml_models.analysis.metrics.spatial import SpatialRow
+from tools.ml_models.dataset.raw import ObservationMetadata
 
 _SCHEMA = ConfigDict(extra="forbid")
 
@@ -81,6 +83,13 @@ class CaptureRow:
         spatial: Frozen component-matching and boundary evidence for segmentor
             rows; ``None`` for classifier rows. Compact records only - no
             dense arrays are retained here.
+        metadata: Recorded source observation provenance copied from the
+            stored row; defaults to all-unavailable.
+        gsd_nominal: Whether the stored row recorded nominal GSD; ``None``
+            when the source schema cannot say.
+        dataset_manifest_hash: Verified SHA-256 of the source dataset
+            manifest, copied by the evaluator; ``None`` when the producer
+            did not record it.
     """
 
     key: SampleKey
@@ -94,6 +103,9 @@ class CaptureRow:
     false_negative: StrictBool = False
     array_view: Literal["CANONICAL"] = "CANONICAL"
     spatial: SpatialRow | None = field(default=None)
+    metadata: ObservationMetadata = field(default_factory=ObservationMetadata)
+    gsd_nominal: StrictBool | None = field(default=None)
+    dataset_manifest_hash: str | None = field(default=None)
 
     @model_validator(mode="after")
     def _bounds(self) -> CaptureRow:
@@ -104,6 +116,8 @@ class CaptureRow:
         names = [metric.name for metric in self.metrics]
         if len(set(names)) != len(names):
             raise ValueError("metric names must be unique")
+        if self.dataset_manifest_hash is not None and not is_sha256(self.dataset_manifest_hash):
+            raise ValueError("recorded dataset manifest hash must be a lowercase SHA-256")
         return self
 
 

@@ -34,6 +34,7 @@ def test_tools_ml_models_analysis_imports() -> None:
         "tools.ml_models.analysis.dataset_figures",
         "tools.ml_models.analysis.dataset_previews",
         "tools.ml_models.analysis.dataset_render",
+        "tools.ml_models.analysis.generalization_artifacts",
         "tools.ml_models.analysis.training",
         "tools.ml_models.analysis.model",
         "tools.ml_models.analysis.summaries",

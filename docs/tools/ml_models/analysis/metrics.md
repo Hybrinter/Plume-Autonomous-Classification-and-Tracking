@@ -7,8 +7,8 @@
 
 The metrics package holds deterministic pure metric cores and their
 declarative definitions. The classifier, calibration, definitions,
-inputs, segmentation, localization, boundary, and spatial modules are
-implemented; generalization remains a scaffold.
+inputs, segmentation, localization, boundary, spatial, and
+generalization modules are implemented.
 
 ## Contents
 
@@ -22,7 +22,7 @@ implemented; generalization remains a scaffold.
 | [`localization`](metrics/localization.md) | module | Component matching, conditional errors, and success curves |
 | [`boundary`](metrics/boundary.md) | module | Boundary distances and tolerance scores |
 | [`spatial`](metrics/spatial.md) | module | Shared per-image localization/boundary rows and frozen aggregation |
-| [`generalization`](metrics/generalization.md) | module | Strata and group-level uncertainty (scaffold) |
+| [`generalization`](metrics/generalization.md) | module | Captured-cohort strata, train-only baselines, and recorded-group bootstrap intervals |
 
 ## Package interface
 

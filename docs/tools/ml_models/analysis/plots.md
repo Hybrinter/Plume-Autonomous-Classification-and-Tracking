@@ -18,7 +18,7 @@ This package replaces the removed report-figure module; the legacy
 | --- | --- | --- |
 | [`common`](plots/common.md) | module | Figure export to bundle bytes and the unavailable render boundary |
 | [`dataset`](plots/dataset.md) | module | Frozen dataset figure rendering |
-| [`training`](plots/training.md) | module | Training-history figures (scaffold) |
+| [`training`](plots/training.md) | module | Frozen training-history figure rendering |
 | [`classifier`](plots/classifier.md) | module | Classifier-evidence figures (scaffold) |
 | [`segmentation`](plots/segmentation.md) | module | Segmentation-evidence figures (scaffold) |
 | [`generalization`](plots/generalization.md) | module | Generalization-evidence figures (scaffold) |

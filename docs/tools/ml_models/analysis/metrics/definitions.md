@@ -17,6 +17,8 @@ TP/FP/TN/FN refer to the explicitly selected operating point.
 | `CLASSIFIER_DEFINITIONS` | constant | Definitions for the classifier point, ranking, and loss metrics |
 | `CALIBRATION_DEFINITIONS` | constant | Definitions for Brier and ECE |
 | `SEGMENTATION_DEFINITIONS` | constant | Definitions for the segmentation overlap, area, loss, and pixel diagnostics |
+| `LOCALIZATION_DEFINITIONS` | constant | Definitions for component counts, match rates, and conditional centroid errors |
+| `BOUNDARY_DEFINITIONS` | constant | Definitions for boundary hit rates, image counts, and conditional distances |
 | `metric_definition` | function | Name lookup; `Result` boundary |
 
 ## Inputs and outputs
@@ -63,6 +65,22 @@ the local-GSD area approximation, the exclusion of empty images from
 positive-truth headlines, and approximate histogram ranking with
 explicit thresholds and aggregation.
 
+`LOCALIZATION_DEFINITIONS` covers exact component counts
+(`truth_components`, `predicted_components`, matched and unmatched
+populations), the pooled match rates `component_precision`,
+`component_recall`, and `component_f1`, split/merge component counts,
+and the conditional `matched_centroid_error_{px,m}_{mean,median,p95}`
+metrics. Precision, recall, and F1 maximize; counts are descriptive;
+centroid errors minimize. `BOUNDARY_DEFINITIONS` covers the pooled hit
+rates `boundary_precision`, `boundary_recall`, and `boundary_f1`, the
+exact missed/spurious/empty image counts, and the conditional
+equal-image `boundary_{asd,hd95}_{px,m}_mean` distances. Hit rates
+maximize; image counts are descriptive; distances minimize. Both
+families declare that zero-denominator rates are unavailable, that
+metre geometry requires recorded GSD, and that conditional distances
+exclude detection misses, which the separate image counts and
+miss-inclusive success curves carry.
+
 ## Errors and faults
 
 `metric_definition` returns `Err` for unknown names; directions are
@@ -89,3 +107,4 @@ None.
 - [`tools.ml_models.analysis.metrics`](../metrics.md)
 - [`tools.ml_models.analysis.metrics.classifier`](classifier.md)
 - [`tools.ml_models.analysis.metrics.calibration`](calibration.md)
+- [`tools.ml_models.analysis.metrics.spatial`](spatial.md)

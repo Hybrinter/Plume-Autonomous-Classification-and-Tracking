@@ -3,6 +3,7 @@
 import dataclasses
 import json
 
+import numpy as np
 import pytest
 from flight.libs.types import Err, Ok
 from tools.ml_models.analysis.metrics.calibration import CalibrationEvidence, ReliabilityBin
@@ -13,8 +14,10 @@ from tools.ml_models.analysis.metrics.classifier import (
     score_classifier_baseline,
 )
 from tools.ml_models.analysis.metrics.definitions import (
+    BOUNDARY_DEFINITIONS,
     CALIBRATION_DEFINITIONS,
     CLASSIFIER_DEFINITIONS,
+    LOCALIZATION_DEFINITIONS,
     SEGMENTATION_DEFINITIONS,
     MetricDefinition,
     metric_definition,
@@ -23,8 +26,15 @@ from tools.ml_models.analysis.metrics.segmentation import (
     aggregate_segmentation,
     score_segmentation_image,
 )
+from tools.ml_models.analysis.metrics.spatial import aggregate_spatial, score_spatial
 
-_ALL_DEFINITIONS = CLASSIFIER_DEFINITIONS + CALIBRATION_DEFINITIONS + SEGMENTATION_DEFINITIONS
+_ALL_DEFINITIONS = (
+    CLASSIFIER_DEFINITIONS
+    + CALIBRATION_DEFINITIONS
+    + SEGMENTATION_DEFINITIONS
+    + LOCALIZATION_DEFINITIONS
+    + BOUNDARY_DEFINITIONS
+)
 
 
 def test_metric_definition_lookup() -> None:
@@ -75,6 +85,21 @@ def test_segmentation_metrics_have_definitions() -> None:
         assert isinstance(scored, Ok)
         rows.append(scored.value)
     aggregate = aggregate_segmentation(tuple(rows))
+    assert isinstance(aggregate, Ok)
+    assert aggregate.value.metrics
+    for metric in aggregate.value.metrics:
+        assert isinstance(metric_definition(metric.name), Ok), metric.name
+
+
+def test_spatial_metrics_have_definitions() -> None:
+    """Every aggregated spatial metric name resolves to a definition."""
+    truth = np.zeros((1, 8, 8), dtype=np.float32)
+    truth[0, :5, :4] = 1.0
+    logits = np.zeros((1, 8, 8), dtype=np.float32)
+    logits[0, :5, :4] = 2.0
+    row = score_spatial(logits, truth)
+    assert isinstance(row, Ok)
+    aggregate = aggregate_spatial((row.value,))
     assert isinstance(aggregate, Ok)
     assert aggregate.value.metrics
     for metric in aggregate.value.metrics:

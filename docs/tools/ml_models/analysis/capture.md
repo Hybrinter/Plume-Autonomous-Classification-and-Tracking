@@ -22,11 +22,15 @@ scores, labels, groups, bins, normalizes, or transforms any input.
 
 `CaptureRow` is a frozen slots dataclass with fields `key`, `group_id`,
 `bin_id`, `label`, `gsd_m`, `metrics`, `failure_score`, `false_positive`,
-`false_negative`, and `array_view`. `label` must be exactly 0 or 1,
-`gsd_m` components must be strictly positive, `failure_score` must be
-finite, and supplied `metrics` names must be unique. `array_view` is the
-literal `CANONICAL`: arrays arrive in canonical orientation regardless
-of the transform recorded in `key.element`.
+`false_negative`, `array_view`, and `spatial`. `label` must be exactly
+0 or 1, `gsd_m` components must be strictly positive, `failure_score`
+must be finite, and supplied `metrics` names must be unique.
+`array_view` is the literal `CANONICAL`: arrays arrive in canonical
+orientation regardless of the transform recorded in `key.element`.
+`spatial` is an optional frozen `SpatialRow` carrying compact component
+geometry, matches, unmatched identifiers, and boundary statistics for
+segmentor rows — `None` for classifier rows and for rows persisted by
+older writers. It retains no dense arrays.
 
 `BoundedCaptureSink.create(out, cfg, dataset=...) -> Result` validates and
 reserves the output; the direct constructor raises on the same failures.

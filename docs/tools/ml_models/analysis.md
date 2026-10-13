@@ -32,7 +32,7 @@ formatters).
 | [`cost`](analysis/cost.md) | module | Parameter counts and a partial two-input operation bound |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
-| [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration implemented |
+| [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration/segmentation/spatial implemented |
 | [`plots`](analysis/plots.md) | package | Figure export and dataset figure renderers; the general render boundary stays unavailable |
 | [`visuals`](analysis/visuals.md) | package | Gallery selection and dataset preview-gallery rendering |
 

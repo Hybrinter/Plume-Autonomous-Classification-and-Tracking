@@ -123,9 +123,12 @@ precision.
    through `apply_train_mapping`, and calls `loop.train`. An `Ok` result
    echoes the run directory path; an `Err` becomes `typer.BadParameter`.
    The train modules import lazily inside the command.
-5. `dataset analyze`, `analyze`, and `render` map their `Result`
-   boundaries to `typer.BadParameter` on `Err`; while the boundaries are
-   unavailable every invocation exits nonzero and creates no output.
+5. `dataset analyze` raises `typer.BadParameter` unconditionally: the
+   numerical measurement and publication API is implemented, but the
+   CLI surface stays unavailable until dataset rendering is
+   implemented. `analyze` and `render` map their `Result` boundaries to
+   `typer.BadParameter` on `Err`; while the boundaries are unavailable
+   every invocation exits nonzero and creates no output.
 6. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 

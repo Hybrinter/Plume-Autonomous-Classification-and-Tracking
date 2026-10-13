@@ -6,10 +6,11 @@
 ## Purpose
 
 The analysis package holds the evidence-first analysis scaffold: typed
-evidence records, analysis and evaluation config, the capture protocol,
-unavailable entry boundaries, pure metric/plot/visual scaffolds, and the
-retained pure helpers (parameter counting, frontier and knee selection,
-row formatters).
+evidence records, analysis and evaluation config, the bounded capture
+sink, the exhaustive split evaluation, remaining unavailable entry
+boundaries, pure metric/plot/visual scaffolds, and the retained pure
+helpers (parameter counting, frontier and knee selection, row
+formatters).
 
 ## Contents
 
@@ -18,8 +19,8 @@ row formatters).
 | [`contracts`](analysis/contracts.md) | module | Strict sample-key, metric, curve, and identity records |
 | [`config`](analysis/config.md) | module | Strict config records, TOML codecs, and digests |
 | [`artifacts`](analysis/artifacts.md) | module | Versioned codecs, identities, publication, and typed tables |
-| [`capture`](analysis/capture.md) | module | Prediction/evidence sink protocol |
-| [`evaluate`](analysis/evaluate.md) | module | Split-evaluation boundary (unavailable) |
+| [`capture`](analysis/capture.md) | module | Bounded prediction/evidence sink |
+| [`evaluate`](analysis/evaluate.md) | module | Exhaustive split-evaluation boundary |
 | [`dataset`](analysis/dataset.md) | module | Dataset-analysis boundary (unavailable) |
 | [`training`](analysis/training.md) | module | History analysis (scaffold) |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |

@@ -30,14 +30,19 @@ formatters).
 | [`training`](analysis/training.md) | module | Strict training records, epoch reduction, selection, and history reader |
 | [`training_figures`](analysis/training_figures.md) | module | Frozen training-history figure-coordinate recipes |
 | [`training_artifacts`](analysis/training_artifacts.md) | module | Frozen training-figure recipe bundle serialization |
+| [`model_figures`](analysis/model_figures.md) | module | Frozen model-chart recipes and scalar reductions |
+| [`classifier_figures`](analysis/classifier_figures.md) | module | Frozen classifier figure inventory |
+| [`model_figure_artifacts`](analysis/model_figure_artifacts.md) | module | Frozen model-figure recipe bundle serialization |
+| [`prediction_selections`](analysis/prediction_selections.md) | module | Whole-cohort prediction gallery selection |
+| [`prediction_artifacts`](analysis/prediction_artifacts.md) | module | Frozen prediction preview/manifest bundle codecs |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
 | [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
 | [`cost`](analysis/cost.md) | module | Parameter counts and a partial two-input operation bound |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |
 | [`metrics`](analysis/metrics.md) | package | Pure metric cores; classifier/calibration/segmentation/spatial/generalization implemented |
-| [`plots`](analysis/plots.md) | package | Figure export and dataset/training figure renderers; the general render boundary stays unavailable |
-| [`visuals`](analysis/visuals.md) | package | Gallery selection and dataset preview-gallery rendering |
+| [`plots`](analysis/plots.md) | package | Figure export and dataset/training/model figure renderers; the general render boundary stays unavailable |
+| [`visuals`](analysis/visuals.md) | package | Gallery selection and dataset/prediction preview-gallery rendering |
 
 ## Package interface
 
@@ -54,7 +59,13 @@ publishes one checksummed evidence bundle through
 `dataset_artifacts`. The `dataset analyze` CLI command calls that path
 directly. `training_figures` freezes parsed run histories into chart
 recipes once; `plots.training` renders those recipes into bundle bytes
-and `training_artifacts` serializes the recipes themselves. The `model`
+and `training_artifacts` serializes the recipes themselves.
+`classifier_figures` freezes split evidence and scalar capture into
+model-chart recipes; `plots.model`/`plots.classifier` render them and
+`model_figure_artifacts` serializes the recipes.
+`prediction_selections` freezes whole-cohort gallery selections;
+`visuals.predictions` renders them over verified preview bytes and
+`prediction_artifacts` serializes previews and the manifest. The `model`
 boundary and the `plots.common` render boundary remain unavailable;
 `render` fails closed.
 `cost` profiles torch modules from `tools.ml_models.arch.registry`.

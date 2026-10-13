@@ -1,13 +1,14 @@
 """Deterministic pure metric cores and their declarative definitions.
 
 Contains:
-  - definitions: metric names, validity, aggregation, and unit metadata.
+  - definitions: metric names, directions, formulas, and limitations.
+  - inputs: validated binary score/label vectors and stable transforms.
   - classifier: binary counts, ranking, and operating curves.
-  - segmentation: overlap, pixel, area, and loss records.
-  - calibration: Brier, reliability, and ECE diagnostics.
-  - localization: component matching and localization records.
-  - boundary: boundary distances and tolerance scores.
-  - generalization: strata and group-level uncertainty.
+  - calibration: Brier, reliability bins, and ECE diagnostics.
+  - segmentation: overlap, pixel, area, and loss records (scaffold).
+  - localization: component matching and localization records (scaffold).
+  - boundary: boundary distances and tolerance scores (scaffold).
+  - generalization: strata and group-level uncertainty (scaffold).
 
-All algorithms are unimplemented; every submodule is a scaffold.
+Only classifier, calibration, inputs, and definitions are implemented.
 """

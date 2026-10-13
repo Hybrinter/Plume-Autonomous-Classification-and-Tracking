@@ -29,7 +29,13 @@ from tools.ml_models.dataset.manifest import (
     compute_dataset_hash,
     write_manifest,
 )
-from tools.ml_models.dataset.raw import BinSpec, RawSource, RawTile, RawTileRef
+from tools.ml_models.dataset.raw import (
+    BinSpec,
+    RawSource,
+    RawTile,
+    RawTileRef,
+    prepared_mask_state,
+)
 from tools.ml_models.dataset.sources.flight import FlightTileDir
 from tools.ml_models.dataset.spec import BuildSpec
 from tools.ml_models.dataset.split import assign_group_splits
@@ -518,6 +524,14 @@ def _require_tile(
             raise ValueError(f"{ref.tile_id} mask must contain binary pixels")
     elif tile.mask is not None:
         raise ValueError(f"{ref.tile_id} has a mask but has_mask is false")
+    state = ref.metadata.source_annotation_state
+    if state == "MISSING" and tile.mask is not None:
+        raise ValueError(f"{ref.tile_id} records MISSING source annotation but carries a mask")
+    if state == "EXPLICIT_EMPTY" and tile.mask is not None and np.any(tile.mask):
+        raise ValueError(
+            f"{ref.tile_id} records EXPLICIT_EMPTY source annotation "
+            "but its prepared mask is nonempty"
+        )
 
 
 def _append_planned(
@@ -553,6 +567,8 @@ def _append_planned(
         element=item.element,
         theta_g_deg=tile.ref.theta_g_deg,
         gsd_nominal=tile.ref.gsd_nominal,
+        metadata=tile.ref.metadata,
+        prepared_mask_state=prepared_mask_state(tile.mask),
     )
     key = (item.task, item.split, item.height, item.width)
     writers[key].append(

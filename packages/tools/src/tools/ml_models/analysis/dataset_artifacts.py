@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -38,7 +38,11 @@ from tools.ml_models.analysis.artifacts import (
     write_table,
 )
 from tools.ml_models.analysis.config import DatasetAnalysisConfig, write_config
-from tools.ml_models.analysis.contracts import ArtifactRef, CodeIdentity
+from tools.ml_models.analysis.contracts import (
+    ArtifactRef,
+    AvailabilityRecord,
+    CodeIdentity,
+)
 
 if TYPE_CHECKING:
     from tools.ml_models.analysis.dataset import DatasetMeasurement
@@ -233,14 +237,24 @@ def _coverage_rows(measured: DatasetMeasurement) -> tuple[dict[str, Scalar], ...
 
 
 def publish_dataset_measurement(
-    measured: DatasetMeasurement, cfg: DatasetAnalysisConfig
+    measured: DatasetMeasurement,
+    cfg: DatasetAnalysisConfig,
+    *,
+    extra_files: tuple[BundleFile, ...] = (),
+    extra_refs: tuple[ArtifactRef, ...] = (),
+    extra_outputs: tuple[AvailabilityRecord, ...] = (),
+    code: CodeIdentity | None = None,
 ) -> Result[Path, str]:
     """Stage, checksum, and exclusively publish one dataset evidence bundle.
 
     All codecs run inside a private temporary directory before the output is
     reserved, so a codec failure leaves no bundle behind. ``publish_bundle``
     retains its ``.incomplete`` marker when a write fails; existing outputs
-    are never overwritten.
+    are never overwritten. ``extra_files``/``extra_refs`` carry pre-rendered
+    artifacts bound by the caller; ``extra_outputs`` merge into the summary by
+    name (duplicates within the batch are rejected; a supplied name replaces
+    the base record, e.g. flipping ``figures`` to ``AVAILABLE``). ``code``
+    defaults to ``code_identity()``.
     """
     out = Path(cfg.out)
     try:
@@ -298,10 +312,31 @@ def publish_dataset_measurement(
             files.append(BundleFile(path=_SCHEMAS_PATH, data=schemas_bytes))
             from tools.ml_models.analysis.dataset import dataset_summary
 
-            summary = dataset_summary(measured, cfg, code_identity(), tuple(refs))
+            summary = dataset_summary(
+                measured,
+                cfg,
+                code if code is not None else code_identity(),
+                tuple(refs) + tuple(extra_refs),
+            )
+            if extra_outputs:
+                merged = {record.name: record for record in summary.outputs}
+                seen: set[str] = set()
+                for record in extra_outputs:
+                    if record.name in seen:
+                        return Err(f"duplicate extra output name {record.name!r}")
+                    if record.name in merged and record.name not in ("figures", "visuals"):
+                        return Err(f"cannot replace measured availability {record.name!r}")
+                    seen.add(record.name)
+                    merged[record.name] = record
+                summary = replace(summary, outputs=tuple(merged.values()))
     except (OSError, TypeError, ValueError, OverflowError, RuntimeError) as exc:
         return Err(f"dataset publication failed before reservation: {exc}")
     try:
-        return publish_bundle(out, summary, tuple(files), dataset_root=Path(cfg.dataset))
+        return publish_bundle(
+            out,
+            summary,
+            tuple(files) + tuple(extra_files),
+            dataset_root=Path(cfg.dataset),
+        )
     except (OSError, ValueError, RuntimeError) as exc:
         return Err(f"dataset publication failed: {exc}")

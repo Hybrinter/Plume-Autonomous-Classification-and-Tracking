@@ -1109,10 +1109,10 @@ def analyze_dataset(cfg: DatasetAnalysisConfig) -> Result[Path, str]:
     """Measure and publish one exclusive checksummed dataset evidence bundle.
 
     Invalid evidence, existing outputs and outputs inside the source are refused.
-    Dataset rendering/CLI activation is a separate phase; optional figure
-    availability is explicit in the measurement-only summary.
+    Required figures and bounded optional galleries use frozen evidence.
+    Unavailable metadata and budget-disabled galleries remain explicit.
     """
-    from tools.ml_models.analysis.dataset_artifacts import publish_dataset_measurement
+    from tools.ml_models.analysis.dataset_render import publish_rendered_dataset
 
     try:
         root, out = Path(cfg.dataset), Path(cfg.out)
@@ -1126,4 +1126,4 @@ def analyze_dataset(cfg: DatasetAnalysisConfig) -> Result[Path, str]:
     measured = measure_dataset(root)
     if isinstance(measured, Err):
         return measured
-    return publish_dataset_measurement(measured.value, cfg)
+    return publish_rendered_dataset(measured.value, cfg)

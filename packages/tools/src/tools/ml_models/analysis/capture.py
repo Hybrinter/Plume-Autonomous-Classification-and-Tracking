@@ -341,6 +341,30 @@ class BoundedCaptureSink:
             self._drop_cached(key_id)
         return self._fits(extra)
 
+    def _ensure_preview_fits(self, key_id: str, extra: int) -> bool:
+        if self._fits(extra):
+            return True
+        selected = self._select()
+        if key_id not in selected:
+            return False
+        protected = set(selected[: selected.index(key_id)])
+        victims = [
+            cached
+            for cached in self._eviction_order()
+            if cached in self._cache and cached not in protected
+        ]
+        reclaimable = sum(int(array.nbytes) for cached in victims for array in self._cache[cached])
+        if (
+            self._persisted + self._cache_bytes - reclaimable + extra + self._reserve
+            > self._cfg.max_capture_bytes
+        ):
+            return False
+        for cached in victims:
+            if self._fits(extra):
+                return True
+            self._drop_cached(cached)
+        return self._fits(extra)
+
     def _release_cache(self) -> None:
         self._cache.clear()
         self._cache_bytes = 0
@@ -434,7 +458,7 @@ class BoundedCaptureSink:
                 self._drop_cached(cached)
         if key_id in needed and key_id not in self._cache:
             nbytes = int(image.nbytes) + int(target.nbytes) + int(logits.nbytes)
-            if self._fits(nbytes):
+            if self._ensure_preview_fits(key_id, nbytes):
                 self._cache[key_id] = (image.copy(), target.copy(), logits.copy())
                 self._cache_bytes += nbytes
 

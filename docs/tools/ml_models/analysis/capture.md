@@ -80,10 +80,18 @@ array bytes; the marker is excluded. A bounded-size metadata encoding is
 reserved before any array caching or writing. Mandatory writes (scalar
 rows and `FULL` arrays) evict optional cached candidates first, lowest
 selection priority first, and fail only when the freed budget still does
-not fit; family tops and scalar ordering never change. Selected
-candidates that cannot be retained or written within the remaining
-budget are recorded as `OMITTED` with reason `byte_budget` in the
-metadata; scalar capture still completes. If the mandatory metadata
+not fit; family tops and scalar ordering never change. Optional preview
+admission is priority-aware: a candidate that does not immediately fit
+may reclaim cache bytes only when it is itself selected, and only from
+cached candidates that are unselected or ranked after it in the merged
+selection order; earlier selected entries are protected, and unselected
+candidates never evict. Admission preflights reclaimable bytes and
+leaves existing caches intact when the candidate still cannot fit.
+Capture is a bounded one-pass stream: arrays already released to
+mandatory writes or earlier budget pressure cannot be reconstructed, and
+selected candidates that cannot be retained or written within the
+remaining budget are recorded as `OMITTED` with reason `byte_budget` in
+the metadata; scalar capture still completes. If the mandatory metadata
 itself does not fit, `close` fails and the marker remains. The marker is
 removed only after every file is written and its reference checksums
 succeed, and the array cache is released on success, abort, and failure.

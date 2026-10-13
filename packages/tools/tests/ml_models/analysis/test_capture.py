@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
@@ -663,3 +664,259 @@ def test_unselected_candidates_do_not_consume_preview_budget(tmp_path: Path) -> 
     assert meta["selected"] == [entry for entry in meta["selected"] if entry["status"] == "KEPT"]
     assert meta["omitted_previews"] == 0
     assert len(meta["selected"]) == len(prospective)
+
+
+def _tight_preview_rows(
+    seed: int, shard: tuple[int, int] = (64, 64)
+) -> tuple[CaptureRow, CaptureRow]:
+    """Representative-digest winner plus a distinct worst-ranked candidate."""
+    rep, worst = sorted(
+        (_row(0, element="a", shard=shard), _row(1, element="b", shard=shard)),
+        key=lambda row: capture_module._rank_digest(seed, row.key),
+    )
+    return (
+        _row(rep.key.row_index, element=rep.key.element, shard=shard, failure_score=0.1),
+        _row(worst.key.row_index, element=worst.key.element, shard=shard, failure_score=0.9),
+    )
+
+
+def _one_preview_budget(
+    rows: tuple[CaptureRow, ...],
+    *,
+    max_preview_images: int,
+    examples_per_family: int,
+    arrays_nbytes: int,
+    npz_size: int,
+) -> int:
+    """Budget derived from rows, reserve, raw arrays, and compressed payload."""
+    persisted = sum(len(capture_module._canonical_json(asdict(row)) + b"\n") for row in rows)
+    reserve = capture_module._metadata_reserve(
+        CaptureConfig(
+            max_preview_images=max_preview_images,
+            examples_per_family=examples_per_family,
+            max_capture_bytes=1 << 30,
+        )
+    )
+    return persisted + reserve + arrays_nbytes + npz_size
+
+
+def test_selected_preview_survives_tight_budget_in_both_orders(tmp_path: Path) -> None:
+    """A late-arriving selected key is retained in either insertion order."""
+    seed = 7
+    rep_row, worst_row = _tight_preview_rows(seed)
+    arrays = {
+        rep_row.key.element: _arrays(h=64, w=64, seed=1),
+        worst_row.key.element: _arrays(h=64, w=64, seed=2),
+    }
+    rep_image, rep_target, rep_logits = arrays[rep_row.key.element]
+    arrays_nbytes = int(rep_image.nbytes + rep_target.nbytes + rep_logits.nbytes)
+    npz_size = len(capture_module._npz_bytes(rep_image, rep_target, rep_logits))
+    assert npz_size < arrays_nbytes
+    budget = _one_preview_budget(
+        (rep_row, worst_row),
+        max_preview_images=1,
+        examples_per_family=1,
+        arrays_nbytes=arrays_nbytes,
+        npz_size=npz_size,
+    )
+    cfg = CaptureConfig(
+        max_preview_images=1,
+        examples_per_family=1,
+        max_capture_bytes=budget,
+        seed=seed,
+    )
+    rep_id = capture_module._key_id(rep_row.key)
+    orders = (("forward", (rep_row, worst_row)), ("reversed", (worst_row, rep_row)))
+    for name, order in orders:
+        dataset = _dataset(tmp_path / name)
+        out = tmp_path / name / "capture"
+        sink = BoundedCaptureSink(out, cfg, dataset=dataset)
+        for row in order:
+            image, target, logits = arrays[row.key.element]
+            assert isinstance(sink.add(row, image=image, target=target, logits=logits), Ok)
+        assert isinstance(sink.close(), Ok)
+        meta = _metadata(out)
+        assert meta["omitted_previews"] == 0
+        assert len(meta["selected"]) == 1
+        entry = meta["selected"][0]
+        assert entry["key"] == rep_id
+        assert entry["status"] == "KEPT"
+        assert entry["file"] == f"previews/{rep_id}.npz"
+        assert entry["reason"] is None
+        preview_path = out / "previews" / f"{rep_id}.npz"
+        preview = np.load(preview_path, allow_pickle=False)
+        np.testing.assert_array_equal(preview["image"], rep_image)
+        np.testing.assert_array_equal(preview["target"], rep_target)
+        np.testing.assert_array_equal(preview["logits"], rep_logits)
+        lines = (out / "rows.jsonl").read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        assert {json.loads(line)["key"]["element"] for line in lines} == {"a", "b"}
+        assert not (out / ".incomplete").exists()
+        refs = {ref.path: ref for ref in sink.references()}
+        assert refs[f"previews/{rep_id}.npz"].size_bytes == preview_path.stat().st_size
+
+
+def test_selected_admission_evicts_lower_priority_selected_cache(tmp_path: Path) -> None:
+    """A higher-priority selected key reclaims a lower-ranked selected entry."""
+    seed = 11
+    rep_row, worst_row = _tight_preview_rows(seed)
+    rep_arrays = _arrays(h=64, w=64, seed=1)
+    worst_arrays = _arrays(h=64, w=64, seed=2)
+    arrays_nbytes = sum(int(array.nbytes) for array in rep_arrays)
+    npz_size = len(capture_module._npz_bytes(*rep_arrays))
+    assert npz_size < arrays_nbytes
+    budget = _one_preview_budget(
+        (rep_row, worst_row),
+        max_preview_images=2,
+        examples_per_family=1,
+        arrays_nbytes=arrays_nbytes,
+        npz_size=npz_size,
+    )
+    cfg = CaptureConfig(
+        max_preview_images=2,
+        examples_per_family=1,
+        max_capture_bytes=budget,
+        seed=seed,
+    )
+    dataset = _dataset(tmp_path)
+    out = tmp_path / "capture"
+    sink = BoundedCaptureSink(out, cfg, dataset=dataset)
+    image, target, logits = worst_arrays
+    assert isinstance(sink.add(worst_row, image=image, target=target, logits=logits), Ok)
+    image, target, logits = rep_arrays
+    assert isinstance(sink.add(rep_row, image=image, target=target, logits=logits), Ok)
+    assert isinstance(sink.close(), Ok)
+    meta = _metadata(out)
+    rep_id = capture_module._key_id(rep_row.key)
+    worst_id = capture_module._key_id(worst_row.key)
+    entries = {entry["key"]: entry for entry in meta["selected"]}
+    assert entries[rep_id]["status"] == "KEPT"
+    assert entries[worst_id]["status"] == "OMITTED"
+    assert entries[worst_id]["reason"] == "byte_budget"
+    assert meta["omitted_previews"] == 1
+    assert not (out / ".incomplete").exists()
+
+
+@pytest.mark.parametrize("max_preview_images", [1, 2])
+def test_lower_priority_candidate_cannot_displace_selected_cache(
+    tmp_path: Path, max_preview_images: int
+) -> None:
+    """A lower-priority incoming row never evicts a cached earlier selected key."""
+    seed = 5
+    rep_row, worst_row = _tight_preview_rows(seed)
+    rep_arrays = _arrays(h=64, w=64, seed=1)
+    worst_arrays = _arrays(h=64, w=64, seed=2)
+    arrays_nbytes = sum(int(array.nbytes) for array in rep_arrays)
+    npz_size = len(capture_module._npz_bytes(*rep_arrays))
+    assert npz_size < arrays_nbytes
+    budget = _one_preview_budget(
+        (rep_row, worst_row),
+        max_preview_images=max_preview_images,
+        examples_per_family=1,
+        arrays_nbytes=arrays_nbytes,
+        npz_size=npz_size,
+    )
+    cfg = CaptureConfig(
+        max_preview_images=max_preview_images,
+        examples_per_family=1,
+        max_capture_bytes=budget,
+        seed=seed,
+    )
+    dataset = _dataset(tmp_path)
+    out = tmp_path / "capture"
+    sink = BoundedCaptureSink(out, cfg, dataset=dataset)
+    image, target, logits = rep_arrays
+    assert isinstance(sink.add(rep_row, image=image, target=target, logits=logits), Ok)
+    image, target, logits = worst_arrays
+    assert isinstance(sink.add(worst_row, image=image, target=target, logits=logits), Ok)
+    rep_id = capture_module._key_id(rep_row.key)
+    worst_id = capture_module._key_id(worst_row.key)
+    assert set(sink._cache) == {rep_id}
+    assert isinstance(sink.close(), Ok)
+    meta = _metadata(out)
+    entries = {entry["key"]: entry for entry in meta["selected"]}
+    assert entries[rep_id]["status"] == "KEPT"
+    if max_preview_images == 1:
+        assert meta["omitted_previews"] == 0
+        assert len(meta["selected"]) == 1
+    else:
+        assert meta["omitted_previews"] == 1
+        assert entries[worst_id]["status"] == "OMITTED"
+        assert entries[worst_id]["reason"] == "byte_budget"
+
+
+def test_unfittable_selected_candidate_preserves_existing_caches(tmp_path: Path) -> None:
+    """An oversized selected candidate leaves protected caches intact."""
+    seed = 0
+    while True:
+        bases = {
+            "a": _row(0, element="a", shard=(64, 64)),
+            "b": _row(1, element="b", shard=(64, 64)),
+            "c": _row(2, element="c", shard=(96, 96)),
+        }
+        digests = {
+            element: capture_module._rank_digest(seed, row.key) for element, row in bases.items()
+        }
+        if min(digests, key=lambda element: digests[element]) != "c":
+            break
+        seed += 1
+    rep_element = "a" if digests["a"] < digests["b"] else "b"
+    mid_element = "b" if rep_element == "a" else "a"
+    rep_row = _row(
+        bases[rep_element].key.row_index,
+        element=rep_element,
+        shard=(64, 64),
+        failure_score=0.1,
+    )
+    mid_row = _row(
+        bases[mid_element].key.row_index,
+        element=mid_element,
+        shard=(64, 64),
+        failure_score=0.5,
+    )
+    big_row = _row(2, element="c", shard=(96, 96), failure_score=0.95)
+    small_arrays = _arrays(h=64, w=64, seed=1)
+    big_arrays = _arrays(h=96, w=96, seed=3)
+    small_nbytes = sum(int(array.nbytes) for array in small_arrays)
+    big_nbytes = sum(int(array.nbytes) for array in big_arrays)
+    npz_size = len(capture_module._npz_bytes(*small_arrays))
+    rows = (rep_row, mid_row, big_row)
+    persisted = sum(len(capture_module._canonical_json(asdict(row)) + b"\n") for row in rows)
+    reserve = capture_module._metadata_reserve(
+        CaptureConfig(max_preview_images=2, examples_per_family=2, max_capture_bytes=1 << 30)
+    )
+    dataset = _dataset(tmp_path)
+    out = tmp_path / "capture"
+    generous = CaptureConfig(
+        max_preview_images=2, examples_per_family=2, max_capture_bytes=1 << 30, seed=seed
+    )
+    sink = BoundedCaptureSink(out, generous, dataset=dataset)
+    image, target, logits = small_arrays
+    assert isinstance(sink.add(rep_row, image=image, target=target, logits=logits), Ok)
+    image, target, logits = _arrays(h=64, w=64, seed=2)
+    assert isinstance(sink.add(mid_row, image=image, target=target, logits=logits), Ok)
+    rep_id = capture_module._key_id(rep_row.key)
+    mid_id = capture_module._key_id(mid_row.key)
+    big_id = capture_module._key_id(big_row.key)
+    assert set(sink._cache) == {rep_id, mid_id}
+    sink._cfg = CaptureConfig(
+        max_preview_images=2,
+        examples_per_family=2,
+        max_capture_bytes=persisted + reserve + 2 * small_nbytes + npz_size,
+        seed=seed,
+    )
+    assert big_nbytes > small_nbytes + npz_size
+    image, target, logits = big_arrays
+    assert isinstance(sink.add(big_row, image=image, target=target, logits=logits), Ok)
+    assert set(sink._cache) == {rep_id, mid_id}
+    assert isinstance(sink.close(), Ok)
+    meta = _metadata(out)
+    entries = {entry["key"]: entry for entry in meta["selected"]}
+    assert entries[rep_id]["status"] == "KEPT"
+    assert entries[big_id]["status"] == "OMITTED"
+    assert entries[big_id]["reason"] == "byte_budget"
+    assert meta["omitted_previews"] == 1
+    assert len((out / "rows.jsonl").read_text(encoding="utf-8").splitlines()) == 3
+    total = sum(path.stat().st_size for path in out.rglob("*") if path.is_file())
+    assert total <= sink._cfg.max_capture_bytes
+    assert not (out / ".incomplete").exists()

@@ -156,11 +156,13 @@ class SampleKey:
 
 @dataclass(frozen=True, slots=True, config=_SCHEMA)
 class NamedCount:
-    """One named subpopulation count inside a support record.
+    """One named contextual count inside a support record.
 
     Attributes:
         name: Count label, unique within its support record.
-        value: Nonnegative exact count.
+        value: Nonnegative exact count. Contextual counts may use a
+            different population unit than ``n``, so they are not bounded
+            by it.
     """
 
     name: str
@@ -181,7 +183,9 @@ class MetricSupport:
     Attributes:
         unit: Measurement unit (``IMAGE``, ``PIXEL``, ``COMPONENT``, ``GROUP``).
         n: Number of measured units.
-        counts: Named subpopulation counts, unique by name.
+        counts: Named contextual counts, unique by name; they may use a
+            different population unit than ``n`` and need not be bounded
+            by it.
     """
 
     unit: SupportUnit
@@ -229,6 +233,8 @@ class ConfidenceInterval:
             raise ValueError("n_replicates must be positive")
         if not 0 <= self.n_valid <= self.n_replicates:
             raise ValueError("n_valid must lie in 0..n_replicates")
+        if self.seed < 0:
+            raise ValueError("seed must be nonnegative")
         return self
 
 

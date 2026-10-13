@@ -228,6 +228,20 @@ def test_verify_bundle_rejects_corrupt_and_missing(tmp_path: Path) -> None:
     assert isinstance(verify_bundle(tmp_path / "absent"), Err)
 
 
+def test_verify_bundle_rejects_unreferenced_files(tmp_path: Path) -> None:
+    """An extra top-level or nested file fails published-bundle verification."""
+    data = b"col\n1\n"
+    ref = _ref_for("m.csv", data)
+    out = _publish(tmp_path, _summary(artifacts=(ref,)), (BundleFile(path="m.csv", data=data),))
+    (out / "extra.txt").write_bytes(b"stray")
+    assert isinstance(verify_bundle(out), Err)
+    (out / "extra.txt").unlink()
+    assert isinstance(verify_bundle(out), Ok)
+    (out / "nested").mkdir()
+    (out / "nested" / "extra.txt").write_bytes(b"stray")
+    assert isinstance(verify_bundle(out), Err)
+
+
 def test_verify_bundle_rejects_split_and_history_refs(tmp_path: Path) -> None:
     """Split artifact refs and model-summary history are verified too."""
     data = b"x"

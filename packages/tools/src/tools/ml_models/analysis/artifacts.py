@@ -363,6 +363,23 @@ def verify_bundle(root: Path) -> Result[Summary, str]:
     refs = _summary_refs(summary)
     if isinstance(refs, Err):
         return Err(refs.error)
+    expected = {ref.path for ref in refs.value}
+    try:
+        entries = tuple(root.rglob("*", recurse_symlinks=False))
+        actual = {
+            entry.relative_to(root).as_posix()
+            for entry in entries
+            if os.path.islink(entry) or os.path.isjunction(entry) or not entry.is_dir()
+        }
+    except OSError as exc:
+        return Err(f"cannot inventory bundle {root}: {exc}")
+    actual.discard(SUMMARY_FILENAME)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unreferenced = sorted(actual - expected)
+        return Err(
+            f"bundle files do not match references; missing {missing}, unreferenced {unreferenced}"
+        )
     for ref in refs.value:
         if not _target_is_safe(root, ref.path):
             return Err(f"reference {ref.path} escapes the bundle root")

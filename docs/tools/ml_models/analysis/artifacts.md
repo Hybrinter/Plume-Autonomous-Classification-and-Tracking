@@ -60,9 +60,11 @@ same `ArtifactRef` may appear at the root and in split or history
 references; identical references deduplicate by path, while conflicting
 references that share a path are refused before any output is made.
 References must match supplied bytes exactly; extra unreferenced files
-are refused. Verification rejects missing or corrupt references, unsafe
-paths, and targets that escape the resolved bundle root through links or
-junctions. CSV uses a canonical scalar encoding: `\N` is the only null
+are refused. Verification inventories the bundle recursively, compares
+the exact entry set against the references (excluding only
+`summary.json`), and rejects missing references, unreferenced files or
+links, corrupt references, unsafe paths, and targets that escape the
+resolved bundle root through links or junctions. CSV uses a canonical scalar encoding: `\N` is the only null
 marker, a leading backslash escapes strings that start with one, empty
 strings are never null, integers are decimal, floats use `repr`, and
 booleans are `true`/`false`. Decoding removes only a doubled leading

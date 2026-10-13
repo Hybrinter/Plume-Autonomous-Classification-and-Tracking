@@ -145,6 +145,13 @@ def test_metric_support_counts_unique() -> None:
         MetricSupport(unit="IMAGE", n=3, counts=dup)
 
 
+def test_metric_support_contextual_counts() -> None:
+    """Contextual counts may use a different unit and exceed n."""
+    support = MetricSupport(unit="PIXEL", n=0, counts=(NamedCount(name="n_images", value=1),))
+    assert support.counts[0].name == "n_images"
+    assert support.counts[0].value == 1
+
+
 def test_confidence_interval_bounds() -> None:
     """ConfidenceInterval enforces ordered finite endpoints and valid counts."""
     interval = ConfidenceInterval(lower=0.1, upper=0.9)
@@ -166,6 +173,7 @@ def test_confidence_interval_bounds() -> None:
         {"n_valid": 1001},
         {"seed": True},
         {"seed": 1.5},
+        {"seed": -1},
     ):
         bad: dict[str, object] = {"lower": 0.1, "upper": 0.9}
         bad.update(kwargs)

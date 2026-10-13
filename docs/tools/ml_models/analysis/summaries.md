@@ -58,7 +58,8 @@ None.
   rejected.
 - A dataset-analysis split cannot carry a checkpoint hash; a model
   summary's checkpoint must name the training dataset, and its splits
-  must name the evaluation dataset and checkpoint.
+  must name the evaluation dataset and must carry the checkpoint's
+  hash.
 - Assembly of these records from evidence lands with the analysis
   orchestration phase; this module is the schema.
 

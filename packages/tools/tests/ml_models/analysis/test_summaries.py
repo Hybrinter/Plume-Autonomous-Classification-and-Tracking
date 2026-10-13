@@ -220,6 +220,13 @@ def test_model_summary_identity_matching() -> None:
     )
     with pytest.raises(ValueError):
         _model_summary(splits=(wrong_manifest,))
+    no_checkpoint = SplitEvidence(
+        task="segmentor",
+        split="val",
+        dataset_hash=_HEX_B,
+    )
+    with pytest.raises(ValueError):
+        _model_summary(splits=(no_checkpoint,))
 
 
 def test_summary_uniqueness_rules() -> None:

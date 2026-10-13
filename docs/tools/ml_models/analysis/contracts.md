@@ -73,7 +73,10 @@ None.
 
 - Hashes are strict lowercase 64-hex SHA-256 strings.
 - Counts, indices, sizes, and seeds are exact nonnegative integers where
-  required; booleans are rejected.
+  required; booleans are rejected. `ConfidenceInterval.seed` must be
+  nonnegative.
+- `MetricSupport.counts` are contextual counts that may use a different
+  population unit than `n`, so they need not be bounded by `n`.
 - `DatasetIdentity.manifest_hash` is the SHA-256 of the actual
   `dataset.json` bytes, kept separate from the shard content hash.
 - `CodeIdentity` requires a reason when revision or dirty state is absent;

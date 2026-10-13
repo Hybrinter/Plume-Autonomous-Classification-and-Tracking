@@ -201,10 +201,7 @@ class ModelTrainingSummary:
             _check_split_dataset(split, self.evaluation_dataset)
             if split.task != self.checkpoint.kind:
                 raise ValueError("split task conflicts with the summary checkpoint kind")
-            if (
-                split.checkpoint_hash is not None
-                and split.checkpoint_hash != self.checkpoint.sha256
-            ):
+            if split.checkpoint_hash != self.checkpoint.sha256:
                 raise ValueError("split checkpoint_hash conflicts with the summary checkpoint")
         return self
 

@@ -4,27 +4,48 @@ Scientific values are never re-measured here. Preview bytes retain exact
 canonical source arrays; figure coordinates are derived once, persisted, and
 rendered from the same record objects. One exclusive publisher writes the
 summary, numerical evidence, capture caches and all indexed render artifacts.
+``render_dataset_bundle`` re-renders a verified published bundle from its
+frozen ``figure-data.json`` and ``preview-manifest.json`` documents only.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import asdict
-from pathlib import Path
+import os
+import tomllib
+from dataclasses import asdict, replace
+from pathlib import Path, PurePosixPath
 
 from flight.libs.types import Err, Ok, Result
+from pydantic import TypeAdapter
 
-from tools.ml_models.analysis.artifacts import BundleFile, artifact_ref
-from tools.ml_models.analysis.config import DatasetAnalysisConfig, render_digest
-from tools.ml_models.analysis.contracts import ArtifactKind, ArtifactRef, AvailabilityRecord
+from tools.ml_models.analysis.artifacts import BundleFile, artifact_ref, publish_bundle
+from tools.ml_models.analysis.config import (
+    DatasetAnalysisConfig,
+    PlotConfig,
+    config_digest,
+    render_digest,
+)
+from tools.ml_models.analysis.contracts import (
+    ArtifactKind,
+    ArtifactRef,
+    AvailabilityRecord,
+)
 from tools.ml_models.analysis.dataset import DatasetMeasurement, dataset_summary
 from tools.ml_models.analysis.dataset_artifacts import code_identity, publish_dataset_measurement
-from tools.ml_models.analysis.dataset_figures import dataset_figure_data
-from tools.ml_models.analysis.dataset_previews import capture_dataset_previews
+from tools.ml_models.analysis.dataset_figures import DatasetFigure, dataset_figure_data
+from tools.ml_models.analysis.dataset_previews import (
+    DatasetPreview,
+    DatasetPreviewCapture,
+    capture_dataset_previews,
+)
 from tools.ml_models.analysis.plots.dataset import render_dataset_figures
+from tools.ml_models.analysis.summaries import DatasetSummary
 from tools.ml_models.analysis.visuals.dataset import render_dataset_visuals
+from tools.ml_models.analysis.visuals.selection import GalleryPlan
 
 
 def _json_file(path: str, values: object) -> BundleFile:
@@ -152,3 +173,219 @@ def publish_rendered_dataset(
         )
     except (OSError, TypeError, ValueError, RuntimeError, OverflowError) as exc:
         return Err(f"dataset rendering failed before publication: {exc}")
+
+
+_RENDER_NAMESPACES = ("figure:", "visual:", "gallery:")
+_RENDER_PATH = "rendering.json"
+_FRESH = "frozen recipes are missing or unreadable; fresh analyze required"
+
+
+def _canonical_json(value: object) -> object:
+    """Normalize one value through canonical JSON so tuple/list forms agree."""
+    return json.loads(json.dumps(value, sort_keys=True, allow_nan=False, separators=(",", ":")))
+
+
+def _linked(path: Path) -> bool:
+    """True when any component of ``path``, including ancestors, is a link."""
+    current = path
+    while True:
+        if os.path.islink(current) or os.path.isjunction(current):
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
+
+
+def _frozen_files(root: Path, summary: DatasetSummary) -> Result[dict[str, bytes], str]:
+    """Read every referenced bundle file; ``verify_bundle`` already checksummed it."""
+    resolved_root = root.resolve()
+    files: dict[str, bytes] = {}
+    for ref in summary.artifacts:
+        target = root.joinpath(*PurePosixPath(ref.path).parts)
+        try:
+            if not target.resolve().is_relative_to(resolved_root):
+                return Err(f"bundle file {ref.path} escapes the evidence bundle")
+        except (OSError, ValueError, RuntimeError) as exc:
+            return Err(f"cannot resolve bundle file {ref.path}: {exc}")
+        if _linked(target):
+            return Err(f"bundle file {ref.path} contains a symlink or junction component")
+        try:
+            data = target.read_bytes()
+        except OSError as exc:
+            return Err(f"cannot read bundle file {ref.path}: {_FRESH} ({exc})")
+        if len(data) != ref.size_bytes or hashlib.sha256(data).hexdigest() != ref.sha256:
+            return Err(f"bundle file {ref.path} changed since verification")
+        files[ref.path] = data
+    return Ok(files)
+
+
+def _json_object(raw: bytes, path: str) -> Result[dict[str, object], str]:
+    """Parse one frozen JSON document strictly."""
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        return Err(f"{path}: {_FRESH} ({exc})")
+    if not isinstance(payload, dict):
+        return Err(f"{path}: {_FRESH} (document must be an object)")
+    return Ok(payload)
+
+
+def render_dataset_bundle(
+    root: Path, summary: DatasetSummary, cfg: PlotConfig, out: Path
+) -> Result[Path, str]:
+    """Re-render a verified dataset bundle with a new plot config; never re-measure.
+
+    The frozen ``figure-data.json`` recipes and ``preview-manifest.json``
+    capture plan are decoded and checked against the summary dataset identity
+    and config digest. Only rendered artifact references and ``rendering.json``
+    change; every other file is republished byte-identical.
+    """
+    try:
+        if out.resolve().is_relative_to(root.resolve()):
+            return Err(f"render output {out} lies inside the evidence bundle")
+        files = _frozen_files(root, summary)
+        if isinstance(files, Err):
+            return files
+        for path in ("figure-data.json", "preview-manifest.json", "config.toml"):
+            if path not in files.value:
+                return Err(f"{path}: {_FRESH}")
+        figure_document = _json_object(files.value["figure-data.json"], "figure-data.json")
+        if isinstance(figure_document, Err):
+            return figure_document
+        preview_document = _json_object(
+            files.value["preview-manifest.json"], "preview-manifest.json"
+        )
+        if isinstance(preview_document, Err):
+            return preview_document
+        if figure_document.value.get("method") != "exact_frozen_dataset_figure_coordinates_v1":
+            return Err(f"figure-data.json: {_FRESH} (unsupported method)")
+        if preview_document.value.get("method") != (
+            "exact_canonical_float32_unit_inputs_explicit_uint8_masks_v1"
+        ):
+            return Err(f"preview-manifest.json: {_FRESH} (unsupported method)")
+        if figure_document.value.get("dataset") != _canonical_json(asdict(summary.dataset)) or (
+            preview_document.value.get("dataset") != _canonical_json(asdict(summary.dataset))
+        ):
+            return Err(f"frozen dataset identities disagree with the summary: {_FRESH}")
+        try:
+            parsed = TypeAdapter(DatasetAnalysisConfig).validate_python(
+                tomllib.loads(files.value["config.toml"].decode("utf-8"))
+            )
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError) as exc:
+            return Err(f"config.toml: {_FRESH} ({exc})")
+        if config_digest(parsed) != summary.config_digest:
+            return Err(f"config.toml: {_FRESH} (scientific settings digest differs)")
+        try:
+            if out.resolve().is_relative_to(Path(parsed.dataset).resolve()):
+                return Err(f"render output {out} lies inside the recorded source dataset")
+        except OSError, ValueError, RuntimeError:
+            return Err(f"render output {out} cannot be checked against the source dataset")
+        try:
+            recipes = TypeAdapter(tuple[DatasetFigure, ...]).validate_python(
+                figure_document.value["figures"]
+            )
+            plan = TypeAdapter(GalleryPlan).validate_python(preview_document.value["plan"])
+            previews = TypeAdapter(tuple[DatasetPreview, ...]).validate_python(
+                preview_document.value["previews"]
+            )
+        except (KeyError, ValueError, TypeError) as exc:
+            return Err(f"frozen render documents: {_FRESH} ({exc})")
+        preview_files: list[BundleFile] = []
+        for preview in previews:
+            data = files.value.get(preview.path)
+            if data is None:
+                return Err(f"{preview.path}: {_FRESH} (preview file is not referenced)")
+            if (
+                len(data) != preview.size_bytes
+                or hashlib.sha256(data).hexdigest() != preview.sha256
+            ):
+                return Err(f"{preview.path}: {_FRESH} (preview bytes differ)")
+            preview_files.append(BundleFile(preview.path, data))
+        figures = render_dataset_figures(recipes, cfg)
+        if isinstance(figures, Err):
+            return figures
+        visuals = render_dataset_visuals(
+            DatasetPreviewCapture(previews, tuple(preview_files), plan), cfg
+        )
+        if isinstance(visuals, Err):
+            return visuals
+        old_render_outputs = {
+            record.name: (record.status, record.reason)
+            for record in summary.outputs
+            if record.name in ("figures", "visuals") or record.name.startswith(_RENDER_NAMESPACES)
+        }
+        new_outputs = (
+            (
+                AvailabilityRecord(name="figures", status="AVAILABLE", required=True),
+                AvailabilityRecord(
+                    name="visuals",
+                    status="AVAILABLE" if plan.galleries else "SKIPPED",
+                    reason=None
+                    if plan.galleries
+                    else "No complete optional gallery fit the configured preview budget",
+                ),
+            )
+            + figures.value.outputs
+            + visuals.value.outputs
+        )
+        new_render_outputs = {record.name: (record.status, record.reason) for record in new_outputs}
+        if old_render_outputs != new_render_outputs:
+            return Err(f"rendered outputs do not match the frozen availability index: {_FRESH}")
+        document = _json_file(
+            _RENDER_PATH,
+            {
+                "measurement_id": summary.measurement_id,
+                "render_id": render_digest(summary.measurement_id, cfg),
+                "plot": asdict(cfg),
+                "method": "dataset_render_v1",
+            },
+        )
+        rendering_ref = artifact_ref(_RENDER_PATH, document.data, kind="REFERENCE", format="json")
+        if isinstance(rendering_ref, Err):
+            return rendering_ref
+        rendered_files = figures.value.files + visuals.value.files
+        refs: list[ArtifactRef] = []
+        for file in rendered_files:
+            kind: ArtifactKind = "FIGURE" if file.path.startswith("figures/") else "VISUAL"
+            ref = artifact_ref(
+                file.path,
+                file.data,
+                kind=kind,
+                format=file.path.rsplit(".", 1)[-1],
+                population=(
+                    "frozen dataset figure evidence"
+                    if kind == "FIGURE"
+                    else "deterministic bounded dataset gallery selections"
+                ),
+            )
+            if isinstance(ref, Err):
+                return ref
+            refs.append(ref.value)
+        kept_refs = tuple(
+            ref
+            for ref in summary.artifacts
+            if ref.kind not in ("FIGURE", "VISUAL") and ref.path != _RENDER_PATH
+        )
+        kept_outputs = tuple(
+            record
+            for record in summary.outputs
+            if record.name not in ("figures", "visuals")
+            and not record.name.startswith(_RENDER_NAMESPACES)
+        )
+        new_summary = replace(
+            summary,
+            artifacts=kept_refs + tuple(refs) + (rendering_ref.value,),
+            outputs=kept_outputs + new_outputs,
+        )
+        bundle_files = (
+            tuple(
+                BundleFile(ref.path, files.value[ref.path])
+                for ref in summary.artifacts
+                if ref.kind not in ("FIGURE", "VISUAL") and ref.path != _RENDER_PATH
+            )
+            + tuple(rendered_files)
+            + (document,)
+        )
+        return publish_bundle(out, new_summary, bundle_files)
+    except (OSError, ValueError, TypeError, RuntimeError, OverflowError) as exc:
+        return Err(f"dataset bundle rendering failed before publication: {exc}")

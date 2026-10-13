@@ -73,6 +73,8 @@ class ModelFigure:
     Matrix rows follow y_categories and columns follow x_categories. Null
     cells and points remain missing. Intervals need not contain the point
     estimate; their absolute endpoints must not be re-centered by rendering.
+    ``x_range``/``y_range`` are display bounds only: each side is a finite
+    bound or None for the data-driven side; frozen coordinates never change.
     """
 
     identifier: str
@@ -91,6 +93,8 @@ class ModelFigure:
     reason: str | None = None
     notes: tuple[str, ...] = ()
     matrix_range: tuple[float, float] | None = None
+    x_range: tuple[float | None, float | None] | None = None
+    y_range: tuple[float | None, float | None] | None = None
 
 
 def figure_identity(evidence: SplitEvidence) -> FigureIdentity:
@@ -201,6 +205,8 @@ def curve_figure(
     baseline: ModelSeries | None = None,
     style: DrawStyle = "LINE",
     reason: str | None = None,
+    x_range: tuple[float | None, float | None] | None = None,
+    y_range: tuple[float | None, float | None] | None = None,
 ) -> ModelFigure:
     """Copy an existing curve verbatim, with captured method and approximation notes."""
     curve = next((item for item in evidence.curves if item.name == name), None)
@@ -231,6 +237,8 @@ def curve_figure(
         if any(value is not None for value in curve.y)
         else reason or "No eligible captured values for this curve",
         notes=curve.notes,
+        x_range=x_range,
+        y_range=y_range,
     )
 
 

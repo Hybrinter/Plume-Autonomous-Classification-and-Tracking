@@ -2,13 +2,12 @@
 
 ``export_figure`` encodes a rendered matplotlib figure into typed
 ``BundleFile`` bytes per ``PlotConfig`` format without touching user
-output; ``render_analysis`` remains unavailable until the plotting phase
-lands and still fails closed with an explicit error and no output
-directory.
+output; ``render_analysis`` re-renders a verified published bundle from its
+frozen recipes into a fresh exclusive output.
 
 Contains:
   - export_figure: deterministic per-format figure encoding to bundle bytes.
-  - render_analysis: the public ``Result`` boundary (unavailable).
+  - render_analysis: the public ``Result`` render-only boundary.
 
 Satisfies: REQ-AIML-HIGH-004.
 """
@@ -80,7 +79,13 @@ def export_figure(
 
 
 def render_analysis(evidence_dir: Path, cfg: PlotConfig, out: Path) -> Result[Path, str]:
-    """Refuse to render while figure generation is unimplemented.
+    """Re-render a verified evidence bundle without re-measuring anything.
+
+    The bundle is checksum-verified first; only referenced files, versioned
+    recipe documents and the frozen scientific document are read. Model and
+    dataset bundles dispatch to their own renderers; a missing or corrupt
+    recipe returns an actionable "fresh analyze required" error and no output
+    is created. The destination is exclusive and never inside the bundle.
 
     Args:
         evidence_dir: Frozen evidence directory.
@@ -88,7 +93,22 @@ def render_analysis(evidence_dir: Path, cfg: PlotConfig, out: Path) -> Result[Pa
         out: Destination figure directory.
 
     Returns:
-        Result[Path, str]: Always Err; no figures are created.
+        Result[Path, str]: The published bundle path, or an explicit error.
     """
-    del evidence_dir, cfg, out
-    return Err("figure rendering is unavailable until the plotting phase is implemented")
+    from tools.ml_models.analysis.artifacts import verify_bundle
+    from tools.ml_models.analysis.summaries import DatasetSummary, ModelTrainingSummary
+
+    root = Path(evidence_dir)
+    verified = verify_bundle(root)
+    if isinstance(verified, Err):
+        return verified
+    summary = verified.value
+    if isinstance(summary, ModelTrainingSummary):
+        from tools.ml_models.analysis.model_render import render_model_bundle
+
+        return render_model_bundle(root, summary, cfg, Path(out))
+    if isinstance(summary, DatasetSummary):
+        from tools.ml_models.analysis.dataset_render import render_dataset_bundle
+
+        return render_dataset_bundle(root, summary, cfg, Path(out))
+    return Err(f"bundle {root} has an unsupported summary kind")

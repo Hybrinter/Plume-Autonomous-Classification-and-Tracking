@@ -1,4 +1,4 @@
-"""Evidence-first analysis scaffolds and retained pure helpers.
+"""Evidence-first measurement, freezing, and rendering modules.
 
 Contains:
   - contracts: sample-key, metric, and split-evidence records.
@@ -28,15 +28,20 @@ Contains:
     logits.
   - prediction_selections: whole-cohort prediction gallery selection.
   - prediction_artifacts: frozen prediction preview/manifest codecs.
-  - model: model-analysis boundary (unavailable).
+  - model_inputs: verified run/checkpoint/dataset input loading.
+  - model_measurement: selected-checkpoint measurement policy.
+  - model_summary: canonical model/training summary assembly.
+  - model_artifacts: frozen evidence bundle assembly and tables.
+  - model_render: frozen-recipe rendering and render-only republication.
+  - model: the measure-freeze-render-publish boundary.
   - summaries: tagged versioned summary records.
   - cost: parameter counting and explicitly partial resource evidence.
   - runs: unavailable catalog readers and pure text formatters.
   - pareto: pure frontier/knee helpers and the unavailable reader boundary.
   - metrics: pure metric cores; classifier/calibration/segmentation/
     spatial/generalization implemented.
-  - plots: figure export plus dataset/training/model figure rendering;
-    the general render boundary stays unavailable.
+  - plots: figure export plus dataset/training/model figure rendering
+    and the render-only bundle boundary.
   - visuals: bounded gallery selection and dataset/prediction preview
     rendering.
 

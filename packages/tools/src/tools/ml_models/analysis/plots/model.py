@@ -106,6 +106,15 @@ def _validate(record: ModelFigure) -> Result[None, str]:
             low, high = record.matrix_range
             if not (math.isfinite(low) and math.isfinite(high)) or low > high:
                 return Err("recorded matrix range is not an ordered finite bound")
+    for bounds in (record.x_range, record.y_range):
+        if bounds is not None:
+            bound_low, bound_high = bounds
+            if (
+                (bound_low is not None and not math.isfinite(bound_low))
+                or (bound_high is not None and not math.isfinite(bound_high))
+                or (bound_low is not None and bound_high is not None and bound_low > bound_high)
+            ):
+                return Err("recorded axis bounds must be ordered finite or null")
     for series in record.series:
         if series.style not in _DRAW_STYLES:
             return Err(f"series {series.name} has unknown draw style {series.style!r}")
@@ -417,6 +426,10 @@ def model_figure(record: ModelFigure, cfg: PlotConfig) -> Result[Figure, str]:
                         )
                         margin = max(0.4, float(ticks.max() - ticks.min()) * 0.1)
                         axes.set_xlim(float(ticks.min()) - margin, float(ticks.max()) + margin)
+                if record.x_range is not None:
+                    axes.set_xlim(left=record.x_range[0], right=record.x_range[1])
+                if record.y_range is not None:
+                    axes.set_ylim(bottom=record.y_range[0], top=record.y_range[1])
                 axes.set_xlabel(_wrap(record.x_label, cfg))
                 axes.set_ylabel(_wrap(record.y_label, cfg))
                 handles, labels = axes.get_legend_handles_labels()

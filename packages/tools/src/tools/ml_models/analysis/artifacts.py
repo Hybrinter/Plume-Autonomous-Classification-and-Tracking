@@ -273,6 +273,17 @@ def _contained(path: Path, root: Path) -> bool:
     return resolved == resolved_root or resolved_root in resolved.parents
 
 
+def _linked(path: Path) -> bool:
+    """True when any component of ``path``, including ancestors, is a link."""
+    current = path
+    while True:
+        if os.path.islink(current) or os.path.isjunction(current):
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
+
+
 def publish_bundle(
     out: Path,
     summary: Summary,
@@ -286,7 +297,8 @@ def publish_bundle(
     ``.incomplete`` marker is written first and removed only after every
     file and the summary land; failed writes keep the marker so
     ``verify_bundle`` refuses the bundle. Existing directories are never
-    overwritten or deleted.
+    overwritten or deleted, and linked output path components are refused
+    before reservation so writes never follow a foreign link.
     """
     out = Path(out)
     refs = _summary_refs(summary)
@@ -304,6 +316,8 @@ def publish_bundle(
         source = Path(dataset_root).resolve()
         if _contained(out, source):
             return Err(f"output {out} lies inside the source dataset {dataset_root}")
+    if _linked(out):
+        return Err(f"output {out} contains a symlink or junction component")
     try:
         out.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
@@ -345,6 +359,8 @@ def verify_bundle(root: Path) -> Result[Summary, str]:
     root = Path(root)
     if not root.is_dir():
         return Err(f"bundle {root} is not a directory")
+    if _linked(root):
+        return Err(f"bundle {root} contains a symlink or junction component")
     if (root / INCOMPLETE_FILENAME).exists():
         return Err(f"bundle {root} is marked incomplete")
     summary_path = root / SUMMARY_FILENAME

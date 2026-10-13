@@ -158,6 +158,54 @@ def test_copied_interval_and_operating_point_render_verbatim() -> None:
         plt.close(figure)
 
 
+def test_localization_success_recipes_carry_display_bounds() -> None:
+    """Success-tolerance recipes declare x >= 0 and y in [0,1] display bounds."""
+    from test_segmentation_figures import _cohort
+    from tools.ml_models.analysis.segmentation_figures import segmentation_figure_data
+
+    evidence, rows = _cohort()
+    result = segmentation_figure_data(evidence, rows)
+    assert isinstance(result, Ok)
+    figure = next(item for item in result.value if item.identifier == "localization_success_px")
+    assert figure.x_range == (0.0, None)
+    assert figure.y_range == (0.0, 1.0)
+
+
+def test_recorded_axis_bounds_are_display_only() -> None:
+    """Bounds clip the autoscale margin while frozen coordinates stay verbatim."""
+    record = _figure(
+        "segmentor",
+        identifier="localization_success_m",
+        series=(ModelSeries("success", (0.0, 0.5), (0.0, 1.0), _SUPPORT, "POST"),),
+        x_range=(0.0, None),
+        y_range=(0.0, 1.0),
+    )
+    figure = _result_figure(record)
+    import matplotlib.pyplot as plt
+
+    try:
+        axes = figure.axes[0]
+        assert axes.get_xlim()[0] == 0.0
+        assert axes.get_xlim()[1] >= 0.5
+        assert axes.get_ylim() == (0.0, 1.0)
+        np.testing.assert_allclose(np.asarray(axes.lines[0].get_xdata(), dtype=float), (0.0, 0.5))
+    finally:
+        plt.close(figure)
+
+
+def test_invalid_axis_bounds_rejected() -> None:
+    """Reversed or non-finite recorded bounds fail before drawing."""
+    from flight.libs.types import Err
+    from tools.ml_models.analysis.plots.model import model_figure
+
+    record = _figure(
+        "segmentor",
+        series=(ModelSeries("s", (0.0, 1.0), (0.5, 1.0), _SUPPORT),),
+        y_range=(1.0, 0.0),
+    )
+    assert isinstance(model_figure(record, PlotConfig()), Err)
+
+
 def test_generalization_matrix_nulls_and_shared_range() -> None:
     record = _figure(
         "segmentor",

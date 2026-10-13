@@ -21,8 +21,8 @@ module; the legacy `history_figures`, `overlay_figures`,
 | [`training`](plots/training.md) | module | Frozen training-history figure rendering |
 | [`model`](plots/model.md) | module | Shared frozen model-chart recipe rendering |
 | [`classifier`](plots/classifier.md) | module | Classifier family binding over the model renderer |
-| [`segmentation`](plots/segmentation.md) | module | Segmentation-evidence figures (scaffold) |
-| [`generalization`](plots/generalization.md) | module | Generalization-evidence figures (scaffold) |
+| [`segmentation`](plots/segmentation.md) | module | Segmentor family binding over the model renderer |
+| [`generalization`](plots/generalization.md) | module | Generalization family binding over the model renderer |
 
 ## Package interface
 

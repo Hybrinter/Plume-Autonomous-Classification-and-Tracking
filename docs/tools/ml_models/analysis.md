@@ -32,7 +32,10 @@ formatters).
 | [`training_artifacts`](analysis/training_artifacts.md) | module | Frozen training-figure recipe bundle serialization |
 | [`model_figures`](analysis/model_figures.md) | module | Frozen model-chart recipes and scalar reductions |
 | [`classifier_figures`](analysis/classifier_figures.md) | module | Frozen classifier figure inventory |
+| [`segmentation_figures`](analysis/segmentation_figures.md) | module | Frozen segmentor extent/localization figure inventory |
+| [`generalization_figures`](analysis/generalization_figures.md) | module | Frozen stratum/baseline/heatmap figure copies |
 | [`model_figure_artifacts`](analysis/model_figure_artifacts.md) | module | Frozen model-figure recipe bundle serialization |
+| [`prediction_display`](analysis/prediction_display.md) | module | Verified segmentor display arrays from cached logits |
 | [`prediction_selections`](analysis/prediction_selections.md) | module | Whole-cohort prediction gallery selection |
 | [`prediction_artifacts`](analysis/prediction_artifacts.md) | module | Frozen prediction preview/manifest bundle codecs |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
@@ -63,8 +66,14 @@ and `training_artifacts` serializes the recipes themselves.
 `classifier_figures` freezes split evidence and scalar capture into
 model-chart recipes; `plots.model`/`plots.classifier` render them and
 `model_figure_artifacts` serializes the recipes.
+`segmentation_figures` freezes explicit-mask extent/localization
+recipes and `plots.segmentation` renders them under the `segmentor`
+family; `generalization_figures` copies frozen stratum evidence into
+paginated recipes rendered by `plots.generalization`.
 `prediction_selections` freezes whole-cohort gallery selections;
-`visuals.predictions` renders them over verified preview bytes and
+`visuals.predictions` renders them over verified preview bytes —
+segmentor rows additionally pass through `prediction_display` for
+frozen display arrays — and
 `prediction_artifacts` serializes previews and the manifest. The `model`
 boundary and the `plots.common` render boundary remain unavailable;
 `render` fails closed.

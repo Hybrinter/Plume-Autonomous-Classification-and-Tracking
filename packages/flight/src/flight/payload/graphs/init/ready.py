@@ -3,7 +3,8 @@
 READY emits one VERIFY_INIT intent scoped to the activation, then waits for an
 InitVerificationResult on the current key. A VERIFIED result with nonempty
 evidence emits exactly one INIT_COMPLETE request while the graph stays READY
-until external graph selection. A FAILED verification latches failed state,
+until external graph selection. A denied or dropped request is not sent again.
+A FAILED verification latches failed state,
 raises GIMBAL_FAULT, and requests SAFE once.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001.

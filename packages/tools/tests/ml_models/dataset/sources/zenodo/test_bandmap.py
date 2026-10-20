@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 from tools.ml_models.dataset.sources.zenodo.bandmap import (
     DEFAULT_BASIS,
+    NO_B1_BASIS,
+    S2_NATIVE_GSD_M,
     S2A_BANDS,
     LogisticPassband,
     ProductResponse,
@@ -153,3 +155,21 @@ def test_swir_sensitivity_covers_both_edges_and_bases() -> None:
     }
     assert "B9" not in cases["datasheet/default"].mapping.weights
     assert cases["product_page/with_b9"].mapping.weights["B9"] > 0.1
+
+
+def test_photon_counting_shifts_swir_weight_toward_b11() -> None:
+    """Photon weighting favors long wavelengths across a wide passband."""
+    channel = hd5_placeholder_channel(900e-9, 1700e-9)
+    photons = map_channel("swir", channel, photon_counting=True)
+    energy = map_channel("swir", channel, photon_counting=False)
+    assert photons.weights["B11"] > energy.weights["B11"]
+    assert photons.centroid_m > energy.centroid_m
+
+
+def test_no_b1_basis_moves_blue_weight_to_b2() -> None:
+    """Without B1, blue draws on B2 and every basis band has a native GSD."""
+    blue = imx267_placeholder_channels()["blue"]
+    without = map_channel("blue", blue, NO_B1_BASIS)
+    assert "B1" not in without.weights
+    assert without.weights["B2"] > map_channel("blue", blue).weights["B2"]
+    assert set(S2_NATIVE_GSD_M) == set(S2A_BANDS)

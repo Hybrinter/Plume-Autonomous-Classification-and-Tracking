@@ -338,6 +338,8 @@ def test_dataset_band_weights_writes_table_and_report(tmp_path: Path) -> None:
     assert load_weight_table(table).id == "imx267_placeholder_v0"
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert set(payload["vis"]) == {"blue", "green", "red"}
+    assert set(payload["vis_without_b1"]) == {"blue", "green", "red"}
+    assert payload["native_gsd_m"]["B1"] == 60.0
     assert len(payload["swir"]) == 4
     again = CliRunner().invoke(app, args)
     assert again.exit_code != 0

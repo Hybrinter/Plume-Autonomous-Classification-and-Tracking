@@ -2,24 +2,24 @@
 # Camera curves are placeholders until datasheet curves exist.
 id = "imx267_placeholder_v0"
 
-# coverage 0.794, centroid 478.6 nm
+# coverage 0.797, centroid 480.9 nm
 [blue]
-B1 = 0.412671
-B2 = 0.469960
-B3 = 0.115255
-B4 = 0.002114
+B1 = 0.388292
+B2 = 0.480879
+B3 = 0.128239
+B4 = 0.002590
 
-# coverage 0.672, centroid 534.8 nm
+# coverage 0.657, centroid 537.9 nm
 [green]
-B1 = 0.061022
-B2 = 0.367287
-B3 = 0.505661
-B4 = 0.066030
+B1 = 0.052569
+B2 = 0.348555
+B3 = 0.524550
+B4 = 0.074326
 
-# coverage 0.292, centroid 604.5 nm
+# coverage 0.286, centroid 606.5 nm
 [red]
-B1 = 0.000250
-B2 = 0.027997
-B3 = 0.528600
-B4 = 0.438285
-B5 = 0.004868
+B1 = 0.000196
+B2 = 0.024505
+B3 = 0.515654
+B4 = 0.454203
+B5 = 0.005442

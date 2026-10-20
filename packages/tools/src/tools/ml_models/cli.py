@@ -124,6 +124,8 @@ def band_weights_command(
     import json
 
     from tools.ml_models.dataset.sources.zenodo.bandmap import (
+        NO_B1_BASIS,
+        S2_NATIVE_GSD_M,
         ChannelMapping,
         imx267_placeholder_channels,
         map_channel,
@@ -140,7 +142,9 @@ def band_weights_command(
             "centroid_m": mapping.centroid_m,
         }
 
-    vis = {name: map_channel(name, ch) for name, ch in imx267_placeholder_channels().items()}
+    channels = imx267_placeholder_channels()
+    vis = {name: map_channel(name, ch) for name, ch in channels.items()}
+    vis_no_b1 = {name: map_channel(name, ch, NO_B1_BASIS) for name, ch in channels.items()}
     swir = swir_edge_sensitivity()
     for path in (vis_out, report):
         if path.exists():
@@ -150,7 +154,9 @@ def band_weights_command(
     vis_out.write_text(vis_weight_table_toml(table_id, vis), encoding="utf-8")
     payload = {
         "vis_table_id": table_id,
+        "native_gsd_m": dict(S2_NATIVE_GSD_M),
         "vis": {name: _row(mapping) for name, mapping in vis.items()},
+        "vis_without_b1": {name: _row(mapping) for name, mapping in vis_no_b1.items()},
         "swir": {
             case.label: {
                 "low_m": case.low_m,

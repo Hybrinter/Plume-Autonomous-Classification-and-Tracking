@@ -6,17 +6,19 @@ Contains:
   - LogisticPassband: smooth top-hat with half-power edges.
   - ProductResponse: product of factor responses (sensor x coating x lens).
   - S2A_BANDS, s2_band: Sentinel-2A band centers and FWHM as band shapes.
+  - S2_NATIVE_GSD_M, NO_B1_BASIS: native band GSD and the B1-free VIS basis.
   - imx267_placeholder_channels, hd5_placeholder_channel: candidate cameras.
   - ChannelMapping, map_channel: weights and diagnostics for one channel.
   - vis_weight_table_toml: a VIS mapping as a prism weight-table file.
   - swir_edge_sensitivity: SWIR mappings over band-edge and basis cases.
 
-A camera channel sees ``s = int(R E rho) / int(R E)`` where ``R`` is the
-channel response, ``E`` is solar irradiance (a 5772 K blackbody, relative),
-and ``rho`` is surface reflectance. Reflectance between Sentinel-2 band
+A camera channel sees ``s = int(R E l rho) / int(R E l)`` where ``R`` is the
+channel quantum efficiency, ``E`` is solar spectral irradiance (a 5772 K
+blackbody, relative), ``l`` is wavelength (photon flux is ``E l / (h c)``, and
+QE counts photons), and ``rho`` is surface reflectance. Reflectance between Sentinel-2 band
 centers is linear in wavelength (tent basis on the sorted basis-band
 centers, constant beyond the end centers), so the weight of basis band ``b``
-is ``int(R E h_b) / int(R E)``. The tents are a partition of unity, so the
+is ``int(R E l h_b) / int(R E l)``. The tents are a partition of unity, so the
 weights of one channel sum to 1 and a flat reflectance maps to itself.
 
 The weights alone hide throughput. ``band_capture`` reports, for each
@@ -27,7 +29,8 @@ falls inside any basis band; the rest is interpolated across a spectral gap.
 B10 is L1C top-of-atmosphere cirrus reflectance and the other corpus bands
 are L2A surface reflectance, so B10 is never a default basis band. B8
 overlaps B8A and B9 is a water-vapour band; both are left out of the default
-basis. Camera curves are placeholders until datasheet curves exist; their
+basis. B1 is a 60 m coastal-aerosol band; ``NO_B1_BASIS`` drops it so blue
+extends B2 flat below 492 nm. Camera curves are placeholders until datasheet curves exist; their
 identifiers carry ``placeholder``.
 
 Satisfies: REQ-AIML-HIGH-004.
@@ -80,6 +83,24 @@ DEFAULT_BASIS: tuple[str, ...] = (
     "B11",
     "B12",
 )
+S2_NATIVE_GSD_M: Mapping[str, float] = MappingProxyType(
+    {
+        "B1": 60.0,
+        "B2": 10.0,
+        "B3": 10.0,
+        "B4": 10.0,
+        "B5": 20.0,
+        "B6": 20.0,
+        "B7": 20.0,
+        "B8": 10.0,
+        "B8A": 20.0,
+        "B9": 60.0,
+        "B10": 60.0,
+        "B11": 20.0,
+        "B12": 20.0,
+    }
+)
+NO_B1_BASIS: tuple[str, ...] = tuple(band_id for band_id in DEFAULT_BASIS if band_id != "B1")
 _S2_BAND_ORDER = 3
 _COLORS: tuple[str, ...] = ("blue", "green", "red")
 
@@ -336,6 +357,7 @@ def map_channel(
     channel: SpectralResponse,
     basis: Sequence[str] = DEFAULT_BASIS,
     solar_weighted: bool = True,
+    photon_counting: bool = True,
 ) -> ChannelMapping:
     """Compute Sentinel-2 weights and diagnostics for one camera channel.
 
@@ -345,6 +367,8 @@ def map_channel(
         basis: Sentinel-2 band ids used as interpolation nodes. Ids are sorted
             by center wavelength.
         solar_weighted: Multiply the channel response by the solar blackbody.
+        photon_counting: Multiply by wavelength, so a QE response integrates
+            photon flux rather than energy.
 
     Returns:
         ChannelMapping: Weights over ``basis`` and diagnostics over all bands.
@@ -360,6 +384,8 @@ def map_channel(
         raise ValueError(f"unknown basis bands {unknown}")
     wl = wavelength_grid()
     sun = solar_blackbody(wl) if solar_weighted else np.ones_like(wl)
+    if photon_counting:
+        sun = sun * wl / GRID_HIGH_M
     signal = channel.response(wl) * sun  # np.ndarray[float64, (N,)]
     total = float(np.trapezoid(signal, wl))
     if not math.isfinite(total) or total <= 0:

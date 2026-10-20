@@ -150,7 +150,8 @@ precision.
 6. `dataset band-weights` maps the placeholder IMX267 blue, green, and red
    channels and the four HD5 band-edge cases through `bandmap`, writes the
    VIS table with `vis_weight_table_toml`, and writes the weights, band
-   capture, coverage, and centroid of every channel as JSON. It refuses an
+   capture, coverage, and centroid of every channel as JSON. The report also
+   holds the VIS mapping without B1 and the native GSD of every band. It refuses an
    existing output file.
 7. `analyze` loads the optional `--config` TOML (an unreadable or
    invalid file fails before input verification), applies only the

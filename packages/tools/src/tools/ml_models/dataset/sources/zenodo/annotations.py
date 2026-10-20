@@ -11,6 +11,9 @@ def parse_polygons(payload: object) -> tuple[np.ndarray, ...]:
     """Read smoke polygons in percent coordinates, preserving annotated negatives.
 
     A caller uses None for missing annotation files, and () for empty files.
+    Polygons with fewer than three vertices have no area and are dropped; the
+    corpus contains stray single-click polygons. Vertices that are not (x, y)
+    pairs, non-finite, or outside 0-100 percent still raise ValueError.
     """
     if not isinstance(payload, dict):
         raise ValueError("annotation must be a JSON object")
@@ -28,15 +31,14 @@ def parse_polygons(payload: object) -> tuple[np.ndarray, ...]:
             if not isinstance(value, dict) or "smoke" not in value.get("polygonlabels", []):
                 continue
             points = np.asarray(value.get("points", []), dtype=np.float64)
-            if (
-                points.ndim != 2
-                or points.shape[1] != 2
-                or len(points) < 3
-                or not np.all(np.isfinite(points))
-                or np.any(points < 0)
-                or np.any(points > 100)
-            ):
+            if points.size == 0:
+                continue
+            if points.ndim != 2 or points.shape[1] != 2:
+                raise ValueError("smoke polygon vertices must be (x, y) pairs")
+            if not np.all(np.isfinite(points)) or np.any(points < 0) or np.any(points > 100):
                 raise ValueError("smoke polygon must have finite percent-coordinate vertices")
+            if len(points) < 3:
+                continue
             polygons.append(points)
     return tuple(polygons)
 

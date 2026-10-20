@@ -27,8 +27,9 @@ returns a uint8 `(1, h, w)` mask.
 
 1. `completions` is a list of objects; each `result` item of type
    `polygonlabels` whose labels include `smoke` contributes its `points`.
-2. Polygon vertices must be finite percent coordinates in `[0, 100]` with
-   at least three points.
+2. Polygon vertices must be finite `(x, y)` percent coordinates in
+   `[0, 100]`. A smoke polygon with fewer than three points has no area;
+   the parser drops it.
 3. Rasterization supersamples each output cell on a 4-by-4 grid, unions all
    polygons, then thresholds coverage: `half` requires at least half the
    subsamples, `touch` requires any subsample.

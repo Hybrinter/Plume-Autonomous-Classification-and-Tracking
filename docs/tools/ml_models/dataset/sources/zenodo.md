@@ -16,6 +16,7 @@ member extracts to disk.
 | [`archive`](zenodo/archive.md) | module | Tar index and forward GeoTIFF reads |
 | [`bands`](zenodo/bands.md) | module | Sentinel-2 band identity and subset order |
 | [`prism`](zenodo/prism.md) | module | AP-3200T weight table and color mix |
+| [`bandmap`](zenodo/bandmap.md) | module | Camera band weights from modeled spectral responses |
 | [`resample`](zenodo/resample.md) | module | Area-overlap downsample of image planes |
 | [`annotations`](zenodo/annotations.md) | module | Label Studio polygons and mask rasterize |
 | [`bins`](zenodo/bins.md) | module | Native and fixed target-GSD bins |

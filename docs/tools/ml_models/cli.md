@@ -22,6 +22,7 @@ precision.
 | `dataset_app` | Typer application | `dataset` subgroup under `app` |
 | `build_command` | function | `dataset build` command |
 | `dataset_analyze_command` | function | `dataset analyze` command |
+| `band_weights_command` | function | `dataset band-weights` command |
 | `train_command` | function | `train` command |
 | `export_command` | function | `export` command |
 | `accept_command` | function | `accept` command |
@@ -54,6 +55,12 @@ precision.
 - `--config`: optional `DatasetAnalysisConfig` TOML file. When supplied,
   the file is loaded strictly and `--dataset`/`--out` override its two
   path fields; every other setting comes from the file.
+
+`dataset band-weights` options:
+
+- `--vis-out`: VIS prism weight-table TOML to write. Required.
+- `--report`: JSON report of the VIS and SWIR mappings. Required.
+- `--table-id`: VIS table id. Default `imx267_placeholder_v0`.
 
 `train` options:
 
@@ -140,7 +147,12 @@ precision.
    measures the dataset, renders figures and preview galleries, and
    publishes the evidence bundle. An `Ok` echoes the bundle directory;
    an `Err` becomes `typer.BadParameter`.
-6. `analyze` loads the optional `--config` TOML (an unreadable or
+6. `dataset band-weights` maps the placeholder IMX267 blue, green, and red
+   channels and the four HD5 band-edge cases through `bandmap`, writes the
+   VIS table with `vis_weight_table_toml`, and writes the weights, band
+   capture, coverage, and centroid of every channel as JSON. It refuses an
+   existing output file.
+7. `analyze` loads the optional `--config` TOML (an unreadable or
    invalid file fails before input verification), applies only the
    explicitly supplied options over the loaded or default
    `ModelAnalysisConfig`, and calls `analyze_model`, which verifies
@@ -151,7 +163,7 @@ precision.
    `typer.BadParameter`; a failure before publication creates no output,
    while a publication failure retains the reserved directory with an
    `.incomplete` marker.
-7. `main` runs `app` under the program name `tools.ml_models` and converts
+8. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 
 ## Errors and faults
@@ -193,6 +205,7 @@ tools CLI mounts this application as `ml-models`.
 - [`tools.ml_models.dataset`](dataset.md)
 - [`tools.ml_models.dataset.build`](dataset/build.md)
 - [`tools.ml_models.dataset.spec`](dataset/spec.md)
+- [`tools.ml_models.dataset.sources.zenodo.bandmap`](dataset/sources/zenodo/bandmap.md)
 - [`tools.ml_models.train`](train.md)
 - [`tools.ml_models.train.loop`](train/loop.md)
 - [`tools.cli`](../cli.md)

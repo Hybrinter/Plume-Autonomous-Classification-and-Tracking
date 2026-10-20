@@ -114,6 +114,57 @@ def dataset_analyze_command(
     typer.echo(str(result.value))
 
 
+@dataset_app.command("band-weights")
+def band_weights_command(
+    vis_out: Annotated[Path, typer.Option(..., help="VIS prism weight-table TOML to write.")],
+    report: Annotated[Path, typer.Option(..., help="JSON report of VIS and SWIR mappings.")],
+    table_id: Annotated[str, typer.Option(help="VIS table id.")] = "imx267_placeholder_v0",
+) -> None:
+    """Write placeholder-camera VIS weights and a SWIR band-edge report."""
+    import json
+
+    from tools.ml_models.dataset.sources.zenodo.bandmap import (
+        ChannelMapping,
+        imx267_placeholder_channels,
+        map_channel,
+        swir_edge_sensitivity,
+        vis_weight_table_toml,
+    )
+
+    def _row(mapping: ChannelMapping) -> dict[str, object]:
+        """Return one mapping as JSON-ready fields."""
+        return {
+            "weights": dict(mapping.weights),
+            "band_capture": dict(mapping.band_capture),
+            "coverage": mapping.coverage,
+            "centroid_m": mapping.centroid_m,
+        }
+
+    vis = {name: map_channel(name, ch) for name, ch in imx267_placeholder_channels().items()}
+    swir = swir_edge_sensitivity()
+    for path in (vis_out, report):
+        if path.exists():
+            raise typer.BadParameter(f"output exists: {path}")
+    vis_out.parent.mkdir(parents=True, exist_ok=True)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    vis_out.write_text(vis_weight_table_toml(table_id, vis), encoding="utf-8")
+    payload = {
+        "vis_table_id": table_id,
+        "vis": {name: _row(mapping) for name, mapping in vis.items()},
+        "swir": {
+            case.label: {
+                "low_m": case.low_m,
+                "high_m": case.high_m,
+                "basis": list(case.basis),
+                **_row(case.mapping),
+            }
+            for case in swir
+        },
+    }
+    report.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    typer.echo(f"{vis_out}\n{report}")
+
+
 @app.command("train")
 def train_command(
     config: Annotated[

@@ -322,3 +322,22 @@ def test_convert_rejects_bad_dataset_counts_before_any_load(
         assert result.exit_code != 0, argv
         assert not isinstance(result.exception, AssertionError), argv
         assert not (tmp_path / "out.onnx").exists()
+
+
+def test_dataset_band_weights_writes_table_and_report(tmp_path: Path) -> None:
+    """band-weights writes a loadable VIS table and a four-case SWIR report."""
+    import json
+
+    from tools.ml_models.dataset.sources.zenodo.prism import load_weight_table
+
+    table = tmp_path / "vis.toml"
+    report = tmp_path / "report.json"
+    args = ["dataset", "band-weights", "--vis-out", str(table), "--report", str(report)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert load_weight_table(table).id == "imx267_placeholder_v0"
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert set(payload["vis"]) == {"blue", "green", "red"}
+    assert len(payload["swir"]) == 4
+    again = CliRunner().invoke(app, args)
+    assert again.exit_code != 0

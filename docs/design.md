@@ -17,6 +17,7 @@ controller modules as the specification.
 | [`design/simulated-environment.md`](design/simulated-environment.md) | Simulated world models vs HAL driver selection |
 | [`design/ml-dataset-flight-ground-cleanup.md`](design/ml-dataset-flight-ground-cleanup.md) | ML dataset collection, ground preparation, and migration review |
 | [`design/payload-graphs-stack.md`](design/payload-graphs-stack.md) | Activation-driven payload graph architecture stack (approved; not as-built) |
+| [`design/vis-swir-common-tiling.md`](design/vis-swir-common-tiling.md) | VIS/SWIR common-FOV tiling, pattern A' at 40 mm SWIR (proposed; trade study) |
 
 ## Constraints
 

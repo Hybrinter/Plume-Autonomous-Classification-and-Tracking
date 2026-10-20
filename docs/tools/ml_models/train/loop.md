@@ -50,8 +50,8 @@ naming the run when one was reserved.
    immediately, and `execution.json` is atomically rewritten each step,
    epoch, and evaluation. Each atomic rename (`execution.json`,
    checkpoints, the published checkpoint) retries a `PermissionError`
-   up to 8 times with doubling delays from 10 ms, because Windows denies a
-   rename over a file that another process briefly holds open.
+   up to 8 times with doubling delays from 10 ms. Windows denies a rename
+   over a file that another process briefly holds open.
 7. Targets must be exact binary values, output shape must match, and
    outputs and per-image losses must be finite before `backward`.
    Without AMP a non-finite gradient fails the run. With AMP on CUDA a

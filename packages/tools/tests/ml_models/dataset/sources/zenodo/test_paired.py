@@ -197,3 +197,19 @@ def test_scene_refs_carry_exact_gsd_elevation_and_mix() -> None:
     assert tags["swir_mix"] == f"{scene_mix(tile.stem, 0):.2f}"
     fixed = scene_refs(tile, PairedConfig(), camera_bins(PairedConfig()))
     assert fixed[0].metadata.conditions == ()
+
+
+def test_bands_subset_validation_and_toml() -> None:
+    """bands must be an ordered non-empty subset; the TOML loader reads strings."""
+    assert PairedConfig(bands=("SWIR",)).bands == ("SWIR",)
+    assert PairedConfig(bands=("BLUE", "GREEN", "RED")).bands == ("BLUE", "GREEN", "RED")
+    for bad in ((), ("SWIR", "BLUE"), ("NIR",)):
+        with pytest.raises(ValueError, match="subset"):
+            PairedConfig(bands=bad)
+
+
+def test_bands_toml_round_trip(tmp_path: Path) -> None:
+    """A bands array loads as strings."""
+    path = tmp_path / "p.toml"
+    path.write_text('bands = ["BLUE", "GREEN", "RED"]\n', encoding="utf-8")
+    assert load_paired_config(path).bands == ("BLUE", "GREEN", "RED")

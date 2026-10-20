@@ -101,6 +101,9 @@ class PairedConfig:
 
     Attributes:
         id: Config identifier, joined to the VIS table id on the manifest.
+        bands: Output planes, a subset of ``PAIRED_BANDS`` in that order.
+            VIS-only and SWIR-only builds share splits and rendering with
+            the paired build.
         elevations_deg: Gimbal elevations; one bin per value.
         altitude_m: Nominal orbit altitude.
         plume_height_m: Height above the ellipsoid where GSD is evaluated.
@@ -134,6 +137,7 @@ class PairedConfig:
     """
 
     id: str = "vis_swir_paired_estimate_v0"
+    bands: tuple[str, ...] = PAIRED_BANDS
     elevations_deg: tuple[float, ...] = (5.0, 15.0, 25.0, 35.0, 45.0)
     altitude_m: float = 440e3
     plume_height_m: float = 2000.0
@@ -188,6 +192,8 @@ class PairedConfig:
         )
         if not all(math.isfinite(v) and v > 0 for v in positive):
             raise ValueError("geometry, optics, and sensor values must be positive")
+        if not self.bands or self.bands != tuple(b for b in PAIRED_BANDS if b in self.bands):
+            raise ValueError(f"bands must be a non-empty ordered subset of {PAIRED_BANDS}")
         if not self.id or not self.elevations_deg:
             raise ValueError("config id and elevations must be non-empty")
         if len(set(self.elevations_deg)) != len(self.elevations_deg):
@@ -231,7 +237,10 @@ def load_paired_config(path: str | Path) -> PairedConfig:
         elif isinstance(current, tuple):
             if not isinstance(value, list):
                 raise ValueError(f"{key} must be an array")
-            values[key] = tuple(float(v) for v in value)
+            if current and isinstance(current[0], str):
+                values[key] = tuple(str(v) for v in value)
+            else:
+                values[key] = tuple(float(v) for v in value)
         elif isinstance(current, bool):
             if not isinstance(value, bool):
                 raise ValueError(f"{key} must be a boolean")
@@ -589,7 +598,7 @@ class ZenodoPairedSource:
     """
 
     name = "zenodo"
-    band_names = PAIRED_BANDS
+    band_names: tuple[str, ...] = PAIRED_BANDS
     domain = "unit"
     source_ref = "10.5281/zenodo.4250706"
 
@@ -603,6 +612,8 @@ class ZenodoPairedSource:
         self.images_tar = Path(images_tar)
         self.vis_table = vis_table
         self.cfg = cfg
+        self.band_names = cfg.bands
+        self._band_index = [PAIRED_BANDS.index(b) for b in cfg.bands]
         self.weight_table_id = f"{vis_table.id}+{cfg.id}"
         self.camera_bins = camera_bins(cfg)
         self.bins = tuple(item.spec for item in self.camera_bins)
@@ -625,7 +636,9 @@ class ZenodoPairedSource:
             rng = np.random.default_rng([zlib.crc32(tile.stem.encode("utf-8")), self.cfg.seed, 1])
             for item in self.camera_bins:
                 shape = bin_hw(item.spec)
-                image = render_scene(native, ids, self.vis_table, self.cfg, item, weights, rng)
+                image = render_scene(native, ids, self.vis_table, self.cfg, item, weights, rng)[
+                    self._band_index
+                ]
                 mask = (
                     None
                     if tile.polygons is None

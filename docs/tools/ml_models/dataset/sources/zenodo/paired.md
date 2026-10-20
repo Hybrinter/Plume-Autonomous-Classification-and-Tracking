@@ -65,11 +65,15 @@ one row per scene and bin. Row ids are `<stem>-elNN`.
    weights.
 8. Labels, split groups, and masks follow `ZenodoSource`; masks rasterize
    on the VIS grid.
+9. `bands` keeps an ordered subset of BLUE, GREEN, RED, SWIR, and the
+   source `band_names` follow it. Every plane is rendered with the same
+   draws, then the subset is kept, so VIS-only and SWIR-only builds share
+   splits, geometry, and SWIR mix with the paired build.
 
 ## Errors and faults
 
-`ValueError` on a non-positive geometry, optics, or sensor value; empty or
-repeated elevations; an elevation that misses the Earth; a bin finer than
+`ValueError` on a non-positive geometry, optics, or sensor value; a `bands`
+value that is not an ordered non-empty subset; empty or repeated elevations; an elevation that misses the Earth; a bin finer than
 10 m; an unknown or wrongly typed TOML key; weights without a positive
 total; a SWIR weight on a missing band; or noise without a generator.
 `bin_hw` and the archive readers raise as in `ZenodoSource`.

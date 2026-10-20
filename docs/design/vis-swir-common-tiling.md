@@ -132,6 +132,11 @@ coarsens the SWIR GSD.
   simulated SWIR channel.
 - **Frame timing.** VIS runs at 32 Hz and SWIR at 55 Hz; pairing needs a
   frame-selection rule.
+- **GSD convention for conditioning.** The paired training build records
+  metres per VIS band sample (6.9 um pitch). The current flight sensor
+  configuration derives its 15.87 m reference GSD from the 3.45 um mosaic
+  pitch. A flight adoption must use the band-sample convention, or the
+  GSD fed to the model is half the training value.
 
 ## Flight impact after adoption
 

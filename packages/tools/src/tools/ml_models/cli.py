@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 import typer
 
-from tools.ml_models.dataset.build import build_flight, build_zenodo
+from tools.ml_models.dataset.build import build_flight, build_zenodo, build_zenodo_paired
 from tools.ml_models.dataset.raw import BinSpec
 from tools.ml_models.dataset.spec import BuildSpec, load_build_spec
 
@@ -23,6 +23,7 @@ class SourceName(StrEnum):
 
     FLIGHT = "flight"
     ZENODO = "zenodo"
+    ZENODO_PAIRED = "zenodo-paired"
 
 
 app = typer.Typer(
@@ -63,6 +64,10 @@ def build_command(
         ),
     ] = None,
     spec: Annotated[Path | None, typer.Option(help="Optional BuildSpec TOML.")] = None,
+    paired_config: Annotated[
+        Path | None,
+        typer.Option(help="PairedConfig TOML for --source zenodo-paired. Defaults when omitted."),
+    ] = None,
 ) -> None:
     """Build a finished dataset from flight tiles or Zenodo archives."""
     try:
@@ -74,8 +79,15 @@ def build_command(
             return
         if images_tar is None or labels_tar is None or weights_path is None:
             raise typer.BadParameter(
-                "--source zenodo requires --images-tar, --labels-tar, and --weights-path"
+                f"--source {source.value} requires --images-tar, --labels-tar, and --weights-path"
             )
+        if source is SourceName.ZENODO_PAIRED:
+            if bin_id:
+                raise typer.BadParameter("--bin-id applies to --source zenodo only")
+            build_zenodo_paired(images_tar, labels_tar, weights_path, out, resolved, paired_config)
+            return
+        if paired_config is not None:
+            raise typer.BadParameter("--paired-config applies to --source zenodo-paired only")
         build_zenodo(images_tar, labels_tar, weights_path, out, resolved, _select_bins(bin_id))
     except (OSError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc

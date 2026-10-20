@@ -343,3 +343,27 @@ def test_dataset_band_weights_writes_table_and_report(tmp_path: Path) -> None:
     assert len(payload["swir"]) == 4
     again = CliRunner().invoke(app, args)
     assert again.exit_code != 0
+
+
+def test_paired_build_flag_conflicts(tmp_path: Path) -> None:
+    """--paired-config needs zenodo-paired; --bin-id is zenodo-only."""
+    common = [
+        "dataset",
+        "build",
+        "--out",
+        str(tmp_path / "out"),
+        "--images-tar",
+        str(tmp_path / "i.tar.gz"),
+        "--labels-tar",
+        str(tmp_path / "l.tar.gz"),
+        "--weights-path",
+        str(tmp_path / "w.toml"),
+    ]
+    zen = CliRunner().invoke(
+        app, [*common, "--source", "zenodo", "--paired-config", str(tmp_path / "p.toml")]
+    )
+    assert zen.exit_code != 0
+    assert "zenodo-paired only" in zen.output
+    paired = CliRunner().invoke(app, [*common, "--source", "zenodo-paired", "--bin-id", "gsd15"])
+    assert paired.exit_code != 0
+    assert "zenodo only" in paired.output

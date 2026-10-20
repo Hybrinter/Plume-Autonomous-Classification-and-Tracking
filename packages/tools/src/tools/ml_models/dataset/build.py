@@ -181,6 +181,53 @@ def build_zenodo(
     return build_dataset(source, dest, resolved)
 
 
+def build_zenodo_paired(
+    images_tar: str | Path,
+    labels_tar: str | Path,
+    weights_path: str | Path,
+    dest: str | Path,
+    spec: BuildSpec | None = None,
+    paired_config_path: str | Path | None = None,
+) -> DatasetManifest:
+    """Build a paired BLUE, GREEN, RED, SWIR dataset from the Zenodo archives.
+
+    Args:
+        images_tar: Image archive of class-directory GeoTIFFs.
+        labels_tar: Label Studio annotation archive.
+        weights_path: VIS prism weight table TOML.
+        dest: Finished dataset directory.
+        spec: Build specification. The default spec is used when None.
+        paired_config_path: PairedConfig TOML. Defaults apply when None.
+
+    Returns:
+        DatasetManifest: Written identity. ``weight_table_id`` is
+        ``<vis table id>+<paired config id>``.
+
+    Raises:
+        FileExistsError: If ``dest`` already exists.
+        FileNotFoundError: If an archive or the weight table is missing.
+        ValueError: If ``spec.weight_table_id`` disagrees, the paired config
+            is invalid, or the raw contract fails.
+    """
+    from tools.ml_models.dataset.sources.zenodo.paired import (
+        PairedConfig,
+        ZenodoPairedSource,
+        load_paired_config,
+    )
+    from tools.ml_models.dataset.sources.zenodo.prism import load_weight_table
+
+    cfg = PairedConfig() if paired_config_path is None else load_paired_config(paired_config_path)
+    source = ZenodoPairedSource(images_tar, labels_tar, load_weight_table(weights_path), cfg)
+    resolved = BuildSpec() if spec is None else spec
+    if resolved.weight_table_id and resolved.weight_table_id != source.weight_table_id:
+        raise ValueError(
+            f"spec weight_table_id {resolved.weight_table_id!r} "
+            f"!= paired source {source.weight_table_id!r}"
+        )
+    resolved = replace(resolved, weight_table_id=source.weight_table_id)
+    return build_dataset(source, dest, resolved)
+
+
 def _build_into(source: RawSource, dest: Path, spec: BuildSpec) -> DatasetManifest:
     """Write shards and ``dataset.json`` under an existing empty directory.
 

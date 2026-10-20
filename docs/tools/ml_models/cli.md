@@ -17,7 +17,7 @@ precision.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SourceName` | StrEnum | `flight` or `zenodo` raw source kinds |
+| `SourceName` | StrEnum | `flight`, `zenodo`, or `zenodo-paired` raw source kinds |
 | `app` | Typer application | `tools.ml_models` command group |
 | `dataset_app` | Typer application | `dataset` subgroup under `app` |
 | `build_command` | function | `dataset build` command |
@@ -36,7 +36,7 @@ precision.
 
 `dataset build` options:
 
-- `--source`: `flight` or `zenodo`. Required.
+- `--source`: `flight`, `zenodo`, or `zenodo-paired`. Required.
 - `--out`: finished dataset directory. Required.
 - `--source-dir`: flight tile directory. Required with `--source flight`.
 - `--images-tar`: Zenodo image archive. Required with `--source zenodo`.
@@ -47,6 +47,8 @@ precision.
 - `--bin-id`: Zenodo GSD bin name, repeatable. Selects `DEFAULT_BINS` by
   name (`native10` or `gsd15` through `gsd35`); default is every bin.
 - `--spec`: optional `BuildSpec` TOML file.
+- `--paired-config`: optional `PairedConfig` TOML. Accepted only with
+  `--source zenodo-paired`; `--bin-id` is rejected with that source.
 
 `dataset analyze` options:
 
@@ -135,7 +137,8 @@ precision.
 1. Load `BuildSpec` from `--spec`, or use the defaults.
 2. `flight` requires `--source-dir` and calls `build_flight`.
 3. `zenodo` requires `--images-tar`, `--labels-tar`, and `--weights-path`,
-   then calls `build_zenodo`. `--bin-id` selects named bins from
+   then calls `build_zenodo`. `zenodo-paired` requires the same three
+   paths and calls `build_zenodo_paired`. `--bin-id` selects named bins from
    `DEFAULT_BINS`; an unknown or repeated name is rejected.
 4. `train` loads the optional `--config` TOML, applies the option overlay
    through `apply_train_mapping`, and calls `loop.train`. An `Ok` result

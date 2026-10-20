@@ -33,9 +33,10 @@ pair in metres, and an optional `ScoreConfig`. It returns
 nonempty tuple of rows sharing one `ScoreConfig` and returns
 `Result[SegmentationEvidence, str]`; an optional `histogram` argument
 supplies a pre-merged `PixelHistogram`, and without it the rows' own
-histograms are merged. `SegmentationAccumulator.add` appends each validated row to
-that pooled histogram, keeping only scalar per-image statistics, and
-`result` aggregates the cohort against the pooled histogram; mixed
+histograms are merged. `SegmentationAccumulator.add` adds each validated row's histogram into
+pooled numpy array sums, keeping only scalar per-image statistics, and
+`result` aggregates the cohort against the pooled histogram. The pooled
+histogram is identical to a pairwise merge of the row histograms; mixed
 `ScoreConfig` rows return `Err`.
 
 ## Behavior

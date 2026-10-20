@@ -259,3 +259,30 @@ def test_one_pixel_translation_and_truth_class_residuals() -> None:
     assert scores["background_brier_score"] == pytest.approx(probability**2)
     assert scores["foreground_probability_residual_mean"] == pytest.approx(-probability)
     assert scores["background_probability_residual_mean"] == pytest.approx(probability)
+
+
+def test_accumulator_matches_pairwise_fold_bit_for_bit() -> None:
+    """The array accumulator equals a pairwise _merge_histograms fold exactly."""
+    from dataclasses import replace
+
+    from tools.ml_models.analysis.metrics.segmentation import _merge_histograms
+
+    rng = np.random.default_rng(3)
+    rows = []
+    for _ in range(40):
+        logits = rng.normal(0.0, 3.0, (9, 11))
+        target = (rng.random((9, 11)) > 0.6).astype(np.uint8)
+        scored = score_segmentation_image(
+            logits.tolist(), target.tolist(), label=1.0, verified_empty=False
+        )
+        assert isinstance(scored, Ok)
+        rows.append(scored.value)
+    folded = rows[0].histogram
+    for row in rows[1:]:
+        folded = _merge_histograms((replace(row, histogram=folded), row))
+    accumulator = SegmentationAccumulator()
+    for row in rows:
+        assert isinstance(accumulator.add(row), Ok)
+    streamed = accumulator.result()
+    assert isinstance(streamed, Ok)
+    assert streamed.value.histogram == folded

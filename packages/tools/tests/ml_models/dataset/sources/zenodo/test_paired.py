@@ -173,3 +173,27 @@ def test_config_validation_and_toml_loader(tmp_path: Path) -> None:
         PairedConfig(elevations_deg=(5.0, 5.0))
     with pytest.raises(ValueError):
         PairedConfig(vis_f_number=0.0)
+
+
+def test_scene_refs_carry_exact_gsd_elevation_and_mix() -> None:
+    """Rows are measured GSD, carry the elevation, and tag the mix when randomized."""
+    from tools.ml_models.dataset.sources.zenodo.archive import TileRef
+    from tools.ml_models.dataset.sources.zenodo.paired import scene_refs
+
+    tile = TileRef(
+        stem="1298_2019-10-25T09:56:33.931Z_19",
+        location_id="1298",
+        positive=True,
+        member_name="positive/x.tif",
+        polygons=(),
+    )
+    cfg = PairedConfig(swir_randomize=True)
+    refs = scene_refs(tile, cfg, camera_bins(cfg))
+    assert [r.tile_id.rsplit("-", 1)[1] for r in refs] == ["el05", "el15", "el25", "el35", "el45"]
+    assert not any(r.gsd_nominal for r in refs)
+    assert refs[-1].theta_g_deg == 45.0
+    assert {r.group_id for r in refs} == {"1298"}
+    tags = {c.name: c.value for c in refs[0].metadata.conditions}
+    assert tags["swir_mix"] == f"{scene_mix(tile.stem, 0):.2f}"
+    fixed = scene_refs(tile, PairedConfig(), camera_bins(PairedConfig()))
+    assert fixed[0].metadata.conditions == ()

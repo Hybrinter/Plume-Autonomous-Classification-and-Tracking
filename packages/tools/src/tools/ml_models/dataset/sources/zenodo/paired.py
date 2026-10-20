@@ -7,6 +7,7 @@ Contains:
   - gaussian_blur, resize_bilinear: separable blur and center-aligned resize.
   - add_sensor_noise: shot, read, and quantization noise in reflectance units.
   - render_scene: one Zenodo stack to BLUE, GREEN, RED, SWIR planes.
+  - scene_refs: one scene's rows across camera bins.
   - ZenodoPairedSource: RawSource emitting every scene at every camera bin.
 
 Every row is stored on the VIS band-sample grid (6.9 um pitch, 2 x the IMX267
@@ -14,8 +15,9 @@ mosaic pitch), so ``gsd`` is metres per VIS band sample. The SWIR plane is
 blurred and area-sampled at the SWIR GSD, then resized onto the VIS grid with
 pixel centers aligned over the same 1200 m window; early fusion on flight
 resamples the same way. Both GSDs come from ``flight.payload.gimbal.footprint``
-at the frame center for a nominal circular orbit, so rows are
-``gsd_nominal``.
+at the frame center for a nominal circular orbit. Rows are not
+``gsd_nominal``: the stored image is resampled to exactly that GSD, as in
+``ZenodoSource``; only the elevation is notional.
 
 Optics blur is a Gaussian fit to the Airy core, ``sigma = 0.42 lambda N`` at
 the focal plane, applied on the native 10 m grid before area sampling; area
@@ -53,6 +55,7 @@ from tools.ml_models.dataset.raw import (
 )
 from tools.ml_models.dataset.sources.zenodo.annotations import rasterize_percent_mask
 from tools.ml_models.dataset.sources.zenodo.archive import (
+    TileRef,
     build_index,
     iter_stacks,
     observation_metadata,
@@ -538,12 +541,51 @@ def render_scene(
     return np.asarray(np.clip(image, 0.0, 1.0), dtype=np.float32)
 
 
+def scene_refs(
+    tile: TileRef, cfg: PairedConfig, bins: Sequence[CameraBin]
+) -> tuple[RawTileRef, ...]:
+    """Return one row per camera bin for one scene.
+
+    Args:
+        tile: Archive index entry.
+        cfg: Paired settings; decides whether a ``swir_mix`` tag is added.
+        bins: Camera bins in output order.
+
+    Returns:
+        tuple[RawTileRef, ...]: Rows ``<stem>-<bin_id>`` with the VIS GSD and
+        the bin elevation. ``gsd_nominal`` stays false because the image is
+        resampled to exactly the row GSD.
+    """
+    _, mix = swir_weights_for(cfg, tile.stem)
+    metadata = observation_metadata(tile)
+    if mix is not None:
+        tags = (*metadata.conditions, ConditionTag("swir_mix", f"{mix:.2f}"))
+        metadata = replace(metadata, conditions=tags)
+    return tuple(
+        RawTileRef(
+            tile_id=f"{tile.stem}-{item.spec.bin_id}",
+            group_id=tile.location_id,
+            label=float(tile.positive),
+            has_mask=tile.polygons is not None,
+            gsd=actual_gsd(item.spec),
+            height=bin_hw(item.spec)[0],
+            width=bin_hw(item.spec)[1],
+            frame_id=None,
+            grid_rc=None,
+            bin_id=item.spec.bin_id,
+            theta_g_deg=item.spec.elevation_deg,
+            metadata=metadata,
+        )
+        for item in bins
+    )
+
+
 class ZenodoPairedSource:
     """Read every labeled scene once and emit it at every camera elevation bin.
 
     Labels, split groups, and masks follow ``ZenodoSource``. Rows carry the
-    VIS GSD, the bin elevation as ``theta_g_deg``, ``gsd_nominal``, and a
-    ``swir_mix`` condition when the SWIR mix is randomized.
+    VIS GSD, the bin elevation as ``theta_g_deg``, and a ``swir_mix``
+    condition when the SWIR mix is randomized.
     """
 
     name = "zenodo"
@@ -565,33 +607,9 @@ class ZenodoPairedSource:
         self.camera_bins = camera_bins(cfg)
         self.bins = tuple(item.spec for item in self.camera_bins)
         self._index = build_index(self.images_tar, Path(labels_tar))
-        refs: list[RawTileRef] = []
-        for tile in self._index.tiles:
-            _, mix = swir_weights_for(cfg, tile.stem)
-            metadata = observation_metadata(tile)
-            if mix is not None:
-                tags = (*metadata.conditions, ConditionTag("swir_mix", f"{mix:.2f}"))
-                metadata = replace(metadata, conditions=tags)
-            for item in self.camera_bins:
-                spec = item.spec
-                refs.append(
-                    RawTileRef(
-                        tile_id=f"{tile.stem}-{spec.bin_id}",
-                        group_id=tile.location_id,
-                        label=float(tile.positive),
-                        has_mask=tile.polygons is not None,
-                        gsd=actual_gsd(spec),
-                        height=bin_hw(spec)[0],
-                        width=bin_hw(spec)[1],
-                        frame_id=None,
-                        grid_rc=None,
-                        bin_id=spec.bin_id,
-                        theta_g_deg=spec.elevation_deg,
-                        gsd_nominal=True,
-                        metadata=metadata,
-                    )
-                )
-        self._refs = tuple(refs)
+        self._refs = tuple(
+            ref for tile in self._index.tiles for ref in scene_refs(tile, cfg, self.camera_bins)
+        )
 
     def index(self) -> tuple[RawTileRef, ...]:
         """Return rows in image-archive order, bins innermost."""

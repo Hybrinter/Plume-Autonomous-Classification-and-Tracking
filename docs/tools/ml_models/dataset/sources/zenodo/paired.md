@@ -25,6 +25,7 @@ elevation. `ZenodoPairedSource` is the `RawSource` for the paired build.
 | `scene_mix` | function | Per-scene SWIR mix in `[0, 1)` |
 | `swir_weights_for` | function | SWIR weights and mix for one scene |
 | `render_scene` | function | One stack to `(4, H, W)` unit reflectance |
+| `scene_refs` | function | One scene's rows across camera bins |
 | `ZenodoPairedSource` | class | Paired `RawSource` |
 
 ## Inputs and outputs
@@ -43,7 +44,8 @@ one row per scene and bin. Row ids are `<stem>-elNN`.
    at 6.9 um behind 100 mm. The SWIR camera is 1280 x 1024 at 5 um behind
    40 mm. The default elevations are 5, 15, 25, 35, and 45 deg.
 2. Row GSD is metres per VIS band sample. Rows carry `theta_g_deg` equal to
-   the bin elevation and `gsd_nominal` true.
+   the bin elevation. `gsd_nominal` stays false: the image is resampled to
+   exactly the row GSD.
 3. With `b1_sharpen`, B1 becomes `B1 + B2 - lowpass(B2)`, where `lowpass`
    area-averages B2 to 60 m and resizes it back with `resize_bilinear`.
 4. VIS planes are `mix_prism` of the stack with the VIS table. The SWIR

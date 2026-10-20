@@ -22,4 +22,23 @@ Example:
       --weights-path data/calibration/weights/imx267_placeholder_v0.toml \
       --paired-config experiments/vis_swir/paired_train_randomized.toml
 
+## Training
+
+`train_{fused,vis,swir}_{classifier,segmentor}.toml` train one model per
+input set with one shared recipe: SGD, learning rate 0.01, cosine schedule,
+seed 0. Classifiers run 12 epochs with patience 4; segmentors run 40 epochs
+with patience 10. Fused and SWIR-only models train on the randomized builds.
+
+`run_training_chain.sh` runs the six configs in order. Before each run it
+waits for `dataset.json` in the configured dataset, so it can start while
+the builds are still in progress. Each run writes a log next to its run
+directory.
+
+Evaluate fused and SWIR-only runs on the fixed builds:
+
+    uv run python -m tools.ml_models analyze \
+      --run data/processed/runs/fused_classifier \
+      --out data/processed/fused_classifier_analysis \
+      --dataset data/processed/paired_eval_fixed --final-test
+
 Camera values are estimates. See the paired source documentation.

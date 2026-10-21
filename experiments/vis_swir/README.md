@@ -34,11 +34,19 @@ waits for `dataset.json` in the configured dataset, so it can start while
 the builds are still in progress. Each run writes a log next to its run
 directory.
 
-Evaluate fused and SWIR-only runs on the fixed builds:
+`analyze_model.toml` holds the model-analysis settings: final test on, GPU,
+batch 64, and a 2 GiB capture budget. The default 256 MiB budget is too small
+for the full validation and test splits. Evaluate fused and SWIR-only runs on
+the fixed builds:
 
     uv run python -m tools.ml_models analyze \
+      --config experiments/vis_swir/analyze_model.toml \
       --run data/processed/runs/fused_classifier \
       --out data/processed/fused_classifier_analysis \
-      --dataset data/processed/paired_eval_fixed --final-test
+      --dataset data/processed/paired_eval_fixed
+
+`run_analysis_chain.sh` analyzes each run after its training status is
+`COMPLETED` and skips runs that already have an analysis. One analysis is
+about 1.2 GB.
 
 Camera values are estimates. See the paired source documentation.

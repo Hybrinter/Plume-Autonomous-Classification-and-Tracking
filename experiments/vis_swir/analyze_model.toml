@@ -1,0 +1,11 @@
+# Model analysis settings for the VIS/SWIR trade-study runs. The CLI --run and
+# --out options replace the run and out values below. The default 256 MiB
+# capture budget is too small for the full validation and test splits.
+run = "set-by-cli"
+out = "set-by-cli"
+final_test = true
+batch_size = 64
+device = "cuda"
+
+[capture]
+max_capture_bytes = 2147483648

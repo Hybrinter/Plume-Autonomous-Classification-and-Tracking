@@ -42,7 +42,7 @@ one row per scene and bin. Row ids are `<stem>-elNN`.
    for a nominal circular orbit at `altitude_m`, evaluated at
    `plume_height_m`. The VIS camera is the band plane: 1920 x 1080 samples
    at 6.9 um behind 100 mm. The SWIR camera is 1280 x 1024 at 5 um behind
-   40 mm. The default elevations are 5, 15, 25, 35, and 45 deg.
+   50 mm. The default elevations are 5, 15, 25, 35, and 45 deg.
 2. Row GSD is metres per VIS band sample. Rows carry `theta_g_deg` equal to
    the bin elevation. `gsd_nominal` stays false: the image is resampled to
    exactly the row GSD.
@@ -84,7 +84,7 @@ None.
 
 ## Configuration
 
-`PairedConfig` defaults: id `vis_swir_paired_estimate_v0`, 440 km, 2 km
+`PairedConfig` defaults: id `vis_swir_paired_estimate_v1`, 440 km, 2 km
 plume height, VIS f/11 at 550 nm, SWIR f/2.8 at 1300 nm, B1 sharpening on,
 SWIR randomization off, noise off. Sensor noise values are estimates: VIS
 full well 10500 e and read noise 2.5 e, SWIR full well 30000 e and read

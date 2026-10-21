@@ -40,7 +40,7 @@ def test_camera_bins_match_footprint_geometry() -> None:
     el45 = bins[-1]
     assert el45.spec.lateral_m == pytest.approx(44.3, abs=0.2)
     assert el45.spec.along_m == pytest.approx(67.7, abs=0.2)
-    assert el45.swir_gsd.lateral_m / el45.spec.lateral_m == pytest.approx(125 / 69, rel=1e-3)
+    assert el45.swir_gsd.lateral_m / el45.spec.lateral_m == pytest.approx(100 / 69, rel=1e-3)
     assert el45.spec.elevation_deg == 45.0
 
 

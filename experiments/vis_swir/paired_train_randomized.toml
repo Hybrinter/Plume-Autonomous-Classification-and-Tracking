@@ -1,6 +1,6 @@
 # Paired VIS+SWIR training build: per-scene SWIR B8A/B11 mix drawn between the
 # PairedConfig endpoints (30-80 percent B11), estimated sensor noise on.
 # Camera values are estimates; see docs/tools/ml_models/dataset/sources/zenodo/paired.md.
-id = "vis_swir_paired_estimate_v0_rand"
+id = "vis_swir_paired_estimate_v1_rand"
 swir_randomize = true
 noise = true

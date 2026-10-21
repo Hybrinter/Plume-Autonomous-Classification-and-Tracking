@@ -1,5 +1,5 @@
 # SWIR-only evaluation build: matches paired_eval_fixed.toml, SWIR plane only.
-id = "vis_swir_paired_estimate_v0_swir_fixed"
+id = "vis_swir_paired_estimate_v1_swir_fixed"
 bands = ["SWIR"]
 swir_randomize = false
 noise = true

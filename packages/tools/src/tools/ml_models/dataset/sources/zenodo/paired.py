@@ -136,7 +136,7 @@ class PairedConfig:
         seed: Base seed for mix and noise draws.
     """
 
-    id: str = "vis_swir_paired_estimate_v0"
+    id: str = "vis_swir_paired_estimate_v1"
     bands: tuple[str, ...] = PAIRED_BANDS
     elevations_deg: tuple[float, ...] = (5.0, 15.0, 25.0, 35.0, 45.0)
     altitude_m: float = 440e3
@@ -150,7 +150,7 @@ class PairedConfig:
     swir_width_px: int = 1280
     swir_height_px: int = 1024
     swir_pitch_m: float = 5e-6
-    swir_focal_m: float = 0.04
+    swir_focal_m: float = 0.05
     swir_f_number: float = 2.8
     swir_wavelength_m: float = 1300e-9
     extra_blur_px: float = 0.0

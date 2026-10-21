@@ -1,5 +1,5 @@
 # SWIR-only training build: matches paired_train_randomized.toml, SWIR plane only.
-id = "vis_swir_paired_estimate_v0_swir_rand"
+id = "vis_swir_paired_estimate_v1_swir_rand"
 bands = ["SWIR"]
 swir_randomize = true
 noise = true

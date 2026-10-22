@@ -53,6 +53,8 @@ shape `(N, 1)`. No sigmoid is applied.
 8. Dropout applies on the feature map. A 1x1 convolution emits one logit per
    cell. `forward` returns the maximum over those cells.
 9. Modifiers combine in any order. Example: `pactnet_w32_d5_full`.
+10. `dual` sets `CompactSpec.dual`. The registry then builds the dual-branch
+    variant in [`tools.ml_models.arch.dual`](dual.md).
 
 ## Errors and faults
 

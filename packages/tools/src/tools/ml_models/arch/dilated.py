@@ -75,12 +75,14 @@ class DilatedSpec:
         blocks: Number of dilated blocks in the body.
         output_stride: Spatial reduction held through the body, 4 or 8.
         separable: Depthwise-separable convolutions instead of dense ones.
+        dual: Separate VIS and SWIR branch stems (``dilatenet_dual``).
     """
 
     base_width: int
     blocks: int
     output_stride: int
     separable: bool
+    dual: bool = False
 
 
 def dilation_rates(blocks: int) -> tuple[int, ...]:
@@ -196,7 +198,7 @@ class DilatedSegmentor(nn.Module):
 
 
 _DILATED_FLAGS = ModifierFlags(
-    width=True, depth=True, stride=True, full=True, depth_label="block count"
+    width=True, depth=True, stride=True, full=True, dual=True, depth_label="block count"
 )
 
 
@@ -232,6 +234,7 @@ def parse_dilated(name: str) -> DilatedSpec:
         blocks=blocks,
         output_stride=output_stride,
         separable=separable,
+        dual=mods.dual,
     )
 
 

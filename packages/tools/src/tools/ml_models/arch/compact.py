@@ -69,11 +69,13 @@ class CompactSpec:
         base_width: Channel count emitted by the stem.
         depth: Number of strided stages, including the stem.
         separable: Depthwise-separable convolutions instead of dense ones.
+        dual: Separate VIS and SWIR branch stems (``pactnet_dual``).
     """
 
     base_width: int
     depth: int
     separable: bool
+    dual: bool = False
 
 
 def compact_stage_widths(base_width: int, depth: int) -> tuple[int, ...]:
@@ -183,7 +185,7 @@ class PactNet(nn.Module):
         return logits
 
 
-_COMPACT_FLAGS = ModifierFlags(width=True, depth=True, full=True)
+_COMPACT_FLAGS = ModifierFlags(width=True, depth=True, full=True, dual=True)
 
 
 def parse_compact(name: str) -> CompactSpec:
@@ -207,6 +209,7 @@ def parse_compact(name: str) -> CompactSpec:
         base_width=DEFAULT_COMPACT_WIDTH if mods.width is None else mods.width,
         depth=DEFAULT_COMPACT_DEPTH if mods.depth is None else mods.depth,
         separable=True if mods.separable is None else mods.separable,
+        dual=mods.dual,
     )
 
 

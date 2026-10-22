@@ -25,6 +25,8 @@ Segmentor names come from three families:
     dilated convolutions. ``w<N>`` sets the stem width (default 32), ``d<N>``
     the dilated-block count (default 4), ``s<N>`` the output stride (4 or 8),
     and ``full`` selects dense convolutions.
+  - ``dual`` on ``pactnet`` or ``dilatenet`` splits a BLUE/GREEN/RED/SWIR
+    stack into separate VIS and SWIR branch stems fused at stride 4.
 
 ``known()`` returns a curated catalog spanning that space for listings and
 tests; ``resolve_arch`` accepts any well-formed name.
@@ -61,6 +63,7 @@ from tools.ml_models.arch.dilated import (
     build_dilated_segmentor,
     parse_dilated,
 )
+from tools.ml_models.arch.dual import build_dual_classifier, build_dual_segmentor
 from tools.ml_models.arch.encoder_unet import RESNET_ENCODERS, build_encoder_segmentor
 from tools.ml_models.arch.film import IgnoreGsd
 from tools.ml_models.arch.grammar import ModifierFlags, parse_modifiers
@@ -309,12 +312,16 @@ def build(kind: str, arch: str, in_channels: int) -> nn.Module:
     match kind:
         case "classifier":
             match parse_classifier(name):
+                case CompactSpec(dual=True) as compact:
+                    return build_dual_classifier(compact, in_channels=in_channels)
                 case CompactSpec() as compact:
                     return build_compact_classifier(compact, in_channels=in_channels)
                 case BackboneSpec() as backbone:
                     return IgnoreGsd(build_backbone_spec(backbone, in_channels=in_channels))
         case "segmentor":
             match parse_segmentor(name):
+                case DilatedSpec(dual=True) as dilated:
+                    return build_dual_segmentor(dilated, in_channels=in_channels, out_channels=1)
                 case DilatedSpec() as dilated:
                     return build_dilated_segmentor(dilated, in_channels=in_channels, out_channels=1)
                 case UNetSpec() as unet:

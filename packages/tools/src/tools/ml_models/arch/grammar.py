@@ -31,6 +31,7 @@ class ModifierFlags:
         sep: Accept ``sep`` (depthwise-separable convolutions).
         full: Accept ``full`` (dense convolutions).
         pt: Accept ``pt`` (ImageNet encoder weights).
+        dual: Accept ``dual`` (separate VIS and SWIR branch stems).
         depth_label: Error-text label for ``d<N>`` tokens.
         stride_label: Error-text label for ``s<N>`` tokens.
         decoder_width_label: Error-text label for ``x<N>`` tokens.
@@ -43,6 +44,7 @@ class ModifierFlags:
     sep: bool = False
     full: bool = False
     pt: bool = False
+    dual: bool = False
     depth_label: str = "depth"
     stride_label: str = "output stride"
     decoder_width_label: str = "decoder width"
@@ -59,6 +61,7 @@ class NameModifiers:
         decoder_width: Decoder width from ``x<N>``.
         separable: ``True`` after ``sep``, ``False`` after ``full``, else None.
         pretrained: ``True`` after ``pt``.
+        dual: ``True`` after ``dual``.
     """
 
     width: int | None = None
@@ -67,6 +70,7 @@ class NameModifiers:
     decoder_width: int | None = None
     separable: bool | None = None
     pretrained: bool = False
+    dual: bool = False
 
 
 def positive_int(token: str, prefix: str, label: str) -> int:
@@ -123,6 +127,7 @@ def parse_modifiers(
     decoder_width: int | None = None
     separable: bool | None = None
     pretrained = False
+    dual = False
     for token in tokens:
         match token:
             case "full" if flags.full:
@@ -131,6 +136,8 @@ def parse_modifiers(
                 separable = True
             case "pt" if flags.pt:
                 pretrained = True
+            case "dual" if flags.dual:
+                dual = True
             case _ if flags.width and token.startswith("w"):
                 width = positive_int(token, "w", "width")
             case _ if flags.depth and token.startswith("d"):
@@ -148,4 +155,5 @@ def parse_modifiers(
         decoder_width=decoder_width,
         separable=separable,
         pretrained=pretrained,
+        dual=dual,
     )

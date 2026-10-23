@@ -70,7 +70,9 @@ None.
 
 Registry names are `pactnet_dual` and `dilatenet_dual` with the family's other
 modifiers, for example `pactnet_dual_w32` or `dilatenet_dual_s8`. The names do
-not set `jitter_px` or `modality_dropout`; the registry uses the defaults.
+not set `jitter_px`; the registry uses the default. The `nodrop` token sets
+`modality_dropout` to 0, for example `pactnet_dual_nodrop`. Without `nodrop`,
+the registry uses the default `modality_dropout`.
 
 ## Constraints
 

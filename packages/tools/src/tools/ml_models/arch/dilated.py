@@ -76,6 +76,8 @@ class DilatedSpec:
         output_stride: Spatial reduction held through the body, 4 or 8.
         separable: Depthwise-separable convolutions instead of dense ones.
         dual: Separate VIS and SWIR branch stems (``dilatenet_dual``).
+        no_modality_dropout: Train the dual stems without modality dropout
+            (``dilatenet_dual_nodrop``).
     """
 
     base_width: int
@@ -83,6 +85,7 @@ class DilatedSpec:
     output_stride: int
     separable: bool
     dual: bool = False
+    no_modality_dropout: bool = False
 
 
 def dilation_rates(blocks: int) -> tuple[int, ...]:
@@ -198,7 +201,13 @@ class DilatedSegmentor(nn.Module):
 
 
 _DILATED_FLAGS = ModifierFlags(
-    width=True, depth=True, stride=True, full=True, dual=True, depth_label="block count"
+    width=True,
+    depth=True,
+    stride=True,
+    full=True,
+    dual=True,
+    nodrop=True,
+    depth_label="block count",
 )
 
 
@@ -214,13 +223,16 @@ def parse_dilated(name: str) -> DilatedSpec:
         style.
 
     Raises:
-        ValueError: If the family or any modifier token is unknown, or if the
+        ValueError: If ``nodrop`` appears without ``dual``, or the family or any
+            modifier token is unknown, or if the
             output stride is not supported.
     """
     parts = name.split("_")
     if parts[0] != DILATED_PREFIX:
         raise ValueError(f"unknown dilated segmentor {name!r}")
     mods = parse_modifiers(tuple(parts[1:]), _DILATED_FLAGS, "dilatenet modifier")
+    if mods.nodrop and not mods.dual:
+        raise ValueError(f"nodrop needs dual in architecture name {name!r}")
     base_width = DEFAULT_DILATED_WIDTH if mods.width is None else mods.width
     blocks = DEFAULT_DILATED_BLOCKS if mods.depth is None else mods.depth
     output_stride = DEFAULT_OUTPUT_STRIDE if mods.stride is None else mods.stride
@@ -235,6 +247,7 @@ def parse_dilated(name: str) -> DilatedSpec:
         output_stride=output_stride,
         separable=separable,
         dual=mods.dual,
+        no_modality_dropout=mods.nodrop,
     )
 
 

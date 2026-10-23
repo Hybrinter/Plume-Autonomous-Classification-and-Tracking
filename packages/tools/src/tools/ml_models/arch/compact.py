@@ -70,12 +70,15 @@ class CompactSpec:
         depth: Number of strided stages, including the stem.
         separable: Depthwise-separable convolutions instead of dense ones.
         dual: Separate VIS and SWIR branch stems (``pactnet_dual``).
+        no_modality_dropout: Train the dual stems without modality dropout
+            (``pactnet_dual_nodrop``).
     """
 
     base_width: int
     depth: int
     separable: bool
     dual: bool = False
+    no_modality_dropout: bool = False
 
 
 def compact_stage_widths(base_width: int, depth: int) -> tuple[int, ...]:
@@ -185,7 +188,7 @@ class PactNet(nn.Module):
         return logits
 
 
-_COMPACT_FLAGS = ModifierFlags(width=True, depth=True, full=True, dual=True)
+_COMPACT_FLAGS = ModifierFlags(width=True, depth=True, full=True, dual=True, nodrop=True)
 
 
 def parse_compact(name: str) -> CompactSpec:
@@ -199,17 +202,21 @@ def parse_compact(name: str) -> CompactSpec:
         CompactSpec: Parsed width, depth, and convolution style.
 
     Raises:
-        ValueError: If the family or any modifier token is unknown.
+        ValueError: If ``nodrop`` appears without ``dual``, or the family or any
+            modifier token is unknown.
     """
     parts = name.split("_")
     if parts[0] != COMPACT_PREFIX:
         raise ValueError(f"unknown compact classifier {name!r}")
     mods = parse_modifiers(tuple(parts[1:]), _COMPACT_FLAGS, "pactnet modifier")
+    if mods.nodrop and not mods.dual:
+        raise ValueError(f"nodrop needs dual in architecture name {name!r}")
     return CompactSpec(
         base_width=DEFAULT_COMPACT_WIDTH if mods.width is None else mods.width,
         depth=DEFAULT_COMPACT_DEPTH if mods.depth is None else mods.depth,
         separable=True if mods.separable is None else mods.separable,
         dual=mods.dual,
+        no_modality_dropout=mods.nodrop,
     )
 
 

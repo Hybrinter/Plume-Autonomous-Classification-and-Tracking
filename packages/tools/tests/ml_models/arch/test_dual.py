@@ -84,3 +84,21 @@ def test_stem_rejects_bad_perturbation_settings() -> None:
         DualStem(4, 2, 8, separable=True, modality_dropout=0.6)
     with pytest.raises(ValueError):
         DualPactNet(16, 1, separable=True)
+
+
+def test_nodrop_disables_modality_dropout_and_needs_dual() -> None:
+    """nodrop sets the dual stem dropout to zero and is rejected without dual."""
+    classifier = build("classifier", "pactnet_dual_nodrop", 4)
+    segmentor = build("segmentor", "dilatenet_dual_nodrop", 4)
+    assert isinstance(classifier, DualPactNet)
+    assert isinstance(segmentor, DualDilatedSegmentor)
+    assert classifier.stem.modality_dropout == 0.0
+    assert segmentor.stem.modality_dropout == 0.0
+    assert classifier.stem.jitter_px == 1
+    default = build("classifier", "pactnet_dual", 4)
+    assert isinstance(default, DualPactNet)
+    assert default.stem.modality_dropout == 0.1
+    with pytest.raises(ValueError, match="nodrop needs dual"):
+        parse_compact("pactnet_nodrop")
+    with pytest.raises(ValueError, match="nodrop needs dual"):
+        parse_dilated("dilatenet_nodrop")

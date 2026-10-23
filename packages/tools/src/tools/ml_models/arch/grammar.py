@@ -32,6 +32,7 @@ class ModifierFlags:
         full: Accept ``full`` (dense convolutions).
         pt: Accept ``pt`` (ImageNet encoder weights).
         dual: Accept ``dual`` (separate VIS and SWIR branch stems).
+        nodrop: Accept ``nodrop`` (no training-time modality dropout).
         depth_label: Error-text label for ``d<N>`` tokens.
         stride_label: Error-text label for ``s<N>`` tokens.
         decoder_width_label: Error-text label for ``x<N>`` tokens.
@@ -45,6 +46,7 @@ class ModifierFlags:
     full: bool = False
     pt: bool = False
     dual: bool = False
+    nodrop: bool = False
     depth_label: str = "depth"
     stride_label: str = "output stride"
     decoder_width_label: str = "decoder width"
@@ -62,6 +64,7 @@ class NameModifiers:
         separable: ``True`` after ``sep``, ``False`` after ``full``, else None.
         pretrained: ``True`` after ``pt``.
         dual: ``True`` after ``dual``.
+        nodrop: ``True`` after ``nodrop``.
     """
 
     width: int | None = None
@@ -71,6 +74,7 @@ class NameModifiers:
     separable: bool | None = None
     pretrained: bool = False
     dual: bool = False
+    nodrop: bool = False
 
 
 def positive_int(token: str, prefix: str, label: str) -> int:
@@ -128,6 +132,7 @@ def parse_modifiers(
     separable: bool | None = None
     pretrained = False
     dual = False
+    nodrop = False
     for token in tokens:
         match token:
             case "full" if flags.full:
@@ -138,6 +143,8 @@ def parse_modifiers(
                 pretrained = True
             case "dual" if flags.dual:
                 dual = True
+            case "nodrop" if flags.nodrop:
+                nodrop = True
             case _ if flags.width and token.startswith("w"):
                 width = positive_int(token, "w", "width")
             case _ if flags.depth and token.startswith("d"):
@@ -156,4 +163,5 @@ def parse_modifiers(
         separable=separable,
         pretrained=pretrained,
         dual=dual,
+        nodrop=nodrop,
     )

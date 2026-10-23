@@ -55,10 +55,13 @@ shape `(N, 1)`. No sigmoid is applied.
 9. Modifiers combine in any order. Example: `pactnet_w32_d5_full`.
 10. `dual` sets `CompactSpec.dual`. The registry then builds the dual-branch
     variant in [`tools.ml_models.arch.dual`](dual.md).
+11. `nodrop` sets `CompactSpec.no_modality_dropout`. It is valid only with
+    `dual`. Example: `pactnet_dual_nodrop`.
 
 ## Errors and faults
 
-`ValueError` on an unknown family, modifier token, or a width or depth below one.
+`ValueError` on an unknown family, modifier token, a width or depth below one,
+or `nodrop` without `dual`.
 
 ## Messages
 

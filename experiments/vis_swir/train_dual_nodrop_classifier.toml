@@ -1,0 +1,17 @@
+# dual-branch (mid-fusion) classifier without modality dropout; jitter kept. Same recipe as fused.
+# baseline peaked at epoch 6, so 12 epochs with patience 4 bound the run.
+kind = "classifier"
+arch = "pactnet_dual_nodrop"
+dataset = "data/processed/paired_train_rand"
+run_dir = "data/processed/runs"
+run_id = "dual_nodrop_classifier"
+epochs = 12
+batch_size = 64
+patience = 4
+optimizer = "sgd"
+learning_rate = 0.01
+momentum = 0.9
+scheduler = "cosine"
+loss = "bce"
+amp = true
+seed = 0

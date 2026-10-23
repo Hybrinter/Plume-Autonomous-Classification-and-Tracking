@@ -347,6 +347,11 @@ class DualDilatedSegmentor(nn.Module):
         return resized
 
 
+def _dropout(spec: CompactSpec | DilatedSpec) -> float:
+    """Return the modality dropout for a spec: 0 after ``nodrop``, else the default."""
+    return 0.0 if spec.no_modality_dropout else DEFAULT_MODALITY_DROPOUT
+
+
 def build_dual_classifier(spec: CompactSpec, in_channels: int) -> nn.Module:
     """Return an untrained :class:`DualPactNet` for a parsed ``pactnet_dual`` spec.
 
@@ -361,7 +366,7 @@ def build_dual_classifier(spec: CompactSpec, in_channels: int) -> nn.Module:
         ValueError: If ``in_channels`` is not 4 or the spec depth is below 2.
     """
     _check_channels(in_channels)
-    return DualPactNet(spec.base_width, spec.depth, spec.separable)
+    return DualPactNet(spec.base_width, spec.depth, spec.separable, modality_dropout=_dropout(spec))
 
 
 def build_dual_segmentor(spec: DilatedSpec, in_channels: int, out_channels: int = 1) -> nn.Module:
@@ -380,5 +385,10 @@ def build_dual_segmentor(spec: DilatedSpec, in_channels: int, out_channels: int 
     """
     _check_channels(in_channels)
     return DualDilatedSegmentor(
-        out_channels, spec.base_width, spec.blocks, spec.output_stride, spec.separable
+        out_channels,
+        spec.base_width,
+        spec.blocks,
+        spec.output_stride,
+        spec.separable,
+        modality_dropout=_dropout(spec),
     )

@@ -27,6 +27,13 @@ def test_train_help_has_no_dataset_weight_option() -> None:
     assert "--dataset-weight" not in output
 
 
+def test_train_help_has_seed_option() -> None:
+    """The train command accepts a seed override."""
+    result = CliRunner().invoke(app, ["train", "--help"])
+    assert result.exit_code == 0
+    assert "--seed" in _plain(result.output)
+
+
 def test_frame_eval_command_is_removed() -> None:
     """No ``frame-eval`` command remains in help or dispatch."""
     runner = CliRunner()

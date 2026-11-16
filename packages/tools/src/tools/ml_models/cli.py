@@ -219,6 +219,10 @@ def train_command(
         int | None,
         typer.Option(help="Global optimizer-step cap."),
     ] = None,
+    seed: Annotated[
+        int | None,
+        typer.Option(help="Seed for weight initialization and shuffle order."),
+    ] = None,
 ) -> None:
     """Train a GSD-conditioned model on one finished dataset."""
     from flight.libs.types import Err
@@ -238,6 +242,7 @@ def train_command(
         ("epochs", epochs),
         ("batch_size", batch_size),
         ("max_steps", max_steps),
+        ("seed", seed),
     ):
         if value is not None:
             overlay[key] = value

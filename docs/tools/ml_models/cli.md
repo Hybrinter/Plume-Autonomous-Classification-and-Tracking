@@ -75,6 +75,8 @@ precision.
 - `--run-id`: run directory name under `--run-dir`.
 - `--device`: torch device; default is CUDA when available, else CPU.
 - `--epochs`, `--batch-size`, `--max-steps`: loop controls.
+- `--seed`: seed for weight initialization and shuffle order. It overrides
+  the `seed` value in the configuration file.
 
 `export` options:
 

@@ -51,7 +51,8 @@ def load_run(
     """Load and verify one run's selected checkpoint and evaluation dataset.
 
     Args:
-        base: Analysis settings; ``run`` and ``out`` are replaced.
+        base: Analysis settings; ``run`` and ``out`` are replaced. ``out`` is a
+            never-written sibling of ``run``; a path inside the run is rejected.
         run: Run directory.
         dataset: Evaluation dataset; ``None`` uses the training dataset.
 
@@ -61,7 +62,7 @@ def load_run(
     cfg = replace(
         base,
         run=str(run),
-        out=str(run / "_fusion_unused"),
+        out=str(run.parent / f"{run.name}_fusion_unused"),
         dataset=None if dataset is None else str(dataset),
     )
     return load_model_inputs(cfg)

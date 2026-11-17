@@ -15,6 +15,7 @@ R=experiments/vis_swir/results
 CFG=experiments/vis_swir/analyze_model.toml
 PAIRED=$P/paired_eval_fixed
 fusion() { uv run python -m tools.ml_models.fusion "$@"; }
+trained() { [ -f "$P/runs/$1/checkpoints/best.pt" ] || { echo "skip $1: no checkpoint" >&2; false; }; }
 
 case "${1:-}" in
 seeds)
@@ -36,6 +37,7 @@ score)
   for run in fused_classifier fused_classifier_s1 fused_classifier_s2 \
              dual_nodrop_classifier_s0 dual_nodrop_classifier_s1 dual_nodrop_classifier_s2 \
              dual_classifier fused_shufflenet_classifier fused_segmentor dual_segmentor; do
+    trained "$run" || continue
     fusion test --config $CFG --run "$P/runs/$run" --dataset $PAIRED --out "$R/test/$run.json"
   done
   for run in vis_classifier vis_classifier_s1 vis_classifier_s2 vis_segmentor; do
@@ -62,12 +64,16 @@ thresholds)
   ;;
 plots)
   T=$R/test
+  SHUFFLE=()
+  if [ -f "$T/fused_shufflenet_classifier.json" ]; then
+    SHUFFLE=(--entry "Early, ShuffleNet=$T/fused_shufflenet_classifier.json")
+  fi
   fusion seed-plot --out "$R/seed_ap.png" --title "Classifier test AP per training seed" \
     --entry "Early=$T/fused_classifier.json,$T/fused_classifier_s1.json,$T/fused_classifier_s2.json" \
     --entry "Mid=$T/dual_nodrop_classifier_s0.json,$T/dual_nodrop_classifier_s1.json,$T/dual_nodrop_classifier_s2.json" \
     --entry "Late=$R/late/vis_classifier.json,$R/late/vis_classifier_s1.json,$R/late/vis_classifier_s2.json" \
     --entry "VIS only=$T/vis_classifier.json,$T/vis_classifier_s1.json,$T/vis_classifier_s2.json" \
-    --entry "Early, ShuffleNet=$T/fused_shufflenet_classifier.json"
+    "${SHUFFLE[@]}"
   ;;
 *)
   echo "usage: $0 seeds|score|thresholds|plots" >&2

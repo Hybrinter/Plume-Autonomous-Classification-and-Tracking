@@ -1,0 +1,23 @@
+{
+ "run": "data\\processed\\runs\\fused_shufflenet_classifier",
+ "dataset": "data\\processed\\paired_eval_fixed",
+ "test": {
+  "accuracy": 0.8387795275590552,
+  "precision": 0.7658260422027792,
+  "recall": 0.42636103151862464,
+  "specificity": 0.9612765957446808,
+  "negative_predictive_value": 0.8494397232458449,
+  "false_positive_rate": 0.03872340425531915,
+  "false_negative_rate": 0.5736389684813754,
+  "f1": 0.5477636664826063,
+  "f_beta": 0.5477636664826063,
+  "balanced_accuracy": 0.6938188136316528,
+  "matthews_correlation": 0.4883647831845025,
+  "predicted_positive_fraction": 0.12749343832020998,
+  "roc_auc": 0.8362100835213071,
+  "average_precision": 0.6866540723524108,
+  "binary_cross_entropy": 0.4513111254423791,
+  "brier_score": 0.12509481349203092,
+  "expected_calibration_error": 0.07544116090437154
+ }
+}

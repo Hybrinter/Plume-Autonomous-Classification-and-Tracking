@@ -88,12 +88,19 @@ Test average precision (AP). `results/seed_ap.png` shows each seed.
 | VIS only | 0.728 | 0.721 | 0.720 | 0.723 |
 | SWIR only | 0.652 | - | - | - |
 | Mid, dropout | 0.725 | - | - | - |
+| Early, ShuffleNet V2 x0.5 | 0.687 | - | - | - |
 
 The late-fusion weight is `w = 0.5` for all three VIS seeds
 (`results/late/vis_classifier*.json` holds the validation AP for each `w`).
 The seed spread of one option (up to 0.028 AP) is as large as the difference
 between Early, Mid, and Late. Early and Late are better than VIS only on all
 three seeds. Mid seed 0 is 0.003 AP below VIS seed 0.
+
+`train_fused_shufflenet_classifier.toml` trains the flight classifier
+architecture (ImageNet ShuffleNet V2 x0.5, AdamW) on the 4-band input. The
+4-band stem trains and runs. Validation AP was highest at epoch 1 (0.664), and
+early stopping ended the run at epoch 5. The test AP is 0.070 below the
+Early pactnet seed 0 and 0.041 below VIS-only seed 0.
 
 ### Segmentor
 
@@ -135,3 +142,4 @@ largest bin, 39 x 40 px. The count is a lower bound, not a latency.
 | Mid | 1.98 | 6.39 | 44689 |
 | Late (VIS + SWIR) | 2.91 | 9.37 | 84578 |
 | VIS only | 1.57 | 4.92 | 42433 |
+| Early, ShuffleNet V2 x0.5 | 4.30 | - | 343033 |

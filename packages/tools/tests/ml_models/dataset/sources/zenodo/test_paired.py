@@ -175,6 +175,15 @@ def test_config_validation_and_toml_loader(tmp_path: Path) -> None:
         PairedConfig(vis_f_number=0.0)
 
 
+def test_direct_config_rejects_unnormalized_swir_weights() -> None:
+    """Direct construction needs normalized weight maps; the loader supplies them."""
+    for key in ("swir_weights", "swir_weights_low", "swir_weights_high"):
+        with pytest.raises(ValueError, match="normalized"):
+            PairedConfig(**{key: MappingProxyType({"B8A": 1.0, "B11": 3.0})})
+    cfg = PairedConfig(swir_weights=MappingProxyType({"B8A": 0.25, "B11": 0.75}))
+    assert cfg.swir_weights["B11"] == 0.75
+
+
 def test_scene_refs_carry_exact_gsd_elevation_and_mix() -> None:
     """Rows are measured GSD, carry the elevation, and tag the mix when randomized."""
     from tools.ml_models.dataset.sources.zenodo.archive import TileRef

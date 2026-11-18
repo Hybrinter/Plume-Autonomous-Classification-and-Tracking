@@ -61,7 +61,8 @@ precision.
 `dataset band-weights` options:
 
 - `--vis-out`: VIS prism weight-table TOML to write. Required.
-- `--report`: JSON report of the VIS and SWIR mappings. Required.
+- `--report`: JSON report of the VIS and SWIR mappings. Required. It must
+  name a file different from `--vis-out`.
 - `--table-id`: VIS table id. Default `imx267_placeholder_v0`.
 
 `train` options:

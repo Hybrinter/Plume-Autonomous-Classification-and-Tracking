@@ -158,6 +158,8 @@ def band_weights_command(
     vis = {name: map_channel(name, ch) for name, ch in channels.items()}
     vis_no_b1 = {name: map_channel(name, ch, NO_B1_BASIS) for name, ch in channels.items()}
     swir = swir_edge_sensitivity()
+    if vis_out.resolve() == report.resolve():
+        raise typer.BadParameter("--vis-out and --report must name different files")
     for path in (vis_out, report):
         if path.exists():
             raise typer.BadParameter(f"output exists: {path}")

@@ -95,6 +95,14 @@ def _normalized(weights: Mapping[str, float], floor: float = 1e-4) -> Mapping[st
     return MappingProxyType({k: v / total for k, v in kept.items()})
 
 
+def _is_normalized(weights: Mapping[str, float]) -> bool:
+    """Return whether ``weights`` already equals its :func:`_normalized` form."""
+    target = _normalized(weights)
+    return set(target) == set(weights) and all(
+        math.isclose(float(weights[k]), v, rel_tol=1e-9, abs_tol=1e-12) for k, v in target.items()
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PairedConfig:
     """Settings for the paired VIS+SWIR build.
@@ -205,7 +213,8 @@ class PairedConfig:
         if not 1 <= self.bit_depth <= 16:
             raise ValueError("bit_depth must be in 1..16")
         for weights in (self.swir_weights, self.swir_weights_low, self.swir_weights_high):
-            _normalized(weights)
+            if not _is_normalized(weights):
+                raise ValueError("SWIR weight maps must be normalized; load_paired_config does it")
 
 
 def load_paired_config(path: str | Path) -> PairedConfig:

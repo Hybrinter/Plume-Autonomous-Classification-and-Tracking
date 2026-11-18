@@ -75,7 +75,9 @@ one row per scene and bin. Row ids are `<stem>-elNN`.
 `ValueError` on a non-positive geometry, optics, or sensor value; a `bands`
 value that is not an ordered non-empty subset; empty or repeated elevations; an elevation that misses the Earth; a bin finer than
 10 m; an unknown or wrongly typed TOML key; weights without a positive
-total; a SWIR weight on a missing band; or noise without a generator.
+total; a directly constructed SWIR weight map that is not normalized
+(`load_paired_config` normalizes TOML maps); a SWIR weight on a missing
+band; or noise without a generator.
 `bin_hw` and the archive readers raise as in `ZenodoSource`.
 
 ## Messages

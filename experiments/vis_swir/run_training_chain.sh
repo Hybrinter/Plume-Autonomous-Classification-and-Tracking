@@ -3,6 +3,7 @@
 # dataset build to finish (dataset.json present). Logs go beside the runs.
 set -u
 cd "$(dirname "$0")/../.."
+mkdir -p data/processed/runs
 for run in fused_classifier fused_segmentor vis_classifier vis_segmentor swir_classifier swir_segmentor; do
   cfg="experiments/vis_swir/train_${run}.toml"
   ds=$(sed -n 's/^dataset = "\(.*\)"/\1/p' "$cfg")

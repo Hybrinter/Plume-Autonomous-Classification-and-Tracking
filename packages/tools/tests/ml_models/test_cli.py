@@ -352,6 +352,15 @@ def test_dataset_band_weights_writes_table_and_report(tmp_path: Path) -> None:
     assert again.exit_code != 0
 
 
+def test_dataset_band_weights_rejects_one_path_for_both_outputs(tmp_path: Path) -> None:
+    """band-weights refuses the same file for the table and the report."""
+    same = str(tmp_path / "out.toml")
+    args = ["dataset", "band-weights", "--vis-out", same, "--report", same]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code != 0
+    assert not (tmp_path / "out.toml").exists()
+
+
 def test_paired_build_flag_conflicts(tmp_path: Path) -> None:
     """--paired-config needs zenodo-paired; --bin-id is zenodo-only."""
     common = [

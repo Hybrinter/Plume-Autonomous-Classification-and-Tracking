@@ -4,6 +4,7 @@ Contains:
   - LateFusionResult: chosen VIS weight, validation scores, and test metrics.
   - load_run: verified model inputs for one run on one dataset.
   - score_split: aggregate metrics of one model on one split.
+  - check_gsd_reference: require one GSD reference for both branches and the dataset.
   - late_fusion: search the VIS weight on validation and score test once.
 
 Scoring reuses the model analysis evaluator without capture, so the metrics
@@ -16,6 +17,7 @@ Satisfies: REQ-AIML-COMP-001.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -99,6 +101,32 @@ def score_split(
     return Ok({m.name: m.value for m in evidence.value.metrics if isinstance(m.value, float)})
 
 
+def check_gsd_reference(vis_m: float, swir_m: float, paired_m: float) -> Result[None, str]:
+    """Require the two branch training references to equal the evaluation reference.
+
+    Args:
+        vis_m: GSD reference of the VIS run's training dataset in m.
+        swir_m: GSD reference of the SWIR run's training dataset in m.
+        paired_m: GSD reference of the paired evaluation dataset in m.
+
+    Returns:
+        Result[None, str]: ``Ok(None)`` when all three agree, else the mismatch.
+
+    Notes:
+        The model GSD input is ``ln(gsd / reference)``. The evaluator encodes
+        it with the paired reference and late fusion passes the same tensor to
+        both branches, so a branch trained on another reference sees a shifted
+        input.
+    """
+    for name, value in (("VIS", vis_m), ("SWIR", swir_m)):
+        if not math.isclose(value, paired_m, rel_tol=1e-9):
+            return Err(
+                f"{name} run GSD reference {value} m differs from the paired "
+                f"dataset reference {paired_m} m"
+            )
+    return Ok(None)
+
+
 def late_fusion(
     vis: ModelInputs,
     swir: ModelInputs,
@@ -120,6 +148,13 @@ def late_fusion(
     Returns:
         Result[LateFusionResult, str]: The search outcome, or the first error.
     """
+    reference = check_gsd_reference(
+        vis.training_manifest.gsd_reference_m,
+        swir.training_manifest.gsd_reference_m,
+        paired.evaluation_manifest.gsd_reference_m,
+    )
+    if isinstance(reference, Err):
+        return reference
     model = LateFusion(vis.model, swir.model)
     val_by_weight: dict[float, float] = {}
     for weight in weights:

@@ -177,9 +177,13 @@ def test_config_validation_and_toml_loader(tmp_path: Path) -> None:
 
 def test_direct_config_rejects_unnormalized_swir_weights() -> None:
     """Direct construction needs normalized weight maps; the loader supplies them."""
-    for key in ("swir_weights", "swir_weights_low", "swir_weights_high"):
-        with pytest.raises(ValueError, match="normalized"):
-            PairedConfig(**{key: MappingProxyType({"B8A": 1.0, "B11": 3.0})})
+    relative = MappingProxyType({"B8A": 1.0, "B11": 3.0})
+    with pytest.raises(ValueError, match="normalized"):
+        PairedConfig(swir_weights=relative)
+    with pytest.raises(ValueError, match="normalized"):
+        PairedConfig(swir_weights_low=relative)
+    with pytest.raises(ValueError, match="normalized"):
+        PairedConfig(swir_weights_high=relative)
     cfg = PairedConfig(swir_weights=MappingProxyType({"B8A": 0.25, "B11": 0.75}))
     assert cfg.swir_weights["B11"] == 0.75
 

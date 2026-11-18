@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 import typer
 
-from tools.ml_models.dataset.build import build_flight, build_zenodo
+from tools.ml_models.dataset.build import build_flight, build_zenodo, build_zenodo_paired
 from tools.ml_models.dataset.raw import BinSpec
 from tools.ml_models.dataset.spec import BuildSpec, load_build_spec
 
@@ -23,6 +23,7 @@ class SourceName(StrEnum):
 
     FLIGHT = "flight"
     ZENODO = "zenodo"
+    ZENODO_PAIRED = "zenodo-paired"
 
 
 app = typer.Typer(
@@ -63,6 +64,10 @@ def build_command(
         ),
     ] = None,
     spec: Annotated[Path | None, typer.Option(help="Optional BuildSpec TOML.")] = None,
+    paired_config: Annotated[
+        Path | None,
+        typer.Option(help="PairedConfig TOML for --source zenodo-paired. Defaults when omitted."),
+    ] = None,
 ) -> None:
     """Build a finished dataset from flight tiles or Zenodo archives."""
     try:
@@ -74,8 +79,15 @@ def build_command(
             return
         if images_tar is None or labels_tar is None or weights_path is None:
             raise typer.BadParameter(
-                "--source zenodo requires --images-tar, --labels-tar, and --weights-path"
+                f"--source {source.value} requires --images-tar, --labels-tar, and --weights-path"
             )
+        if source is SourceName.ZENODO_PAIRED:
+            if bin_id:
+                raise typer.BadParameter("--bin-id applies to --source zenodo only")
+            build_zenodo_paired(images_tar, labels_tar, weights_path, out, resolved, paired_config)
+            return
+        if paired_config is not None:
+            raise typer.BadParameter("--paired-config applies to --source zenodo-paired only")
         build_zenodo(images_tar, labels_tar, weights_path, out, resolved, _select_bins(bin_id))
     except (OSError, ValueError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -114,6 +126,65 @@ def dataset_analyze_command(
     typer.echo(str(result.value))
 
 
+@dataset_app.command("band-weights")
+def band_weights_command(
+    vis_out: Annotated[Path, typer.Option(..., help="VIS prism weight-table TOML to write.")],
+    report: Annotated[Path, typer.Option(..., help="JSON report of VIS and SWIR mappings.")],
+    table_id: Annotated[str, typer.Option(help="VIS table id.")] = "imx267_placeholder_v0",
+) -> None:
+    """Write placeholder-camera VIS weights and a SWIR band-edge report."""
+    import json
+
+    from tools.ml_models.dataset.sources.zenodo.bandmap import (
+        NO_B1_BASIS,
+        S2_NATIVE_GSD_M,
+        ChannelMapping,
+        imx267_placeholder_channels,
+        map_channel,
+        swir_edge_sensitivity,
+        vis_weight_table_toml,
+    )
+
+    def _row(mapping: ChannelMapping) -> dict[str, object]:
+        """Return one mapping as JSON-ready fields."""
+        return {
+            "weights": dict(mapping.weights),
+            "band_capture": dict(mapping.band_capture),
+            "coverage": mapping.coverage,
+            "centroid_m": mapping.centroid_m,
+        }
+
+    channels = imx267_placeholder_channels()
+    vis = {name: map_channel(name, ch) for name, ch in channels.items()}
+    vis_no_b1 = {name: map_channel(name, ch, NO_B1_BASIS) for name, ch in channels.items()}
+    swir = swir_edge_sensitivity()
+    if vis_out.resolve() == report.resolve():
+        raise typer.BadParameter("--vis-out and --report must name different files")
+    for path in (vis_out, report):
+        if path.exists():
+            raise typer.BadParameter(f"output exists: {path}")
+    vis_out.parent.mkdir(parents=True, exist_ok=True)
+    report.parent.mkdir(parents=True, exist_ok=True)
+    vis_out.write_text(vis_weight_table_toml(table_id, vis), encoding="utf-8")
+    payload = {
+        "vis_table_id": table_id,
+        "native_gsd_m": dict(S2_NATIVE_GSD_M),
+        "vis": {name: _row(mapping) for name, mapping in vis.items()},
+        "vis_without_b1": {name: _row(mapping) for name, mapping in vis_no_b1.items()},
+        "swir": {
+            case.label: {
+                "low_m": case.low_m,
+                "high_m": case.high_m,
+                "basis": list(case.basis),
+                **_row(case.mapping),
+            }
+            for case in swir
+        },
+    }
+    report.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    typer.echo(f"{vis_out}\n{report}")
+
+
 @app.command("train")
 def train_command(
     config: Annotated[
@@ -150,6 +221,10 @@ def train_command(
         int | None,
         typer.Option(help="Global optimizer-step cap."),
     ] = None,
+    seed: Annotated[
+        int | None,
+        typer.Option(help="Seed for weight initialization and shuffle order."),
+    ] = None,
 ) -> None:
     """Train a GSD-conditioned model on one finished dataset."""
     from flight.libs.types import Err
@@ -169,6 +244,7 @@ def train_command(
         ("epochs", epochs),
         ("batch_size", batch_size),
         ("max_steps", max_steps),
+        ("seed", seed),
     ):
         if value is not None:
             overlay[key] = value

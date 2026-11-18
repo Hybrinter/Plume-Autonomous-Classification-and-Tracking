@@ -1,0 +1,14 @@
+# Baseline Sentinel-2 to RGB weight table for the Zenodo 4250706 build.
+# Maps one S2 band straight to each output color: B2 -> BLUE, B3 -> GREEN, B4 -> RED.
+# Not derived from any camera spectral response; use only for the RGB baseline.
+# Camera-specific tables (VIS, SWIR) replace this once SRF-integrated weights exist.
+id = "s2_rgb_passthrough_v0"
+
+[blue]
+B2 = 1.0
+
+[green]
+B3 = 1.0
+
+[red]
+B4 = 1.0

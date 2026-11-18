@@ -1,0 +1,23 @@
+{
+ "run": "data\\processed\\runs\\dual_nodrop_classifier_s2",
+ "dataset": "data\\processed\\paired_eval_fixed",
+ "test": {
+  "accuracy": 0.8612204724409449,
+  "precision": 0.7560521415270018,
+  "recall": 0.5816618911174785,
+  "specificity": 0.9442553191489361,
+  "negative_predictive_value": 0.8837116686579052,
+  "false_positive_rate": 0.05574468085106383,
+  "false_negative_rate": 0.4183381088825215,
+  "f1": 0.6574898785425102,
+  "f_beta": 0.6574898785425102,
+  "balanced_accuracy": 0.7629586051332073,
+  "matthews_correlation": 0.5800541339236006,
+  "predicted_positive_fraction": 0.17618110236220472,
+  "roc_auc": 0.8722997500457234,
+  "average_precision": 0.7525266685677454,
+  "binary_cross_entropy": 0.3980209355405106,
+  "brier_score": 0.10952983531139791,
+  "expected_calibration_error": 0.06613757854619164
+ }
+}

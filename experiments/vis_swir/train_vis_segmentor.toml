@@ -1,0 +1,16 @@
+# vis segmentor for the VIS/SWIR trade study. Stage-0 recipe; the RGB
+# baseline plateaued by epoch 14, so 40 epochs with patience 10 bound the run.
+kind = "segmentor"
+dataset = "data/processed/vis_only"
+run_dir = "data/processed/runs"
+run_id = "vis_segmentor"
+epochs = 40
+batch_size = 16
+patience = 10
+optimizer = "sgd"
+learning_rate = 0.01
+momentum = 0.9
+scheduler = "cosine"
+loss = "bce"
+amp = true
+seed = 0

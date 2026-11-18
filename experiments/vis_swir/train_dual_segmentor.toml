@@ -1,0 +1,17 @@
+# dual-branch (mid-fusion) segmentor for the VIS/SWIR trade study; same recipe as fused.
+# baseline plateaued by epoch 14, so 40 epochs with patience 10 bound the run.
+kind = "segmentor"
+arch = "dilatenet_dual"
+dataset = "data/processed/paired_train_rand"
+run_dir = "data/processed/runs"
+run_id = "dual_segmentor"
+epochs = 40
+batch_size = 16
+patience = 10
+optimizer = "sgd"
+learning_rate = 0.01
+momentum = 0.9
+scheduler = "cosine"
+loss = "bce"
+amp = true
+seed = 0

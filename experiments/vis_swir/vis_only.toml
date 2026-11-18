@@ -1,0 +1,6 @@
+# VIS-only build: same rendering, noise, and splits as the paired builds; the
+# SWIR mix does not affect VIS planes, so this build also serves for evaluation.
+id = "vis_swir_paired_estimate_v0_vis"
+bands = ["BLUE", "GREEN", "RED"]
+swir_randomize = false
+noise = true

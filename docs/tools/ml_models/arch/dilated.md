@@ -61,11 +61,16 @@ takes the `(N, 2)` encoding; None selects the reference GSD.
 10. A 1x1 head emits `out_channels` logits. No sigmoid in the graph.
 11. The head logits are bilinearly resized to the input height and width.
 12. Modifiers combine in any order. Example: `dilatenet_w32_d6_s8_full`.
+13. `dual` sets `DilatedSpec.dual`. The registry then builds the dual-branch
+    variant in [`tools.ml_models.arch.dual`](dual.md).
+14. `nodrop` sets `DilatedSpec.no_modality_dropout`. It is valid only with
+    `dual`. Example: `dilatenet_dual_nodrop`.
 
 ## Errors and faults
 
 `ValueError` on an unknown family, modifier token, unsupported output stride, or
-a width, block count, or output stride below the allowed minimum.
+a width, block count, or output stride below the allowed minimum, or `nodrop`
+without `dual`.
 
 ## Messages
 

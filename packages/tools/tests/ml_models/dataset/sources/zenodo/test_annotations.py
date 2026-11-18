@@ -60,7 +60,25 @@ def test_malformed_annotations_are_rejected() -> None:
     with pytest.raises(ValueError):
         parse_polygons(_payload([[0.0, 0.0], [200.0, 0.0], [10.0, 10.0]]))
     with pytest.raises(ValueError):
-        parse_polygons(_payload([[0.0, 0.0], [10.0, 0.0]]))
+        parse_polygons(_payload([[0.0, 0.0], [float("nan"), 0.0], [10.0, 10.0]]))
+    with pytest.raises(ValueError):
+        parse_polygons(_payload([[0.0, 0.0, 1.0], [10.0, 0.0, 1.0], [10.0, 10.0, 1.0]]))
+    with pytest.raises(ValueError):
+        parse_polygons(_payload([[54.3, 182.0]]))
+
+
+def test_degenerate_polygons_are_skipped() -> None:
+    """Polygons with fewer than three vertices have no area and are dropped."""
+    triangle = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
+    payload = _payload(triangle)
+    results = payload["completions"][0]["result"]  # type: ignore[index]
+    for points in ([[54.3, 82.0]], [[0.0, 0.0], [10.0, 0.0]], []):
+        results.append(
+            {"type": "polygonlabels", "value": {"polygonlabels": ["smoke"], "points": points}}
+        )
+    polygons = parse_polygons(payload)
+    assert len(polygons) == 1
+    np.testing.assert_array_equal(polygons[0], np.asarray(triangle))
 
 
 def test_mask_rules_and_bounds() -> None:

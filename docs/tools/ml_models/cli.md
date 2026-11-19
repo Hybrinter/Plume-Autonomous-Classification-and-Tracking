@@ -6,9 +6,10 @@
 ## Purpose
 
 This module is the `python -m tools.ml_models` command line. It builds a
-finished dataset from a raw tile source, exposes the unavailable dataset
-analysis, model analysis, and render boundaries, runs the unavailable
-training boundary, exports two-input ONNX artifacts, gates acceptance,
+finished dataset from a raw tile source, measures and renders a dataset
+evidence bundle, analyzes one training run into a frozen model evidence
+bundle, re-renders verified bundles without re-measuring, runs the
+training loop, exports two-input ONNX artifacts, gates acceptance,
 writes classifier/segmentor pair manifests, and converts artifact
 precision.
 
@@ -50,6 +51,9 @@ precision.
 
 - `--dataset`: finished dataset directory. Required.
 - `--out`: analysis output directory. Required.
+- `--config`: optional `DatasetAnalysisConfig` TOML file. When supplied,
+  the file is loaded strictly and `--dataset`/`--out` override its two
+  path fields; every other setting comes from the file.
 
 `train` options:
 
@@ -101,14 +105,21 @@ precision.
 
 - `--run`: training run directory. Required.
 - `--out`: analysis output directory. Required.
-- `--checkpoint`: checkpoint selector, default `best`.
-- `--final-test` / `--no-final-test`: include the final-test evaluation,
-  default off.
+- `--config`: optional `ModelAnalysisConfig` TOML file. Explicitly
+  supplied options override the loaded file; unsupplied options leave
+  its values alone.
+- `--checkpoint`: checkpoint selector (`best` or `last`).
+- `--final-test` / `--no-final-test`: include the final-test evaluation.
+- `--dataset`: external evaluation-only dataset override.
+- `--batch-size`: rows per evaluation batch.
+- `--device`: torch device, for example `cpu`.
+- `--retention`: capture retention, `COMPACT` or `FULL` (exact case).
 
 `render` options:
 
 - `--evidence`: frozen evidence directory. Required.
 - `--out`: destination figure directory. Required.
+- `--config`: optional `PlotConfig` TOML file for the render.
 
 `main(argv=None) -> int` returns a process exit code.
 
@@ -123,10 +134,24 @@ precision.
    through `apply_train_mapping`, and calls `loop.train`. An `Ok` result
    echoes the run directory path; an `Err` becomes `typer.BadParameter`.
    The train modules import lazily inside the command.
-5. `dataset analyze`, `analyze`, and `render` map their `Result`
-   boundaries to `typer.BadParameter` on `Err`; while the boundaries are
-   unavailable every invocation exits nonzero and creates no output.
-6. `main` runs `app` under the program name `tools.ml_models` and converts
+5. `dataset analyze` loads the optional `--config` TOML (an unreadable
+   or invalid file fails before measurement), applies the
+   `--dataset`/`--out` override, and calls `analyze_dataset`, which
+   measures the dataset, renders figures and preview galleries, and
+   publishes the evidence bundle. An `Ok` echoes the bundle directory;
+   an `Err` becomes `typer.BadParameter`.
+6. `analyze` loads the optional `--config` TOML (an unreadable or
+   invalid file fails before input verification), applies only the
+   explicitly supplied options over the loaded or default
+   `ModelAnalysisConfig`, and calls `analyze_model`, which verifies
+   the run, measures the selected checkpoint, and publishes the frozen
+   evidence bundle. `render` loads the optional `--config` TOML as
+   `PlotConfig` and calls `render_analysis`, which re-renders a
+   verified bundle without re-measuring it. Both map an `Err` result to
+   `typer.BadParameter`; a failure before publication creates no output,
+   while a publication failure retains the reserved directory with an
+   `.incomplete` marker.
+7. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 
 ## Errors and faults

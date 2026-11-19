@@ -2,6 +2,8 @@
 
 Contains:
   - TileRef, TileIndex, location_id_of, build_index.
+  - acquired_at_utc_of, observation_metadata: recorded provenance for one
+    original tile.
   - iter_stacks, to_native_stack.
 
 Image members must sit under exactly one of a ``positive`` or ``negative``
@@ -13,6 +15,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import tarfile
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -20,6 +23,7 @@ from pathlib import Path, PurePosixPath
 
 import numpy as np
 
+from tools.ml_models.dataset.raw import ObservationMetadata
 from tools.ml_models.dataset.sources.zenodo.annotations import (
     parse_polygons as _parse_polygons,
 )
@@ -28,6 +32,10 @@ from tools.ml_models.dataset.sources.zenodo.bins import NATIVE_SIDE
 _GEOTIFF_SUFFIXES = (".tif", ".tiff")
 _LABEL_SUFFIX = "_features.json"
 _SLACK = 2
+_TIMESTAMP_STEM = re.compile(
+    r"[^_\s]+_(?P<timestamp>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]{1,6})?Z)_[0-9]+"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +50,10 @@ class TileRef:
         polygons: Percentage-space ``(V, 2)`` vertices. Empty when the
             annotation file exists and has no smoke polygon. ``None`` when the
             stem has no annotation file.
+        acquired_at_utc: ISO UTC time parsed from a documented
+            ``location_ISO-UTC_index`` stem. None for any other form.
+        annotation_ref: Actual labels-archive member name for the stem,
+            or None when unannotated.
     """
 
     stem: str
@@ -49,6 +61,8 @@ class TileRef:
     positive: bool
     member_name: str
     polygons: tuple[np.ndarray, ...] | None
+    acquired_at_utc: str | None = None
+    annotation_ref: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +87,39 @@ def location_id_of(stem: str) -> str:
         there is no underscore.
     """
     return stem.split("_", 1)[0]
+
+
+def acquired_at_utc_of(stem: str) -> str | None:
+    """Parse only the documented location_ISO-UTC_index filename convention.
+
+    Invalid dates and unsupported forms remain unavailable, including synthetic
+    hyphen-separated times. This does not assign weather, season or conditions.
+    """
+    matched = _TIMESTAMP_STEM.fullmatch(stem)
+    if matched is None:
+        return None
+    timestamp = matched.group("timestamp")
+    try:
+        ObservationMetadata(acquired_at_utc=timestamp)
+    except ValueError:
+        return None
+    return timestamp
+
+
+def observation_metadata(tile: TileRef) -> ObservationMetadata:
+    """Retain one original stem and source annotation evidence across all GSD variants."""
+    return ObservationMetadata(
+        observation_id=tile.stem,
+        acquired_at_utc=tile.acquired_at_utc,
+        annotation_source=tile.annotation_ref,
+        source_annotation_state=(
+            "MISSING"
+            if tile.polygons is None
+            else "NONEMPTY"
+            if tile.polygons
+            else "EXPLICIT_EMPTY"
+        ),
+    )
 
 
 def _annotation_stem(name: str) -> str:
@@ -103,6 +150,7 @@ def build_index(images_tar: Path, labels_tar: Path) -> TileIndex:
     if not labels_tar.is_file():
         raise FileNotFoundError(labels_tar)
     polygons_by_stem: dict[str, tuple[np.ndarray, ...]] = {}
+    annotation_refs: dict[str, str] = {}
     with tarfile.open(labels_tar, "r:*") as archive:
         for member in archive:
             if not member.isfile() or not member.name.endswith(".json"):
@@ -111,7 +159,9 @@ def build_index(images_tar: Path, labels_tar: Path) -> TileIndex:
             if extracted is None:
                 continue
             payload = json.loads(extracted.read().decode("utf-8"))
-            polygons_by_stem[_annotation_stem(member.name)] = _parse_polygons(payload)
+            stem = _annotation_stem(member.name)
+            polygons_by_stem[stem] = _parse_polygons(payload)
+            annotation_refs[stem] = member.name
     seen: set[str] = set()
     tiles: list[TileRef] = []
     with tarfile.open(images_tar, "r:*") as archive:
@@ -143,6 +193,8 @@ def build_index(images_tar: Path, labels_tar: Path) -> TileIndex:
                     positive=positive,
                     member_name=member.name,
                     polygons=polygons,
+                    acquired_at_utc=acquired_at_utc_of(stem),
+                    annotation_ref=annotation_refs.get(stem),
                 )
             )
     return TileIndex(tiles=tuple(tiles))

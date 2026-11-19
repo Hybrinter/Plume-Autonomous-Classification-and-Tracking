@@ -10,7 +10,7 @@ Satisfies: REQ-AIML-HIGH-004.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import numpy.typing as npt
@@ -446,7 +446,11 @@ def _pixel_curves(
     return metrics, tuple(curves), tuple(outputs)
 
 
-def aggregate_segmentation(rows: tuple[SegmentationRow, ...]) -> Result[SegmentationEvidence, str]:
+def aggregate_segmentation(
+    rows: tuple[SegmentationRow, ...],
+    *,
+    histogram: PixelHistogram | None = None,
+) -> Result[SegmentationEvidence, str]:
     """Aggregate whole-image records independently of batch grouping or spatial size."""
     if not rows:
         return Err("segmentation aggregation requires annotated images")
@@ -642,7 +646,7 @@ def aggregate_segmentation(rows: tuple[SegmentationRow, ...]) -> Result[Segmenta
                 aggregation="truth_class_pixel_weighted_image_means",
             )
         )
-    histogram = _merge_histograms(rows)
+    histogram = histogram if histogram is not None else _merge_histograms(rows)
     histogram_metrics, curves, outputs = _pixel_curves(histogram, pixel_support)
     metrics.extend(histogram_metrics)
     threshold_ious: list[float | None] = []
@@ -672,3 +676,26 @@ def aggregate_segmentation(rows: tuple[SegmentationRow, ...]) -> Result[Segmenta
         )
     )
     return Ok(SegmentationEvidence(tuple(metrics), curves, support, histogram, outputs))
+
+
+class SegmentationAccumulator:
+    """Keep one pooled histogram plus scalar image records, never per-image bin arrays."""
+
+    def __init__(self) -> None:
+        self._rows: list[SegmentationRow] = []
+        self._histogram: PixelHistogram | None = None
+
+    def add(self, row: SegmentationRow) -> Result[None, str]:
+        """Accumulate validated image statistics with one common scoring convention."""
+        if self._rows and row.score_config != self._rows[0].score_config:
+            return Err("segmentation rows disagree on scoring settings")
+        if self._histogram is None:
+            self._histogram = row.histogram
+        else:
+            self._histogram = _merge_histograms((replace(row, histogram=self._histogram), row))
+        self._rows.append(replace(row, histogram=PixelHistogram((), (), (), (), (), ())))
+        return Ok(None)
+
+    def result(self) -> Result[SegmentationEvidence, str]:
+        """Aggregate the scalar records against their one pooled histogram."""
+        return aggregate_segmentation(tuple(self._rows), histogram=self._histogram)

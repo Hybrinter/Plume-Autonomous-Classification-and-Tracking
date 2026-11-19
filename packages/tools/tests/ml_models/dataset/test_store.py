@@ -1,7 +1,9 @@
 """Tests for rows.jsonl decode and the schema-1 field defaults."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -173,3 +175,149 @@ def test_unknown_and_missing_keys_rejected(tmp_path: Path) -> None:
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="keys"):
         read_rows(tmp_path / "shard")
+
+
+def test_metadata_and_prepared_state_round_trip(tmp_path: Path) -> None:
+    """Observation metadata and the prepared mask state survive the codec."""
+    from tools.ml_models.dataset.raw import ConditionTag, ObservationMetadata
+
+    row = RowRecord(
+        tile_id="t0",
+        group_id="g0",
+        frame_id=None,
+        grid_rc=None,
+        bin_id="low",
+        element="rot90",
+        metadata=ObservationMetadata(
+            observation_id="obs",
+            acquired_at_utc="2020-02-29T10:56:41Z",
+            conditions=(ConditionTag(name="weather", value="recorded-clear"),),
+            annotation_source="labels/obs.json",
+            annotation_version="rev2",
+            source_annotation_state="NONEMPTY",
+        ),
+        prepared_mask_state="EMPTY",
+    )
+    path = _write_one_row(tmp_path / "shard", row)
+    payload = json.loads(path.read_text(encoding="utf-8").strip())
+    assert payload["metadata"]["observation_id"] == "obs"
+    assert payload["metadata"]["acquired_at_utc"] == "2020-02-29T10:56:41Z"
+    assert payload["prepared_mask_state"] == "EMPTY"
+    loaded = read_rows(tmp_path / "shard")
+    assert loaded[0] == row
+
+
+def test_schema2_rows_decode_with_unknown_metadata(tmp_path: Path) -> None:
+    """Schema-2 rows without the new fields decode as fully unknown."""
+    from tools.ml_models.dataset.raw import ObservationMetadata
+
+    row = RowRecord(
+        tile_id="t0",
+        group_id="g0",
+        frame_id="f0",
+        grid_rc=(0, 0),
+        bin_id="",
+        element="id",
+    )
+    path = _write_one_row(tmp_path / "shard", row)
+    payload = json.loads(path.read_text(encoding="utf-8").strip())
+    del payload["metadata"]
+    del payload["prepared_mask_state"]
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    loaded = read_rows(tmp_path / "shard")
+    assert loaded[0].metadata == ObservationMetadata()
+    assert loaded[0].metadata.observation_id is None
+    assert loaded[0].metadata.source_annotation_state == "UNKNOWN"
+    assert loaded[0].prepared_mask_state == "UNKNOWN"
+
+
+def test_metadata_and_state_are_strictly_validated(tmp_path: Path) -> None:
+    """Malformed metadata or a bad prepared state is rejected on read."""
+    row = RowRecord(
+        tile_id="t0",
+        group_id="g0",
+        frame_id=None,
+        grid_rc=None,
+        bin_id="",
+        element="id",
+    )
+    path = _write_one_row(tmp_path / "shard", row)
+    original = json.loads(path.read_text(encoding="utf-8").strip())
+    bad_metadata: list[object] = [
+        None,
+        "obs",
+        {"observation_id": "obs", "extra": 1},
+        {"observation_id": ""},
+        {"observation_id": "obs", "acquired_at_utc": "2020-01-01T00-00-00.000Z"},
+        {"observation_id": "obs", "acquired_at_utc": "yesterday"},
+        {"observation_id": "obs", "conditions": [{"name": "weather", "value": 1}]},
+        {
+            "observation_id": "obs",
+            "conditions": [
+                {"name": "weather", "value": "clear"},
+                {"name": "weather", "value": "cloudy"},
+            ],
+        },
+        {"observation_id": "obs", "source_annotation_state": "PARTIAL"},
+    ]
+    for bad in bad_metadata:
+        payload = dict(original)
+        payload["metadata"] = bad
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        with pytest.raises(ValueError):
+            read_rows(tmp_path / "shard")
+    for bad_state in (None, "PARTIAL", "nonempty", 1):
+        payload = dict(original)
+        payload["prepared_mask_state"] = bad_state
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        with pytest.raises(ValueError):
+            read_rows(tmp_path / "shard")
+
+
+def test_metadata_write_boundary_is_validated(tmp_path: Path) -> None:
+    """An invalid metadata value or state fails when the rows are serialized."""
+    from tools.ml_models.dataset.raw import ObservationMetadata
+
+    image = np.zeros((3, 4, 8), dtype=np.float32)
+    gsd = np.array([10.0, 20.0], dtype=np.float32)
+    row = RowRecord(
+        tile_id="t0",
+        group_id="g0",
+        frame_id=None,
+        grid_rc=None,
+        bin_id="",
+        element="id",
+    )
+    bad = ObservationMetadata(source_annotation_state="MISSING")
+    object.__setattr__(bad, "source_annotation_state", "BOGUS")
+    writer = ShardWriter(tmp_path / "a", 1, 4, 8, channels=3, with_masks=False)
+    writer.append(image, gsd, 0.0, None, replace(row, metadata=bad))
+    with pytest.raises(ValueError):
+        writer.close()
+    writer.abort()
+    writer = ShardWriter(tmp_path / "b", 1, 4, 8, channels=3, with_masks=False)
+    writer.append(image, gsd, 0.0, None, replace(row, prepared_mask_state=cast(Any, "bogus")))
+    with pytest.raises(ValueError):
+        writer.close()
+    writer.abort()
+
+
+def test_metadata_change_alters_dataset_hash(tmp_path: Path) -> None:
+    """Mutating only the metadata row field changes the content hash."""
+    from tools.ml_models.dataset.manifest import compute_dataset_hash
+    from tools.ml_models.dataset.raw import ObservationMetadata
+
+    base = RowRecord(
+        tile_id="t0",
+        group_id="g0",
+        frame_id=None,
+        grid_rc=None,
+        bin_id="",
+        element="id",
+    )
+    _write_one_row(tmp_path / "a", base)
+    _write_one_row(
+        tmp_path / "b",
+        replace(base, metadata=ObservationMetadata(observation_id="obs")),
+    )
+    assert compute_dataset_hash(tmp_path / "a") != compute_dataset_hash(tmp_path / "b")

@@ -31,6 +31,7 @@ from tools.ml_models.analysis.contracts import (
     SplitEvidence,
 )
 from tools.ml_models.analysis.summaries import DatasetSummary, ModelTrainingSummary
+from tools.ml_models.dataset.manifest import SCHEMA_VERSION
 
 _HEX_A = "a" * 64
 _HEX_B = "b" * 64
@@ -96,7 +97,7 @@ def test_dataset_identity_from_manifest(
     assert identity.manifest_hash == hashlib.sha256(before_bytes).hexdigest()
     assert len(identity.content_hash) == 64
     assert identity.manifest_hash != identity.content_hash
-    assert identity.schema_version == 2
+    assert identity.schema_version == SCHEMA_VERSION
     assert identity.source == "fixture"
     assert identity.gsd_reference_m > 0
     assert manifest_path.read_bytes() == before_bytes

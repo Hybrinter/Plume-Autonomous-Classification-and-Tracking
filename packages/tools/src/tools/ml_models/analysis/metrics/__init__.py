@@ -5,10 +5,10 @@ Contains:
   - inputs: validated binary score/label vectors and stable transforms.
   - classifier: binary counts, ranking, and operating curves.
   - calibration: Brier, reliability bins, and ECE diagnostics.
-  - segmentation: overlap, pixel, area, and loss records (scaffold).
-  - localization: component matching and localization records (scaffold).
-  - boundary: boundary distances and tolerance scores (scaffold).
-  - generalization: strata and group-level uncertainty (scaffold).
-
-Only classifier, calibration, inputs, and definitions are implemented.
+  - segmentation: per-image overlap/area/loss rows and pixel diagnostics.
+  - localization: component matching and miss-inclusive success curves.
+  - boundary: boundary distances and inclusive tolerance scores.
+  - spatial: shared localization/boundary rows and frozen aggregation.
+  - generalization: captured-cohort strata, train-only baselines, and
+    recorded-group bootstrap intervals.
 """

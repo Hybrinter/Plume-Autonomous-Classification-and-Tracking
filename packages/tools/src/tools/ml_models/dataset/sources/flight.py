@@ -17,8 +17,9 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 from flight.libs.config import InferenceConfig
@@ -31,8 +32,17 @@ from flight.payload.preprocess.tile_product import (
     validate_layout,
     validate_unit_tile,
 )
+from pydantic import TypeAdapter
 
-from tools.ml_models.dataset.raw import BinSpec, GsdPair, RawTile, RawTileRef
+from tools.ml_models.dataset.raw import (
+    BinSpec,
+    GsdPair,
+    ObservationMetadata,
+    RawTile,
+    RawTileRef,
+)
+
+_OBSERVATION_METADATA = TypeAdapter(ObservationMetadata)
 
 SCHEMA_VERSION = UNIT_TILE_SOURCE_SCHEMA
 _DEFAULT = InferenceConfig()
@@ -63,7 +73,7 @@ _INDEX_REQUIRED: tuple[str, ...] = (
     "gsd_lateral_m",
     "gsd_along_m",
 )
-_INDEX_OPTIONAL: tuple[str, ...] = ("group_id", "gsd_nominal")
+_INDEX_OPTIONAL: tuple[str, ...] = ("group_id", "gsd_nominal", "metadata")
 _ELEVATION_BINS: tuple[int, ...] = (5, 15, 25, 35, 45)
 
 
@@ -85,6 +95,9 @@ class FlightTileWrite:
         group_id: Split group. None stores ``frame_id``.
         gsd_nominal: True when ``gsd`` is nominal orbit geometry rather than
             measured capture geometry.
+        metadata: Authoritative observation provenance. ``observation_id``
+            must be the original ``tile_id`` or None; the reader fills None
+            with ``tile_id``. Dates stay None unless explicitly recorded.
     """
 
     tile_id: str
@@ -98,6 +111,7 @@ class FlightTileWrite:
     mask: np.ndarray | None = None
     group_id: str | None = None
     gsd_nominal: bool = False
+    metadata: ObservationMetadata = field(default_factory=ObservationMetadata)
 
 
 def write_flight_tile_dir(
@@ -184,6 +198,7 @@ def write_flight_tile_dir(
                     "gsd_lateral_m": tile.gsd.lateral_m,
                     "gsd_along_m": tile.gsd.along_m,
                     "gsd_nominal": tile.gsd_nominal,
+                    "metadata": _metadata_payload(tile.metadata),
                 },
                 separators=(",", ":"),
             )
@@ -338,6 +353,58 @@ def _validate_write(tile: FlightTileWrite, layout: UnitTileLayout, seen: set[str
             raise ValueError("mask must contain binary pixels")
     if tile.group_id is not None and not tile.group_id:
         raise ValueError("group_id must be non-empty when set")
+    if not isinstance(tile.metadata, ObservationMetadata):
+        raise ValueError("metadata must be an ObservationMetadata")
+    if tile.metadata.observation_id not in (None, tile.tile_id):
+        raise ValueError(
+            f"metadata observation_id must equal the original tile_id {tile.tile_id!r}"
+        )
+
+
+def _metadata_payload(metadata: ObservationMetadata) -> dict[str, object]:
+    """Serialize validated observation metadata for ``index.jsonl``.
+
+    Args:
+        metadata: Metadata attached to the tile.
+
+    Returns:
+        dict[str, object]: JSON object form.
+
+    Raises:
+        ValueError: If the value is not a valid ObservationMetadata.
+    """
+    try:
+        validated = _OBSERVATION_METADATA.validate_python(asdict(metadata))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"metadata is invalid: {exc}") from exc
+    return cast(
+        dict[str, object],
+        _OBSERVATION_METADATA.dump_python(validated, mode="json"),
+    )
+
+
+def _index_metadata(value: object, tile_id: str) -> ObservationMetadata:
+    """Parse one present ``metadata`` index field.
+
+    Args:
+        value: JSON value under the ``metadata`` key.
+        tile_id: Original tile id used when no observation_id is recorded.
+
+    Returns:
+        ObservationMetadata: Parsed metadata with a non-null observation_id.
+
+    Raises:
+        ValueError: If the value is malformed or names a different tile.
+    """
+    try:
+        metadata = _OBSERVATION_METADATA.validate_python(value)
+    except ValueError as exc:
+        raise ValueError(f"index.jsonl metadata is invalid: {exc}") from exc
+    if metadata.observation_id is None:
+        return replace(metadata, observation_id=tile_id)
+    if metadata.observation_id != tile_id:
+        raise ValueError(f"index.jsonl metadata observation_id must equal tile_id {tile_id!r}")
+    return metadata
 
 
 def _mask_hw(mask: np.ndarray, height: int, width: int) -> np.ndarray:
@@ -436,6 +503,11 @@ def _load_index(path: Path, layout: UnitTileLayout) -> tuple[RawTileRef, ...]:
                 bin_id=f"elevation{nearest}",
                 theta_g_deg=theta_g_deg,
                 gsd_nominal=gsd_nominal,
+                metadata=(
+                    ObservationMetadata(observation_id=tile_id)
+                    if "metadata" not in raw
+                    else _index_metadata(raw["metadata"], tile_id)
+                ),
             )
         )
     if not refs:

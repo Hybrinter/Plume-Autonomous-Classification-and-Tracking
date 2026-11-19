@@ -2,38 +2,42 @@
 
 **Source:** `packages/tools/src/tools/ml_models/analysis/metrics/`
 **Kind:** package
-**Status:** stub
 
 ## Purpose
 
-The metrics package is the scaffold for deterministic pure metric cores
-and their declarative definitions. Every submodule is unimplemented and
-no metric algorithm executes yet.
+The metrics package holds deterministic pure metric cores and their
+declarative definitions. The classifier, calibration, definitions,
+inputs, segmentation, localization, boundary, spatial, and
+generalization modules are implemented.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`definitions`](metrics/definitions.md) | module | Metric names, validity, aggregation, and unit metadata (scaffold) |
-| [`classifier`](metrics/classifier.md) | module | Binary counts, ranking, and operating curves (scaffold) |
-| [`segmentation`](metrics/segmentation.md) | module | Overlap, pixel, area, and loss records (scaffold) |
-| [`calibration`](metrics/calibration.md) | module | Brier, reliability, and ECE diagnostics (scaffold) |
-| [`localization`](metrics/localization.md) | module | Component matching and localization records (scaffold) |
-| [`boundary`](metrics/boundary.md) | module | Boundary distances and tolerance scores (scaffold) |
-| [`generalization`](metrics/generalization.md) | module | Strata and group-level uncertainty (scaffold) |
+| [`definitions`](metrics/definitions.md) | module | Metric names, directions, formulas, and limitation metadata |
+| [`inputs`](metrics/inputs.md) | module | Validated binary score/label vectors and stable transforms |
+| [`classifier`](metrics/classifier.md) | module | Binary counts, ranking, and operating curves |
+| [`calibration`](metrics/calibration.md) | module | Brier, reliability bins, and ECE diagnostics |
+| [`segmentation`](metrics/segmentation.md) | module | Per-image overlap/area/loss rows and bounded pixel diagnostics |
+| [`localization`](metrics/localization.md) | module | Component matching, conditional errors, and success curves |
+| [`boundary`](metrics/boundary.md) | module | Boundary distances and tolerance scores |
+| [`spatial`](metrics/spatial.md) | module | Shared per-image localization/boundary rows and frozen aggregation |
+| [`generalization`](metrics/generalization.md) | module | Captured-cohort strata, train-only baselines, and recorded-group bootstrap intervals |
 
 ## Package interface
 
 `tools.ml_models.analysis.metrics.__init__` carries a module docstring
-only.
+only; callers import the concrete submodule APIs.
 
 ## Interactions
 
-None yet.
+`classifier` composes `inputs` validation and `calibration` scoring;
+`definitions` is standalone metadata. No orchestrator invokes these
+cores yet.
 
 ## Constraints
 
-- Metric cores will be pure functions over passed values; no I/O or
+- Metric cores are pure functions over passed values; no I/O or
   inference lives here.
 
 ## Related documents

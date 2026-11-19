@@ -12,7 +12,8 @@ dataset, and the content hash over its shard files.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SCHEMA_VERSION` | constant | Manifest schema version, 2 |
+| `SCHEMA_VERSION` | constant | Manifest schema version, 3 |
+| `SUPPORTED_SCHEMA_VERSIONS` | constant | Readable manifest versions, `(2, 3)` |
 | `BinRecord` | class | One named GSD bin row |
 | `ShardCount` | class | Row count for one task, split, and spatial size |
 | `DatasetManifest` | class | Parsed `dataset.json` identity |
@@ -38,10 +39,13 @@ parent directory.
 
 1. The hash digests `relative_posix_path:file_sha256` lines in sorted path
    order. Each file is read in 8 MiB chunks. `dataset.json` is excluded.
-2. `DatasetManifest` requires schema 2, `norm` `unit`, `image_dtype`
+2. `DatasetManifest` requires a schema in `SUPPORTED_SCHEMA_VERSIONS`,
+   `norm` `unit`, `image_dtype`
    `float32`, a non-empty band list, at least one shard count, finite
    ordered GSD min/max ranges, a finite positive `gsd_reference_m`, and a
-   64-character `dataset_hash`. A schema other than 2 is rejected.
+   64-character `dataset_hash`. A schema other than 2 or 3 is rejected.
+   Schema 3 adds per-row `metadata` and `prepared_mask_state`; schema-2
+   datasets read without those fields.
 3. `ShardCount` requires `n` at least 1, a positive size, and
    `n_positive` in `0..n`.
 
@@ -50,7 +54,8 @@ parent directory.
 `FileNotFoundError` when `compute_dataset_hash` finds no files.
 `OSError` / `json.JSONDecodeError` on a missing or malformed file.
 `ValueError` when the payload fails the schema, the `schema` key is
-absent or a version other than 2, or the recomputed hash differs.
+absent or a version outside `SUPPORTED_SCHEMA_VERSIONS`, or the
+recomputed hash differs.
 
 ## Messages
 
@@ -58,9 +63,10 @@ None.
 
 ## Configuration
 
-`SCHEMA_VERSION` is 2. The schema uses pydantic dataclasses with extra
-keys forbidden. `split` and `augment` reuse the `SplitRecipe` and
-`AugmentRecipe` types.
+`SCHEMA_VERSION` is 3; `SUPPORTED_SCHEMA_VERSIONS` is `(2, 3)` and
+`load_manifest` never rewrites an older file. The schema uses pydantic
+dataclasses with extra keys forbidden. `split` and `augment` reuse the
+`SplitRecipe` and `AugmentRecipe` types.
 
 ## Constraints
 

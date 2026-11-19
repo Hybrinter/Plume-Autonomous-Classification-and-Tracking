@@ -14,12 +14,16 @@ digest.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `TrainConfig` | dataclass | Training paths and optimizer controls |
+| `validation_metric` | function | Resolve defaults and legacy aliases to scoring names |
 | `load_train_config` | function | Strict flat TOML load, or defaults |
 | `apply_train_mapping` | function | Validated field overlay |
 | `config_digest` | function | SHA-256 prefix over experiment fields |
 | `write_train_config_toml` | function | Flat TOML writer |
 
 ## Inputs and outputs
+
+`validation_metric(kind, name="") -> str` maps the empty default and
+legacy aliases to a defined scoring name, leaving other names unchanged.
 
 `load_train_config(path=None) -> TrainConfig`. A path reads strict flat
 TOML; unknown keys fail.
@@ -48,9 +52,14 @@ field, omitting None values.
 6. `loss` is `bce`, `dice`, `bce_dice`, `focal`, or `focal_dice`;
    `focal_gamma` is nonnegative, `focal_alpha` lies in `[0, 1]`, and
    `pos_weight` is nonnegative.
-7. `val_metric` is empty or a metric valid for the kind: classifier
-   metrics include `f1`, `brier`, and `bce`; segmentor metrics include
-   `mean_iou`, `mean_dice`, `mean_iou_blob_gate`, and `bce`.
+7. `val_metric` resolves through `validation_metric` before validation:
+   the empty default selects `average_precision` for a classifier and
+   `foreground_iou_mean_positive_images` for a segmentor; legacy aliases
+   `pr_auc`, `bce`, `brier`, `mean_iou`, and `mean_dice` map to the
+   defined scoring names. The resolved name must appear in the kind's
+   allowed set and in `metric_definition`.
+8. `selected_checkpoint` is `best` or `last`; `gradient_diagnostics` and
+   `amp_diagnostics` enable the optional step-record fields.
 
 ## Errors and faults
 

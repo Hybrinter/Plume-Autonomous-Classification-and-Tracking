@@ -30,8 +30,9 @@ source_ref="", gsd_reference_m=...)` creates `dest` with `source.json`,
 `domain` is `unit`, and `image_dtype` is `float32`. An `index.jsonl` row
 carries `tile_id`, `frame_id`,
 `row`, `col`, `group_id`, `label`, `has_mask`, `theta_g_deg`,
-`gsd_lateral_m`, `gsd_along_m`, and the optional boolean `gsd_nominal`
-(default False).
+`gsd_lateral_m`, `gsd_along_m`, the optional boolean `gsd_nominal`
+(default False), and the optional `metadata` object
+(`ObservationMetadata`).
 
 `FlightTileDir(root)` exposes `name` `flight`, `domain` `unit`, empty
 `bins`, `band_names`, `tile_hw`, `grid`, `gsd_reference_m`, a validated
@@ -57,7 +58,16 @@ checking it against the recorded `(len(band_names), H, W)` shape.
    and free of path separators. `row` and `col` must be within the recorded
    flight grid. A `label` is finite and exactly 0 or 1; no prediction is
    thresholded into a label.
-4. A missing `group_id` in `index.jsonl` defaults to `frame_id`.
+4. A missing `group_id` in `index.jsonl` defaults to `frame_id`. A
+   `metadata` field on `FlightTileWrite` must be a valid
+   `ObservationMetadata` whose `observation_id` is None or equals the
+   original `tile_id`; the writer validates and serializes it. On read,
+   a missing `metadata` field decodes to `observation_id` equal to
+   `tile_id` with everything else unset; a present field is validated,
+   a null `observation_id` is filled with `tile_id`, and a conflicting
+   `observation_id` is rejected. Dates and conditions stay None unless
+   explicitly recorded; a flight tile is one unit source observation, so
+   group or frame ids are never reassigned as the observation id.
 5. `grid_rc` is the `(row, col)` pair. `theta_g_deg` passes through to
    the ref, and `bin_id` is `elevation{nearest}` for the nearest of
    (5, 15, 25, 35, 45) degrees, ties choosing the smaller value.
@@ -75,7 +85,8 @@ wrong mask dtype or shape, an
 empty `group_id`, a malformed `source.json` or `index.jsonl`, a
 `source.json` schema other than 2, a `domain` or `image_dtype` other than
 `unit` and `float32`, a duplicate
-`tile_id`, an empty index, or a missing or mistyped array file.
+`tile_id`, an empty index, a malformed or tile-id-conflicting `metadata`
+field, or a missing or mistyped array file.
 `OSError` / `json.JSONDecodeError` on a missing or malformed file.
 
 ## Messages

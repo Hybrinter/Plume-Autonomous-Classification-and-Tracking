@@ -15,15 +15,15 @@ row formatters).
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`contracts`](analysis/contracts.md) | module | Sample-key, metric, and split-evidence records |
-| [`config`](analysis/config.md) | module | Analysis, evaluation, and plot config records |
-| [`artifacts`](analysis/artifacts.md) | module | Versioned codecs and publication (scaffold) |
+| [`contracts`](analysis/contracts.md) | module | Strict sample-key, metric, curve, and identity records |
+| [`config`](analysis/config.md) | module | Strict config records, TOML codecs, and digests |
+| [`artifacts`](analysis/artifacts.md) | module | Versioned codecs, identities, publication, and typed tables |
 | [`capture`](analysis/capture.md) | module | Prediction/evidence sink protocol |
 | [`evaluate`](analysis/evaluate.md) | module | Split-evaluation boundary (unavailable) |
 | [`dataset`](analysis/dataset.md) | module | Dataset-analysis boundary (unavailable) |
 | [`training`](analysis/training.md) | module | History analysis (scaffold) |
 | [`model`](analysis/model.md) | module | Model-analysis boundary (unavailable) |
-| [`summaries`](analysis/summaries.md) | module | Canonical summary assembly (scaffold) |
+| [`summaries`](analysis/summaries.md) | module | Tagged versioned summary records |
 | [`cost`](analysis/cost.md) | module | Parameter counting; unavailable FLOP boundary |
 | [`runs`](analysis/runs.md) | module | Unavailable catalog readers; pure formatters |
 | [`pareto`](analysis/pareto.md) | module | Pure frontier/knee helpers; unavailable reader boundary |

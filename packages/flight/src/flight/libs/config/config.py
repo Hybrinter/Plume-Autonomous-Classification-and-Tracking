@@ -76,11 +76,12 @@ class InnerLoopConfig:
 
 @dataclass(frozen=True, config=_SCHEMA)
 class OuterLoopConfig:
-    """Outer rate law period, Kp, and REWIND window before FAST_REWIND promotion."""
+    """Outer rate law period, Kp, REWIND window, and hunt timeout."""
 
     dt_s: float = Field(default=0.020, gt=0.0)
     Kp: float = Field(default=8.0, gt=0.0)  # noqa: N815
     rewind_sharp_max_s: float = Field(default=2.0, ge=0.0)
+    hunt_timeout_s: float = Field(default=30.0, gt=0.0)
 
 
 @dataclass(frozen=True, config=_SCHEMA)

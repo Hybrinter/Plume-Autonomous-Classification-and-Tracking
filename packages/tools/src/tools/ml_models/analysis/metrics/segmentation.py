@@ -134,27 +134,22 @@ def _histogram(
     )
     return PixelHistogram(
         positive_counts=tuple(
-            int(value) for value in np.bincount(rank[target], minlength=cfg.pixel_histogram_bins)
+            np.bincount(rank[target], minlength=cfg.pixel_histogram_bins).tolist()
         ),
         negative_counts=tuple(
-            int(value) for value in np.bincount(rank[~target], minlength=cfg.pixel_histogram_bins)
+            np.bincount(rank[~target], minlength=cfg.pixel_histogram_bins).tolist()
         ),
         probability_sums=tuple(
-            float(value)
-            for value in np.bincount(rank, weights=probability, minlength=cfg.pixel_histogram_bins)
+            np.bincount(rank, weights=probability, minlength=cfg.pixel_histogram_bins).tolist()
         ),
         calibration_counts=tuple(
-            int(value) for value in np.bincount(calibration, minlength=cfg.n_calibration_bins)
+            np.bincount(calibration, minlength=cfg.n_calibration_bins).tolist()
         ),
         calibration_positive_counts=tuple(
-            int(value)
-            for value in np.bincount(calibration[target], minlength=cfg.n_calibration_bins)
+            np.bincount(calibration[target], minlength=cfg.n_calibration_bins).tolist()
         ),
         calibration_probability_sums=tuple(
-            float(value)
-            for value in np.bincount(
-                calibration, weights=probability, minlength=cfg.n_calibration_bins
-            )
+            np.bincount(calibration, weights=probability, minlength=cfg.n_calibration_bins).tolist()
         ),
     )
 
@@ -678,24 +673,65 @@ def aggregate_segmentation(
     return Ok(SegmentationEvidence(tuple(metrics), curves, support, histogram, outputs))
 
 
+def _histogram_arrays(
+    histogram: PixelHistogram,
+) -> tuple[npt.NDArray[np.int64 | np.float64], ...]:
+    """Return the six histogram fields as int64 or float64 arrays, in field order."""
+    return (
+        np.asarray(histogram.positive_counts, dtype=np.int64),
+        np.asarray(histogram.negative_counts, dtype=np.int64),
+        np.asarray(histogram.probability_sums, dtype=np.float64),
+        np.asarray(histogram.calibration_counts, dtype=np.int64),
+        np.asarray(histogram.calibration_positive_counts, dtype=np.int64),
+        np.asarray(histogram.calibration_probability_sums, dtype=np.float64),
+    )
+
+
+def _histogram_from_arrays(
+    arrays: tuple[npt.NDArray[np.int64 | np.float64], ...],
+) -> PixelHistogram:
+    """Return a PixelHistogram of Python ints and floats from ``_histogram_arrays`` order."""
+    pos, neg, prob, cal, cal_pos, cal_prob = arrays
+    return PixelHistogram(
+        positive_counts=tuple(int(v) for v in pos.tolist()),
+        negative_counts=tuple(int(v) for v in neg.tolist()),
+        probability_sums=tuple(float(v) for v in prob.tolist()),
+        calibration_counts=tuple(int(v) for v in cal.tolist()),
+        calibration_positive_counts=tuple(int(v) for v in cal_pos.tolist()),
+        calibration_probability_sums=tuple(float(v) for v in cal_prob.tolist()),
+    )
+
+
 class SegmentationAccumulator:
-    """Keep one pooled histogram plus scalar image records, never per-image bin arrays."""
+    """Keep one pooled histogram plus scalar image records, never per-image bin arrays.
+
+    The pooled histogram is held as six numpy arrays and converted to a
+    ``PixelHistogram`` only in ``result``. Each ``add`` is one array addition
+    per field: integer counts add exactly, and a float sum of two values is
+    the correctly rounded value ``math.fsum`` returns, so the pooled
+    histogram is bit-identical to a pairwise ``_merge_histograms`` fold.
+    """
 
     def __init__(self) -> None:
         self._rows: list[SegmentationRow] = []
-        self._histogram: PixelHistogram | None = None
+        self._sums: tuple[npt.NDArray[np.int64 | np.float64], ...] | None = None
 
     def add(self, row: SegmentationRow) -> Result[None, str]:
         """Accumulate validated image statistics with one common scoring convention."""
         if self._rows and row.score_config != self._rows[0].score_config:
             return Err("segmentation rows disagree on scoring settings")
-        if self._histogram is None:
-            self._histogram = row.histogram
+        arrays = _histogram_arrays(row.histogram)
+        if self._sums is None:
+            self._sums = arrays
         else:
-            self._histogram = _merge_histograms((replace(row, histogram=self._histogram), row))
+            self._sums = tuple(
+                np.add(total, value, dtype=total.dtype)
+                for total, value in zip(self._sums, arrays, strict=True)
+            )
         self._rows.append(replace(row, histogram=PixelHistogram((), (), (), (), (), ())))
         return Ok(None)
 
     def result(self) -> Result[SegmentationEvidence, str]:
         """Aggregate the scalar records against their one pooled histogram."""
-        return aggregate_segmentation(tuple(self._rows), histogram=self._histogram)
+        histogram = None if self._sums is None else _histogram_from_arrays(self._sums)
+        return aggregate_segmentation(tuple(self._rows), histogram=histogram)

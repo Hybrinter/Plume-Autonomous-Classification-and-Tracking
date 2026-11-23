@@ -30,12 +30,12 @@ the phrase in the unknown-token error, such as `pactnet modifier`.
 
 1. Numeric tokens are `w<N>` (width), `d<N>` (depth), `s<N>` (stride), and
    `x<N>` (decoder width).
-2. Flag tokens are `sep`, `full`, and `pt`.
+2. Flag tokens are `sep`, `full`, `pt`, `dual`, and `nodrop`.
 3. `parse_modifiers` honours only the flags that the family sets.
 4. `sep` writes `separable=True`. `full` writes `separable=False`. `pt` writes
-   `pretrained=True`.
+   `pretrained=True`. `dual` writes `dual=True`. `nodrop` writes `nodrop=True`.
 5. Absent numeric tokens stay `None`. Absent `separable` stays `None`. Absent
-   `pt` leaves `pretrained` false.
+   `pt` leaves `pretrained` false, absent `dual` leaves `dual` false, and absent `nodrop` leaves `nodrop` false.
 6. Later tokens of the same kind overwrite earlier ones.
 
 ## Errors and faults

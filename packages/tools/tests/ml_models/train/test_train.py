@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -1082,3 +1083,44 @@ def test_failed_best_copy_keeps_truthful_records(
         == hashlib.sha256((run / "checkpoints" / "last.pt").read_bytes()).hexdigest()
     )
     assert execution.selected == best
+
+
+def test_atomic_write_retries_transient_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rename denied twice (file briefly held open) succeeds on a later attempt."""
+    real_replace = os.replace
+    calls: list[int] = []
+
+    def flaky_replace(source: os.PathLike[str], target: os.PathLike[str]) -> None:
+        calls.append(1)
+        if len(calls) <= 2:
+            raise PermissionError(5, "Access is denied")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", flaky_replace)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    target = tmp_path / "execution.json"
+    target.write_bytes(b"old")
+    loop_mod._atomic_write(target, b"new")
+    assert target.read_bytes() == b"new"
+    assert len(calls) == 3
+    assert [p.name for p in tmp_path.iterdir()] == ["execution.json"]
+
+
+def test_atomic_write_gives_up_after_bounded_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rename that is always denied raises and leaves no temp file behind."""
+
+    def denied(_source: os.PathLike[str], _target: os.PathLike[str]) -> None:
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(os, "replace", denied)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    target = tmp_path / "execution.json"
+    target.write_bytes(b"old")
+    with pytest.raises(PermissionError):
+        loop_mod._atomic_write(target, b"new")
+    assert target.read_bytes() == b"old"
+    assert [p.name for p in tmp_path.iterdir()] == ["execution.json"]

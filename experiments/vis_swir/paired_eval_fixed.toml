@@ -1,0 +1,5 @@
+# Paired VIS+SWIR evaluation build: fixed SWIR mix (band-mapper datasheet-edge
+# weights), same noise model as the training build. Same group split (seed 0).
+id = "vis_swir_paired_estimate_v1_fixed"
+swir_randomize = false
+noise = true

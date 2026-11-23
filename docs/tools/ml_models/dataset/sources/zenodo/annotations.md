@@ -18,17 +18,21 @@ rasterizes them onto a target tile grid.
 ## Inputs and outputs
 
 `parse_polygons(payload)` takes a decoded Label Studio JSON object and
-returns a tuple of float64 `(V, 2)` percent-coordinate polygons. A caller
-uses `None` for a missing annotation file and `()` for an annotation with
-no smoke polygon. `rasterize_percent_mask(polygons, tile_hw, rule="half")`
+returns a tuple of float64 `(V, 2)` percent-coordinate polygons. It
+returns `()` for an annotation with no smoke polygon entry. It returns
+`None` when smoke entries exist but the parser drops all of them. A caller
+also uses `None` for a missing annotation file.
+`rasterize_percent_mask(polygons, tile_hw, rule="half")`
 returns a uint8 `(1, h, w)` mask.
 
 ## Behavior
 
 1. `completions` is a list of objects; each `result` item of type
    `polygonlabels` whose labels include `smoke` contributes its `points`.
-2. Polygon vertices must be finite percent coordinates in `[0, 100]` with
-   at least three points.
+2. Polygon vertices must be finite `(x, y)` percent coordinates in
+   `[0, 100]`. A smoke polygon with fewer than three points, or with an
+   empty `points` list, has no area; the parser drops it. If the parser
+   drops every smoke polygon in the file, the result is `None`, not `()`.
 3. Rasterization supersamples each output cell on a 4-by-4 grid, unions all
    polygons, then thresholds coverage: `half` requires at least half the
    subsamples, `touch` requires any subsample.

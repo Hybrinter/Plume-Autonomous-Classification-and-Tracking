@@ -1,4 +1,10 @@
-"""Label Studio smoke polygons and rectangular mask rasterization."""
+"""Label Studio smoke polygons and rectangular mask rasterization.
+
+Contains:
+  - parse_polygons: smoke polygons from one annotation file; ``None`` when
+    every smoke entry is degenerate.
+  - rasterize_percent_mask: binary mask from percent-coordinate polygons.
+"""
 
 from __future__ import annotations
 
@@ -7,14 +13,33 @@ from collections.abc import Sequence
 import numpy as np
 
 
-def parse_polygons(payload: object) -> tuple[np.ndarray, ...]:
+def parse_polygons(payload: object) -> tuple[np.ndarray, ...] | None:
     """Read smoke polygons in percent coordinates, preserving annotated negatives.
 
-    A caller uses None for missing annotation files, and () for empty files.
+    Args:
+        payload: Decoded Label Studio JSON for one annotation file.
+
+    Returns:
+        tuple[np.ndarray, ...] | None: Each kept polygon is float64 ``(V, 2)``
+        with ``V >= 3``. ``()`` when the file has no smoke ``polygonlabels``
+        entry (an annotated negative). ``None`` when smoke entries exist but
+        none is kept, so the file gives no usable geometry.
+
+    Raises:
+        ValueError: On a malformed payload, or on smoke vertices that are not
+            (x, y) pairs, are non-finite, or lie outside 0-100 percent.
+
+    Notes:
+        An empty ``points`` list or a polygon with fewer than three vertices
+        has no area and is dropped; the corpus contains stray single-click
+        polygons. Such an entry still counts as a smoke entry, so a file whose
+        smoke entries are all dropped returns ``None``, not ``()``. Callers
+        also use ``None`` for a stem with no annotation file.
     """
     if not isinstance(payload, dict):
         raise ValueError("annotation must be a JSON object")
     polygons: list[np.ndarray] = []
+    smoke_seen = False
     completions = payload.get("completions", [])
     if not isinstance(completions, list):
         raise ValueError("annotation completions must be a list")
@@ -27,17 +52,19 @@ def parse_polygons(payload: object) -> tuple[np.ndarray, ...]:
             value = result.get("value", {})
             if not isinstance(value, dict) or "smoke" not in value.get("polygonlabels", []):
                 continue
+            smoke_seen = True
             points = np.asarray(value.get("points", []), dtype=np.float64)
-            if (
-                points.ndim != 2
-                or points.shape[1] != 2
-                or len(points) < 3
-                or not np.all(np.isfinite(points))
-                or np.any(points < 0)
-                or np.any(points > 100)
-            ):
+            if points.size == 0:
+                continue
+            if points.ndim != 2 or points.shape[1] != 2:
+                raise ValueError("smoke polygon vertices must be (x, y) pairs")
+            if not np.all(np.isfinite(points)) or np.any(points < 0) or np.any(points > 100):
                 raise ValueError("smoke polygon must have finite percent-coordinate vertices")
+            if len(points) < 3:
+                continue
             polygons.append(points)
+    if smoke_seen and not polygons:
+        return None
     return tuple(polygons)
 
 

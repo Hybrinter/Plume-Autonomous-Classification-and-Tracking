@@ -185,6 +185,37 @@ def _private_temp(directory: Path, name: str) -> tuple[int, Path]:
     return fd, Path(raw)
 
 
+_REPLACE_ATTEMPTS = 8
+_REPLACE_BASE_DELAY_S = 0.01
+
+
+def _replace_with_retry(source: Path, target: Path) -> None:
+    """Rename ``source`` over ``target``, retrying a transient PermissionError.
+
+    Args:
+        source: Fully written temp file.
+        target: Destination path.
+
+    Raises:
+        PermissionError: If every attempt is denied.
+
+    Notes:
+        On Windows a rename over a file that another process holds open (an
+        antivirus or indexer scanning the previous version) fails with access
+        denied for a few milliseconds. ``execution.json`` is rewritten on every
+        step, so a rare lock would otherwise fail a long run. Seven sleeps double
+        from 10 ms; the total wait is about 1.3 s before the last error propagates.
+    """
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_BASE_DELAY_S * 2**attempt)
+
+
 def _atomic_write(path: Path, payload: bytes) -> None:
     """Replace ``path`` with ``payload`` through a private temp file."""
     fd, temporary = _private_temp(path.parent, path.name)
@@ -193,7 +224,7 @@ def _atomic_write(path: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        _replace_with_retry(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -208,7 +239,7 @@ def _save_checkpoint(path: Path, payload: dict[str, object]) -> None:
             torch.save(payload, handle)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        _replace_with_retry(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -222,7 +253,7 @@ def _copy_file(source: Path, destination: Path) -> None:
                 shutil.copyfileobj(reader, handle)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, destination)
+        _replace_with_retry(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
 

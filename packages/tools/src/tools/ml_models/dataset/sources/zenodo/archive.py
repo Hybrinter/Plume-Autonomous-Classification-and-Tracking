@@ -49,11 +49,13 @@ class TileRef:
         member_name: Path of the image inside the image archive.
         polygons: Percentage-space ``(V, 2)`` vertices. Empty when the
             annotation file exists and has no smoke polygon. ``None`` when the
-            stem has no annotation file.
+            stem has no annotation file, or when every smoke polygon in its
+            file has fewer than three vertices.
         acquired_at_utc: ISO UTC time parsed from a documented
             ``location_ISO-UTC_index`` stem. None for any other form.
         annotation_ref: Actual labels-archive member name for the stem,
-            or None when unannotated.
+            or None when the stem has no annotation file. A file whose smoke
+            polygons are all degenerate keeps its member name here.
     """
 
     stem: str
@@ -149,7 +151,7 @@ def build_index(images_tar: Path, labels_tar: Path) -> TileIndex:
         raise FileNotFoundError(images_tar)
     if not labels_tar.is_file():
         raise FileNotFoundError(labels_tar)
-    polygons_by_stem: dict[str, tuple[np.ndarray, ...]] = {}
+    polygons_by_stem: dict[str, tuple[np.ndarray, ...] | None] = {}
     annotation_refs: dict[str, str] = {}
     with tarfile.open(labels_tar, "r:*") as archive:
         for member in archive:

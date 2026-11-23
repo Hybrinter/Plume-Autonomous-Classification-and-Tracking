@@ -15,6 +15,7 @@ split, augmented shards plus a `dataset.json` manifest.
 | `build_dataset` | function | Build a dataset from any `RawSource` |
 | `build_flight` | function | Build from a labeled flight tile directory |
 | `build_zenodo` | function | Build from the Zenodo 4250706 archives |
+| `build_zenodo_paired` | function | Build paired BLUE, GREEN, RED, SWIR rows from the Zenodo archives |
 
 ## Inputs and outputs
 
@@ -32,6 +33,13 @@ bins=None) -> DatasetManifest`. `bins` selects GSD bins; `None` emits
 `DEFAULT_BINS`. The weight table id is recorded on
 `spec.weight_table_id`; a non-empty spec id that disagrees with the table
 is rejected. Zenodo imports are lazy inside the wrapper.
+
+`build_zenodo_paired(images_tar, labels_tar, weights_path, dest,
+spec=None, paired_config_path=None) -> DatasetManifest` builds through
+`ZenodoPairedSource`. `paired_config_path` is a `PairedConfig` TOML; `None`
+uses the defaults. The recorded `weight_table_id` is
+`<VIS table id>+<paired config id>`; a non-empty spec id that disagrees is
+rejected.
 
 ## Behavior
 
@@ -75,8 +83,8 @@ is rejected. Zenodo imports are lazy inside the wrapper.
 ## Errors and faults
 
 `FileExistsError` when `dest` exists before or during the build.
-`FileNotFoundError` from `build_zenodo` when an archive or the weight
-table is missing. `ValueError` on a band or domain mismatch, an empty
+`FileNotFoundError` from `build_zenodo` or `build_zenodo_paired` when an
+archive or the weight table is missing. `ValueError` on a band or domain mismatch, an empty
 index, a duplicate or empty `tile_id`, an empty `group_id`, a non-finite
 or non-positive GSD, a non-binary label, a non-positive indexed size,
 an empty legal-element intersection, a stream that disagrees with the

@@ -16,7 +16,7 @@ object is constructed.
 | `OperateGraphConfig` | class | TRACKING / REWIND / FAST_REWIND / HOLD persistence, limb arrival, and observation-age ceiling |
 | `VisionConfig` | class | Blob gates and in-process vision queue depth |
 | `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
-| `OuterLoopConfig` | class | Outer period, Kp, and REWIND window before FAST_REWIND |
+| `OuterLoopConfig` | class | Outer period, Kp, REWIND window before FAST_REWIND, and hunt timeout |
 | `PredictorConfig` | class | CoG/boresight intersect tracking proxy height |
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
@@ -83,7 +83,7 @@ Nested tables under `[controller]`:
   `queue_depth`
 - `operate`: `release_persistence_frames`, `max_observation_age_s`, `limb_arrival_deg`
 - `inner`: `dt_s`, `rate_fit_n`, `rate_fit_degree`, `kp`, `ki`, `tau_cl_s`
-- `outer`: `dt_s`, `Kp`, `rewind_sharp_max_s`
+- `outer`: `dt_s`, `Kp`, `rewind_sharp_max_s`, `hunt_timeout_s`
 - `predictor`: `cog_height_m`
 - `residual`: `Q_diag`, `R_v`, `P0_diag`, `rewind_horizon_s`, `rewind_snapshots`
 - `position`: `K_pos`, `r_max_deg_per_s`
@@ -170,6 +170,7 @@ sensor-derived base, then `operate`, then the named node; the
   hardware travel. Plant `J_kg_m2` must be at most `xeryon.payload_inertia_limit_kg_m2`.
 - `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have
   length 2.
+- `hunt_timeout_s` must be greater than `rewind_sharp_max_s`.
 
 ## Related documents
 

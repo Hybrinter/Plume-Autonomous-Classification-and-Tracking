@@ -90,6 +90,36 @@ def test_hold_on_hunt_commits_to_hold(
         assert result.value.state.node is operate.OperateNode.HOLD
 
 
+def test_hold_then_resume_clears_hunt_timeout_latch(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """Leaving a latched hunt by command clears the latch for the next hunt."""
+    angle = math.radians(20.0)
+    state = replace(
+        _tracking(params, tick, key),
+        node=operate.OperateNode.FAST_REWIND,
+        loss_handled=True,
+        rewind_entered_s=0.0,
+        hunt_timeout_latched=True,
+    )
+    held, outcome = operate.step(
+        state,
+        tick(0.02, key, encoder_angle_rad=angle, command=_command(CommandId.GIMBAL_HOLD)),
+        params,
+    )
+    assert held.node is operate.OperateNode.HOLD
+    assert held.hunt_timeout_latched is False
+    assert outcome.transition is not None
+    latched_hold = replace(held, hunt_timeout_latched=True)
+    resumed, _ = operate.step(
+        latched_hold,
+        tick(0.04, key, encoder_angle_rad=angle, command=_command(CommandId.GIMBAL_RESUME)),
+        params,
+    )
+    assert resumed.node is operate.OperateNode.TRACKING
+    assert resumed.hunt_timeout_latched is False
+
+
 def test_home_and_goto_convert_hold_target(
     params: GraphParameters, tick: TickBuilder, key: ActivationKey
 ) -> None:

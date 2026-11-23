@@ -25,8 +25,9 @@ stays READY for external selection. A FAILED verification latches
 
 `step` emits `VERIFY_INIT` once, then honors `inputs.verification` only
 on ticks after the intent was issued. A VERIFIED result with nonempty
-evidence emits one `INIT_COMPLETE` request and stays READY; FAILED latches
-`failed` with `GIMBAL_FAULT` and one SAFE request.
+evidence emits one `INIT_COMPLETE` request and stays READY. A denied or
+dropped request is not sent again. FAILED latches `failed` with
+`GIMBAL_FAULT` and one SAFE request.
 
 ## Errors and faults
 

@@ -13,7 +13,7 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 | Name | Kind | Description |
 | --- | --- | --- |
 | `MONITORED_SUBSYSTEMS` | constant | Nine heartbeat-emitting subsystem names |
-| `Drivers` | class | Frozen bundle of HAL drivers, ISS ephemeris, and detector backend |
+| `Drivers` | class | Frozen bundle of HAL drivers, ISS ephemeris, and inference runtime |
 | `SystemApps` | class | Frozen bundle of all constructed apps and core services |
 | `default_bus_policy` | function | Per-message-type queue bounds and overflow rules |
 | `build_apps` | function | Construct every app from config, bus, clock, and drivers |
@@ -24,23 +24,30 @@ Flight and SIL call the same `build_apps` function with different driver bundles
 
 - Output: queue policy for each registered message type.
 
-**`build_apps(config, bus, clock, drivers, monitored, calib, uplink_key) -> SystemApps`**
+**`build_apps(config, bus, clock, drivers, monitored, calib, uplink_key, activation_epoch) -> SystemApps`**
 
 - Inputs: `PactConfig`, shared `MessageBus`, `Clock`, `Drivers`, monitored subsystem names,
-  `MosaicCalibration`, uplink HMAC key bytes.
+  `MosaicCalibration`, uplink HMAC key bytes, the mandatory `activation_epoch`
+  forwarded to the payload, fault, and router apps, an optional keyword-only
+  `InitializationVerifier` forwarded to the payload app (None keeps the
+  pending-by-default production verifier), and keyword-only
+  `synchronous_lifecycle` (default false). Flight keeps the lazy lifecycle
+  daemon. The SIL validation builder passes true and pumps INIT effects on
+  the control thread.
 - Output: wired `SystemApps`.
 
 ## Behavior
 
-1. `default_bus_policy` assigns `NEVER_DROP` (max 1024) to command, fault, ack, mode,
-   upload, and storage-write message types.
+1. `default_bus_policy` assigns `NEVER_DROP` (max 1024) to command, fault, ack, all
+   mode request/transition/activation/sync types, safety evidence (`SafetyStateMsg`
+   is `NEVER_DROP`), upload, and storage-write message types.
 2. `default_bus_policy` assigns `DROP_OLDEST` (max 8192) to telemetry, inference, link,
-   heartbeat, product, downlink, model-deploy, and safety message types.
+   heartbeat, product, downlink, and model-deploy message types.
 3. `build_apps` constructs `StorageService` first.
-4. `build_apps` constructs payload, fault, iss_iface, thermal, electrical, command_router,
-   downlink, mechanical, and model_deploy apps via each app's `from_config`.
+4. `build_apps` constructs payload, fault, system_modes, iss_iface, thermal, electrical,
+   command_router, downlink, and model_deploy apps via each app's `from_config`.
 5. `build_apps` passes `drivers.ephemeris` into `PayloadApp.from_config` with the gimbal,
-   sensor, detector, and launch lock.
+   sensor, and the `InferenceRuntime` holder.
 6. `build_apps` passes the same storage instance to payload, iss_iface, and model_deploy.
 
 ## Errors and faults
@@ -53,9 +60,10 @@ None at the library level. Driver construction errors occur in the caller.
 modules.
 
 Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEventMsg`,
-`ModeChangeMsg`, `ModelStagedMsg`, `UploadChunkMsg`, `StorageWriteMsg`,
+`SystemModeRequestMsg`, `SystemModeTransitionMsg`, `SystemModeActivatedMsg`,
+`SystemModeSyncRequestMsg`, `ModelStagedMsg`, `UploadChunkMsg`, `StorageWriteMsg`,
 `TelemetryEventMsg`, `ProcessedFrameMsg`, `InferenceResultMsg`, `LinkStateMsg`,
-`LaunchLockStateMsg`, `GimbalCommandMsg`, `HeartbeatMsg`, `ProductRefMsg`,
+`GimbalCommandMsg`, `HeartbeatMsg`, `ProductRefMsg`,
 `DownlinkItemMsg`, `ModelDeployStateMsg`, `SafetyStateMsg`.
 
 ## Configuration
@@ -66,11 +74,13 @@ Bus policy covers: `CommandMsg`, `RoutedCommandMsg`, `CommandAckMsg`, `FaultEven
 
 - Imports HAL protocols and apps only. No concrete driver imports.
 - `MONITORED_SUBSYSTEMS` is
-  `("payload", "iss_iface", "thermal", "electrical", "command_router", "storage", "downlink",
-  "mechanical", "model_deploy")`.
+  `("payload", "iss_iface", "thermal", "electrical", "command_router", "system_modes",
+  "storage", "downlink", "model_deploy")`.
 - The fault app receives the `monitored` tuple. It does not monitor itself.
-- `Drivers.launch_lock` is always a sim stand-in. No real launch-lock driver exists.
 - `Drivers.ephemeris` is the injected `IssEphemeris` (sim circular Keplerian or real stub).
+- `Drivers.inference` is the `InferenceRuntime` holder: empty with a lazy
+  `OnnxRuntimeFactory` on the real path, or an explicit scripted runtime on the
+  sim path.
 
 ## Related documents
 

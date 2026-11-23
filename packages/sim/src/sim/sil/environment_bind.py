@@ -78,8 +78,8 @@ class SilEnvironmentBind:
         shutter = ShutterPose(
             true_el_rad=math.radians(self._gimbal.true_el_deg),
             true_el_rate_rad_s=self._gimbal.true_omega_rad_s,
-            exposure_us=self._sensor_cfg.initial_exposure_us,
-            gain_db=self._sensor_cfg.initial_gain_db,
+            exposure_us=self._sensor_cfg.capture.initial_exposure_us,
+            gain_db=self._sensor_cfg.capture.initial_gain_db,
         )
         time = EnvTime.from_step(self._clock, now)
         sample = self._environment.evaluate(time, shutter, self._rng, self._prior_plume)
@@ -169,8 +169,8 @@ def bind_sil_environment(
     probe_shutter = ShutterPose(
         true_el_rad=0.0,
         true_el_rate_rad_s=0.0,
-        exposure_us=sensor_cfg.initial_exposure_us,
-        gain_db=sensor_cfg.initial_gain_db,
+        exposure_us=sensor_cfg.capture.initial_exposure_us,
+        gain_db=sensor_cfg.capture.initial_gain_db,
     )
     probe = environment.evaluate(probe_time, probe_shutter, probe_rng, None)
     if len(frames) == 0:

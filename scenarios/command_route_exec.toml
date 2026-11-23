@@ -2,6 +2,7 @@ name = "command_route_exec"
 profile = "sil"
 steps = 4
 dt = 1.0
+initial_mode = "OPERATE"
 
 # A validated command is routed by the core command router to its target subsystem, executed,
 # and acknowledged -- the command path end-to-end (ingress -> route -> execute -> ack).

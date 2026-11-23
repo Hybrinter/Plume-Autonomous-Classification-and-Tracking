@@ -14,19 +14,18 @@ dataset classification.
 | Name | Kind | Description |
 | --- | --- | --- |
 | `SATURATION_PIXEL_LEVEL` | constant | Normalized DN level (0.95) for saturation counting |
-| `SmearRateSource` | enum | `MEASURED`, `ENCODER`, or `COMMANDED` provenance of the selected elevation rate |
+| `SmearRateSource` | enum | `MEASURED`, `ENCODER`, or `COMMANDED` provenance of the smear rate |
 | `compute_quality_flags` | function | Returns a frozenset of raised usability tags |
 
 ## Inputs and outputs
 
-`compute_quality_flags(bands, exposure_us, slew_rate_deg_per_s, ifov_band_deg_per_px,
-utc_timestamp, cfg, omega_scene_el_deg_per_s=0.0)` returns
+`compute_quality_flags(bands, exposure_us, utc_timestamp, cfg)` returns
 `frozenset[FrameUsabilityTag]`. An empty set means a clean frame.
 
-`SmearRateSource` names the elevation-rate source the payload app selected. A rate
-of `0.0` is valid for every source. Unknown measured rate plus a failed encoder
-bracket uses the commanded rate and labels it `COMMANDED`. Quality flags do not
-raise `MOTION_SMEAR` from that rate.
+`SmearRateSource` names the elevation-rate source the payload app selected.
+A rate of `0.0` is valid for every source. Unknown measured rate plus a failed
+encoder bracket uses the commanded rate and labels it `COMMANDED`. Quality
+flags do not raise `MOTION_SMEAR` from that rate.
 
 ## Behavior
 
@@ -35,10 +34,7 @@ raise `MOTION_SMEAR` from that rate.
    above `SATURATION_PIXEL_LEVEL`.
 3. Do not raise `MOTION_SMEAR`. Along-track smear is a control cap in the outer rate
    law (`max_motion_smear_px`). FAST_REWIND frames smear on purpose. Exclude them by
-   gimbal mode, not a pixel smear estimate.
-4. Raise `CLOUD_CONTAMINATED` when the NIR-to-Red mean ratio exceeds
-   `nir_red_ratio_threshold` (bands at indices 2 and 3 after select).
-5. Raise `SUNGLINT` when mean NIR exceeds `sunglint_nir_mean_threshold`.
+   gimbal mode.
 
 ## Errors and faults
 
@@ -50,16 +46,14 @@ None. Flags are carried on the in-process processed frame; they are not bus mess
 
 ## Configuration
 
-Reads `PreprocessingConfig`: `saturation_fraction_threshold`,
-`nir_red_ratio_threshold`, `sunglint_nir_mean_threshold`. Also uses
-frame metadata from the raw mosaic. `max_motion_smear_px` is the outer-rate control
-cap, not a quality threshold.
+Reads `PreprocessingConfig.saturation_fraction_threshold` and frame metadata
+from the camera buffer: exposure and timestamp.
 
 ## Constraints
 
-Quality evaluation runs on the full band plane. A zero gimbal rate is a stationary
-measurement. The payload app still supplies a measured, encoder, or commanded
-elevation rate and a `SmearRateSource` label.
+Quality evaluation runs on the selected channels before the batch axis is added.
+`SmearRateSource` names a rate the payload app can select. Quality flags do not
+take that rate.
 
 ## Related documents
 

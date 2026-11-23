@@ -36,11 +36,18 @@ def test_builtin_scenario_runs(name: str, builtin_runs: dict[str, ScenarioRun]) 
     assert run.capture.n_steps == SCENARIOS[name].steps
 
 
-def test_power_drives_safe_and_stow(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """A power over-limit run latches SAFE and stows the gimbal."""
+def test_power_contains_then_authority_activates_safe_without_stowing(
+    builtin_runs: dict[str, ScenarioRun],
+) -> None:
+    """Containment precedes the authority's SAFE activation; neither stows."""
     run = builtin_runs["power_over_limit_safe"]
     assert _ever_positive(run, "system", "system.safe_latched")
-    assert _ever_positive(run, "payload", "payload.stow_switch")
+    assert _ever_positive(run, "payload", "payload.motion_inhibited")
+    assert not _ever_positive(run, "payload", "payload.stow_switch")
+    assert _final(run, "system", "system.mode") == "SAFE"
+    assert _final(run, "payload", "payload.graph") == "safe"
+    assert run.capture.wide["system"]["system.safe_latched"].iloc[2] == 1.0
+    assert run.capture.wide["system"]["system.mode"].iloc[2] == "OPERATE"
 
 
 def test_thermal_hot_sample_stays_nominal(builtin_runs: dict[str, ScenarioRun]) -> None:
@@ -51,19 +58,30 @@ def test_thermal_hot_sample_stays_nominal(builtin_runs: dict[str, ScenarioRun]) 
     assert float(temps.max()) >= 95.0
 
 
-def test_injected_faults_drive_safe(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """The gimbal-runaway and watchdog runs reach SAFE via the injected fault."""
+def test_injected_faults_contain_then_authority_activates_safe(
+    builtin_runs: dict[str, ScenarioRun],
+) -> None:
+    """Runaway and watchdog faults contain and obtain an actual SAFE activation."""
     for name in ("gimbal_runaway", "watchdog_process_died"):
         run = builtin_runs[name]
         assert _final(run, "system", "system.safe_latched") == 1.0
+        assert _ever_positive(run, "fault", "fault.mode_request_count")
+        assert _final(run, "system", "system.mode") == "SAFE"
+        assert _final(run, "payload", "payload.graph") == "safe"
+        assert _final(run, "payload", "payload.motion_inhibited") == 1.0
 
 
-def test_exit_safe_recovery_unlatches(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """The recovery run latches SAFE but ends un-latched and back in operations."""
+def test_exit_safe_recovers_through_init_without_granting_idle(
+    builtin_runs: dict[str, ScenarioRun],
+) -> None:
+    """Authorized recovery clears the fault latch and starts INIT, not IDLE."""
     run = builtin_runs["exit_safe_recovery"]
     assert _ever_positive(run, "system", "system.safe_latched")
+    assert run.capture.wide["payload"]["payload.motion_inhibited"].iloc[8] == 1.0
     assert _final(run, "system", "system.safe_latched") == 0.0
-    assert _final(run, "payload", "payload.gimbal_state") != "SAFE"
+    assert _final(run, "payload", "payload.graph") == "init"
+    assert _final(run, "system", "system.mode") == "INIT"
+    assert "IDLE" not in set(run.capture.wide["system"]["system.mode"])
 
 
 def test_model_lifecycle_activates_then_rolls_back(builtin_runs: dict[str, ScenarioRun]) -> None:
@@ -84,13 +102,6 @@ def test_downlink_backs_up_during_los(builtin_runs: dict[str, ScenarioRun]) -> N
     """The downlink run accumulates a queue backlog while the link is LOS."""
     run = builtin_runs["downlink_aos_budget"]
     assert _ever_positive(run, "downlink", "downlink.pending_items")
-
-
-def test_launch_lock_interlock_inhibits_motion(builtin_runs: dict[str, ScenarioRun]) -> None:
-    """With the lock engaged the payload inhibits gimbal motion and the lock stays engaged."""
-    run = builtin_runs["launch_lock_interlock"]
-    assert _ever_positive(run, "payload", "payload.motion_inhibited")
-    assert _final(run, "mechanical", "mechanical.launch_lock_state") == "ENGAGED"
 
 
 def test_command_ingress_routes_and_acks(builtin_runs: dict[str, ScenarioRun]) -> None:

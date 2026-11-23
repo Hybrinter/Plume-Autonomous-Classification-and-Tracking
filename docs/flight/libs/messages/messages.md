@@ -12,7 +12,7 @@ and embedded structs.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SCHEMA_VERSION` | constant | Bus envelope schema version (`2`) |
+| `SCHEMA_VERSION` | constant | Bus envelope schema version (`3`) |
 | `utc_now_iso` | function | Current UTC ISO string with millisecond precision |
 | `BlobMeta` | class | Embedded blob metadata struct |
 | Message classes | class | One frozen dataclass per `MessageType` |
@@ -27,7 +27,11 @@ and embedded structs.
 | `TelemetryEventMsg` | `TELEMETRY_EVENT` | Structured telemetry event |
 | `FaultEventMsg` | `FAULT_EVENT` | Fault notification to fault app |
 | `HeartbeatMsg` | `HEARTBEAT` | Subsystem liveness signal |
-| `ModeChangeMsg` | `MODE_CHANGE` | System mode transition |
+| `CommandCorrelation` | struct | Command identity embedded in a mode request |
+| `SystemModeRequestMsg` | `SYSTEM_MODE_REQUEST` | Request to the external mode authority |
+| `SystemModeTransitionMsg` | `SYSTEM_MODE_TRANSITION` | Authority decision audit record |
+| `SystemModeActivatedMsg` | `SYSTEM_MODE_ACTIVATED` | Authority activation; the payload boundary |
+| `SystemModeSyncRequestMsg` | `SYSTEM_MODE_SYNC_REQUEST` | Boot-time activation snapshot request |
 | `CommandMsg` | `COMMAND` | Ground command envelope from ingress |
 | `RoutedCommandMsg` | `ROUTED_COMMAND` | Command accepted by router for target app |
 | `SafetyStateMsg` | `SAFETY_STATE` | Fault-owned SAFE latch and active fault set |
@@ -39,7 +43,6 @@ and embedded structs.
 | `ModelDeployStateMsg` | `MODEL_DEPLOY` | Model deployment lifecycle telemetry |
 | `CommandAckMsg` | `COMMAND_ACK` | Ingress or execution acknowledgement |
 | `LinkStateMsg` | `LINK_STATE` | Station link AOS/LOS state |
-| `LaunchLockStateMsg` | `LAUNCH_LOCK_STATE` | Launch-lock mechanism state |
 
 ## Inputs and outputs
 
@@ -63,18 +66,26 @@ Frame-scoped messages also carry `frame_id: int` (uint32 monotonic counter).
 1. Producers construct a frozen dataclass with `msg_type` and `timestamp_utc` set.
 2. Producers call `MessageBus.publish(msg)`.
 3. Subscribers receive messages by exact class match.
-4. Large numpy arrays are typed `object`. Shape and dtype comments document the contract.
+4. The local-only `ProcessedFrameMsg.tile_gsd_m` is a row-major `(tile_count, 2)` metres array
+   consumed inside `PayloadApp.process_frame`; `ProcessedFrameMsg` is never published.
+   Published `InferenceResultMsg` carries only compact tuples for tile logits, positive decisions,
+   and tile GSD pairs.
 5. `utc_now_iso()` formats UTC with a trailing `Z` suffix.
 6. `BlobMeta` embeds in `InferenceResultMsg.blobs` with tracker ID, bbox, centroid, area,
    confidence, and persistence count.
-7. `GimbalCommandMsg` records pose mode, elevation target, arbiter state, and reason.
-   Tracking torque is not a command message. Compact pointing uses `TelemetryEventMsg`.
+7. `GimbalCommandMsg` records pose mode, elevation target, the active payload graph and
+   node, the activation epoch and sequence, and reason. Tracking torque is not a command
+   message. Compact pointing uses `TelemetryEventMsg`.
 8. `CommandAckMsg` correlates via `(source, seq, command_id)`. On `REJECTED`, `fault_code`
    carries the reject reason.
 9. `DownlinkItemMsg` carries inline `payload_bytes` or a non-empty `storage_ref` for large
    products fetched at transmission time.
-10. `SafetyStateMsg` publishes mode, active SAFE-triggering faults, latch flag, and latch reason
-    each fault tick.
+10. `SafetyStateMsg` publishes the active SAFE-triggering fault set, latch flag, latch
+    reason, evidence epoch, evidence sequence, and observation time each fault tick.
+11. The system-mode family separates roles: `SystemModeRequestMsg` asks the authority for a
+    transition, `SystemModeTransitionMsg` records the authority's decision as an audit trail
+    (never behavior), `SystemModeActivatedMsg` is the accepted activation payload graphs
+    consume, and `SystemModeSyncRequestMsg` requests the current snapshot at boot.
 
 ## Errors and faults
 
@@ -88,15 +99,18 @@ The module defines message shapes only. Producers emit `FaultEventMsg` with appr
 | Message | Typical publishers | Typical subscribers |
 | --- | --- | --- |
 | `ProcessedFrameMsg` | payload (internal; not bus in current pipeline) | inference path in payload |
-| `InferenceResultMsg` | payload | payload controller, storage |
-| `GimbalCommandMsg` | payload (pose commands) | mechanical, downlink, logging |
+| `InferenceResultMsg` | payload | telemetry observers, tests |
+| `GimbalCommandMsg` | payload (pose commands) | downlink, logging |
 | `TelemetryEventMsg` | any subsystem | telemetry reporter |
-| `FaultEventMsg` | any subsystem | fault |
+| `FaultEventMsg` | any subsystem | fault; payload (local containing-fault subscription) |
 | `HeartbeatMsg` | monitored subsystems | fault watchdog |
-| `ModeChangeMsg` | fault, core | all mode-aware apps |
+| `SystemModeRequestMsg` | payload, fault | external mode authority |
+| `SystemModeTransitionMsg` | external mode authority | storage, downlink |
+| `SystemModeActivatedMsg` | external mode authority | payload, fault |
+| `SystemModeSyncRequestMsg` | payload | external mode authority |
 | `CommandMsg` | iss_iface | core command router |
 | `RoutedCommandMsg` | core command router | target subsystem apps |
-| `SafetyStateMsg` | fault | command router |
+| `SafetyStateMsg` | fault | command router, payload |
 | `StorageWriteMsg` | payload | core storage |
 | `ProductRefMsg` | payload | downlink manager |
 | `DownlinkItemMsg` | downlink manager | iss_iface |
@@ -105,7 +119,6 @@ The module defines message shapes only. Producers emit `FaultEventMsg` with appr
 | `ModelDeployStateMsg` | core model deploy | downlink |
 | `CommandAckMsg` | iss_iface, target apps | downlink |
 | `LinkStateMsg` | iss_iface | downlink manager |
-| `LaunchLockStateMsg` | mechanical | payload, downlink |
 
 Note: `ProcessedFrameMsg` exists as a typed record. Preprocessing outputs currently stay as
 in-function values inside the payload app per the co-location invariant.
@@ -121,6 +134,7 @@ None in this module. Message producers read subsystem config for thresholds and 
 - Timestamp format uses trailing `Z`, not `+00:00`.
 - There is no bus message for raw sensor frames. Use `MosaicFrame` from `flight.libs.types`.
 - Array fields typed `object` must be treated as immutable after publish.
+- `ProcessedFrameMsg.tile_gsd_m` remains local to the co-located preprocessing/inference call.
 - `TelemetryEventMsg.payload` holds JSON-serializable primitives only.
 
 ## Related documents

@@ -39,8 +39,9 @@ None.
 
 ## Configuration
 
-Band-plane size is `SensorConfig` mosaic size divided by two. Band pitch is
-`2 * pixel_um`. Focal length is `focal_length_mm`.
+Frame size is `SensorConfig.width_px` and `height_px`. Pixel pitch is `pixel_um`.
+Focal length is `SensorOpticsConfig.focal_length_mm`. Distortion is stored and not
+applied.
 
 ## Constraints
 

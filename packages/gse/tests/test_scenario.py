@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from flight.libs.types import SystemMode
 from gse.scenario import Assertion, CommandStep, Scenario, SceneSpec, load_scenario
 
 _SAMPLE = """\
@@ -9,6 +10,7 @@ name = "thermal_safe"
 profile = "sil"
 steps = 6
 dt = 1.0
+initial_mode = "OPERATE"
 
 [scene]
 num_frames = 6
@@ -47,6 +49,7 @@ def test_load_scenario_parses_all_fields(tmp_path: Path) -> None:
     assert scenario.profile == "sil"
     assert scenario.steps == 6
     assert scenario.dt == 1.0
+    assert scenario.initial_mode is SystemMode.OPERATE
 
     assert scenario.scene == SceneSpec(num_frames=6, seed=0)
 
@@ -95,6 +98,7 @@ def test_load_scenario_parses_scene_readings(tmp_path: Path) -> None:
 
     assert scenario.scene.thermal_readings == (95.0, 96.0)
     assert scenario.scene.power_readings == (12.0,)
+    assert scenario.initial_mode is None
 
 
 def test_load_scenario_defaults_readings_when_absent(tmp_path: Path) -> None:

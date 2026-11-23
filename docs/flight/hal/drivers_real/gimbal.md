@@ -5,11 +5,11 @@
 
 ## Purpose
 
-`RealGimbal` is a fail-closed XRT-U-40-109-HV/XD-C rate adapter. The vendored
-Xeryon v1.88 module is imported with the driver; serial I/O waits until a rate
-command connects with audited production prerequisites. Initial feedback
-settings are `INFO=4` and `POLI=2 ms`; achieved cadence must be measured before
-freezing them for flight.
+`RealGimbal` is a fail-closed XRT-U-60-109-HV/XD-C rate adapter. The vendored
+Xeryon v1.88 module defines `XRTU_60_109` at 64800 counts/rev. Serial I/O waits
+until a rate command connects with audited production prerequisites. Initial
+feedback settings are `INFO=4` and `POLI=2 ms`; achieved cadence must be
+measured before freezing them for flight.
 
 ## Public interface
 
@@ -61,12 +61,13 @@ None.
 ## Configuration
 
 Reads `GimbalConfig` travel limits and stow/home poses plus `GimbalConfig.xeryon`:
-86,400 controller counts/revolution, 109 µrad effective resolution, USB 115,200
-baud or Jetson UART 76,800 baud, rate quantum/limits, `INFO`/`POLI`, timing bounds,
-HV 120-second credit, and bounded stow rate/timeout. Production startup also
-requires `settings_file_path` to name an existing settings export from the Xeryon
-Windows interface; a missing file has no silent fallback. Motion remains disabled
-until license/Python 3.14, watchdog, and stow bench audits are explicitly enabled.
+64,800 controller counts/revolution, 109 µrad effective resolution, a 2500 kg·mm²
+payload inertia limit, USB 115,200 baud or Jetson UART 76,800 baud, rate
+quantum/limits, `INFO`/`POLI`, timing bounds, vacuum-variant HV 120-second credit,
+and bounded stow rate/timeout. Production startup also requires `settings_file_path`
+to name an existing settings export from the Xeryon Windows interface; a missing
+file has no silent fallback. Motion remains disabled until license/Python 3.14,
+watchdog, and stow bench audits are explicitly enabled.
 
 ## Constraints
 

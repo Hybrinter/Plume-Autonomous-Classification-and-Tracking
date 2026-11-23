@@ -15,6 +15,7 @@ timing. The ONNX session loader and `Detector.detect` call them.
 | `compute_sha256` | function | Returns lowercase hex digest of a file |
 | `verify_model_hash` | function | Compares file digest to expected value |
 | `verify_io_contract` | function | Compares model tensor shapes to expected shapes |
+| `verify_conditioned_io_contract` | function | Validates conditioned model I/O shapes |
 | `check_inference_latency` | function | Compares elapsed milliseconds to budget |
 
 ## Inputs and outputs
@@ -25,6 +26,9 @@ timing. The ONNX session loader and `Detector.detect` call them.
 
 `verify_io_contract(actual_input, actual_output, expected_input, expected_output)`
 returns `Result[None, FaultCode]`. `None` dimensions in either shape act as wildcards.
+
+`verify_conditioned_io_contract(image, gsd, output, channels, tile_hw, kind)`
+delegates to the canonical shape verifier in `flight.payload.inference.contract`.
 
 `check_inference_latency(elapsed_ms, budget_ms)` returns `Result[None, FaultCode]`.
 

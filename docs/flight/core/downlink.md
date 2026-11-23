@@ -35,11 +35,14 @@ The downlink manager is the single prioritized, AOS-gated path from bus events t
 ## Behavior
 
 1. `from_config` subscribes to `FaultEventMsg`, `CommandAckMsg`, `TelemetryEventMsg`,
-   `ProductRefMsg`, and `LinkStateMsg`.
+   `SystemModeTransitionMsg`, `ProductRefMsg`, and `LinkStateMsg`.
 2. Each `tick` reads `LinkStateMsg` and sets the AOS flag when state is `LinkState.AOS`.
 3. Fault events enqueue as inline JSON at priority `FAULT_EVENT`.
 4. Command acks enqueue as inline JSON at priority `COMMAND_ACK`.
-5. Telemetry events enqueue as inline JSON at priority `HK_TELEMETRY`.
+5. Telemetry events and system-mode transition audit records enqueue as inline JSON at
+   priority `HK_TELEMETRY`; a transition item is `mode_transition_{epoch}_{transition_id}`
+   carrying the schema-3 decision fields. Queuing a transition never produces a
+   side-effect activation.
 6. Product refs enqueue with a storage reference, byte length, and the product priority.
 7. During loss of signal, items remain in the pending queue. Nothing emits.
 8. During AOS, pending items sort by priority then insertion order.
@@ -55,8 +58,8 @@ None at the library level.
 
 ## Messages
 
-**Subscribes:** `FaultEventMsg`, `CommandAckMsg`, `TelemetryEventMsg`, `ProductRefMsg`,
-`LinkStateMsg`.
+**Subscribes:** `FaultEventMsg`, `CommandAckMsg`, `TelemetryEventMsg`,
+`SystemModeTransitionMsg`, `ProductRefMsg`, `LinkStateMsg`.
 
 **Publishes:** `DownlinkItemMsg`, `HeartbeatMsg`.
 

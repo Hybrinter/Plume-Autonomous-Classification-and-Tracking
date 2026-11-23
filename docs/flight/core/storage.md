@@ -15,7 +15,7 @@ telemetry and fault records to reboot-surviving logs.
 | `SUBSYSTEM` | constant | Subsystem name `"storage"` |
 | `EntryMeta` | class | Index record for one stored entry |
 | `StorageState` | class | Mutable entry index and byte counters |
-| `StorageService` | class | Store, read, tick, run, and read_fault_ledger |
+| `StorageService` | class | Store, read, tick, run, and both ledger readers |
 
 ## Inputs and outputs
 
@@ -42,6 +42,13 @@ telemetry and fault records to reboot-surviving logs.
 
 - Output: parsed fault ledger records oldest first, or an empty list when missing.
 
+**`StorageService.read_mode_transition_ledger() -> list[dict[str, object]]`**
+
+- Output: parsed `SystemModeTransitionMsg` audit records oldest first, or an
+  empty list when missing. Each record carries `schema_version`,
+  `transition_id`, `request_id`, `epoch`, `previous_mode`, `requested_mode`,
+  `resulting_mode`, `decision`, `reason`, and `activation_sequence`.
+
 **`StorageService.run(stop_event) -> None`**
 
 - Input: shutdown `threading.Event`.
@@ -58,7 +65,10 @@ telemetry and fault records to reboot-surviving logs.
 5. Entry ids use the form `{order:08d}_{item_id}`.
 6. `read` verifies the sidecar checksum before returning bytes.
 7. `tick` drains `TelemetryEventMsg` into `telemetry.jsonl`.
-8. `tick` drains `FaultEventMsg` into `fault_ledger.jsonl`.
+8. `tick` drains `FaultEventMsg` into `fault_ledger.jsonl` and
+   `SystemModeTransitionMsg` into `system_mode_transitions.jsonl`. A
+   transition record is an audit append only; it never produces a
+   side-effect activation.
 9. Parent directories are created lazily on first write.
 10. `run` calls `tick` each loop and emits `HeartbeatMsg` every
     `fault.watchdog_interval_s`.

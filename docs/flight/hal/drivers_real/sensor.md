@@ -22,6 +22,7 @@ milliseconds.
 | Method | Inputs | Outputs |
 | --- | --- | --- |
 | `acquire_frame()` | None | `Result[MosaicFrame, FaultCode]` |
+| `drain_frame()` | None | `Result[None, FaultCode]` |
 | `set_exposure_us(exposure)` | Microseconds | `Result[None, FaultCode]` |
 | `set_gain_db(gain)` | dB | `Result[None, FaultCode]` |
 | `start_acquisition()` | None | `Result[None, FaultCode]` |
@@ -36,16 +37,19 @@ Construction raises `ImportError` when PySpin is not installed.
 2. `start_acquisition()` begins streaming. `acquire_frame()` waits up to the timeout for
    the next image.
 3. A complete image copies into a uint16 numpy array and releases the SDK buffer.
-4. The driver stamps `timestamp_utc` from the injected clock and reads exposure and gain
+4. `drain_frame()` polls `GetNextImage` for 1 ms and releases each image already in
+   the stream. It does not copy the mosaic and does not advance `frame_id`. An empty
+   stream returns `Ok(None)`.
+5. The driver stamps `timestamp_utc` from the injected clock and reads exposure and gain
    from the node map.
-5. A lock serializes all node-map access between capture and control calls.
-6. `stop_acquisition()` ends streaming.
+6. A lock serializes all node-map access between capture and control calls.
+7. `stop_acquisition()` ends streaming.
 
 ## Errors and faults
 
 | Fault | Trigger |
 | --- | --- |
-| `CAMERA_STALL` | SDK timeout, incomplete image, or node-map error |
+| `CAMERA_STALL` | SDK timeout, incomplete image, node-map error, or failed drain `Release` |
 
 ## Messages
 

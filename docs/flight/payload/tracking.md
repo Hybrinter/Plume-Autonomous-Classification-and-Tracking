@@ -31,7 +31,7 @@ replay.
 
 ## Interactions
 
-`PayloadController` submits encoder, nominal-rate, reference-change, and vision
+The operate graph submits encoder, nominal-rate, reference-change, and vision
 events to `ResidualHistory`. It requests the estimate at the current encoder
 sample time. The controller uses the resulting residual state and covariance in
 the outer rate law.

@@ -26,15 +26,17 @@ harness." Two facts make the literal-ladder framing the wrong shape:
    structure a three-rung ladder cannot express.
 
 The spec also predates the sensor-ingest, closed-loop-gimbal, and link-transport phases; the
-real drivers it calls "stubs" are now built. `RealScalarSensor` is still a 0.0 stub and **no
-`LaunchLock` driver exists** (Protocol, real, or sim).
+real drivers it calls "stubs" are now built. `RealScalarSensor` is still a 0.0 stub.
+
+The launch restraint is a crew strap. It is not a validation axis. Flight software does not
+sense or command it.
 
 ## Decision
 
 ### 1. Validation is a configuration matrix; profiles are named corners
 
-A validation run is a point in a six-axis space -- `{sensor, gimbal, compute (detector), link,
-clock, lock}` -- each axis independently `sim` or `real`, plus a host-architecture attribute
+A validation run is a point in a five-axis space -- `{sensor, gimbal, compute (detector), link,
+clock}` -- each axis independently `sim` or `real`, plus a host-architecture attribute
 (x86_64 vs Jetson aarch64) recorded as a deployment fact, not a code switch. SIL/PIL/HIL are
 **named corners** (`profiles/*.toml`), each **named by the deviation it closes**:
 
@@ -45,9 +47,8 @@ clock, lock}` -- each axis independently `sim` or `real`, plus a host-architectu
 | `pil` | sim | sim | sim/real | real | real | Jetson | Defined, not run |
 | `hil` | real | real | real | real | real | Jetson+bench | Defined, not run |
 
-**Profiles do not nest.** The `lock` axis is **defined but inert** -- there is no launch-lock
-device, so it is a permanent VCRM gap, not a selectable value. The "ladder" survives only as the
-documented adoption order in which corners are brought online.
+**Profiles do not nest.** The "ladder" survives only as the documented adoption order in which
+corners are brought online.
 
 **Why:** the matrix is honest about what can and cannot run without hardware, lets a single
 real-link corner (`sil-link-real`) be exercised in CI, and gives every requirement a precise
@@ -56,7 +57,7 @@ verification venue instead of a coarse rung.
 ### 2. `[environment]` + one `select_drivers` factory is the only wiring change
 
 - A new `[environment]` config block (`EnvironmentConfig`, frozen/slots) carries one
-  `"sim" | "real"` field per selectable axis (plus the inert `lock` and an informational `host`).
+  `"sim" | "real"` field per selectable axis (plus an informational `host`).
   Its Python defaults are **all-real** (the flight default) and mirror `config/default.toml`
   exactly, per the `test_config_defaults` invariant. Profiles are overrides that set only the
   axes they deviate on, merged by the existing `load_config(default, override)` path.
@@ -145,7 +146,7 @@ backend only, `SocketBackend` stubbed); the thin VCRM slice + traceability CI ch
 `flight`/`sim` -> `gse` import contracts.
 
 **Out (deferred):** running PIL/HIL; the `SocketBackend` and Jetson/bench runners; the
-`LaunchLock` driver; the complete requirements baseline; the model-acceptance harness; the full
+complete requirements baseline; the model-acceptance harness; the full
 data system; legacy `src/pact` retirement and CI widening. Any of these is pulled in only if a
 validation exercise forces it, and surfaced when it does.
 

@@ -19,6 +19,10 @@ from flight.libs.types import AckStatus, Err, FaultCode, MessageType, ModelDeplo
 _INF = PactConfig().inference
 _H = _INF.input_height_px
 _W = _INF.input_width_px
+_C = len(_INF.input_bands)
+_ROWS = _INF.tile_rows
+_COLS = _INF.tile_cols
+_TH, _TW = _H // _ROWS, _W // _COLS
 
 
 class _MemStorageReader:
@@ -42,21 +46,46 @@ class _MemStorageReader:
 def _manifest(
     version: str,
     *,
-    classifier_channels: int = 4,
-    segmentor_channels: int = 4,
+    classifier_channels: int = _C,
+    segmentor_channels: int = _C,
     omit: str | None = None,
 ) -> bytes:
-    """Build a pair-manifest blob. Default channels=4 match the flight contracts."""
+    """Build a pair-manifest blob. Default channels match the flight contract."""
+
+    def entry(kind: str, channels: int) -> dict[str, object]:
+        bands = list(_INF.input_bands)
+        while len(bands) < channels:
+            bands.append(f"EXTRA_{len(bands)}")
+        bands = bands[:channels]
+        return {
+            "arch": "pactnet" if kind == "classifier" else "dilatenet",
+            "sha256": "a" * 64,
+            "input_names": ["gsd", "image"],
+            "input_types": {"image": "float32", "gsd": "float32"},
+            "output_type": "float32",
+            "input_shape": [None, channels, _TH, _TW],
+            "gsd_input_shape": [None, 2],
+            "output_shape": [None, 1] if kind == "classifier" else [None, 1, _TH, _TW],
+            "gsd_reference_m": _INF.gsd_reference_m,
+            "norm": "unit",
+            "conditioning": "film-log-gsd-v1",
+            "gsd_encoding": "ln_metres_over_reference_lateral_along",
+            "band_names": bands,
+            "gsd_min_m": [10.0, 10.0],
+            "gsd_max_m": [50.0, 50.0],
+        }
+
     data: dict[str, object] = {
         "version": version,
-        "classifier": {
-            "input_shape": [1, classifier_channels, _H, _W],
-            "output_shape": [1, 1],
-        },
-        "segmentor": {
-            "input_shape": [1, segmentor_channels, _H, _W],
-            "output_shape": [1, 1, _H, _W],
-        },
+        "grid": [_ROWS, _COLS],
+        "frame_hw": [_H, _W],
+        "tile_hw": [_TH, _TW],
+        "gsd_reference_m": _INF.gsd_reference_m,
+        "norm": "unit",
+        "conditioning": "film-log-gsd-v1",
+        "gsd_encoding": "ln_metres_over_reference_lateral_along",
+        "classifier": entry("classifier", classifier_channels),
+        "segmentor": entry("segmentor", segmentor_channels),
     }
     if omit is not None:
         del data[omit]
@@ -102,14 +131,15 @@ def test_parse_manifest_and_contract() -> None:
     """parse_manifest extracts both contracts; contract_ok compares shapes."""
     parsed = parse_manifest(_manifest("v2"))
     assert parsed is not None
-    assert parsed.classifier.input_shape == (1, 4, _H, _W)
-    assert parsed.classifier.output_shape == (1, 1)
-    assert parsed.segmentor.output_shape == (1, 1, _H, _W)
+    assert parsed.classifier.input_shape == (None, _C, _TH, _TW)
+    assert parsed.classifier.gsd_input_shape == (None, 2)
+    assert parsed.classifier.output_shape == (None, 1)
+    assert parsed.segmentor.output_shape == (None, 1, _TH, _TW)
     assert contract_ok(
         parsed.segmentor.input_shape,
         parsed.segmentor.output_shape,
-        (1, 4, _H, _W),
-        (1, 1, _H, _W),
+        (None, _C, _TH, _TW),
+        (None, 1, _TH, _TW),
     )
     assert parse_manifest(b"not json") is None
 
@@ -121,11 +151,36 @@ def test_parse_manifest_rejects_single_network() -> None:
     legacy = json.dumps(
         {
             "version": "v2",
-            "input_shape": [1, 4, _H, _W],
+            "input_shape": [1, _C, _H, _W],
             "output_shape": [1, 1, _H, _W],
         }
     ).encode("utf-8")
     assert parse_manifest(legacy) is None
+
+
+def test_parse_manifest_rejects_malformed_dimension_types() -> None:
+    """JSON booleans, strings, and floats are not coerced into graph dimensions."""
+    for malformed in (1, "1", 1.0, True):
+        data = json.loads(_manifest("v2"))
+        data["classifier"]["input_shape"][0] = malformed
+        assert parse_manifest(json.dumps(data).encode()) is None
+
+
+def test_parse_manifest_accepts_input_name_order_independently() -> None:
+    """A valid pair may declare the two named inputs in either order."""
+    parsed = parse_manifest(_manifest("v2"))
+    assert parsed is not None
+    assert parsed.classifier.input_names == ("image", "gsd")
+
+
+def test_parse_manifest_rejects_non_object_network_entries() -> None:
+    """Null or non-object classifier and segmentor entries fail cleanly."""
+    malformed: object
+    for field in ("classifier", "segmentor"):
+        for malformed in (None, [], "network"):
+            data = json.loads(_manifest("v2"))
+            data[field] = malformed
+            assert parse_manifest(json.dumps(data).encode()) is None
 
 
 def test_staging_valid_manifest_goes_staged() -> None:
@@ -181,7 +236,7 @@ def test_activate_good_model_goes_active() -> None:
 def test_activate_bad_contract_rolls_back() -> None:
     """Activating a staged model that fails the I/O contract auto-rolls-back and faults."""
     storage = _MemStorageReader()
-    blob = _manifest("v3", classifier_channels=3)  # classifier contract fails the pair
+    blob = _manifest("v3", classifier_channels=4, segmentor_channels=4)
     storage.put("e1", blob)
     svc, bus = _service(storage)
     acks = bus.subscribe(CommandAckMsg)
@@ -199,7 +254,7 @@ def test_activate_bad_contract_rolls_back() -> None:
 def test_activate_bad_segmentor_contract_rolls_back() -> None:
     """A pair whose segmentor contract fails rolls back the whole pair."""
     storage = _MemStorageReader()
-    blob = _manifest("v3", segmentor_channels=3)
+    blob = _manifest("v3", classifier_channels=4, segmentor_channels=4)
     storage.put("e1", blob)
     svc, bus = _service(storage)
     _stage(bus, "e1", blob)

@@ -2,6 +2,7 @@ name = "product_downlink"
 profile = "sil-link-real"
 steps = 20
 dt = 1.0
+initial_mode = "OPERATE"
 
 # The data system end-to-end over the real CCSDS link: the payload stores mask thumbnails as
 # science products, the core downlink manager prioritizes + AOS-gates them, and iss_iface

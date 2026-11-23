@@ -20,13 +20,13 @@ def _iss_at_epoch() -> tuple[tuple[float, float, float], tuple[float, float, flo
 
 
 def _camera() -> CameraGeometry:
-    """Default sensor band-plane pinhole geometry."""
+    """Default sensor pinhole geometry at full frame and one-pixel pitch."""
     sensor = SensorConfig()
     return CameraGeometry(
-        width_px=sensor.width_px // 2,
-        height_px=sensor.height_px // 2,
-        pixel_pitch_m=2.0 * sensor.pixel_um * 1.0e-6,
-        focal_length_m=sensor.focal_length_mm * 1.0e-3,
+        width_px=sensor.width_px,
+        height_px=sensor.height_px,
+        pixel_pitch_m=sensor.pixel_um * 1.0e-6,
+        focal_length_m=sensor.optics.focal_length_mm * 1.0e-3,
     )
 
 

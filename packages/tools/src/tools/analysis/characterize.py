@@ -46,7 +46,6 @@ SUITES: dict[str, tuple[str, ...]] = {
     "resources": (
         "storage_eviction",
         "downlink_aos_budget",
-        "launch_lock_interlock",
     ),
 }
 

@@ -18,14 +18,13 @@ structurally.
 | [`ephemeris`](interfaces/ephemeris.md) | module | `IssEphemeris` and `IssState` |
 | [`station`](interfaces/station.md) | module | `StationLink` byte-level CCSDS transport |
 | [`scalar`](interfaces/scalar.md) | module | `ScalarSensor` single-value housekeeping read |
-| [`launch_lock`](interfaces/launch_lock.md) | module | `LaunchLock` motorized pin Protocol |
 | [`storage`](interfaces/storage.md) | module | `StorageWriter` and `StorageReader` |
 
 ## Package interface
 
 Re-exports: `GimbalActuator`, `GimbalRateActuator`, `GimbalRateCommand`,
 `ExternalWatchdogGate`, `GimbalPosition`, `GimbalHealth`, `ImagingSensor`,
-`IssEphemeris`, `IssState`, `LaunchLock`, `ScalarSensor`, `StationLink`,
+`IssEphemeris`, `IssState`, `ScalarSensor`, `StationLink`,
 `StorageReader`, `StorageWriter`.
 
 ## Interactions
@@ -38,7 +37,6 @@ concrete drivers and passes them in. No app imports a driver module.
 - Drivers satisfy these Protocols structurally. They do not subclass the Protocol classes.
 - Every public method returns `Result[..., FaultCode]`.
 - `@runtime_checkable` enables `isinstance` checks at the composition root and in tests.
-- `LaunchLock` has a sim driver only today. No real driver exists yet.
 
 ## Related documents
 

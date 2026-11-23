@@ -4,14 +4,14 @@ Defines all enumerations used as discriminants and state values across the fligh
 software. The Ok/Err/Result types live in flight.libs.types.result.
 
 Includes:
-- SystemMode: top-level operational mode transitions.
-- GimbalState: TRACKING / REWIND / FAST_REWIND / SAFE arbiter for gimbal control.
+- SystemMode: top-level operational modes (IDLE/STOW/SAFE/INIT/OPERATE).
+- ModeTransitionDecision: authority accept/deny outcome for a mode request.
 - GimbalCommandMode: interpretation of gimbal pose commands (ABSOLUTE/STOW/HOME).
 - FaultCode: all enumerated fault conditions, including ingest-chain codes
   (CALIBRATION_INVALID, FRAME_MALFORMED), driver-level gimbal fault (GIMBAL_FAULT), and
   command-ingress integrity codes (COMMAND_CRC_FAIL, COMMAND_AUTH_FAIL, COMMAND_SEQ_ERROR,
   COMMAND_INVALID).
-- Band: physical 2x2 mosaic-filter band vocabulary (BLUE/GREEN/RED/NIR).
+- Band: prism RGB band vocabulary (BLUE/GREEN/RED).
 - FrameUsabilityTag: per-frame quality classification.
 - MessageType: typed discriminant for all bus messages.
 - DownlinkPriority: downlink queue priority.
@@ -37,28 +37,23 @@ import enum
 
 
 class SystemMode(enum.Enum):
-    """Top-level operational mode. REQ-OPER-HIGH-002."""
+    """Top-level operational mode. REQ-OPER-HIGH-002.
+
+    Exactly five modes; names double as the payload graph vocabulary.
+    """
 
     IDLE = "IDLE"
-    ACTIVE = "ACTIVE"  # inference + gimbal running
-    SCAN = "SCAN"  # nadir scan, no active target
-    MODEL_UPLINK = "MODEL_UPLINK"
-    DATA_DOWNLINK = "DATA_DOWNLINK"
-    SAFE = "SAFE"  # fault-induced; minimal activity
-
-
-class GimbalState(enum.Enum):
-    """Four-state arbiter. REQ-AIML-GIMB-008."""
-
-    TRACKING = "TRACKING"
-    REWIND = "REWIND"
-    FAST_REWIND = "FAST_REWIND"
+    STOW = "STOW"
     SAFE = "SAFE"
+    INIT = "INIT"
+    OPERATE = "OPERATE"
 
 
-def is_rewind_hunt(mode: GimbalState) -> bool:
-    """True for REWIND and FAST_REWIND (sharp hunt and hardware-slew hunt)."""
-    return mode is GimbalState.REWIND or mode is GimbalState.FAST_REWIND
+class ModeTransitionDecision(enum.Enum):
+    """Authority decision on a requested system-mode transition."""
+
+    ACCEPTED = "ACCEPTED"
+    DENIED = "DENIED"
 
 
 class GimbalCommandMode(enum.Enum):
@@ -110,15 +105,10 @@ class FaultCode(enum.Enum):
     COMMAND_SEQ_ERROR = "COMMAND_SEQ_ERROR"
     COMMAND_INVALID = "COMMAND_INVALID"
     COMMAND_UNROUTABLE = "COMMAND_UNROUTABLE"
-    LAUNCH_LOCK_FAULT = "LAUNCH_LOCK_FAULT"
 
 
 class Band(enum.Enum):
-    """Physical 2x2 mosaic-filter band names.
-
-    Passbands approximate Sentinel-2: BLUE ~490 nm (B2), GREEN ~560 nm (B3),
-    RED ~665 nm (B4), NIR ~842 nm (B8) -- chosen so Sentinel-2-derived training
-    data remains a valid domain (spec Section 2).
+    """Prism RGB band names for the AP-3200T-USB.
 
     String values mirror member names (log readability convention).
     """
@@ -126,7 +116,6 @@ class Band(enum.Enum):
     BLUE = "BLUE"
     GREEN = "GREEN"
     RED = "RED"
-    NIR = "NIR"
 
 
 class FrameUsabilityTag(enum.Enum):
@@ -140,6 +129,7 @@ class FrameUsabilityTag(enum.Enum):
     SATURATED = "SATURATED"
     MOTION_SMEAR = "MOTION_SMEAR"
     INCOMPLETE_METADATA = "INCOMPLETE_METADATA"
+    GSD_NOMINAL = "GSD_NOMINAL"
 
 
 class MessageType(enum.Enum):
@@ -151,7 +141,10 @@ class MessageType(enum.Enum):
     TELEMETRY_EVENT = "TELEMETRY_EVENT"
     FAULT_EVENT = "FAULT_EVENT"
     HEARTBEAT = "HEARTBEAT"
-    MODE_CHANGE = "MODE_CHANGE"
+    SYSTEM_MODE_REQUEST = "SYSTEM_MODE_REQUEST"
+    SYSTEM_MODE_TRANSITION = "SYSTEM_MODE_TRANSITION"
+    SYSTEM_MODE_ACTIVATED = "SYSTEM_MODE_ACTIVATED"
+    SYSTEM_MODE_SYNC_REQUEST = "SYSTEM_MODE_SYNC_REQUEST"
     COMMAND = "COMMAND"
     ROUTED_COMMAND = "ROUTED_COMMAND"
     SAFETY_STATE = "SAFETY_STATE"
@@ -161,7 +154,6 @@ class MessageType(enum.Enum):
     UPLINK_CHUNK = "UPLINK_CHUNK"
     COMMAND_ACK = "COMMAND_ACK"
     LINK_STATE = "LINK_STATE"
-    LAUNCH_LOCK_STATE = "LAUNCH_LOCK_STATE"
     MODEL_STAGED = "MODEL_STAGED"
     MODEL_DEPLOY = "MODEL_DEPLOY"
 
@@ -198,19 +190,6 @@ class LinkState(enum.Enum):
     LOS = "LOS"  # loss of signal: no contact, hold downlink
 
 
-class LaunchLockState(enum.Enum):
-    """Launch-lock mechanism state (motorized pin with engaged/released microswitches).
-
-    String values mirror member names (log readability convention). The lock starts ENGAGED
-    (flight configuration); release is a hazardous ground-commanded operation. UNKNOWN is
-    reported when the microswitches disagree or a read fails. Satisfies: REQ-MECH-HIGH-001.
-    """
-
-    ENGAGED = "ENGAGED"  # pin engaged: gimbal motion inhibited
-    RELEASED = "RELEASED"  # pin released: gimbal free to move
-    UNKNOWN = "UNKNOWN"  # indeterminate (switch disagreement / read failure)
-
-
 class AckStatus(enum.Enum):
     """Outcome of a single inbound command at ingress.
 
@@ -230,13 +209,15 @@ class CommandId(enum.Enum):
     PING = "PING"  # liveness check; non-hazardous; core-handled; no params
     SET_THERMAL_LIMIT = "SET_THERMAL_LIMIT"  # non-hazardous; target thermal; param limit_c: float
     NOOP = "NOOP"  # accepted no-op; non-hazardous; core-handled; no params
-    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target fault; param phase: str
-    RELEASE_LAUNCH_LOCK = "RELEASE_LAUNCH_LOCK"  # hazardous; target mechanical; param phase: str
+    EXIT_SAFE = "EXIT_SAFE"  # hazardous (ARM/EXECUTE); target system_modes; param phase: str
+    SET_MODE = "SET_MODE"  # non-hazardous; target system_modes; param mode: str
     UPLOAD_MODEL_CHUNK = "UPLOAD_MODEL_CHUNK"  # non-hazardous; target iss_iface; chunked uplink
     ACTIVATE_MODEL = "ACTIVATE_MODEL"  # non-hazardous; target model_deploy; activate staged model
-    GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target payload; stow via position loop
+    GIMBAL_STOW = "GIMBAL_STOW"  # non-hazardous; target system_modes; stow request
     GIMBAL_HOME = "GIMBAL_HOME"  # non-hazardous; target payload; home via position loop
     GIMBAL_GOTO = "GIMBAL_GOTO"  # non-hazardous; target payload; param el_deg: float
+    GIMBAL_HOLD = "GIMBAL_HOLD"
+    GIMBAL_RESUME = "GIMBAL_RESUME"
 
 
 class ParamKind(enum.Enum):

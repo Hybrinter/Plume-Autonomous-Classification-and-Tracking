@@ -1,6 +1,7 @@
 """DownlinkManager tests: priority ordering, AOS gating, byte budget, product refs."""
 
 import dataclasses
+import json
 
 from flight.core.downlink import DownlinkManager
 from flight.libs.bus import MessageBus
@@ -11,6 +12,8 @@ from flight.libs.messages import (
     FaultEventMsg,
     LinkStateMsg,
     ProductRefMsg,
+    SystemModeActivatedMsg,
+    SystemModeTransitionMsg,
     TelemetryEventMsg,
 )
 from flight.libs.time import ManualClock
@@ -20,6 +23,8 @@ from flight.libs.types import (
     FaultCode,
     LinkState,
     MessageType,
+    ModeTransitionDecision,
+    SystemMode,
 )
 
 
@@ -154,3 +159,85 @@ def test_product_ref_becomes_storage_ref_item() -> None:
     assert len(emitted) == 1
     assert emitted[0].storage_ref == "00000001_mask"
     assert emitted[0].payload_bytes == b""
+
+
+def test_mode_transitions_queue_as_ledger_items() -> None:
+    """ACCEPTED + DENIED transition records emit inline ledger items with exact fields.
+
+    Queuing a transition audit record must not produce any side-effect
+    SystemModeActivatedMsg on the bus.
+    """
+    bus = MessageBus()
+    mgr = _manager(bus)
+    items = bus.subscribe(DownlinkItemMsg)
+    activations = bus.subscribe(SystemModeActivatedMsg)
+    bus.publish(
+        SystemModeTransitionMsg(
+            msg_type=MessageType.SYSTEM_MODE_TRANSITION,
+            timestamp_utc="t1",
+            transition_id="tr-1",
+            request_id="req-1",
+            epoch="e1",
+            previous_mode=SystemMode.IDLE,
+            requested_mode=SystemMode.OPERATE,
+            resulting_mode=SystemMode.OPERATE,
+            decision=ModeTransitionDecision.ACCEPTED,
+            reason="authorized",
+            activation_sequence=7,
+        )
+    )
+    bus.publish(
+        SystemModeTransitionMsg(
+            msg_type=MessageType.SYSTEM_MODE_TRANSITION,
+            timestamp_utc="t2",
+            transition_id="tr-2",
+            request_id=None,
+            epoch="e1",
+            previous_mode=None,
+            requested_mode=SystemMode.SAFE,
+            resulting_mode=SystemMode.IDLE,
+            decision=ModeTransitionDecision.DENIED,
+            reason="unauthorized requester",
+            activation_sequence=None,
+        )
+    )
+    _aos(bus)
+    mgr.tick()
+    emitted = _drain(items)
+    bodies = [json.loads(i.payload_bytes.decode("utf-8")) for i in emitted if i.storage_ref == ""]
+    transitions = [b for b in bodies if b["type"] == "mode_transition"]
+    assert len(transitions) == 2
+    assert transitions[0] == {
+        "type": "mode_transition",
+        "ts": "t1",
+        "schema_version": 3,
+        "transition_id": "tr-1",
+        "request_id": "req-1",
+        "epoch": "e1",
+        "previous_mode": "IDLE",
+        "requested_mode": "OPERATE",
+        "resulting_mode": "OPERATE",
+        "decision": "ACCEPTED",
+        "reason": "authorized",
+        "activation_sequence": 7,
+    }
+    assert transitions[1] == {
+        "type": "mode_transition",
+        "ts": "t2",
+        "schema_version": 3,
+        "transition_id": "tr-2",
+        "request_id": None,
+        "epoch": "e1",
+        "previous_mode": None,
+        "requested_mode": "SAFE",
+        "resulting_mode": "IDLE",
+        "decision": "DENIED",
+        "reason": "unauthorized requester",
+        "activation_sequence": None,
+    }
+    assert all(
+        i.item_id in {"mode_transition_e1_tr-1", "mode_transition_e1_tr-2"}
+        for i in emitted
+        if i.storage_ref == ""
+    )
+    assert activations.empty()

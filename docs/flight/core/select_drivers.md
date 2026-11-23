@@ -24,44 +24,39 @@ HAL driver. It returns a `Drivers` bundle for `build_apps`.
 - `inbound_packets`: CCSDS TC packets for `SimStationLink`
 - `thermal_readings`: Celsius readings for the thermal scalar sensor
 - `power_readings`: watt readings for the electrical scalar sensor
-- `launch_lock_engaged`: initial launch-lock state (default false)
 
 **`select_drivers(config, clock, sim_inputs=None) -> Drivers`**
 
 - Inputs: `PactConfig`, injected `Clock`, optional `SimDriverInputs`.
 - Output: `Drivers` with each axis resolved.
 - Raises `ValueError` when any axis is `sim` and `sim_inputs` is `None`.
-- Raises `SystemExit` when real-sensor exposure or gain setup returns `Err`.
-- Raises `ValueError` when the real compute axis loads an ONNX file whose
-  shapes do not match the inference I/O contract.
 
 ## Behavior
 
 1. Read `config.drivers` axis values.
 2. **Sensor axis:** `sim` selects `SimSensor` and `SimScalarSensor` pairs for thermal and
-   power. `real` selects `RealSensor`, applies initial exposure and gain, and selects
-   `RealScalarSensor` for both scalars.
+   power. `real` selects `RealSensor` and `RealScalarSensor` for both scalars.
+   No startup exposure or gain is applied here: the payload's graph-owned
+   imaging policy applies settings through its stop/apply/start handling once
+   a policy activates.
 3. **Gimbal axis:** `sim` selects `SimGimbal`. `real` selects `RealGimbal`.
 4. **Ephemeris axis:** `sim` selects `SimIssEphemeris`. `real` selects
    `RealIssEphemeris`.
-5. **Compute axis:** `sim` uses the passed `ScriptedDetector`. `real` constructs
-   `OnnxDetector` from the paths returned by `resolve_quantized_path` on
-   `inference.segmentor_model_path` and `inference.classifier_model_path`.
-   `use_int8` true selects `<stem>.int8.onnx`. The logit threshold and
-   `fault.inference_timeout_ms` (20 ms) feed the detect-time fault threshold.
-   The I/O contract is `(1, C, H, W)` from `input_bands` and `input_*_px`.
+5. **Compute axis:** `sim` returns `InferenceRuntime.from_scripted` over the
+   passed `ScriptedDetector` - an explicit preinstalled scripted session.
+   `real` returns an empty `InferenceRuntime` carrying the lazy
+   `OnnxRuntimeFactory(config)`: no model file is read and no ONNX session is
+   constructed here; the INIT lifecycle calls `load`, which resolves the
+   quantized artifact paths, verifies digests and the I/O contract, and returns
+   a typed `Err` on failure without raising.
 6. **Link axis:** `sim` selects `SimStationLink`. `real` selects `RealStationLink`.
-7. **Launch lock:** always `SimLaunchLock`. Flight with `sim_inputs=None` starts ENGAGED.
-   SIL uses `sim_inputs.launch_lock_engaged` (default RELEASED).
-8. Return the assembled `Drivers` dataclass.
+7. Return the assembled `Drivers` dataclass.
 
 Real driver SDK modules import lazily inside the `real` branches only.
 
 ## Errors and faults
 
-- `ValueError`: a `sim` axis without `sim_inputs`, or a real ONNX artifact
-  whose shapes do not match the inference I/O contract.
-- `SystemExit`: real-sensor exposure or gain command failure.
+- `ValueError`: a `sim` axis without `sim_inputs`.
 
 ## Messages
 
@@ -78,7 +73,6 @@ uses `resolve_quantized_path` when `inference.use_int8` is true.
 
 - This module imports both `drivers_sim` and lazy `drivers_real` branches.
 - SDK modules (PySpin, onnxruntime, socket) load only inside `real` branches.
-- No real launch-lock driver exists. Every profile uses `SimLaunchLock`.
 - Each branch local is typed with its HAL protocol. No casts are used at construction.
 
 ## Related documents

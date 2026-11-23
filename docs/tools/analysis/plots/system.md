@@ -22,7 +22,7 @@ SAFE latch, and gross message and fault throughput.
 
 ## Behavior
 
-1. System mode categorical timeline from `system.mode`.
+1. Accepted activation mode categorical timeline from `system.mode`.
 2. SAFE latch line panel from `system.safe_latched`.
 3. Total messages per step from `system.total_messages`.
 4. Stacked fault, command, and ack mix from system event count columns.

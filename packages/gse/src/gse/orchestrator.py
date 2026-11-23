@@ -84,8 +84,8 @@ def _score_frame_portable(assertion: Assertion, capture: TelemetryCapture) -> As
         AssertionResult: pass/fail with an expected-vs-observed detail string.
 
     Notes:
-        - mode_is: the scenario's terminal mode expectation. NOMINAL is satisfied iff NO
-          SAFE was ever published; SAFE is satisfied iff at least one SAFE was published.
+        - mode_is: exact terminal accepted activation mode. No activation is unknown.
+          Requests, transition records, and historical SAFE activations do not determine it.
         - command_acked: an ACCEPTED/REJECTED ack of that status must appear in the run.
         - gimbal_moved: matches capture.gimbal_moved against the expected bool.
         - min_inference_count / min_downlink_count: observed >= the integer floor.
@@ -114,9 +114,10 @@ def _score_frame_portable(assertion: Assertion, capture: TelemetryCapture) -> As
         return _result(assertion, ok, detail)
     if kind == "mode_is":
         expected_mode = SystemMode[str(assertion.value)]
-        saw_safe = SystemMode.SAFE in capture.mode_changes
-        ok = saw_safe if expected_mode is SystemMode.SAFE else not saw_safe
-        detail = f"expected mode {expected_mode.value}, safe_seen={saw_safe}"
+        observed_mode = capture.active_mode
+        ok = observed_mode is expected_mode
+        observed_text = "unknown" if observed_mode is None else observed_mode.value
+        detail = f"expected mode {expected_mode.value}, got {observed_text}"
         return _result(assertion, ok, detail)
     return _result(assertion, False, f"unknown frame-portable kind {kind!r}")
 

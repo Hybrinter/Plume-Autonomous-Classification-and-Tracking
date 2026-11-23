@@ -23,6 +23,8 @@ from __future__ import annotations
 import tomllib
 from typing import Literal
 
+from flight.libs.types import SystemMode
+
 # third-party
 from pydantic import ConfigDict, Field, TypeAdapter
 from pydantic.dataclasses import dataclass
@@ -105,6 +107,10 @@ class Scenario:
         assertions: The assertions to score/skip, in declaration order.
         steps: Number of deterministic steps to run.
         dt: Seconds to advance per step.
+        initial_mode: Explicit fixture activation seeded at startup for tests that
+            need to skip the boot sequence, or None to let the real authority
+            boot SAFE. A declared initial_mode is test setup, not a production
+            fallback path.
     """
 
     name: str
@@ -112,6 +118,7 @@ class Scenario:
     scene: SceneSpec
     steps: int
     dt: float
+    initial_mode: SystemMode | None = None
     commands: tuple[CommandStep, ...] = ()
     assertions: tuple[Assertion, ...] = ()
 

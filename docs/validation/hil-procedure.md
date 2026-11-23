@@ -28,7 +28,7 @@ highest-fidelity venue short of flight.
 2. Load config: `load_config("config/default.toml", "profiles/hil.toml")`.
 3. Construct drivers with `select_drivers(config, RealClock())` (no `sim_inputs` needed -- every
    axis selects a real branch). The real sensor branch also applies
-   `set_exposure_us(config.sensor.initial_exposure_us)` and `set_gain_db(config.sensor.initial_gain_db)`,
+   `set_exposure_us(config.sensor.capture.initial_exposure_us)` and `set_gain_db(config.sensor.capture.initial_gain_db)`,
    exiting on `Err`.
 4. Start the real `Scheduler`; drive scenarios from the ground station, including realtime-only
    assertions.
@@ -36,7 +36,7 @@ highest-fidelity venue short of flight.
 
 ## Notes
 
-- The `lock` (LaunchLock) axis remains a permanent VCRM gap: no device, no config field, no HIL
-  coverage. It is documented, never tested.
+- HIL has no launch restraint device. The launch restraint is a crew strap. Flight
+  software does not sense or command it.
 - Orin Nano Super HIL compute uses MAXN SUPER (`nvpmodel`) and `jetson_clocks`. Module TDP is
   25 W. Payload-bus `power_limit_w` stays 55 W. The camera is USB3 Blackfly, not CSI.

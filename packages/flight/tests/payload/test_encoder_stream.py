@@ -1,6 +1,7 @@
 """Tests for PayloadApp encoder-stream retention and consumption bookkeeping."""
 
 import math
+from dataclasses import replace
 
 import numpy as np
 from flight.hal.drivers_sim import SimGimbal, SimIssEphemeris, SimSensor
@@ -11,7 +12,7 @@ from flight.libs.time import ManualClock
 from flight.libs.types import DownlinkPriority, FaultCode, Ok, Result
 from flight.payload.app import EncoderStream, PayloadApp
 from flight.payload.calibration_io import build_identity_calibration
-from flight.payload.inference import DetectorBackend, ScriptedDetector
+from flight.payload.inference import DetectorBackend, InferenceRuntime, ScriptedDetector
 
 _ENCODER_HISTORY_MAX = 4096
 
@@ -28,7 +29,8 @@ class _MemStorage:
 
 def _build_app(detector: DetectorBackend) -> PayloadApp:
     """Assemble a PayloadApp over sim drivers and a fresh bus."""
-    cfg = PactConfig()
+    base = PactConfig()
+    cfg = replace(base, inference=replace(base.inference, tile_rows=1, tile_cols=1))
     bus = MessageBus()
     clock = ManualClock()
     gimbal = SimGimbal(clock=clock, cfg=cfg.gimbal, inner_dt_s=cfg.controller.inner.dt_s)
@@ -36,9 +38,17 @@ def _build_app(detector: DetectorBackend) -> PayloadApp:
     eph = SimIssEphemeris(clock=clock, cfg=cfg.ephemeris)
     calib = build_identity_calibration(cfg.sensor.height_px, cfg.sensor.width_px)
     app = PayloadApp.from_config(
-        cfg, sensor, gimbal, eph, detector, bus, clock, calib, _MemStorage()
+        cfg,
+        sensor,
+        gimbal,
+        eph,
+        InferenceRuntime.from_scripted(detector),
+        bus,
+        clock,
+        calib,
+        _MemStorage(),
+        "epoch-encoder-test",
     )
-    app.lock_gate.engaged = False
     return app
 
 
@@ -57,7 +67,7 @@ def _assert_consumed_ids_bounded(stream: EncoderStream) -> None:
 
 def _plume_detector() -> ScriptedDetector:
     """Minimal scripted detector for PayloadApp construction."""
-    mask = np.zeros((1024, 1224), dtype=np.float32)
+    mask = np.zeros((1544, 2064), dtype=np.float32)
     return ScriptedDetector(mask, confidence_gate=0.55, min_blob_area_px=15)
 
 

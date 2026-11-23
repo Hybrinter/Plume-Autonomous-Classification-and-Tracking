@@ -21,6 +21,7 @@ Construction takes an ordered `list[MosaicFrame]`.
 | Method | Inputs | Outputs |
 | --- | --- | --- |
 | `acquire_frame()` | None | `Result[MosaicFrame, FaultCode]` |
+| `drain_frame()` | None | `Ok(None)` |
 | `load_next(frame)` | `MosaicFrame` | None (sim-only slot write) |
 | `unread_scripted_count()` | None | Remaining constructor frames |
 | `set_exposure_us(exposure)` | Microseconds (ignored) | `Ok(None)` |
@@ -35,10 +36,13 @@ Construction takes an ordered `list[MosaicFrame]`.
 3. After both the slot and the list are empty, `acquire_frame()` returns
    `Err(CAMERA_STALL)`.
 4. `load_next` overwrites the unread live slot. It is not on `ImagingSensor`.
-5. `unread_scripted_count` returns constructor frames that `acquire_frame` has
-   not yet returned. The live slot does not change this count.
-6. Exposure, gain, and acquisition control calls are no-ops that always succeed.
-7. `start_acquisition()` and `stop_acquisition()` toggle an internal acquiring flag only.
+5. `unread_scripted_count` returns constructor frames not yet taken by
+   `acquire_frame` or `drain_frame`. The live slot does not change this count.
+6. `drain_frame()` drops one unread frame and returns `Ok(None)`. It drops the
+   live slot when one is set. Otherwise it advances past one constructor frame.
+   An empty queue still returns `Ok(None)`. The call returns no mosaic.
+7. Exposure, gain, and acquisition control calls are no-ops that always succeed.
+8. `start_acquisition()` and `stop_acquisition()` toggle an internal acquiring flag only.
 
 ## Errors and faults
 
@@ -62,6 +66,8 @@ None. Frames are supplied at construction by the SIL or test harness.
 - `load_next` is a sim-only mutator. Real drivers have no counterpart.
 - Callers must not overlap `load_next` with `acquire_frame`. The slot has no lock.
 - `unread_scripted_count` is a sim-only observer. Real drivers have no counterpart.
+- `drain_frame` drops one unread replay frame and returns no mosaic. An empty
+  queue returns success.
 
 ## Related documents
 

@@ -42,5 +42,5 @@ still feeding deterministic scene frames and a sim gimbal.
 
 ## Notes
 
-- The `lock` (LaunchLock) axis has no device and no config field; it remains a permanent VCRM gap
-  and is not exercised by PIL.
+- PIL has no launch restraint device. The launch restraint is a crew strap. Flight
+  software does not sense or command it.

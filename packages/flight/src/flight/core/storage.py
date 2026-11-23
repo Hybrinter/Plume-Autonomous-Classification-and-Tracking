@@ -35,12 +35,18 @@ from pathlib import Path
 # internal
 from flight.libs.bus import MessageBus, Subscription
 from flight.libs.config import FaultConfig, PactConfig, StorageConfig
-from flight.libs.messages import FaultEventMsg, HeartbeatMsg, TelemetryEventMsg
+from flight.libs.messages import (
+    FaultEventMsg,
+    HeartbeatMsg,
+    SystemModeTransitionMsg,
+    TelemetryEventMsg,
+)
 from flight.libs.time import Clock
 from flight.libs.types import DownlinkPriority, Err, FaultCode, MessageType, Ok, Result
 
 SUBSYSTEM = "storage"
 _LEDGER_NAME = "fault_ledger.jsonl"
+_TRANSITIONS_NAME = "system_mode_transitions.jsonl"
 _TELEMETRY_NAME = "telemetry.jsonl"
 _PRODUCTS_DIR = "products"
 
@@ -89,6 +95,7 @@ class StorageService:
     clock: Clock
     telemetry: Subscription[TelemetryEventMsg]
     faults: Subscription[FaultEventMsg]
+    transitions: Subscription[SystemModeTransitionMsg]
     state: StorageState
 
     @staticmethod
@@ -111,6 +118,7 @@ class StorageService:
             clock=clock,
             telemetry=bus.subscribe(TelemetryEventMsg),
             faults=bus.subscribe(FaultEventMsg),
+            transitions=bus.subscribe(SystemModeTransitionMsg),
             state=StorageState(),
         )
 
@@ -226,10 +234,36 @@ class StorageService:
                     sort_keys=True,
                 )
             )
+        transition_lines = []
+        while not self.transitions.empty():
+            record = self.transitions.get_nowait()
+            transition_lines.append(
+                json.dumps(
+                    {
+                        "ts": record.timestamp_utc,
+                        "schema_version": record.schema_version,
+                        "transition_id": record.transition_id,
+                        "request_id": record.request_id,
+                        "epoch": record.epoch,
+                        "previous_mode": (
+                            record.previous_mode.value if record.previous_mode is not None else None
+                        ),
+                        "requested_mode": record.requested_mode.value,
+                        "resulting_mode": record.resulting_mode.value,
+                        "decision": record.decision.value,
+                        "reason": record.reason,
+                        "activation_sequence": record.activation_sequence,
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
         if telemetry_lines:
             self._append_lines(root / _TELEMETRY_NAME, telemetry_lines)
         if fault_lines:
             self._append_lines(root / _LEDGER_NAME, fault_lines)
+        if transition_lines:
+            self._append_lines(root / _TRANSITIONS_NAME, transition_lines)
 
     def read_fault_ledger(self) -> list[dict[str, object]]:
         """Read the reboot-surviving fault ledger back as a list of records (oldest first).
@@ -238,6 +272,21 @@ class StorageService:
             The parsed ledger records, or an empty list if the ledger does not yet exist.
         """
         path = self._root() / _LEDGER_NAME
+        if not path.exists():
+            return []
+        records: list[dict[str, object]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+        return records
+
+    def read_mode_transition_ledger(self) -> list[dict[str, object]]:
+        """Read the system-mode transition ledger back as records (oldest first).
+
+        Returns:
+            The parsed transition records, or an empty list if none exist yet.
+        """
+        path = self._root() / _TRANSITIONS_NAME
         if not path.exists():
             return []
         records: list[dict[str, object]] = []

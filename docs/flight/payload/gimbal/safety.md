@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This module holds pre-arbiter safety gates. `PayloadController` applies them before
+This module holds pre-matching safety gates. The operate graph applies them before
 blob matching: confidence filter and minimum area filter.
 
 ## Public interface
@@ -42,5 +42,5 @@ The functions are pure. They do not rate-limit gimbal commands.
 
 ## Related documents
 
-- [`flight.payload.gimbal.arbiter`](arbiter.md)
+- [`flight.payload.graphs.operate`](../graphs/operate.md)
 - [`flight.payload.control`](../control.md)

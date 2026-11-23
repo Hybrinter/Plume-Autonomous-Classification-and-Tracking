@@ -62,7 +62,7 @@ None. The following `step_once` acquire publishes as usual.
 
 ## Configuration
 
-Reads `SensorConfig.initial_exposure_us` and `initial_gain_db` for `ShutterPose`.
+Reads `SensorCaptureConfig.initial_exposure_us` and `initial_gain_db` for `ShutterPose`.
 
 ## Constraints
 

@@ -7,7 +7,7 @@ descriptive pages.
 
 | Name | Meaning |
 | --- | --- |
-| arbiter | Pure FSM that resolves gimbal mode and request type |
+| activation | Accepted `SystemModeActivatedMsg` that selects a payload graph |
 | band plane | Half-resolution spectral plane after demosaic |
 | blob | Connected region extracted from a detection mask |
 | boresight error | Angular offset from the optical axis to the target, in degrees |
@@ -45,5 +45,6 @@ descriptive pages.
 
 ## Mode names
 
-Use the enum member text as written: `IDLE`, `TRACKING`, `REWIND`,
-`FAST_REWIND`, `SCAN`, `SAFE`, `ABSOLUTE`, `STOW`, `HOME`.
+Payload graph modes: `IDLE`, `STOW`, `SAFE`, `INIT`, `OPERATE`. Operate nodes
+use the enum member text as written: `TRACKING`, `REWIND`, `FAST_REWIND`,
+`HOLD`.

@@ -10,11 +10,11 @@ def test_zero_error_holds_integrator() -> None:
         y_m=0.1,
         integrator=0.0,
         dt_s=0.001,
-        j_hat=0.008,
+        j_hat=0.0025,
         b_hat=0.04,
         kp=200.0,
         ki=10_000.0,
-        tau_max_nm=1.0,
+        tau_max_nm=0.09,
         stopped=False,
     )
     assert abs(result.tau_nm - 0.04 * 0.1) < 1e-12
@@ -29,26 +29,26 @@ def test_clip_freezes_integrator() -> None:
         y_m=0.0,
         integrator=0.0,
         dt_s=0.001,
-        j_hat=0.008,
+        j_hat=0.0025,
         b_hat=0.04,
         kp=200.0,
         ki=10_000.0,
-        tau_max_nm=1.0,
+        tau_max_nm=0.09,
         stopped=False,
     )
     assert first.clipped is True
-    assert first.tau_nm == 1.0
+    assert first.tau_nm == 0.09
     assert first.integrator == 0.0
     second = inner_step(
         r_rad_s=10.0,
         y_m=0.0,
         integrator=first.integrator,
         dt_s=0.001,
-        j_hat=0.008,
+        j_hat=0.0025,
         b_hat=0.04,
         kp=200.0,
         ki=10_000.0,
-        tau_max_nm=1.0,
+        tau_max_nm=0.09,
         stopped=False,
     )
     assert second.integrator == 0.0
@@ -61,7 +61,7 @@ def test_stop_freezes_integrator() -> None:
         y_m=0.0,
         integrator=0.2,
         dt_s=0.001,
-        j_hat=0.008,
+        j_hat=0.0025,
         b_hat=0.04,
         kp=1.0,
         ki=1.0,

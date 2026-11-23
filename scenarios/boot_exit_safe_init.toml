@@ -1,0 +1,40 @@
+name = "boot_exit_safe_init"
+profile = "sil-link-real"
+steps = 6
+dt = 1.0
+
+# No initial_mode fixture: the system-mode authority boots the system SAFE on the
+# first step. EXIT_SAFE is hazardous, so it runs the ARM -> EXECUTE two-step over the
+# real link; the EXECUTE lands after fault-owned safety evidence is on the bus and
+# the authority accepts SAFE -> INIT. With the default pending verifier INIT
+# remains pending; there is no automatic IDLE.
+
+[scene]
+num_frames = 6
+seed = 0
+
+[[commands]]
+at_frame = 2
+command_id = "EXIT_SAFE"
+params = { phase = "ARM" }
+source = "ground"
+seq = 1
+
+[[commands]]
+at_frame = 3
+command_id = "EXIT_SAFE"
+params = { phase = "EXECUTE" }
+source = "ground"
+seq = 2
+
+[[assertions]]
+id = "boot_exit_safe_init.acked"
+kind = "command_acked"
+value = "ACCEPTED"
+tag = "frame-portable"
+
+[[assertions]]
+id = "boot_exit_safe_init.reaches_init"
+kind = "mode_is"
+value = "INIT"
+tag = "frame-portable"

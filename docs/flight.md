@@ -15,10 +15,10 @@ message bus and talk to hardware through HAL drivers.
 | [`core`](flight/core.md) | package | Composition root, scheduler, config load, command routing, downlink, storage |
 | [`payload`](flight/payload.md) | package | Imaging pipeline, inference, gimbal control, science products |
 | [`fault`](flight/fault.md) | package | Fault detection, watchdog, SAFE mode policy |
+| [`system_modes`](flight/system_modes.md) | package | System-mode authority: requests, transitions, activations |
 | [`iss_iface`](flight/iss_iface.md) | package | Station link ingress and egress, command ACK, uplink |
 | [`thermal`](flight/thermal.md) | package | Thermal housekeeping telemetry |
 | [`electrical`](flight/electrical.md) | package | Power monitoring and limit enforcement |
-| [`mechanical`](flight/mechanical.md) | package | Launch-lock state and hazardous release |
 | [`hal`](flight/hal.md) | package | HAL protocols and sim/real drivers |
 | [`libs`](flight/libs.md) | package | Shared types, messages, bus, config, CCSDS, commands, clock, logging |
 

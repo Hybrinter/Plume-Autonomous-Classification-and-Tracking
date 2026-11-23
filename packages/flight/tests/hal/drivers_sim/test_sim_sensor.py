@@ -85,6 +85,29 @@ def test_unread_scripted_count_tracks_constructor_list() -> None:
     assert sensor.unread_scripted_count() == 0
 
 
+def test_drain_frame_drops_one_unread_frame() -> None:
+    """drain_frame drops the live slot, else one constructor frame, and stays Ok when empty."""
+    with_slot = SimSensor([_frame(1), _frame(2)])
+    with_slot.load_next(_frame(9))
+    assert isinstance(with_slot.drain_frame(), Ok)
+    assert with_slot.unread_scripted_count() == 2
+    first = with_slot.acquire_frame()
+    assert isinstance(first, Ok)
+    assert first.value.frame_id == 1
+
+    scripted = SimSensor([_frame(1), _frame(2)])
+    assert isinstance(scripted.drain_frame(), Ok)
+    assert scripted.unread_scripted_count() == 1
+    next_frame = scripted.acquire_frame()
+    assert isinstance(next_frame, Ok)
+    assert next_frame.value.frame_id == 2
+    assert isinstance(scripted.drain_frame(), Ok)
+    assert isinstance(scripted.drain_frame(), Ok)
+    stalled = scripted.acquire_frame()
+    assert isinstance(stalled, Err)
+    assert stalled.error is FaultCode.CAMERA_STALL
+
+
 def test_load_next_prefers_slot_over_scripted_list() -> None:
     """The live slot is returned before remaining constructor frames."""
     sensor = SimSensor([_frame(1), _frame(2)])

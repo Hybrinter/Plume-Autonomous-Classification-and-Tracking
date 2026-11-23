@@ -16,7 +16,7 @@ The flight software is a **Python-only `uv` workspace** under `packages/`, built
 
 | Capability | Description |
 |-----------|-------------|
-| **Plume detection** | A binary ONNX classifier gates a U-Net-class ONNX segmentor. The classifier skips segmentation on empty frames. The segmentor produces a plume probability mask; blobs are extracted for tracking. Raw 2×2 mosaic frames are demosaiced into BLUE/GREEN/RED/NIR bands (≈ Sentinel-2 B2/B3/B4/B8) in pure preprocessing. |
+| **Plume detection** | The full RGB prism frame is split into an 8×8 grid. A GSD-conditioned ONNX classifier gates segmentation per tile. The detector stitches probabilities into a full-frame mask and extracts blobs for tracking. Calibration, normalization, tiling, and footprint geometry live in flight. |
 | **Closed-loop pointing** | Cascaded elevation torque loop: inner PI + computed torque at ~1 ms, outer residual filter + co-rotating predictor at ~20 ms. Arbiter modes are TRACKING / REWIND / FAST_REWIND / SAFE. |
 | **ISS command path** | Authenticated CCSDS command ingress (CRC + per-source sequence dedup + HMAC-SHA256 + command-dictionary validation); every command yields an ACCEPTED or REJECTED ack. |
 | **FDIR / SAFE** | Heartbeat watchdog + fault-to-mode policy; SAFE-triggering faults latch the system into a single SAFE mode (stow + quiesce), exited only by ground command. |
@@ -43,7 +43,7 @@ docs/       # package-mirrored descriptive docs, ADRs, requirements (VCRM), vali
 ```
 
 Each subsystem under `packages/flight/src/flight/` (`payload`, `fault`, `iss_iface`, `thermal`,
-`electrical`, `mechanical`) is an isolated app: a thin imperative shell around a pure decision
+`electrical`) is an isolated app: a thin imperative shell around a pure decision
 core, talking to peers **only** over `flight.libs.bus`. `flight.core` is the sole composition root.
 
 ---
@@ -141,21 +141,42 @@ A CUDA-enabled install prints a `+cu130` version tag on both Windows and Linux. 
 `True` once an NVIDIA GPU and a matching driver are present. The train loop selects CUDA when it is
 available; pass `--device` to override.
 
-Run inference engineering workflows through the installed tools command:
+Build a finished dataset from reviewed examples, then train and export through
+the model tools command:
 
 ```bash
-pact-tools inference fetch
-pact-tools inference train --kind segmentor --out artifacts/segmentor.pt
-pact-tools inference export \
-  --kind segmentor \
-  --checkpoint artifacts/segmentor.pt \
+pact-tools ml-models dataset build --source flight \
+  --source-dir raw/reviewed-flight --out datasets/flight
+pact-tools ml-models train --kind segmentor --dataset datasets/flight \
+  --run-id segmentor
+pact-tools ml-models export \
+  --checkpoint artifacts/runs/segmentor/checkpoints/last.pt \
   --out artifacts/segmentor.onnx
+pact-tools ml-models accept --artifact artifacts/segmentor.onnx \
+  --manifest artifacts/segmentor.json --dataset datasets/flight
 ```
 
-Factory flight graphs are `data/models/active_classifier.onnx` (ShuffleNetV2-x0.5)
-and `data/models/active_segmentor.onnx` (DilateNet-w32). `config/default.toml`
-`[inference]` points at those paths. `pact-tools inference finalize --promote`
-copies a passed artifact there.
+Repeat training, export, and acceptance for the classifier, then use
+`pact-tools ml-models pair` with both sidecars to create the deployment manifest.
+Export and pairing check training GSD coverage. `--allow-partial-gsd` records an
+explicit coverage exception; `--dynamic-spatial` creates a research export that
+cannot pass flight promotion or pairing. Export and pairing write artifacts;
+they do not activate models on the payload.
+
+Flight expects dynamic-batch `image` and `gsd` inputs, with fixed 193×258 image tiles
+for the default 1544×2064 frame and 8×8 grid. GSD is lateral/along-track metres
+encoded as `ln(gsd / gsd_reference_m)`. The checked-in factory graphs at
+`data/models/active_classifier.onnx` and `data/models/active_segmentor.onnx`
+use the previous single-input contract and are rejected by the new loader.
+Compatible trained artifacts are required for `compute=real`; scripted SIL
+exercises the tiled path without those artifacts. Ground dataset geometry and
+full-frame evaluation reuse flight processing APIs. The retired `tools.inference`
+workflow is replaced by `tools.ml_models`.
+
+Training-example collection, configurable negative/positive balancing,
+training-example storage, and downlink are deferred. Flight owns these
+future collection responsibilities; ground owns preparation and training
+after positive and negative examples are compiled.
 
 Use `python -m tools` as an alias for `pact-tools`.
 

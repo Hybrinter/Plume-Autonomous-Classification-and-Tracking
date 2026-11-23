@@ -6,8 +6,8 @@
 ## Purpose
 
 This module associates blobs across consecutive inference frames using intersection over
-union matching. Persistent blob IDs and frame counts feed the arbiter acquire and
-release logic.
+union matching. Persistent blob IDs and frame counts feed the operate graph's
+acquire and release logic.
 
 ## Public interface
 
@@ -46,11 +46,12 @@ Uses `VisionConfig.blob_iou_match_threshold` (default 0.25).
 
 ## Constraints
 
-Matching runs after confidence and area gates in `PayloadController`. Blob IDs start at
-zero from `extract_blobs` and are assigned here before the arbiter reads persistence.
+Matching runs after confidence and area gates inside the operate graph. Blob IDs
+start at zero from `extract_blobs` and are assigned here before the graph reads
+persistence.
 
 ## Related documents
 
 - [`flight.payload.tracking`](../tracking.md)
 - [`flight.payload.blobs`](../blobs.md)
-- [`flight.payload.gimbal.arbiter`](../gimbal/arbiter.md)
+- [`flight.payload.graphs.operate`](../graphs/operate.md)

@@ -38,6 +38,7 @@ from flight.libs.messages import (
     HeartbeatMsg,
     LinkStateMsg,
     ProductRefMsg,
+    SystemModeTransitionMsg,
     TelemetryEventMsg,
 )
 from flight.libs.time import Clock
@@ -87,6 +88,7 @@ class DownlinkManager:
     telemetry: Subscription[TelemetryEventMsg]
     products: Subscription[ProductRefMsg]
     link: Subscription[LinkStateMsg]
+    transitions: Subscription[SystemModeTransitionMsg]
     state: DownlinkState
 
     @staticmethod
@@ -111,6 +113,7 @@ class DownlinkManager:
             telemetry=bus.subscribe(TelemetryEventMsg),
             products=bus.subscribe(ProductRefMsg),
             link=bus.subscribe(LinkStateMsg),
+            transitions=bus.subscribe(SystemModeTransitionMsg),
             state=DownlinkState(),
         )
 
@@ -162,6 +165,32 @@ class DownlinkManager:
                 separators=(",", ":"),
             ).encode("utf-8")
             self._enqueue_inline(DownlinkPriority.HK_TELEMETRY, f"telem_{event.event_name}", body)
+        while not self.transitions.empty():
+            record = self.transitions.get_nowait()
+            body = json.dumps(
+                {
+                    "type": "mode_transition",
+                    "ts": record.timestamp_utc,
+                    "schema_version": record.schema_version,
+                    "transition_id": record.transition_id,
+                    "request_id": record.request_id,
+                    "epoch": record.epoch,
+                    "previous_mode": (
+                        record.previous_mode.value if record.previous_mode is not None else None
+                    ),
+                    "requested_mode": record.requested_mode.value,
+                    "resulting_mode": record.resulting_mode.value,
+                    "decision": record.decision.value,
+                    "reason": record.reason,
+                    "activation_sequence": record.activation_sequence,
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            self._enqueue_inline(
+                DownlinkPriority.HK_TELEMETRY,
+                f"mode_transition_{record.epoch}_{record.transition_id}",
+                body,
+            )
         while not self.products.empty():
             product = self.products.get_nowait()
             self.state.pending.append(

@@ -21,6 +21,9 @@ from flight.libs.config import (
     GimbalConfig,
     InferenceConfig,
     LinkConfig,
+    OuterLoopConfig,
+    PayloadPolicyConfig,
+    PayloadPolicyOverrideConfig,
     PreprocessingConfig,
     SensorConfig,
     StorageConfig,
@@ -56,6 +59,7 @@ _SECTION_TO_DATACLASS = {
     "command_router": CommandRouterConfig,
     "ephemeris": EphemerisConfig,
     "drivers": DriverConfig,
+    "payload_policy": PayloadPolicyConfig,
 }
 
 
@@ -77,6 +81,13 @@ def _compare_defaults(
         for field in dataclasses.fields(type(dataclass_value)):
             key = f"{path}.{field.name}"
             if field.name not in toml_value:
+                if (
+                    isinstance(dataclass_value, PayloadPolicyOverrideConfig)
+                    and getattr(dataclass_value, field.name) is None
+                ):
+                    # Policy override fields default to None (inherit); an
+                    # empty TOML table is the explicit no-override form.
+                    continue
                 mismatches.append(f"{key}: missing from TOML")
                 continue
             _compare_defaults(
@@ -101,3 +112,28 @@ def test_config_defaults_match_default_toml() -> None:
         _compare_defaults(section, defaults, toml_section, mismatches)
 
     assert not mismatches, "config default divergence:\n" + "\n".join(mismatches)
+
+
+def test_inference_grid_defaults_and_divisibility() -> None:
+    """Inference config sets the standard tile grid and rejects non-dividing grids."""
+    import pytest
+    from pydantic import ValidationError
+
+    defaults = InferenceConfig()
+    assert (defaults.tile_rows, defaults.tile_cols, defaults.gsd_reference_m) == (8, 8, 15.87)
+    with pytest.raises(ValidationError, match="must divide"):
+        InferenceConfig(input_height_px=10, input_width_px=16, tile_rows=3, tile_cols=4)
+    with pytest.raises(ValidationError):
+        InferenceConfig(gsd_reference_m=float("inf"))
+
+
+def test_hunt_timeout_must_outlast_rewind_window() -> None:
+    """Outer config rejects a hunt timeout at or below the REWIND window."""
+    import pytest
+    from pydantic import ValidationError
+
+    assert OuterLoopConfig(rewind_sharp_max_s=2.0, hunt_timeout_s=2.5).hunt_timeout_s == 2.5
+    with pytest.raises(ValidationError, match="hunt_timeout_s must be greater"):
+        OuterLoopConfig(rewind_sharp_max_s=2.0, hunt_timeout_s=2.0)
+    with pytest.raises(ValidationError, match="hunt_timeout_s must be greater"):
+        OuterLoopConfig(rewind_sharp_max_s=2.0, hunt_timeout_s=1.0)

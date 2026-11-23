@@ -11,9 +11,9 @@ from flight.payload.calibration_io import build_identity_calibration, load_calib
 
 def _write_artifacts(tmp_path: Path, h: int, w: int, corrupt: bool = False) -> None:
     arrays = {
-        "dark_frame": np.zeros((h, w), dtype=np.float32),
-        "flat_field": np.ones((h, w), dtype=np.float32),
-        "bad_pixel_mask": np.zeros((h, w), dtype=bool),
+        "dark_frame": np.zeros((3, h, w), dtype=np.float32),
+        "flat_field": np.ones((3, h, w), dtype=np.float32),
+        "bad_pixel_mask": np.zeros((3, h, w), dtype=bool),
     }
     manifest: dict[str, dict[str, str]] = {}
     for name, arr in arrays.items():
@@ -31,7 +31,7 @@ def test_load_calibration_happy_path(tmp_path: Path) -> None:
     _write_artifacts(tmp_path, 8, 8)
     result = load_calibration(str(tmp_path), height_px=8, width_px=8)
     assert isinstance(result, Ok)
-    assert result.value.dark_frame.shape == (8, 8)
+    assert result.value.dark_frame.shape == (3, 8, 8)
     assert result.value.bad_pixel_mask.dtype == np.bool_
 
 

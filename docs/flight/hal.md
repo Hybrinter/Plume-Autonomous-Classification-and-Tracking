@@ -27,7 +27,7 @@ None. The top-level `hal` package has no `__init__.py` re-exports. Importers rea
 Apps receive injected Protocol implementations from `flight.core.composition.build_apps`.
 The payload app uses `ImagingSensor`, `GimbalActuator`, and `IssEphemeris`. The iss_iface app uses
 `StationLink`, `StorageReader`, and `StorageWriter`. The thermal and electrical apps
-use `ScalarSensor`. The mechanical app uses `LaunchLock`.
+use `ScalarSensor`.
 
 Only composition roots (`flight.core.main`, `sim.sil`) import concrete driver packages.
 Import-linter contracts enforce this boundary.

@@ -45,12 +45,27 @@ runs through the passive recorder. It covers nominal tracking and fault or comma
 1. Built-in scenarios set steps, frame counts, thermal or power scripts, injections, actions,
    inbound `build_tc_packet` bytes, or shrunk storage or downlink quotas.
 2. `_make_pre_step` groups actions and injections by 1-based step index.
-3. Pre-step runs actions first, then publishes injection messages on the bus.
+3. Step 1 publishes `initial_mode` when the spec declares it; later work runs actions first,
+   then publishes injection messages on the bus. Omitted initial mode leaves the real
+   authority's boot activation (SAFE) as the start.
 4. `record_run` owns the stepping loop after the hook fires.
 
+`power_over_limit_safe` captures 18 steps: the power fault latches containment and requests
+SAFE, and the authority activates SAFE after containment. No stow is attempted.
+`exit_safe_recovery` exercises routing and stays contained until the real authority accepts
+an authorized `SAFE -> INIT` recovery. The default verifier keeps INIT pending, so the
+run never reaches IDLE automatically.
+`gimbal_runaway` uses exact simulated encoder feedback to isolate its freeze injection
+from lower-stop noise rejection. It freezes at step 3 after initial plume acquisition.
+Other scenarios retain their declared configuration and operational defaults are unchanged.
+`model_lifecycle` uses the flight model manifest contract: dynamic
+tile batches, image and GSD inputs, tile output shapes, grid, GSD reference, normalization,
+conditioning, encoding, and band names. It stages the valid three-band pair before attempting
+an invalid four-band pair.
+
 Built-in scenarios include: nominal tracking, thermal hot-sample telemetry, power SAFE,
-gimbal runaway, watchdog inject, EXIT_SAFE recovery, hazardous ARM/EXECUTE, launch-lock
-interlock, model lifecycle, storage eviction, downlink AOS budget, and signed command
+gimbal runaway, watchdog inject, EXIT_SAFE recovery, hazardous ARM/EXECUTE,
+model lifecycle, storage eviction, downlink AOS budget, and signed command
 ingress.
 
 ## Errors and faults
@@ -59,7 +74,8 @@ ingress.
 
 ## Messages
 
-Injections publish types such as `CommandMsg`, `FaultEventMsg`, and `ModelStagedMsg`. Actions
+Injections publish types such as `CommandMsg`, `FaultEventMsg`, `SystemModeActivatedMsg`,
+and `ModelStagedMsg`. Actions
 may call public storage APIs or flip sim link state.
 
 ## Configuration
@@ -76,6 +92,8 @@ Default uplink key is `b"sil-test-key-0000000000000000000"`.
 - A watchdog miss still arrives as an injected `FaultEventMsg`. `step_once`
   synthesizes heartbeats each cycle.
 - File scenarios prefix names with `file_` and category `scenario-file`.
+- Built-in science scenarios explicitly select OPERATE in test setup. File scenarios preserve
+  their declared initial mode; there is no production mode fallback.
 
 ## Related documents
 

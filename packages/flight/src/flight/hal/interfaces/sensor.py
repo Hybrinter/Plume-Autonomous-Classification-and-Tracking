@@ -4,8 +4,9 @@ Defines the ImagingSensor protocol that every camera driver (real or simulated)
 satisfies. Drivers ACQUIRE ONLY: acquire_frame() returns a raw (H, W) uint16 2x2-CFA
 mosaic plane (a MosaicFrame), with NO demosaic, calibration, or normalization inside
 any driver (ADR: raw-mosaic ingest contract). Those stages run as pure functions in
-flight.payload.preprocess. Implementations must be thread-safe: acquire_frame() runs on
-the capture path while the tuning calls may arrive from a control path.
+flight.payload.preprocess. Implementations must be thread-safe: acquire_frame() and
+drain_frame() run on the capture path while the tuning calls may arrive from a
+control path.
 
 Contains:
   - ImagingSensor: the runtime-checkable Protocol every camera driver satisfies.
@@ -41,6 +42,25 @@ class ImagingSensor(Protocol):
         Notes:
             The returned plane is un-demosaicked: it is the raw CFA image straight off
             the sensor. No calibration or normalization has been applied.
+        """
+        ...
+
+    def drain_frame(self) -> Result[None, FaultCode]:
+        """Release streamed images that the duty gate will not process.
+
+        Inputs:
+            None.
+
+        Returns:
+            Result[None, FaultCode]: Ok(None) when the stream has no waiting image
+            or each waiting image was released. Err when the driver cannot release
+            an image it already retrieved.
+
+        Notes:
+            A free-running camera continues to expose after start_acquisition.
+            Off-duty payload ticks call this method. The call returns no mosaic.
+            A scripted replay drops one unread frame in acquire order. An empty
+            replay queue returns Ok(None).
         """
         ...
 

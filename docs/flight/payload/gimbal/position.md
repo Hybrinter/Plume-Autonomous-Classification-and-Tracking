@@ -43,5 +43,5 @@ The function is pure. Pose motion still goes through the inner torque loop.
 ## Related documents
 
 - [`flight.payload.gimbal.inner`](inner.md)
-- [`flight.payload.gimbal.arbiter`](arbiter.md)
+- [`flight.payload.gimbal.request`](request.md)
 - [`flight.payload.control`](../control.md)

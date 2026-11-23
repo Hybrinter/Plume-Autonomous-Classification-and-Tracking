@@ -28,7 +28,6 @@ from flight.hal.interfaces import (
     GimbalActuator,
     ImagingSensor,
     IssEphemeris,
-    LaunchLock,
     ScalarSensor,
     StationLink,
 )
@@ -43,9 +42,7 @@ from flight.libs.messages import (
     GimbalCommandMsg,
     HeartbeatMsg,
     InferenceResultMsg,
-    LaunchLockStateMsg,
     LinkStateMsg,
-    ModeChangeMsg,
     ModelDeployStateMsg,
     ModelStagedMsg,
     ProcessedFrameMsg,
@@ -53,14 +50,19 @@ from flight.libs.messages import (
     RoutedCommandMsg,
     SafetyStateMsg,
     StorageWriteMsg,
+    SystemModeActivatedMsg,
+    SystemModeRequestMsg,
+    SystemModeSyncRequestMsg,
+    SystemModeTransitionMsg,
     TelemetryEventMsg,
     UploadChunkMsg,
 )
 from flight.libs.time import Clock
-from flight.mechanical.app import MechanicalApp
 from flight.payload.app import PayloadApp
-from flight.payload.inference import DetectorBackend
+from flight.payload.inference import InferenceRuntime
+from flight.payload.lifecycle import InitializationVerifier
 from flight.payload.preprocess import MosaicCalibration
+from flight.system_modes.app import SystemModesApp
 from flight.thermal.app import ThermalApp
 
 # The subsystems that run persistent loops and emit heartbeats; the FDIR watchdog
@@ -71,9 +73,9 @@ MONITORED_SUBSYSTEMS: tuple[str, ...] = (
     "thermal",
     "electrical",
     "command_router",
+    "system_modes",
     "storage",
     "downlink",
-    "mechanical",
     "model_deploy",
 )
 
@@ -101,10 +103,14 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
         RoutedCommandMsg,
         CommandAckMsg,
         FaultEventMsg,
-        ModeChangeMsg,
         ModelStagedMsg,
         UploadChunkMsg,
         StorageWriteMsg,
+        SystemModeRequestMsg,
+        SystemModeTransitionMsg,
+        SystemModeActivatedMsg,
+        SystemModeSyncRequestMsg,
+        SafetyStateMsg,
     ):
         policy[never_type] = never
     for drop_type in (
@@ -112,13 +118,11 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
         ProcessedFrameMsg,
         InferenceResultMsg,
         LinkStateMsg,
-        LaunchLockStateMsg,
         GimbalCommandMsg,
         HeartbeatMsg,
         ProductRefMsg,
         DownlinkItemMsg,
         ModelDeployStateMsg,
-        SafetyStateMsg,
     ):
         policy[drop_type] = drop
     return policy
@@ -126,41 +130,42 @@ def default_bus_policy() -> dict[type, QueuePolicy]:
 
 @dataclass(frozen=True)
 class Drivers:
-    """Bundle of injected HAL drivers + the detector backend for one composition.
+    """Bundle of injected HAL drivers + the inference runtime for one composition.
 
     The composition root (flight entry or SIL) constructs the concrete implementations;
-    build_apps consumes only the Protocol types. The launch_lock is always a SimLaunchLock
-    today (no real driver exists -- the device is hardware-deferred, a permanent VCRM gap).
+    build_apps consumes only the Protocol types. `inference` is the lazy
+    InferenceRuntime holder -- empty with a lazy factory on the real path,
+    explicitly scripted in sim/test composition.
     """
 
     sensor: ImagingSensor
     gimbal: GimbalActuator
     ephemeris: IssEphemeris
-    detector: DetectorBackend
+    inference: InferenceRuntime
     station: StationLink
     thermal_sensor: ScalarSensor
     power_sensor: ScalarSensor
-    launch_lock: LaunchLock
 
 
 @dataclass(frozen=True)
 class SystemApps:
     """The constructed subsystem apps + core services, sharing one bus and clock.
 
-    The five subsystem apps (payload/fault/iss_iface/thermal/electrical) plus the core-hosted
-    command_router service (spec Section 10 Approach A). All are constructed by build_apps,
-    run by the flight Scheduler, and stepped by the deterministic SIL/GSE harness.
+    The six subsystem apps (system_modes plus payload/fault/iss_iface/thermal/electrical)
+    plus the core-hosted command_router service (spec Section 10 Approach A). All are
+    constructed by build_apps, run by the flight Scheduler, and stepped by the
+    deterministic SIL/GSE harness.
     """
 
     payload: PayloadApp
     fault: FaultApp
+    system_modes: SystemModesApp
     iss_iface: IssIfaceApp
     thermal: ThermalApp
     electrical: ElectricalApp
     command_router: CommandRouter
     storage: StorageService
     downlink: DownlinkManager
-    mechanical: MechanicalApp
     model_deploy: ModelDeployService
 
 
@@ -172,6 +177,10 @@ def build_apps(
     monitored: tuple[str, ...],
     calib: MosaicCalibration,
     uplink_key: bytes,
+    activation_epoch: str,
+    *,
+    initialization_verifier: InitializationVerifier | None = None,
+    synchronous_lifecycle: bool = False,
 ) -> SystemApps:
     """Construct every subsystem app wired to the shared bus and clock.
 
@@ -187,6 +196,15 @@ def build_apps(
         uplink_key: The shared HMAC-SHA256 secret for authenticating inbound TC packets.
             Loaded from disk by the composition root and injected here so build_apps
             and the apps themselves stay key-file-agnostic.
+        activation_epoch: The authority epoch for this run (uuid4 in flight, a fixed
+            deterministic value in SIL). Apps never generate epochs themselves.
+        initialization_verifier: Optional INIT verification seam; None keeps the
+            pending-by-default production verifier. Sim selection never implies a
+            passing verifier.
+        synchronous_lifecycle: When true, the payload executor pumps INIT
+            effects on the control thread and does not start its daemon.
+            Defaults to false so flight keeps the lazy worker. The SIL
+            validation builder passes true.
 
     Returns:
         A SystemApps with all five apps constructed.
@@ -198,21 +216,24 @@ def build_apps(
             drivers.sensor,
             drivers.gimbal,
             drivers.ephemeris,
-            drivers.detector,
+            drivers.inference,
             bus,
             clock,
             calib,
             storage,
+            activation_epoch,
+            verifier=initialization_verifier,
+            synchronous_lifecycle=synchronous_lifecycle,
         ),
-        fault=FaultApp.from_config(config, bus, clock, monitored),
+        fault=FaultApp.from_config(config, bus, clock, monitored, activation_epoch),
+        system_modes=SystemModesApp.from_config(config, bus, clock, activation_epoch),
         iss_iface=IssIfaceApp.from_config(
             config, bus, clock, drivers.station, uplink_key, storage, storage
         ),
         thermal=ThermalApp.from_config(config, bus, clock, drivers.thermal_sensor),
         electrical=ElectricalApp.from_config(config, bus, clock, drivers.power_sensor),
-        command_router=CommandRouter.from_config(config, bus, clock),
+        command_router=CommandRouter.from_config(config, bus, clock, activation_epoch),
         storage=storage,
         downlink=DownlinkManager.from_config(config, bus, clock),
-        mechanical=MechanicalApp.from_config(config, bus, clock, drivers.launch_lock),
         model_deploy=ModelDeployService.from_config(config, bus, clock, storage),
     )

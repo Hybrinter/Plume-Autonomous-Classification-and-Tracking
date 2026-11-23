@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from flight.libs.types import SystemMode
 from tools.analysis.cli import main
 from tools.analysis.report import write_run_report, write_suite_report
 from tools.analysis.runner import ScenarioSpec, run_scenario
@@ -21,6 +22,7 @@ def _small_spec(name: str = "test_small") -> ScenarioSpec:
         category="nominal",
         steps=4,
         num_frames=4,
+        initial_mode=SystemMode.OPERATE,
     )
 
 
@@ -53,7 +55,17 @@ def test_manifest_is_valid_and_complete(tmp_path: Path) -> None:
     assert manifest["deterministic"] is True
     assert manifest["datapoints"]["total_columns"] == run.capture.n_columns
     assert set(manifest["groups"]) == set(run.capture.wide)
-    assert "outcomes" in manifest and "final_gimbal_state" in manifest["outcomes"]
+    assert manifest["schema_version"] == 2
+    assert "outcomes" in manifest
+    assert manifest["outcomes"]["final_payload_graph"] == "operate"
+    assert manifest["outcomes"]["final_payload_node"] in (
+        "tracking",
+        "rewind",
+        "fast_rewind",
+        "hold",
+    )
+    assert manifest["outcomes"]["final_system_mode"] == "OPERATE"
+    assert "final_gimbal_state" not in manifest["outcomes"]
 
 
 def test_long_parquet_roundtrips(tmp_path: Path) -> None:

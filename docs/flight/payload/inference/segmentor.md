@@ -5,48 +5,51 @@
 
 ## Purpose
 
-This module defines the per-pixel segmentation interface and two implementations.
-The segmentor emits a probability mask. Blob extraction runs on that mask after a
-positive classifier decision.
+This module defines a per-tile segmentation interface and scripted and ONNX
+implementations. The segmentor emits one probability mask per selected positive
+tile. The detector stitches masks into full-frame geometry before blob extraction.
 
 ## Public interface
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SegmentorBackend` | protocol | `segment(frame) -> Result[ndarray, FaultCode]` |
-| `ScriptedSegmentor` | class | Fixed probability mask for SIL and unit tests |
-| `OnnxSegmentor` | class | ONNX session over logits, then sigmoid |
+| `TileSegmentorBackend` | protocol | `segment_tiles(images, gsd) -> Result[(N, 1, h, w), FaultCode]` |
+| `SegmentorBackend` | protocol | Legacy `segment(frame)` wrapper interface |
+| `ScriptedSegmentor` | class | Fixed tile probability masks for SIL and unit tests |
+| `OnnxSegmentor` | class | Image/GSD ONNX session over logits, then sigmoid |
 
 ## Inputs and outputs
 
-`ScriptedSegmentor(prob_mask)` with `prob_mask` shape `(H, W)` float32.
+`ScriptedSegmentor(prob_mask)` with `prob_mask` shape `(H, W)` float32, or an
+exact pre-sliced batch `(N, 1, h, w)`.
 
 `OnnxSegmentor(model_path, expected_sha256, expected_input_shape,
-expected_output_shape)`.
+expected_output_shape, expected_gsd_shape=(None, 2))`.
 
-Both implement `segment(ProcessedFrameMsg) -> Result[np.ndarray, FaultCode]` with a
-`(H, W)` float32 probability mask.
+The tile API is `segment_tiles(images, gsd) -> Result[np.ndarray, FaultCode]`,
+where `images` is `(N, C, h, w)` and `gsd` is encoded `(N, 2)`. It returns
+probability masks `(N, 1, h, w)`.
 
 `ScriptedSegmentor.load_mask(prob_mask)` replaces the stored mask. It is not on
 `SegmentorBackend`.
 
 ## Behavior
 
-1. `ScriptedSegmentor.segment` returns the configured mask. It does not read the
-   frame tensor.
-2. `ScriptedSegmentor.load_mask` copies a new `(H, W)` float32 mask into the
-   stored slot.
+1. `ScriptedSegmentor.segment_tiles` repeats a single mask for the requested
+   batch or returns a configured tile batch when the counts match.
+2. `ScriptedSegmentor.load_mask` copies a new mask into the stored slot.
 3. `OnnxSegmentor.__init__` opens an onnxruntime session through the shared session
    loader. Hash and shape checks are optional.
-4. `OnnxSegmentor.segment` adds a batch dimension, runs the session, applies
-   sigmoid, and returns `probs[0, 0]`. The exported graph emits logits. Sigmoid is
-   not part of the graph.
+4. `OnnxSegmentor.segment_tiles` feeds named `image` and `gsd` inputs, supports
+   dynamic batches, validates finite logits, and applies a stable sigmoid. The
+   exported graph emits logits; sigmoid is not part of the graph.
 
 ## Errors and faults
 
 | Fault / error | Trigger |
 | --- | --- |
-| `INFERENCE_NAN` | Non-finite probabilities after sigmoid |
+| `INFERENCE_NAN` | Non-finite logits/probabilities or inference runtime failure |
+| `FRAME_MALFORMED` | Invalid image or GSD shape/value |
 | `ValueError` at init | Hash or I/O contract verification failure |
 | `ImportError` at init | onnxruntime not installed |
 
@@ -56,13 +59,13 @@ None. The detector consumes the mask in process.
 
 ## Configuration
 
-Uses `InferenceConfig.segmentor_model_path` and input geometry via the composition
+Uses `InferenceConfig.segmentor_model_path` and tile geometry via the composition
 root.
 
 ## Constraints
 
 onnxruntime loads only when `OnnxSegmentor` is constructed. The module never imports
-real or sim HAL drivers. Callers must not overlap `load_mask` with `segment`. The
+real or sim HAL drivers. Callers must not overlap `load_mask` with inference. The
 slot has no lock.
 
 ## Related documents

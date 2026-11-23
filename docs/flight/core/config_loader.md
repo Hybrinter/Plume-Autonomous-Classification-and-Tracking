@@ -55,7 +55,7 @@ Reads all TOML sections backed by the `PactConfig` schema:
 | Section | Dataclass |
 | --- | --- |
 | `controller.vision` | `VisionConfig` |
-| `controller.arbiter` | `ArbiterConfig` |
+| `controller.operate` | `OperateGraphConfig` |
 | `controller.inner` | `InnerLoopConfig` |
 | `controller.outer` | `OuterLoopConfig` |
 | `controller.residual` | `ResidualConfig` |

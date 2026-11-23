@@ -5,7 +5,6 @@ config/default.toml (enforced by tests/test_config_defaults.py).
 """
 
 from flight.libs.config.config import (
-    ArbiterConfig,
     AxisMode,
     CommandIngressConfig,
     CommandRouterConfig,
@@ -20,13 +19,18 @@ from flight.libs.config.config import (
     InnerLoopConfig,
     IntegrityConfig,
     LinkConfig,
+    OperateGraphConfig,
     OuterLoopConfig,
     PactConfig,
+    PayloadPolicyConfig,
+    PayloadPolicyOverrideConfig,
     PositionLoopConfig,
     PredictorConfig,
     PreprocessingConfig,
     ResidualConfig,
+    SensorCaptureConfig,
     SensorConfig,
+    SensorOpticsConfig,
     StorageConfig,
     ThermalConfig,
     VisionConfig,
@@ -34,7 +38,7 @@ from flight.libs.config.config import (
 )
 
 __all__ = [
-    "ArbiterConfig",
+    "OperateGraphConfig",
     "AxisMode",
     "CommandIngressConfig",
     "CommandRouterConfig",
@@ -51,11 +55,15 @@ __all__ = [
     "LinkConfig",
     "OuterLoopConfig",
     "PactConfig",
+    "PayloadPolicyConfig",
+    "PayloadPolicyOverrideConfig",
     "PositionLoopConfig",
     "PredictorConfig",
     "PreprocessingConfig",
     "ResidualConfig",
+    "SensorCaptureConfig",
     "SensorConfig",
+    "SensorOpticsConfig",
     "StorageConfig",
     "ThermalConfig",
     "VisionConfig",

@@ -40,11 +40,11 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
             [
                 "fault.safe_latched",
                 "fault.event_count",
-                "fault.mode_change_count",
+                "fault.mode_request_count",
                 "fault.safety_active_faults",
             ],
             name="fault_safety",
-            title="SAFE latch + fault/mode-change activity",
+            title="Containment latch + fault/request activity",
             ylabel="count",
         ),
         common.line_panel(
@@ -66,9 +66,9 @@ def build(wide: pd.DataFrame) -> list[LabeledFigure]:
         ),
         common.cumulative_lines(
             wide,
-            ["fault.event_count", "fault.mode_change_count"],
+            ["fault.event_count", "fault.mode_request_count"],
             name="fault_cumulative",
-            title="Cumulative fault events + mode changes",
+            title="Cumulative fault events + mode requests",
         ),
     ]
     return [figure for figure in candidates if figure is not None]

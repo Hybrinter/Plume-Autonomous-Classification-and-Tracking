@@ -75,13 +75,7 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
     ),
     CommandId.EXIT_SAFE: CommandSpec(
         CommandId.EXIT_SAFE,
-        "fault",
-        (ParamSpec("phase", ParamKind.STR),),
-        hazardous=True,
-    ),
-    CommandId.RELEASE_LAUNCH_LOCK: CommandSpec(
-        CommandId.RELEASE_LAUNCH_LOCK,
-        "mechanical",
+        "system_modes",
         (ParamSpec("phase", ParamKind.STR),),
         hazardous=True,
     ),
@@ -102,7 +96,13 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("version", ParamKind.STR),),
         hazardous=False,
     ),
-    CommandId.GIMBAL_STOW: CommandSpec(CommandId.GIMBAL_STOW, "payload", (), hazardous=False),
+    CommandId.SET_MODE: CommandSpec(
+        CommandId.SET_MODE,
+        "system_modes",
+        (ParamSpec("mode", ParamKind.STR),),
+        hazardous=False,
+    ),
+    CommandId.GIMBAL_STOW: CommandSpec(CommandId.GIMBAL_STOW, "system_modes", (), hazardous=False),
     CommandId.GIMBAL_HOME: CommandSpec(CommandId.GIMBAL_HOME, "payload", (), hazardous=False),
     CommandId.GIMBAL_GOTO: CommandSpec(
         CommandId.GIMBAL_GOTO,
@@ -110,6 +110,8 @@ COMMAND_DICTIONARY: dict[CommandId, CommandSpec] = {
         (ParamSpec("el_deg", ParamKind.FLOAT),),
         hazardous=False,
     ),
+    CommandId.GIMBAL_HOLD: CommandSpec(CommandId.GIMBAL_HOLD, "payload", (), hazardous=False),
+    CommandId.GIMBAL_RESUME: CommandSpec(CommandId.GIMBAL_RESUME, "payload", (), hazardous=False),
 }
 
 

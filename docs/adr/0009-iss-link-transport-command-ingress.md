@@ -1,6 +1,7 @@
 # ADR 0009: ISS link transport + authenticated command ingress
 
 **Status:** Accepted (2026-06-13)
+**Superseded-by:** ADR-FLIGHT-0008 (EXIT_SAFE execution acknowledgements)
 
 **Implements:** spec Section 6 (link transport + command ingress, Phase 6A) of
 `docs/superpowers/specs/2026-06-09-pact-flight-final-state-design.md`.
@@ -121,7 +122,7 @@ injection and keeps the app core free of I/O.
 ## Deferred to later phases
 
 - **Phase 6B -- command router + hazardous commands:** layered authority, ARM/EXECUTE two-step
-  for hazardous commands, inhibit-at-actuation, `EXIT_SAFE` / manual-gimbal / lock-release.
+  for hazardous commands, inhibit-at-actuation, `EXIT_SAFE` / manual-gimbal.
 - **Phase 6C -- data system:** core storage service, prioritized downlink manager,
   `StorageWriter`/`StorageReader` Protocols.
 - **Phase 6D -- model upload:** chunked reassembly, stage/activate/rollback, `ModelDeployState`.

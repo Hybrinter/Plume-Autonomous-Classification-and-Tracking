@@ -6,36 +6,34 @@
 ## Purpose
 
 The tools package holds engineering utilities outside the flight image. It
-includes inference training, export, and acceptance under `tools.inference`,
-and SIL telemetry analysis under `tools.analysis`.
+includes finished-dataset builds, network builders, training, export,
+acceptance, and model analysis under `tools.ml_models`, and SIL
+telemetry analysis under `tools.analysis`.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`inference`](tools/inference.md) | package | Train, export, accept, and score inference artifacts |
+| [`ml_models`](tools/ml_models.md) | package | Finished-dataset builds, training, export, analysis, and studies |
 | [`analysis`](tools/analysis.md) | package | Deterministic SIL capture, stats, plots, and reports |
 | [`cli`](tools/cli.md) | module | Root `pact-tools` Typer application |
 | [`__main__`](tools/__main__.md) | module | `python -m tools` entry shim |
 
 ## Package interface
 
-`tools` has no top-level `__init__.py` exports. Import from `tools.inference` or
-`tools.analysis`.
-
-Run inference workflows with
-`pact-tools inference <train|eval|report|list|compare|rank|pareto|sweep|arches|export|accept|finalize|fetch>`.
+`tools` has no top-level `__init__.py` exports. Import from
+`tools.ml_models` or `tools.analysis`.
 
 Run analysis with
 `pact-tools analysis run <suite|scenario> --out <dir>`.
 
-`python -m tools`, `python -m tools.inference`, and
-`python -m tools.analysis` provide module aliases.
+Build a finished dataset with
+`pact-tools ml-models dataset build --source <flight|zenodo> --out <dir>`.
+
+`python -m tools`, `python -m tools.analysis`,
+and `python -m tools.ml_models` provide module aliases.
 
 ## Interactions
-
-`tools.inference.accept` imports `flight.payload.inference.verify` for hash and I/O
-contract checks.
 
 `tools.analysis` drives `sim.sil.build_sil_system` and `step_once`, subscribes
 passively to bus message types, and writes static report bundles. It never
@@ -46,7 +44,7 @@ publishes to the bus or changes flight behavior.
 - Default tools dependencies include torch and torchvision, plus Typer,
   matplotlib, pandas, pyarrow, pact-flight, and pact-sim.
 - Extra `export` installs onnx and onnxruntime.
-- Extra `data` installs rasterio for GeoTIFF reads during dataset preprocess.
+- Extra `data` installs rasterio for GeoTIFF reads by the Zenodo source.
 - Workspace extra `train` installs `pact-tools[export,data]` for training boxes.
   Workspace extra `dev` includes `pact-tools` and torch. Lean CI shards sync
   extra `dev-ci-flight` and omit `pact-tools`.
@@ -60,7 +58,7 @@ publishes to the bus or changes flight behavior.
 
 ## Related documents
 
-- [`tools.inference`](tools/inference.md)
+- [`tools.ml_models`](tools/ml_models.md)
 - [`tools.analysis`](tools/analysis.md)
 - [`tools.cli`](tools/cli.md)
 - [`sim.sil`](sim/sil.md)

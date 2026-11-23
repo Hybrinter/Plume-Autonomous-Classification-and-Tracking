@@ -65,7 +65,7 @@ def test_bandplane_skips_ecef_look() -> None:
     )
     assert sample.truth.plume.frame == "bandplane"
     assert sample.truth.plume.present is True
-    assert sample.truth.centroid_band_px == (612.0, 124.0)
+    assert sample.truth.centroid_band_px == (1032.0, 772.0 + (124.0 - 512.0) * (1544.0 / 1024.0))
     assert sample.truth.look.el_rad == 0.0
     assert sample.truth.look.visible is False
     assert sample.feed.mosaic is None

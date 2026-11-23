@@ -134,3 +134,18 @@ def test_zenodo_observation_and_source_annotation_are_not_derived_from_label() -
     missing = observation_metadata(replace(base, polygons=None, annotation_ref=None))
     assert missing.source_annotation_state == "MISSING"
     assert missing.annotation_source is None
+
+
+def test_degenerate_only_annotation_is_missing_with_its_member() -> None:
+    """polygons=None with a recorded annotation member maps to MISSING."""
+    tile = TileRef(
+        stem="10003_2019-01-21T10:56:41.330Z_0",
+        location_id="10003",
+        positive=True,
+        member_name="positive/source.tif",
+        polygons=None,
+        annotation_ref="annotations/degenerate.json",
+    )
+    metadata = observation_metadata(tile)
+    assert metadata.source_annotation_state == "MISSING"
+    assert metadata.annotation_source == "annotations/degenerate.json"

@@ -27,6 +27,13 @@ def test_train_help_has_no_dataset_weight_option() -> None:
     assert "--dataset-weight" not in output
 
 
+def test_train_help_has_seed_option() -> None:
+    """The train command accepts a seed override."""
+    result = CliRunner().invoke(app, ["train", "--help"])
+    assert result.exit_code == 0
+    assert "--seed" in _plain(result.output)
+
+
 def test_frame_eval_command_is_removed() -> None:
     """No ``frame-eval`` command remains in help or dispatch."""
     runner = CliRunner()
@@ -322,3 +329,57 @@ def test_convert_rejects_bad_dataset_counts_before_any_load(
         assert result.exit_code != 0, argv
         assert not isinstance(result.exception, AssertionError), argv
         assert not (tmp_path / "out.onnx").exists()
+
+
+def test_dataset_band_weights_writes_table_and_report(tmp_path: Path) -> None:
+    """band-weights writes a loadable VIS table and a four-case SWIR report."""
+    import json
+
+    from tools.ml_models.dataset.sources.zenodo.prism import load_weight_table
+
+    table = tmp_path / "vis.toml"
+    report = tmp_path / "report.json"
+    args = ["dataset", "band-weights", "--vis-out", str(table), "--report", str(report)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert load_weight_table(table).id == "imx267_placeholder_v0"
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    assert set(payload["vis"]) == {"blue", "green", "red"}
+    assert set(payload["vis_without_b1"]) == {"blue", "green", "red"}
+    assert payload["native_gsd_m"]["B1"] == 60.0
+    assert len(payload["swir"]) == 4
+    again = CliRunner().invoke(app, args)
+    assert again.exit_code != 0
+
+
+def test_dataset_band_weights_rejects_one_path_for_both_outputs(tmp_path: Path) -> None:
+    """band-weights refuses the same file for the table and the report."""
+    same = str(tmp_path / "out.toml")
+    args = ["dataset", "band-weights", "--vis-out", same, "--report", same]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code != 0
+    assert not (tmp_path / "out.toml").exists()
+
+
+def test_paired_build_flag_conflicts(tmp_path: Path) -> None:
+    """--paired-config needs zenodo-paired; --bin-id is zenodo-only."""
+    common = [
+        "dataset",
+        "build",
+        "--out",
+        str(tmp_path / "out"),
+        "--images-tar",
+        str(tmp_path / "i.tar.gz"),
+        "--labels-tar",
+        str(tmp_path / "l.tar.gz"),
+        "--weights-path",
+        str(tmp_path / "w.toml"),
+    ]
+    zen = CliRunner().invoke(
+        app, [*common, "--source", "zenodo", "--paired-config", str(tmp_path / "p.toml")]
+    )
+    assert zen.exit_code != 0
+    assert "zenodo-paired only" in zen.output
+    paired = CliRunner().invoke(app, [*common, "--source", "zenodo-paired", "--bin-id", "gsd15"])
+    assert paired.exit_code != 0
+    assert "zenodo only" in paired.output

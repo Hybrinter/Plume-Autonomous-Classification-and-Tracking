@@ -1,0 +1,39 @@
+{
+ "vis_run": "data\\processed\\runs\\vis_classifier_s2",
+ "swir_run": "data\\processed\\runs\\swir_classifier",
+ "dataset": "data\\processed\\paired_eval_fixed",
+ "metric": "average_precision",
+ "vis_weight": 0.5,
+ "val_by_weight": {
+  "0.00": 0.6022805316550832,
+  "0.10": 0.6445056411625896,
+  "0.20": 0.6803786885738138,
+  "0.30": 0.706362196488164,
+  "0.40": 0.7209793887274565,
+  "0.50": 0.7255132079269683,
+  "0.60": 0.7219494223796109,
+  "0.70": 0.7129985269882556,
+  "0.80": 0.700461705498333,
+  "0.90": 0.6855830543732899,
+  "1.00": 0.6691432919556826
+ },
+ "test": {
+  "accuracy": 0.8542650918635171,
+  "precision": 0.8495867768595041,
+  "recall": 0.44183381088825213,
+  "specificity": 0.9767659574468085,
+  "negative_predictive_value": 0.8548975791433892,
+  "false_positive_rate": 0.02323404255319149,
+  "false_negative_rate": 0.5581661891117479,
+  "f1": 0.5813383600377002,
+  "f_beta": 0.5813383600377002,
+  "balanced_accuracy": 0.7092998841675303,
+  "matthews_correlation": 0.543044186248675,
+  "predicted_positive_fraction": 0.11909448818897637,
+  "roc_auc": 0.8667897945497774,
+  "average_precision": 0.753238352240198,
+  "binary_cross_entropy": 0.37152311659115744,
+  "brier_score": 0.11049918062472446,
+  "expected_calibration_error": 0.06557735676394372
+ }
+}

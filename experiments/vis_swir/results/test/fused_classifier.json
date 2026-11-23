@@ -1,0 +1,23 @@
+{
+ "run": "data\\processed\\runs\\fused_classifier",
+ "dataset": "data\\processed\\paired_eval_fixed",
+ "test": {
+  "accuracy": 0.8622047244094488,
+  "precision": 0.8091637010676157,
+  "recall": 0.5212034383954155,
+  "specificity": 0.9634893617021276,
+  "negative_predictive_value": 0.8713823891625616,
+  "false_positive_rate": 0.03651063829787234,
+  "false_negative_rate": 0.4787965616045845,
+  "f1": 0.63401882188916,
+  "f_beta": 0.63401882188916,
+  "balanced_accuracy": 0.7423464000487716,
+  "matthews_correlation": 0.5743307323042185,
+  "predicted_positive_fraction": 0.14750656167979004,
+  "roc_auc": 0.8746233859659819,
+  "average_precision": 0.7563388987922707,
+  "binary_cross_entropy": 0.41391270216918036,
+  "brier_score": 0.10976310749958454,
+  "expected_calibration_error": 0.076393610705857
+ }
+}

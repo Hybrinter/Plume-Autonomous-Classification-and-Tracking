@@ -32,7 +32,9 @@ order. `to_native_stack(stack)` returns float32 `(C, 120, 120)`.
 
 1. Annotation members ending in `.json` map to image stems by stripping
    `_features.json` or the file suffix; polygons come from
-   `annotations.parse_polygons`.
+   `annotations.parse_polygons`. A file whose smoke polygons all have fewer
+   than three vertices gives `polygons=None` and keeps its
+   `annotation_ref`.
 2. Image members ending in `.tif` or `.tiff` must sit under exactly one of
    a `positive` or `negative` archive directory.
 3. Duplicate image stems keep the first member. A stem without an
@@ -46,8 +48,9 @@ order. `to_native_stack(stack)` returns float32 `(C, 120, 120)`.
    `ObservationMetadata`: `observation_id` is the original stem,
    `acquired_at_utc` the parsed time or None, `annotation_source` the
    actual annotation member name, and `source_annotation_state` is
-   `MISSING` when no annotation exists, `NONEMPTY` when polygon entries
-   exist, and `EXPLICIT_EMPTY` for an empty polygon list. No dates,
+   `MISSING` when `polygons` is `None` (no annotation file, or only
+   degenerate smoke polygons), `NONEMPTY` when polygon entries exist, and
+   `EXPLICIT_EMPTY` for an empty polygon list. No dates,
    labels, or conditions are invented.
 6. `iter_stacks` opens the archive in streaming mode, yields each wanted
    member once, and stops when every tile is served.

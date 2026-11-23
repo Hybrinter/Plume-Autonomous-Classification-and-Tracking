@@ -1,0 +1,19 @@
+# Flight-selected classifier (ImageNet ShuffleNetV2-x0.5) on the 4-band early-fusion
+# input. Checks that the flight architecture works with the selected fusion method.
+# Optimizer settings follow the flight classifier recipe (AdamW 1e-3, weight decay
+# 1e-3); the epoch budget follows the fused pactnet run so the two are comparable.
+kind = "classifier"
+arch = "shufflenetv2_x0_5_pt"
+dataset = "data/processed/paired_train_rand"
+run_dir = "data/processed/runs"
+run_id = "fused_shufflenet_classifier"
+epochs = 12
+batch_size = 64
+patience = 4
+optimizer = "adamw"
+learning_rate = 0.001
+weight_decay = 0.001
+scheduler = "cosine"
+loss = "bce"
+amp = true
+seed = 0

@@ -1,0 +1,3 @@
+# BuildSpec for the evaluation build: no stored augmentation copies.
+[augment]
+elements = ["id"]

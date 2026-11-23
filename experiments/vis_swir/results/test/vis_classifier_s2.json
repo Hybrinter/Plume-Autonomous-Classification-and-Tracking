@@ -1,0 +1,23 @@
+{
+ "run": "data\\processed\\runs\\vis_classifier_s2",
+ "dataset": null,
+ "test": {
+  "accuracy": 0.8542650918635171,
+  "precision": 0.7801324503311259,
+  "recall": 0.5063037249283667,
+  "specificity": 0.9576170212765958,
+  "negative_predictive_value": 0.8672061657032756,
+  "false_positive_rate": 0.042382978723404255,
+  "false_negative_rate": 0.4936962750716332,
+  "f1": 0.6140747176368375,
+  "f_beta": 0.6140747176368375,
+  "balanced_accuracy": 0.7319603731024813,
+  "matthews_correlation": 0.548008954122072,
+  "predicted_positive_fraction": 0.1486220472440945,
+  "roc_auc": 0.8444949948180211,
+  "average_precision": 0.7198486454965979,
+  "binary_cross_entropy": 0.4213712757963395,
+  "brier_score": 0.11474983158014583,
+  "expected_calibration_error": 0.0654974493582103
+ }
+}

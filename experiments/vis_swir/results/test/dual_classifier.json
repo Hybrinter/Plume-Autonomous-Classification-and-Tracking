@@ -1,0 +1,23 @@
+{
+ "run": "data\\processed\\runs\\dual_classifier",
+ "dataset": "data\\processed\\paired_eval_fixed",
+ "test": {
+  "accuracy": 0.85,
+  "precision": 0.8025125628140704,
+  "recall": 0.45759312320916906,
+  "specificity": 0.9665531914893617,
+  "negative_predictive_value": 0.8571320754716981,
+  "false_positive_rate": 0.0334468085106383,
+  "false_negative_rate": 0.542406876790831,
+  "f1": 0.5828467153284671,
+  "f_beta": 0.5828467153284671,
+  "balanced_accuracy": 0.7120731573492654,
+  "matthews_correlation": 0.5289478635362412,
+  "predicted_positive_fraction": 0.13057742782152232,
+  "roc_auc": 0.8593576540876668,
+  "average_precision": 0.7253839750696995,
+  "binary_cross_entropy": 0.3938281876677521,
+  "brier_score": 0.11526130529790389,
+  "expected_calibration_error": 0.06692613206877618
+ }
+}

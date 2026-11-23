@@ -72,6 +72,9 @@ wrapped in [`IgnoreGsd`](film.md), which forwards the image alone.
    `build_dilated_segmentor`. The conditioned flight families (`pactnet`,
    `dilatenet`) return the graph itself; other families return their graph
    inside `IgnoreGsd`.
+8. `dual` on `pactnet` or `dilatenet` selects `build_dual_classifier` or
+   `build_dual_segmentor`. These need a 4-plane BLUE, GREEN, RED, SWIR input
+   and return a conditioned graph. Example: `pactnet_dual`, `dilatenet_dual_s8`.
 
 ## Errors and faults
 

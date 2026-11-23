@@ -1,0 +1,23 @@
+{
+ "run": "data\\processed\\runs\\swir_classifier",
+ "dataset": "data\\processed\\swir_eval_fixed",
+ "test": {
+  "accuracy": 0.8394356955380577,
+  "precision": 0.809863339275104,
+  "recall": 0.3905444126074499,
+  "specificity": 0.9727659574468085,
+  "negative_predictive_value": 0.8431068820535517,
+  "false_positive_rate": 0.02723404255319149,
+  "false_negative_rate": 0.6094555873925501,
+  "f1": 0.5269669437463754,
+  "f_beta": 0.5269669437463754,
+  "balanced_accuracy": 0.6816551850271292,
+  "matthews_correlation": 0.4870634997054541,
+  "predicted_positive_fraction": 0.11043307086614174,
+  "roc_auc": 0.7891769066634152,
+  "average_precision": 0.6516681538969088,
+  "binary_cross_entropy": 0.4336083604712136,
+  "brier_score": 0.12816454592691132,
+  "expected_calibration_error": 0.051287415349949864
+ }
+}

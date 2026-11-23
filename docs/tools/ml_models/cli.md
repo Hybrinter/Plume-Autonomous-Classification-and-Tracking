@@ -17,11 +17,12 @@ precision.
 
 | Name | Kind | Description |
 | --- | --- | --- |
-| `SourceName` | StrEnum | `flight` or `zenodo` raw source kinds |
+| `SourceName` | StrEnum | `flight`, `zenodo`, or `zenodo-paired` raw source kinds |
 | `app` | Typer application | `tools.ml_models` command group |
 | `dataset_app` | Typer application | `dataset` subgroup under `app` |
 | `build_command` | function | `dataset build` command |
 | `dataset_analyze_command` | function | `dataset analyze` command |
+| `band_weights_command` | function | `dataset band-weights` command |
 | `train_command` | function | `train` command |
 | `export_command` | function | `export` command |
 | `accept_command` | function | `accept` command |
@@ -35,7 +36,7 @@ precision.
 
 `dataset build` options:
 
-- `--source`: `flight` or `zenodo`. Required.
+- `--source`: `flight`, `zenodo`, or `zenodo-paired`. Required.
 - `--out`: finished dataset directory. Required.
 - `--source-dir`: flight tile directory. Required with `--source flight`.
 - `--images-tar`: Zenodo image archive. Required with `--source zenodo`.
@@ -46,6 +47,8 @@ precision.
 - `--bin-id`: Zenodo GSD bin name, repeatable. Selects `DEFAULT_BINS` by
   name (`native10` or `gsd15` through `gsd35`); default is every bin.
 - `--spec`: optional `BuildSpec` TOML file.
+- `--paired-config`: optional `PairedConfig` TOML. Accepted only with
+  `--source zenodo-paired`; `--bin-id` is rejected with that source.
 
 `dataset analyze` options:
 
@@ -54,6 +57,13 @@ precision.
 - `--config`: optional `DatasetAnalysisConfig` TOML file. When supplied,
   the file is loaded strictly and `--dataset`/`--out` override its two
   path fields; every other setting comes from the file.
+
+`dataset band-weights` options:
+
+- `--vis-out`: VIS prism weight-table TOML to write. Required.
+- `--report`: JSON report of the VIS and SWIR mappings. Required. It must
+  name a file different from `--vis-out`.
+- `--table-id`: VIS table id. Default `imx267_placeholder_v0`.
 
 `train` options:
 
@@ -66,6 +76,9 @@ precision.
 - `--run-id`: run directory name under `--run-dir`.
 - `--device`: torch device; default is CUDA when available, else CPU.
 - `--epochs`, `--batch-size`, `--max-steps`: loop controls.
+- `--seed`: seed for weight initialization and shuffle order. It overrides
+  the `seed` value in the configuration file. The loader seed is the seed plus
+  the epoch, so adjacent seeds reuse shuffle orders, shifted by one epoch.
 
 `export` options:
 
@@ -128,7 +141,8 @@ precision.
 1. Load `BuildSpec` from `--spec`, or use the defaults.
 2. `flight` requires `--source-dir` and calls `build_flight`.
 3. `zenodo` requires `--images-tar`, `--labels-tar`, and `--weights-path`,
-   then calls `build_zenodo`. `--bin-id` selects named bins from
+   then calls `build_zenodo`. `zenodo-paired` requires the same three
+   paths and calls `build_zenodo_paired`. `--bin-id` selects named bins from
    `DEFAULT_BINS`; an unknown or repeated name is rejected.
 4. `train` loads the optional `--config` TOML, applies the option overlay
    through `apply_train_mapping`, and calls `loop.train`. An `Ok` result
@@ -140,7 +154,13 @@ precision.
    measures the dataset, renders figures and preview galleries, and
    publishes the evidence bundle. An `Ok` echoes the bundle directory;
    an `Err` becomes `typer.BadParameter`.
-6. `analyze` loads the optional `--config` TOML (an unreadable or
+6. `dataset band-weights` maps the placeholder IMX267 blue, green, and red
+   channels and the four HD5 band-edge cases through `bandmap`, writes the
+   VIS table with `vis_weight_table_toml`, and writes the weights, band
+   capture, coverage, and centroid of every channel as JSON. The report also
+   holds the VIS mapping without B1 and the native GSD of every band. It refuses an
+   existing output file.
+7. `analyze` loads the optional `--config` TOML (an unreadable or
    invalid file fails before input verification), applies only the
    explicitly supplied options over the loaded or default
    `ModelAnalysisConfig`, and calls `analyze_model`, which verifies
@@ -151,7 +171,7 @@ precision.
    `typer.BadParameter`; a failure before publication creates no output,
    while a publication failure retains the reserved directory with an
    `.incomplete` marker.
-7. `main` runs `app` under the program name `tools.ml_models` and converts
+8. `main` runs `app` under the program name `tools.ml_models` and converts
    `SystemExit` to an integer code.
 
 ## Errors and faults
@@ -193,6 +213,7 @@ tools CLI mounts this application as `ml-models`.
 - [`tools.ml_models.dataset`](dataset.md)
 - [`tools.ml_models.dataset.build`](dataset/build.md)
 - [`tools.ml_models.dataset.spec`](dataset/spec.md)
+- [`tools.ml_models.dataset.sources.zenodo.bandmap`](dataset/sources/zenodo/bandmap.md)
 - [`tools.ml_models.train`](train.md)
 - [`tools.ml_models.train.loop`](train/loop.md)
 - [`tools.cli`](../cli.md)

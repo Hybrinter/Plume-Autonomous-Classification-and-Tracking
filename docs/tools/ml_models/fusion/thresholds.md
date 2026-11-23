@@ -35,9 +35,12 @@ scores them on the test split.
 1. Thresholds are logits. The fixed threshold is logit 0, which is probability 0.5.
 2. `best_threshold` tests 197 candidates from the 1st to the 99th percentile of
    the split's logits. A tie keeps the lowest candidate.
-3. `choose_thresholds` selects one threshold for all rows and one for each bin.
+3. `choose_thresholds` selects one threshold for all rows and one for each bin
+   that has at least one positive validation label. A bin with no positive
+   validation label gets no per-bin threshold.
 4. `score_thresholds` returns one row per test bin in sorted order, then `all`.
-   A test bin with no validation rows uses the global threshold.
+   A test bin with no per-bin threshold uses the global threshold. This applies
+   to a bin with no validation rows and to a bin with no positive validation label.
 
 ## Errors and faults
 

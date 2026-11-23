@@ -12,8 +12,8 @@ Contains:
 
 Thresholds are logits. The fixed threshold is logit 0 (probability 0.5). The
 candidate grid is the 1st to 99th percentile of the split's own logits, so it
-follows the model's score scale. A test bin that has no validation rows uses
-the global threshold.
+follows the model's score scale. A test bin that has no validation rows, or
+whose validation rows hold no positive label, uses the global threshold.
 
 Satisfies: REQ-AIML-COMP-001.
 """
@@ -154,10 +154,16 @@ def choose_thresholds(val: ScoredRows) -> ThresholdChoice:
 
     Returns:
         ThresholdChoice: The selected logit thresholds.
+
+    Notes:
+        A bin whose validation rows hold no positive label gets no per-bin
+        threshold. Its F1 is 0 at every candidate, so a fit would pick the
+        lowest candidate; ``score_thresholds`` uses the global threshold instead.
     """
     per_bin = {
         str(b): best_threshold(val.logit[val.bin_id == b], val.label[val.bin_id == b])
         for b in np.unique(val.bin_id)
+        if val.label[val.bin_id == b].any()
     }
     return ThresholdChoice(global_logit=best_threshold(val.logit, val.label), per_bin_logit=per_bin)
 
@@ -171,6 +177,10 @@ def score_thresholds(test: ScoredRows, choice: ThresholdChoice) -> tuple[Thresho
 
     Returns:
         tuple[ThresholdRow, ...]: One row per test bin in sorted order, then ``all``.
+
+    Notes:
+        A test bin absent from ``choice.per_bin_logit`` (no validation rows, or
+        no validation positives) uses the global threshold for ``f1_per_bin``.
     """
     per_tile = np.asarray(
         [choice.per_bin_logit.get(str(b), choice.global_logit) for b in test.bin_id],

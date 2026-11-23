@@ -22,9 +22,11 @@ This module is the command line of the VIS/SWIR fusion trade.
 1. `test` scores the selected checkpoint of `--run` on the test split of
    `--dataset` (default: the training dataset). It writes `run`, `dataset`,
    and a `test` object of metric values.
-2. `late` loads `--vis-run`, `--swir-run`, and `--reference-run` on
-   `--dataset`, searches `--weights` on validation for `--metric`, and writes
-   the chosen weight, the validation score per weight, and the `test` metrics.
+2. `late` loads `--vis-run` and `--swir-run` on their training datasets and
+   `--reference-run` on `--dataset`. It searches `--weights` on validation for
+   `--metric` and writes the chosen weight, the validation score per weight,
+   and the `test` metrics. The key of each validation score is the weight with
+   two decimals.
 3. `thresholds` reads `capture/val/rows.jsonl` and `capture/test/rows.jsonl`
    under `--analysis`. It writes the thresholds and the F1 rows, and a plot
    when `--plot` is given.
@@ -33,8 +35,16 @@ This module is the command line of the VIS/SWIR fusion trade.
 
 ## Errors and faults
 
-Load errors, evaluation errors, and a bad `--entry` value exit with
-`SystemExit` and a message.
+`test` and `late` exit with `SystemExit` and a message on a configuration
+error, a load error, or an evaluation error. For `late`, this includes a
+rejected weight grid, a GSD reference mismatch, and a band mismatch.
+
+`seed-plot` exits with `SystemExit` and a message on a bad `--entry` value or
+when a file has no test value for `--metric`.
+
+`thresholds` and `seed-plot` do not catch file-read or parse errors. A missing
+file, a malformed capture row, or malformed JSON stops the command with the
+original exception.
 
 ## Messages
 

@@ -4,7 +4,10 @@ Contains:
   - LateFusionResult: chosen VIS weight, validation scores, and test metrics.
   - load_run: verified model inputs for one run on one dataset.
   - score_split: aggregate metrics of one model on one split.
+  - weight_key: two-decimal text key of one VIS weight in the output JSON.
+  - check_weights: require a nonempty VIS weight grid in [0, 1] with distinct keys.
   - check_gsd_reference: require one GSD reference for both branches and the dataset.
+  - check_bands: require the VIS then SWIR bands to equal the paired dataset bands.
   - late_fusion: search the VIS weight on validation and score test once.
 
 Scoring reuses the model analysis evaluator without capture, so the metrics
@@ -101,6 +104,45 @@ def score_split(
     return Ok({m.name: m.value for m in evidence.value.metrics if isinstance(m.value, float)})
 
 
+def weight_key(weight: float) -> str:
+    """Return the text key of one VIS weight in the late-fusion output JSON.
+
+    Args:
+        weight: VIS weight.
+
+    Returns:
+        str: The weight with two decimals, such as ``0.30``.
+    """
+    return f"{weight:.2f}"
+
+
+def check_weights(weights: tuple[float, ...]) -> Result[None, str]:
+    """Require a nonempty VIS weight grid in ``[0, 1]`` whose keys are distinct.
+
+    Args:
+        weights: VIS weights to search.
+
+    Returns:
+        Result[None, str]: ``Ok(None)`` for a valid grid, else the first problem.
+
+    Notes:
+        NaN fails the range test. Two weights with the same ``weight_key``
+        (exact duplicates included) fail, because they would share one output
+        JSON entry.
+    """
+    if not weights:
+        return Err("no VIS weights to search")
+    seen: dict[str, float] = {}
+    for weight in weights:
+        if not 0.0 <= weight <= 1.0:
+            return Err(f"VIS weight {weight} is outside [0, 1]")
+        key = weight_key(weight)
+        if key in seen:
+            return Err(f"VIS weights {seen[key]} and {weight} share the output key {key}")
+        seen[key] = weight
+    return Ok(None)
+
+
 def check_gsd_reference(vis_m: float, swir_m: float, paired_m: float) -> Result[None, str]:
     """Require the two branch training references to equal the evaluation reference.
 
@@ -127,6 +169,33 @@ def check_gsd_reference(vis_m: float, swir_m: float, paired_m: float) -> Result[
     return Ok(None)
 
 
+def check_bands(
+    vis_bands: tuple[str, ...], swir_bands: tuple[str, ...], paired_bands: tuple[str, ...]
+) -> Result[None, str]:
+    """Require the VIS bands followed by the SWIR bands to equal the paired bands.
+
+    Args:
+        vis_bands: Band names of the VIS run's training dataset.
+        swir_bands: Band names of the SWIR run's training dataset.
+        paired_bands: Band names of the paired evaluation dataset.
+
+    Returns:
+        Result[None, str]: ``Ok(None)`` when the bands agree in order, else the
+        mismatch with all three band tuples.
+
+    Notes:
+        Late fusion gives the first ``len(vis_bands)`` paired planes to the VIS
+        branch and the rest to the SWIR branch. A branch with the right plane
+        count but other bands would otherwise be fused without an error.
+    """
+    if vis_bands + swir_bands != paired_bands:
+        return Err(
+            f"VIS bands {vis_bands} followed by SWIR bands {swir_bands} differ "
+            f"from the paired dataset bands {paired_bands}"
+        )
+    return Ok(None)
+
+
 def late_fusion(
     vis: ModelInputs,
     swir: ModelInputs,
@@ -147,7 +216,16 @@ def late_fusion(
 
     Returns:
         Result[LateFusionResult, str]: The search outcome, or the first error.
+
+    Notes:
+        Before any inference it checks, in order, the weights with
+        ``check_weights``, the GSD references with ``check_gsd_reference``, and
+        the band names with ``check_bands``. The VIS branch reads the first
+        ``len(vis.training_manifest.band_names)`` planes.
     """
+    grid = check_weights(weights)
+    if isinstance(grid, Err):
+        return grid
     reference = check_gsd_reference(
         vis.training_manifest.gsd_reference_m,
         swir.training_manifest.gsd_reference_m,
@@ -155,7 +233,13 @@ def late_fusion(
     )
     if isinstance(reference, Err):
         return reference
-    model = LateFusion(vis.model, swir.model)
+    vis_bands = vis.training_manifest.band_names
+    bands = check_bands(
+        vis_bands, swir.training_manifest.band_names, paired.evaluation_manifest.band_names
+    )
+    if isinstance(bands, Err):
+        return bands
+    model = LateFusion(vis.model, swir.model, vis_planes=len(vis_bands))
     val_by_weight: dict[float, float] = {}
     for weight in weights:
         model.set_vis_weight(weight)

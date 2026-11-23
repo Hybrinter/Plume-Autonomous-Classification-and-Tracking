@@ -72,6 +72,21 @@ def test_unseen_test_bin_uses_global_threshold() -> None:
     assert rows[0].f1_per_bin == rows[0].f1_global
 
 
+def test_negative_only_val_bin_uses_global_threshold() -> None:
+    """A validation bin with no positive label gets no per-bin threshold."""
+    val = _rows(
+        [-1.0, 1.0, -3.0, -2.0, -1.5],
+        [False, True, False, False, False],
+        ["el05", "el05", "el45", "el45", "el45"],
+    )
+    choice = choose_thresholds(val)
+    assert set(choice.per_bin_logit) == {"el05"}
+    test = _rows([-3.0, -2.0, 1.0], [False, False, True], ["el45", "el45", "el45"])
+    rows = score_thresholds(test, choice)
+    assert rows[0].bin_id == "el45"
+    assert rows[0].f1_per_bin == rows[0].f1_global
+
+
 def test_read_capture_rows(tmp_path: Path) -> None:
     """Capture rows give the logit metric, label, and bin of each row."""
     path = tmp_path / "rows.jsonl"

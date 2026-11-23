@@ -24,7 +24,7 @@ from flight.libs.types import Err
 from tools.ml_models.analysis.config import ModelAnalysisConfig, load_model_analysis_config
 from tools.ml_models.fusion.late import DEFAULT_VIS_WEIGHTS
 from tools.ml_models.fusion.plots import write_seed_plot, write_threshold_plot
-from tools.ml_models.fusion.study import late_fusion, load_run, score_split
+from tools.ml_models.fusion.study import late_fusion, load_run, score_split, weight_key
 from tools.ml_models.fusion.thresholds import (
     choose_thresholds,
     read_capture_rows,
@@ -149,7 +149,7 @@ def _run_late(args: argparse.Namespace) -> int:
             "dataset": str(args.dataset),
             "metric": args.metric,
             "vis_weight": out.vis_weight,
-            "val_by_weight": {f"{w:.2f}": v for w, v in out.val_by_weight.items()},
+            "val_by_weight": {weight_key(w): v for w, v in out.val_by_weight.items()},
             "test": out.test,
         },
     )

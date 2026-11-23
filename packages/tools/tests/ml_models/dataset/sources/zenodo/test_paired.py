@@ -212,6 +212,58 @@ def test_scene_refs_carry_exact_gsd_elevation_and_mix() -> None:
     assert fixed[0].metadata.conditions == ()
 
 
+def test_camera_bins_reject_swir_gsd_finer_than_native() -> None:
+    """A SWIR lens that resolves below 10 m fails in camera_bins."""
+    with pytest.raises(ValueError, match="coarsen"):
+        camera_bins(PairedConfig(swir_focal_m=0.5))
+
+
+def test_extra_blur_adds_the_same_ground_sigma_to_both_cameras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """extra_blur_px adds equal native-grid variance to the VIS and SWIR blurs."""
+    from tools.ml_models.dataset.sources.zenodo import paired
+
+    def sigmas(cfg: PairedConfig) -> list[tuple[float, float]]:
+        calls: list[tuple[float, float]] = []
+
+        def record(planes: np.ndarray, sigma_hw: tuple[float, float]) -> np.ndarray:
+            calls.append(sigma_hw)
+            return gaussian_blur(planes, sigma_hw)
+
+        monkeypatch.setattr(paired, "gaussian_blur", record)
+        render_scene(_flat(2000.0), _IDS, _TABLE, cfg, item, {"B8A": 0.45, "B11": 0.55})
+        return calls
+
+    item = camera_bins(PairedConfig())[-1]
+    (vis0, swir0), (vis1, swir1) = sigmas(PairedConfig()), sigmas(PairedConfig(extra_blur_px=1.5))
+    for axis, gsd_m in ((0, item.spec.along_m), (1, item.spec.lateral_m)):
+        added = (1.5 * gsd_m / 10.0) ** 2
+        assert vis1[axis] ** 2 - vis0[axis] ** 2 == pytest.approx(added, rel=1e-9)
+        assert swir1[axis] ** 2 - swir0[axis] ** 2 == pytest.approx(added, rel=1e-9)
+
+
+def test_degenerate_only_positive_scene_leaves_segmentation() -> None:
+    """A positive scene whose smoke polygons are all degenerate is MISSING, not masked."""
+    from tools.ml_models.dataset.sources.zenodo.annotations import parse_polygons
+    from tools.ml_models.dataset.sources.zenodo.archive import TileRef
+    from tools.ml_models.dataset.sources.zenodo.paired import scene_refs
+
+    value = {"polygonlabels": ["smoke"], "points": [[54.3, 82.0]]}
+    payload = {"completions": [{"result": [{"type": "polygonlabels", "value": value}]}]}
+    tile = TileRef(
+        stem="1298_2019-10-25T09:56:33.931Z_19",
+        location_id="1298",
+        positive=True,
+        member_name="positive/x.tif",
+        polygons=parse_polygons(payload),
+        annotation_ref="x_features.json",
+    )
+    refs = scene_refs(tile, PairedConfig(), camera_bins(PairedConfig()))
+    assert refs and all(not r.has_mask and r.label == 1.0 for r in refs)
+    assert {r.metadata.source_annotation_state for r in refs} == {"MISSING"}
+
+
 def test_bands_subset_validation_and_toml() -> None:
     """bands must be an ordered non-empty subset; the TOML loader reads strings."""
     assert PairedConfig(bands=("SWIR",)).bands == ("SWIR",)

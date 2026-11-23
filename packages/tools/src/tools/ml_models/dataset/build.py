@@ -2,7 +2,9 @@
 
 Contains:
   - build_dataset: validate, split, augment, and write shards.
-  - build_flight, build_zenodo: source-specific wrappers.
+  - build_flight, build_zenodo, build_zenodo_paired: source-specific wrappers.
+    The paired wrapper records a composite ``<vis id>+<paired id>``
+    weight_table_id.
 
 The build writes a sibling temporary directory and renames it onto ``dest``
 only after ``dataset.json`` is in place. A failure removes the temporary

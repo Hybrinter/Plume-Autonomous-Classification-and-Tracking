@@ -89,9 +89,10 @@ report.
 
 ## Constraints
 
-The camera curves are placeholders, not datasheet curves. Table ids from
-this module carry `placeholder`. This module does not import torch or
-rasterio.
+The camera curves are placeholders, not datasheet curves. The caller
+chooses the table id; `vis_weight_table_toml` rejects only an empty id. The
+default CLI table id `imx267_placeholder_v0` carries `placeholder`. This
+module does not import torch or rasterio.
 
 ## Related documents
 

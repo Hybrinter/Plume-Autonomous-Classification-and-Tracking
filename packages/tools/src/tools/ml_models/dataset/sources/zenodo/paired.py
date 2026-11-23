@@ -127,7 +127,10 @@ class PairedConfig:
         swir_focal_m: SWIR focal length.
         swir_f_number: SWIR f-number.
         swir_wavelength_m: SWIR wavelength used for the diffraction blur.
-        extra_blur_px: Added Gaussian sigma in output pixels (jitter, defocus).
+        extra_blur_px: Added Gaussian sigma in output (VIS-grid) pixels
+            (jitter, defocus). Both cameras receive the same ground blur; the
+            SWIR path adds it in quadrature on the native grid, not in SWIR
+            detector pixels.
         b1_sharpen: Inject B2 detail into B1 before mixing VIS.
         b1_native_m: B1 native resolution.
         swir_weights: Fixed Sentinel-2 weights for the SWIR plane.
@@ -141,7 +144,10 @@ class PairedConfig:
         swir_full_well_e: SWIR full-well capacity in electrons (estimate).
         swir_read_noise_e: SWIR read noise in electrons (estimate).
         bit_depth: ADC bits for both cameras.
-        seed: Base seed for mix and noise draws.
+        seed: Base seed for mix and noise draws. One noise generator per
+            scene serves every bin and both cameras, VIS draws first, so with
+            ``noise`` on the VIS noise of every bin after the first depends
+            on any SWIR setting that changes the SWIR output shape.
     """
 
     id: str = "vis_swir_paired_estimate_v1"
@@ -292,8 +298,8 @@ def camera_bins(cfg: PairedConfig) -> tuple[CameraBin, ...]:
         tuple[CameraBin, ...]: Bins named ``elNN`` in ``cfg`` order.
 
     Raises:
-        ValueError: If an elevation misses the Earth or a GSD is below the
-            native 10 m Zenodo grid.
+        ValueError: If an elevation misses the Earth or a VIS or SWIR GSD is
+            below the native 10 m Zenodo grid.
     """
     state = nominal_iss_state(cfg.altitude_m, _WGS84_A_M, _MU_M3_S2)
     if state is None:
@@ -329,6 +335,7 @@ def camera_bins(cfg: PairedConfig) -> tuple[CameraBin, ...]:
             elevation_deg=float(elevation),
         )
         bin_hw(spec)
+        bin_hw(BinSpec(spec.bin_id, pairs[1].lateral_m, pairs[1].along_m))
         out.append(CameraBin(spec=spec, swir_gsd=pairs[1]))
     if len({item.spec.bin_id for item in out}) != len(out):
         raise ValueError("elevations must round to unique bin names")
@@ -522,12 +529,17 @@ def render_scene(
     vis_out = resample_area(vis, out_hw).astype(np.float64)
     swir_gsd = camera_bin.swir_gsd
     swir_sigma = _diffraction_sigma_px(cfg.swir_wavelength_m, cfg.swir_f_number, cfg.swir_pitch_m)
-    swir_sigma = math.hypot(swir_sigma, cfg.extra_blur_px)
     swir = gaussian_blur(
         swir_native,
         (
-            swir_sigma * swir_gsd.along_m / NATIVE_GSD_M,
-            swir_sigma * swir_gsd.lateral_m / NATIVE_GSD_M,
+            math.hypot(
+                swir_sigma * swir_gsd.along_m / NATIVE_GSD_M,
+                cfg.extra_blur_px * spec.along_m / NATIVE_GSD_M,
+            ),
+            math.hypot(
+                swir_sigma * swir_gsd.lateral_m / NATIVE_GSD_M,
+                cfg.extra_blur_px * spec.lateral_m / NATIVE_GSD_M,
+            ),
         ),
     )
     swir_hw = (
@@ -636,7 +648,19 @@ class ZenodoPairedSource:
         return self._refs
 
     def iter_tiles(self) -> Iterator[RawTile]:
-        """Render each scene at every bin and rasterize masks on the VIS grid."""
+        """Render each scene at every bin and rasterize masks on the VIS grid.
+
+        Returns:
+            Iterator[RawTile]: Rows in ``index()`` order.
+
+        Notes:
+            One generator per scene, seeded ``[crc32(stem), cfg.seed, 1]``,
+            is shared across all bins and both cameras. ``render_scene`` draws
+            VIS noise first, then SWIR noise; the SWIR draw count is the SWIR
+            output size. With ``noise`` on, the VIS noise of every bin after
+            the first therefore depends on any SWIR lens setting that changes
+            the SWIR output shape. The first bin's VIS noise does not.
+        """
         cursor = 0
         for tile, stack, descriptions in iter_stacks(self.images_tar, self._index.tiles):
             ids = verify_band_order(coerce_descriptions(descriptions)).ids

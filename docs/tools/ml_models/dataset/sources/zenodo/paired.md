@@ -52,11 +52,17 @@ one row per scene and bin. Row ids are `<stem>-elNN`.
    plane is the weighted sum of clipped L2A reflectance.
 5. Each camera blurs on the native 10 m grid with a Gaussian of sigma
    `0.42 lambda N` at the focal plane, combined in quadrature with
-   `extra_blur_px`, then area-samples to its own GSD. The SWIR plane is
-   then resized onto the VIS grid with `resize_bilinear`.
+   `extra_blur_px`, then area-samples to its own GSD. `extra_blur_px` is in
+   output (VIS-grid) pixels; both cameras receive the same ground blur from
+   it. The SWIR plane is then resized onto the VIS grid with
+   `resize_bilinear`.
 6. With `noise`, each camera adds noise at its own grid before the SWIR
    resize: electrons `rho / saturation_reflectance * full_well`, Gaussian
    sigma `sqrt(e + read_noise**2)`, then rounding to `bit_depth` counts.
+   One generator per scene, seeded from the stem CRC32 and `seed`, serves
+   all bins and both cameras; VIS draws first, then SWIR. The VIS noise of
+   every bin after the first thus depends on any SWIR setting that changes
+   the SWIR output shape.
 7. With `swir_randomize`, the SWIR weights blend `swir_weights_low` and
    `swir_weights_high` by a mix drawn from a CRC32 seed of the scene stem
    and `seed`. All bins of a scene share the mix. Rows carry the condition
@@ -73,8 +79,8 @@ one row per scene and bin. Row ids are `<stem>-elNN`.
 ## Errors and faults
 
 `ValueError` on a non-positive geometry, optics, or sensor value; a `bands`
-value that is not an ordered non-empty subset; empty or repeated elevations; an elevation that misses the Earth; a bin finer than
-10 m; an unknown or wrongly typed TOML key; weights without a positive
+value that is not an ordered non-empty subset; empty or repeated elevations; an elevation that misses the Earth; a VIS or SWIR
+GSD finer than 10 m; an unknown or wrongly typed TOML key; weights without a positive
 total; a directly constructed SWIR weight map that is not normalized
 (`load_paired_config` normalizes TOML maps); a SWIR weight on a missing
 band; or noise without a generator.

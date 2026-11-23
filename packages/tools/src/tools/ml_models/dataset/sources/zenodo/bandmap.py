@@ -31,7 +31,8 @@ are L2A surface reflectance, so B10 is never a default basis band. B8
 overlaps B8A and B9 is a water-vapour band; both are left out of the default
 basis. B1 is a 60 m coastal-aerosol band; ``NO_B1_BASIS`` drops it so blue
 extends B2 flat below 492 nm. Camera curves are placeholders until datasheet curves exist; their
-identifiers carry ``placeholder``.
+function names carry ``placeholder``. ``vis_weight_table_toml`` stores the caller's table id and
+rejects only an empty one; the CLI default id ``imx267_placeholder_v0`` carries ``placeholder``.
 
 Satisfies: REQ-AIML-HIGH-004.
 """

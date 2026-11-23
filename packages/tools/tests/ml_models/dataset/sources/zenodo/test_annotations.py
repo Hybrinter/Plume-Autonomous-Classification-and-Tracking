@@ -23,9 +23,15 @@ def _payload(points: list[list[float]]) -> dict[str, object]:
     }
 
 
+def _kept(payload: object) -> tuple[np.ndarray, ...]:
+    polygons = parse_polygons(payload)
+    assert polygons is not None
+    return polygons
+
+
 def test_right_half_polygon_scales_with_width() -> None:
     """x in [50, 100] fills the right half of both a wide and a square mask."""
-    polygons = parse_polygons(_payload([[50.0, 0.0], [100.0, 0.0], [100.0, 100.0], [50.0, 100.0]]))
+    polygons = _kept(_payload([[50.0, 0.0], [100.0, 0.0], [100.0, 100.0], [50.0, 100.0]]))
     assert len(polygons) == 1
     square = rasterize_percent_mask(polygons, (120, 120))
     assert square.shape == (1, 120, 120)
@@ -38,7 +44,7 @@ def test_right_half_polygon_scales_with_width() -> None:
 
 def test_bottom_half_polygon_scales_with_height() -> None:
     """y in [50, 100] fills the bottom half of the mask."""
-    polygons = parse_polygons(_payload([[0.0, 50.0], [100.0, 50.0], [100.0, 100.0], [0.0, 100.0]]))
+    polygons = _kept(_payload([[0.0, 50.0], [100.0, 50.0], [100.0, 100.0], [0.0, 100.0]]))
     mask = rasterize_percent_mask(polygons, (120, 120))
     np.testing.assert_array_equal(mask[0, :60, :], 0)
     np.testing.assert_array_equal(mask[0, 60:, :], 1)
@@ -76,14 +82,26 @@ def test_degenerate_polygons_are_skipped() -> None:
         results.append(
             {"type": "polygonlabels", "value": {"polygonlabels": ["smoke"], "points": points}}
         )
-    polygons = parse_polygons(payload)
+    polygons = _kept(payload)
     assert len(polygons) == 1
     np.testing.assert_array_equal(polygons[0], np.asarray(triangle))
 
 
+def test_all_degenerate_smoke_polygons_give_no_geometry() -> None:
+    """Smoke entries that are all dropped give None, not an empty annotation."""
+    for points in ([[54.3, 82.0]], [[0.0, 0.0], [10.0, 0.0]], []):
+        assert parse_polygons(_payload(points)) is None
+    payload = _payload([[54.3, 82.0]])
+    results = payload["completions"][0]["result"]  # type: ignore[index]
+    results.append({"type": "polygonlabels", "value": {"polygonlabels": ["smoke"], "points": []}})
+    assert parse_polygons(payload) is None
+    assert parse_polygons({"completions": []}) == ()
+    assert parse_polygons({}) == ()
+
+
 def test_mask_rules_and_bounds() -> None:
     """The coverage rule is checked and masks stay binary."""
-    polygons = parse_polygons(_payload([[50.0, 0.0], [100.0, 0.0], [100.0, 100.0], [50.0, 100.0]]))
+    polygons = _kept(_payload([[50.0, 0.0], [100.0, 0.0], [100.0, 100.0], [50.0, 100.0]]))
     with pytest.raises(ValueError, match="rule"):
         rasterize_percent_mask(polygons, (10, 10), rule="bogus")
     mask = rasterize_percent_mask(polygons, (10, 10), rule="touch")
@@ -92,7 +110,7 @@ def test_mask_rules_and_bounds() -> None:
 
 def test_source_fitting_requires_both_dimensions() -> None:
     """source_hw and fitted_hw must be supplied together and positive."""
-    polygons = parse_polygons(_payload([[0.0, 0.0], [100.0, 0.0], [100.0, 100.0]]))
+    polygons = _kept(_payload([[0.0, 0.0], [100.0, 0.0], [100.0, 100.0]]))
     with pytest.raises(ValueError, match="together"):
         rasterize_percent_mask(polygons, (120, 120), source_hw=(120, 121))
     with pytest.raises(ValueError, match="together"):
@@ -108,9 +126,7 @@ def test_source_fitting_maps_back_through_crop() -> None:
     background and columns 61+ foreground.
     """
     boundary = 60.75 / 121 * 100
-    polygons = parse_polygons(
-        _payload([[boundary, 0.0], [100.0, 0.0], [100.0, 100.0], [boundary, 100.0]])
-    )
+    polygons = _kept(_payload([[boundary, 0.0], [100.0, 0.0], [100.0, 100.0], [boundary, 100.0]]))
     mask = rasterize_percent_mask(polygons, (120, 120), source_hw=(120, 121), fitted_hw=(120, 120))
     np.testing.assert_array_equal(mask[0, :, :61], 0)
     np.testing.assert_array_equal(mask[0, :, 61:], 1)
@@ -118,12 +134,12 @@ def test_source_fitting_maps_back_through_crop() -> None:
 
 def test_source_fitting_maps_back_through_pad() -> None:
     """A 119-tall source padded to 120 replicates its last row in the mask."""
-    polygons = parse_polygons(_payload([[0.0, 99.0], [100.0, 99.0], [100.0, 100.0], [0.0, 100.0]]))
+    polygons = _kept(_payload([[0.0, 99.0], [100.0, 99.0], [100.0, 100.0], [0.0, 100.0]]))
     mask = rasterize_percent_mask(polygons, (120, 120), source_hw=(119, 120), fitted_hw=(120, 120))
     np.testing.assert_array_equal(mask[0, :118, :], 0)
     np.testing.assert_array_equal(mask[0, 118:, :], 1)
     np.testing.assert_array_equal(mask[0, 119, :], mask[0, 118, :])
     # A strip inside the last source row is not smeared into the padded row.
-    edge = parse_polygons(_payload([[0.0, 99.6], [100.0, 99.6], [100.0, 100.0], [0.0, 100.0]]))
+    edge = _kept(_payload([[0.0, 99.6], [100.0, 99.6], [100.0, 100.0], [0.0, 100.0]]))
     narrow = rasterize_percent_mask(edge, (120, 120), source_hw=(119, 120), fitted_hw=(120, 120))
     np.testing.assert_array_equal(narrow[0, 119, :], 0)

@@ -2,21 +2,21 @@
 
 **Source:** `packages/tools/src/tools/ml_models/analysis/visuals/`
 **Kind:** package
-**Status:** stub
 
 ## Purpose
 
-The visuals package is the scaffold for visual-evidence assembly:
-deterministic selections, dataset-row visuals, and prediction overlays.
-Every submodule is unimplemented and no visual is produced yet.
+The visuals package assembles visual evidence: deterministic bounded
+gallery selection, dataset preview-gallery rendering, and
+classifier/segmentor prediction-overlay rendering over verified
+preview bytes.
 
 ## Contents
 
 | Item | Type | Description |
 | --- | --- | --- |
-| [`selection`](visuals/selection.md) | module | Representative/failure selection (scaffold) |
-| [`dataset`](visuals/dataset.md) | module | Dataset-row visuals (scaffold) |
-| [`predictions`](visuals/predictions.md) | module | Prediction-overlay visuals (scaffold) |
+| [`selection`](visuals/selection.md) | module | Deterministic bounded gallery selection |
+| [`dataset`](visuals/dataset.md) | module | Dataset preview-gallery rendering |
+| [`predictions`](visuals/predictions.md) | module | Prediction-overlay visuals over frozen galleries (classifier and segmentor) |
 
 ## Package interface
 
@@ -25,7 +25,10 @@ only.
 
 ## Interactions
 
-None yet.
+`predictions` renders `PredictionGallery` selections produced by
+`analysis.prediction_selections` against capture-supplied preview
+NPZ bytes; segmentor pages consume frozen display arrays from
+`analysis.prediction_display` without re-matching or re-scoring.
 
 ## Constraints
 

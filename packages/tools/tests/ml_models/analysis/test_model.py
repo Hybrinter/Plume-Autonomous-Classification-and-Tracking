@@ -1,4 +1,6 @@
-"""Tests for the unavailable model-analysis boundary."""
+"""Contract checks for the model post-training-analysis boundary."""
+
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -7,14 +9,10 @@ from tools.ml_models.analysis.config import ModelAnalysisConfig
 from tools.ml_models.analysis.model import analyze_model
 
 
-def test_analyze_model_returns_unavailable(tmp_path: Path) -> None:
-    """A run directory still cannot produce an analysis bundle."""
-    run = tmp_path / "run"
-    run.mkdir()
-    out = tmp_path / "model-analysis"
-    result = analyze_model(
-        ModelAnalysisConfig(run=str(run), out=str(out), checkpoint="last", final_test=True)
-    )
+def test_missing_run_reports_actionable_error(tmp_path: Path) -> None:
+    """Missing run inputs must return Err, never raise."""
+    cfg = ModelAnalysisConfig(run=str(tmp_path / "missing-run"), out=str(tmp_path / "out"))
+    result = analyze_model(cfg)
     assert isinstance(result, Err)
-    assert "unavailable" in result.error
-    assert not out.exists()
+    assert "missing-run" in result.error
+    assert not (tmp_path / "out").exists()

@@ -99,14 +99,17 @@ def calibrate_mosaic(
     flat-field correction. All operations are elementwise on ``(3, H, W)``.
 
     Args:
-        planes: np.ndarray[float32, (3, H, W)] stacked channels. Shape must match
-            cal.dark_frame.shape.
+        planes: np.ndarray[float32, (3, H, W)] stacked channels. Shape must equal
+            each of cal.dark_frame.shape, cal.flat_field.shape, and
+            cal.bad_pixel_mask.shape.
         cal: MosaicCalibration with dark_frame, flat_field, and bad_pixel_mask
             all of shape (3, H, W).
 
     Returns:
         Ok(np.ndarray[float32, (3, H, W)]) -- calibrated DN values, all finite.
-        Err(FaultCode.FRAME_MALFORMED) -- planes.shape != cal.dark_frame.shape.
+        Err(FaultCode.FRAME_MALFORMED) -- planes.shape differs from the shape of any
+            of cal.dark_frame, cal.flat_field, or cal.bad_pixel_mask. Checked before
+            bad-pixel repair, so a broadcastable but wrong artifact shape is rejected.
         Err(FaultCode.INFERENCE_NAN) -- any output pixel is non-finite. This covers a
             division by a zero flat-field element as well as a non-finite value already
             present in the input.
@@ -115,7 +118,9 @@ def calibrate_mosaic(
         Clipping of calibrated values to [0, full_scale] is NOT performed here; that
         is the responsibility of normalize_dn, which clips before scaling to [0, 1].
     """
-    if planes.shape != cal.dark_frame.shape:
+    if not (
+        planes.shape == cal.dark_frame.shape == cal.flat_field.shape == cal.bad_pixel_mask.shape
+    ):
         return Err(FaultCode.FRAME_MALFORMED)
     repaired = correct_bad_pixels(planes, cal.bad_pixel_mask)
     with np.errstate(divide="ignore", invalid="ignore"):

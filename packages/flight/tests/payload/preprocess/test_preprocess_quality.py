@@ -124,3 +124,23 @@ def test_flags_contain_only_usability_tags() -> None:
         assert isinstance(flag, FrameUsabilityTag), (
             f"Non-FrameUsabilityTag found in quality flags: {flag!r}"
         )
+
+
+@pytest.mark.parametrize("shape", [(4, 0, 8), (4, 8, 0)])
+def test_zero_area_frame_is_invalid(shape: tuple[int, int, int]) -> None:
+    """A zero-height or zero-width frame returns INVALID without raising."""
+    flags = compute_quality_flags(np.zeros(shape, dtype=np.float32), 10_000.0, _TS, _CFG)
+    assert FrameUsabilityTag.INVALID in flags
+
+
+def test_non_3d_frame_is_invalid() -> None:
+    """A 2-D input returns INVALID without raising."""
+    flags = compute_quality_flags(np.zeros((8, 8), dtype=np.float32), 10_000.0, _TS, _CFG)
+    assert FrameUsabilityTag.INVALID in flags
+
+
+def test_zero_area_frame_with_empty_timestamp_has_both_tags() -> None:
+    """A zero-area frame with an empty timestamp returns INVALID and INCOMPLETE_METADATA."""
+    flags = compute_quality_flags(np.zeros((4, 0, 8), dtype=np.float32), 10_000.0, "", _CFG)
+    assert FrameUsabilityTag.INVALID in flags
+    assert FrameUsabilityTag.INCOMPLETE_METADATA in flags

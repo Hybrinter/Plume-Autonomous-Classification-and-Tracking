@@ -20,7 +20,8 @@ dataset classification.
 ## Inputs and outputs
 
 `compute_quality_flags(bands, exposure_us, utc_timestamp, cfg)` returns
-`frozenset[FrameUsabilityTag]`. An empty set means a clean frame.
+`frozenset[FrameUsabilityTag]`. An empty set means a clean frame. The function does
+not raise. A malformed `bands` input gives a set that contains `INVALID`.
 
 `SmearRateSource` names the elevation-rate source the payload app selected.
 A rate of `0.0` is valid for every source. Unknown measured rate plus a failed
@@ -30,9 +31,12 @@ flags do not raise `MOTION_SMEAR` from that rate.
 ## Behavior
 
 1. Raise `INCOMPLETE_METADATA` when exposure is nonpositive or the timestamp is empty.
-2. Raise `SATURATED` when any band exceeds `saturation_fraction_threshold` of pixels
+2. Raise `INVALID` when `bands` is not a 3-D numpy array, or when its height or width
+   is zero. Skip the saturation check for that frame. Step 1 still applies, so both
+   tags can be present.
+3. Raise `SATURATED` when any band exceeds `saturation_fraction_threshold` of pixels
    above `SATURATION_PIXEL_LEVEL`.
-3. Do not raise `MOTION_SMEAR`. Along-track smear is a control cap in the outer rate
+4. Do not raise `MOTION_SMEAR`. Along-track smear is a control cap in the outer rate
    law (`max_motion_smear_px`). FAST_REWIND frames smear on purpose. Exclude them by
    gimbal mode.
 

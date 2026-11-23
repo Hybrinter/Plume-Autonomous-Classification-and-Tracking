@@ -11,6 +11,8 @@ Flag conditions:
     SATURATED           -- any channel has > saturation_fraction_threshold of pixels above
                            SATURATION_PIXEL_LEVEL (post-normalisation).
     INCOMPLETE_METADATA -- nonpositive exposure or missing timestamp.
+    INVALID             -- bands is not a 3-D numpy array or has zero plane area
+                           (H == 0 or W == 0); the saturation check is skipped.
 
 MOTION_SMEAR is not raised. Along-track smear is a control cap in the outer rate
 law (max_motion_smear_px). FAST_REWIND smears on purpose; exclude those frames by
@@ -21,7 +23,8 @@ InferenceConfig.input_bands. Saturation checks every channel.
 
 Contains:
   - SmearRateSource: provenance of the elevation rate the payload app selected.
-  - compute_quality_flags: evaluate the heuristics and return the raised-flag frozenset.
+  - compute_quality_flags: evaluate the heuristics and return the raised-flag frozenset;
+    never raises, a malformed bands input yields INVALID.
 """
 
 from __future__ import annotations
@@ -79,6 +82,10 @@ def compute_quality_flags(
         MOTION_SMEAR is not raised. Along-track smear is a control cap in the outer
         rate law. Dataset exclusion for hardware-slew hunt frames is gimbal_state
         FAST_REWIND.
+
+        A bands input that is not a 3-D numpy array, or that has H == 0 or W == 0,
+        adds INVALID and skips the saturation check; no exception is raised.
+        INCOMPLETE_METADATA is evaluated independently, so both tags can be present.
     """
     flags: set[FrameUsabilityTag] = set()
 
@@ -86,12 +93,19 @@ def compute_quality_flags(
     if exposure_us <= 0 or not utc_timestamp:
         flags.add(FrameUsabilityTag.INCOMPLETE_METADATA)
 
+    # --- INVALID ---
+    if not isinstance(bands, np.ndarray) or bands.ndim != 3:
+        flags.add(FrameUsabilityTag.INVALID)
+        return frozenset(flags)
+    n_pixels: int = bands.shape[1] * bands.shape[2]
+    if n_pixels == 0:
+        flags.add(FrameUsabilityTag.INVALID)
+        return frozenset(flags)
+
     # --- SATURATED ---
     # Check each band independently; flag if any band exceeds the threshold.
-    bands_arr: np.ndarray = bands  # type: ignore[assignment]
-    n_pixels: int = bands_arr.shape[1] * bands_arr.shape[2]
-    for c in range(bands_arr.shape[0]):
-        saturated_count: int = int((bands_arr[c] > SATURATION_PIXEL_LEVEL).sum())
+    for c in range(bands.shape[0]):
+        saturated_count: int = int((bands[c] > SATURATION_PIXEL_LEVEL).sum())
         if saturated_count / n_pixels > cfg.saturation_fraction_threshold:
             flags.add(FrameUsabilityTag.SATURATED)
             break

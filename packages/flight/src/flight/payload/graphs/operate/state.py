@@ -95,7 +95,7 @@ class State:
         rewind_entered_s: Monotonic time the hunt began, kept through
             FAST_REWIND, or None outside hunts.
         hunt_timeout_latched: True after a hunt that never reached the limb
-            requested SAFE once.
+            requested SAFE once; cleared when the graph leaves the hunt.
         residual: Latest two-state residual Kalman estimate.
         residual_history: Timestamped residual events and posterior anchor.
         target: Stored CoG and scene-rate terms.

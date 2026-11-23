@@ -83,6 +83,13 @@ class OuterLoopConfig:
     rewind_sharp_max_s: float = Field(default=2.0, ge=0.0)
     hunt_timeout_s: float = Field(default=30.0, gt=0.0)
 
+    @model_validator(mode="after")
+    def _hunt_outlasts_rewind_window(self) -> Self:
+        """Reject a hunt timeout that expires before the FAST_REWIND promotion."""
+        if self.hunt_timeout_s <= self.rewind_sharp_max_s:
+            raise ValueError("hunt_timeout_s must be greater than rewind_sharp_max_s")
+        return self
+
 
 @dataclass(frozen=True, config=_SCHEMA)
 class ResidualConfig:

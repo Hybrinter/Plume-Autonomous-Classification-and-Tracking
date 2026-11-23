@@ -43,13 +43,19 @@ The OPERATE graph orchestrator: spec, edges, initial state, one-tick step, and
 5. On each committed edge the destination node's reference and policy apply
    the same tick and no second transition fires.
 6. A hunt that is still REWIND or FAST_REWIND after `hunt_timeout_s` from
-   hunt entry inhibits and requests SAFE once, with `GIMBAL_SAFETY_TIMEOUT`.
-   Later ticks inhibit and do not request SAFE again. Vision and limb arrival
-   still commit before that timeout.
+   hunt entry sets `hunt_timeout_latched`, inhibits, and requests SAFE once,
+   with `GIMBAL_SAFETY_TIMEOUT`. Later ticks in that hunt inhibit and do not
+   request SAFE again. Vision and limb arrival still commit before that
+   timeout. `TIMER_EXPIRED` does not.
+7. The hunt timeout also applies when encoder feedback is stale or missing.
+   It replaces the stale-feedback inhibit and uses the off policy.
+8. A valid command still commits in a latched hunt. Each exit from the hunt
+   clears `hunt_timeout_latched`.
 
 ## Errors and faults
 
-`INFERENCE_NAN` on flagged vision; `COMMAND_INVALID` on failed guards.
+`INFERENCE_NAN` on flagged vision; `COMMAND_INVALID` on failed guards;
+`GIMBAL_SAFETY_TIMEOUT` on the hunt timeout.
 
 ## Messages
 
@@ -57,7 +63,8 @@ None.
 
 ## Configuration
 
-Reads `PactConfig` through `GraphParameters`.
+Reads `PactConfig` through `GraphParameters`. The hunt uses
+`controller.outer.rewind_sharp_max_s` and `controller.outer.hunt_timeout_s`.
 
 ## Constraints
 

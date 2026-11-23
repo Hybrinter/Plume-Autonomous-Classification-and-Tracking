@@ -4,8 +4,12 @@ TRACKING keeps the residual estimate; REWIND and FAST_REWIND hunt toward the
 science limb; HOLD is limb-wait (auto-exits on vision) or manual (never).
 Valid directed commands commit before automatic vision edges; at most one edge
 commits per tick and the destination node's outcome applies same tick.
+A hunt past hunt_timeout_s latches once: inhibit, GIMBAL_SAFETY_TIMEOUT, and
+one SAFE request. Only accepted vision and limb arrival outrank that timeout;
+the latch clears when the graph leaves the hunt.
 Stale or missing encoder feedback inhibits motion and keeps the enabled
-imaging policy; other inhibit reasons disable acquisition and inference.
+imaging policy, except in a timed-out hunt; other inhibit reasons disable
+acquisition and inference.
 
 Satisfies: REQ-AIML-GIMB-002, REQ-GIMB-HIGH-001, REQ-AIML-GIMB-008.
 """
@@ -238,10 +242,60 @@ def _coast_exhausted(
 
 
 def _hunt_timed_out(state: State, inputs: TickInputs, params: GraphParameters) -> bool:
-    """True when a hunt has run past hunt_timeout_s without leaving the hunt."""
+    """Report whether the current hunt has run past hunt_timeout_s.
+
+    Inputs:
+        state: Current OPERATE state (State).
+        inputs: Tick observations supplying now_s (TickInputs).
+        params: Graph parameters supplying hunt_timeout_s (GraphParameters).
+
+    Outputs:
+        bool: True in REWIND or FAST_REWIND when now_s is at least
+            hunt_timeout_s after rewind_entered_s; False outside hunts.
+
+    Notes:
+        The hunt clock starts at REWIND entry and is kept through FAST_REWIND,
+        so the timeout bounds the whole hunt and not each node.
+    """
     if state.node not in _HUNTS or state.rewind_entered_s is None:
         return False
     return inputs.now_s - state.rewind_entered_s >= params.config.controller.outer.hunt_timeout_s
+
+
+def _hunt_timeout_outcome(
+    state: State, inputs: TickInputs, params: GraphParameters
+) -> tuple[State, GraphOutcome[OperateNode]] | None:
+    """Resolve the hunt timeout for this tick, if it applies.
+
+    Inputs:
+        state: Current OPERATE state (State).
+        inputs: Tick observations supplying now_s (TickInputs).
+        params: Graph parameters (GraphParameters).
+
+    Outputs:
+        tuple[State, GraphOutcome[OperateNode]] | None: The latched-hunt
+            inhibit, the one-time latch outcome, or None when no hunt timeout
+            applies.
+
+    Notes:
+        The first timed-out tick sets hunt_timeout_latched and returns
+        inhibit, GIMBAL_SAFETY_TIMEOUT, and the SAFE intent. Later ticks in
+        the same hunt return a plain inhibit. Both use the off policy and
+        need no encoder sample, so the caller can use them on stale feedback.
+    """
+    if state.node not in _HUNTS:
+        return None
+    if state.hunt_timeout_latched:
+        return _inhibit(state, params, "hunt_timeout_latched")
+    if _hunt_timed_out(state, inputs, params):
+        return _inhibit(
+            replace(state, hunt_timeout_latched=True),
+            params,
+            "hunt_timeout",
+            system_request=SystemRequestIntent.SAFE,
+            faults=(FaultCode.GIMBAL_SAFETY_TIMEOUT,),
+        )
+    return None
 
 
 def _automatic_edge(
@@ -315,7 +369,8 @@ def _commit_transition(
 
     COAST_EXHAUSTED latches loss_handled so the one release cannot re-fire.
     Limb-wait HOLD entries capture the fresh encoder angle. Hunt entries latch
-    rewind_entered_s; TRACKING and hunt targets clear the hold target.
+    rewind_entered_s; TRACKING and hunt targets clear the hold target. Leaving
+    the hunt clears hunt_timeout_latched with rewind_entered_s.
     """
     del params
     encoder = inputs.encoder
@@ -337,6 +392,7 @@ def _commit_transition(
         return replace(
             state,
             rewind_entered_s=None,
+            hunt_timeout_latched=False,
             hold=HoldState(
                 reason=reason,
                 target_rad=encoder.angle_rad if encoder is not None else None,
@@ -351,6 +407,7 @@ def _commit_transition(
     return replace(
         state,
         rewind_entered_s=None,
+        hunt_timeout_latched=False,
         hold=HoldState(reason=HoldReason.LIMB_WAIT, target_rad=None),
     )
 
@@ -368,6 +425,7 @@ def _cold_tracking_state(state: State, inputs: TickInputs, params: GraphParamete
         miss_count=0,
         loss_handled=False,
         rewind_entered_s=None,
+        hunt_timeout_latched=False,
         residual=filt.initial_state(),
         residual_history=filt.initial_history(
             t_s=encoder.t_s,
@@ -482,6 +540,7 @@ def apply_command(
             state,
             hold=HoldState(reason=HoldReason.MANUAL, target_rad=hold_target),
             rewind_entered_s=None,
+            hunt_timeout_latched=False,
         )
     else:
         new_state = _cold_tracking_state(state, inputs, params)
@@ -521,12 +580,23 @@ def step(
         tuple[State, GraphOutcome[OperateNode]]: New state and the committed
             outcome; a valid command commits before automatic edges, and at
             most one edge commits per tick.
+
+    Notes:
+        A hunt past hunt_timeout_s sets hunt_timeout_latched and returns
+        inhibit, GIMBAL_SAFETY_TIMEOUT, and one SAFE request. Accepted vision
+        and limb arrival commit first on that tick; the REWIND timer does
+        not. Later ticks in the latched hunt only inhibit. A valid command
+        still commits and clears the latch. The timeout also applies on
+        stale feedback, where it replaces the stale-feedback inhibit.
     """
     if inputs.activation_key != state.activation_key:
         return _inhibit(state, params, "activation_mismatch")
     if inputs.health.contained:
         return _inhibit(state, params, "contained", system_request=SystemRequestIntent.SAFE)
     if not encoder_fresh(inputs, params):
+        stale_timeout = _hunt_timeout_outcome(state, inputs, params)
+        if stale_timeout is not None:
+            return stale_timeout
         return _inhibit(state, params, "stale_feedback", enabled=True)
 
     vision = accept_vision(state, inputs, params)
@@ -544,22 +614,13 @@ def step(
         if isinstance(committed, Ok):
             return committed.value.state, committed.value.outcome
 
-    if state.node in _HUNTS and state.hunt_timeout_latched:
-        return _inhibit(state, params, "hunt_timeout_latched")
-
     eff_inputs = replace(inputs, vision=vision)
-    edge = _automatic_edge(state, vision, inputs, params)
-    if edge is None and _hunt_timed_out(state, inputs, params):
-        latched = replace(state, hunt_timeout_latched=True)
-        return latched, GraphOutcome(
-            node=latched.node,
-            outcome=NodeOutcome(
-                reference=InhibitReference(reason="hunt_timeout"),
-                policy=params.default_policy(enabled=False),
-                system_request=SystemRequestIntent.SAFE,
-                faults=(FaultCode.GIMBAL_SAFETY_TIMEOUT,),
-            ),
-        )
+    latched_hunt = state.node in _HUNTS and state.hunt_timeout_latched
+    edge = None if latched_hunt else _automatic_edge(state, vision, inputs, params)
+    if edge is None or edge.trigger is EdgeTrigger.TIMER_EXPIRED:
+        hunt_timeout = _hunt_timeout_outcome(state, inputs, params)
+        if hunt_timeout is not None:
+            return hunt_timeout
     if edge is not None:
         state = _commit_transition(state, edge, inputs, params)
         new_state, outcome = _node_step_to(edge.target, state, eff_inputs, params)

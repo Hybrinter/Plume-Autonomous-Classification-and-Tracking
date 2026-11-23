@@ -16,7 +16,7 @@ object is constructed.
 | `OperateGraphConfig` | class | TRACKING / REWIND / FAST_REWIND / HOLD persistence, limb arrival, and observation-age ceiling |
 | `VisionConfig` | class | Blob gates and in-process vision queue depth |
 | `InnerLoopConfig` | class | Inner PI, computed-torque, and encoder-rate fit |
-| `OuterLoopConfig` | class | Outer period, Kp, and REWIND window before FAST_REWIND |
+| `OuterLoopConfig` | class | Outer period, Kp, REWIND window before FAST_REWIND, and hunt timeout |
 | `PredictorConfig` | class | CoG/boresight intersect tracking proxy height |
 | `ResidualConfig` | class | Residual KF noise, P0, and rewind ring |
 | `PositionLoopConfig` | class | STOW / HOME / GOTO rate into the inner PI |
@@ -170,6 +170,7 @@ sensor-derived base, then `operate`, then the named node; the
   hardware travel. Plant `J_kg_m2` must be at most `xeryon.payload_inertia_limit_kg_m2`.
 - `rate_fit_n` must be greater than `rate_fit_degree`. `Q_diag` and `P0_diag` have
   length 2.
+- `hunt_timeout_s` must be greater than `rewind_sharp_max_s`.
 
 ## Related documents
 

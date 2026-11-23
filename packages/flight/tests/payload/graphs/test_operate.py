@@ -477,6 +477,113 @@ def test_hunt_timeout_requests_safe_once(
     assert isinstance(second.outcome.reference, InhibitReference)
 
 
+def test_hunt_timeout_outranks_rewind_timer(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """A REWIND past the hunt timeout latches and does not promote to FAST_REWIND."""
+    state = _state(
+        key,
+        params,
+        operate.OperateNode.REWIND,
+        loss_handled=True,
+        rewind_entered_s=0.0,
+    )
+    horizon = params.config.controller.outer.hunt_timeout_s
+    new_state, outcome = operate.step(
+        state, tick(horizon, key, encoder_angle_rad=math.radians(20.0)), params
+    )
+    assert new_state.node is operate.OperateNode.REWIND
+    assert new_state.hunt_timeout_latched is True
+    assert outcome.transition is None
+    assert isinstance(outcome.outcome.reference, InhibitReference)
+    assert outcome.outcome.system_request is SystemRequestIntent.SAFE
+    assert outcome.outcome.faults == (FaultCode.GIMBAL_SAFETY_TIMEOUT,)
+
+
+def test_vision_outranks_hunt_timeout(
+    params: GraphParameters,
+    tick: TickBuilder,
+    vision: VisionBuilder,
+    blob: BlobBuilder,
+    key: ActivationKey,
+) -> None:
+    """Accepted vision on the timeout tick commits TRACKING and does not latch."""
+    state = _state(
+        key,
+        params,
+        operate.OperateNode.FAST_REWIND,
+        loss_handled=True,
+        rewind_entered_s=0.0,
+    )
+    horizon = params.config.controller.outer.hunt_timeout_s
+    sample = vision(horizon - 0.02, key, blobs=(blob(),), theta_g_rad=math.radians(20.0))
+    new_state, outcome = operate.step(
+        state, tick(horizon, key, encoder_angle_rad=math.radians(20.0), vision=sample), params
+    )
+    assert new_state.node is operate.OperateNode.TRACKING
+    assert new_state.hunt_timeout_latched is False
+    assert outcome.transition is not None
+    assert outcome.transition.trigger.value == "vision_acquired"
+    assert outcome.outcome.system_request is None
+
+
+def test_limb_arrival_outranks_hunt_timeout(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """Limb arrival on the timeout tick commits HOLD and does not latch."""
+    angle = math.radians(params.config.gimbal.el_science_max_deg)
+    state = _state(
+        key,
+        params,
+        operate.OperateNode.FAST_REWIND,
+        loss_handled=True,
+        rewind_entered_s=0.0,
+    )
+    horizon = params.config.controller.outer.hunt_timeout_s
+    new_state, outcome = operate.step(state, tick(horizon, key, encoder_angle_rad=angle), params)
+    assert new_state.node is operate.OperateNode.HOLD
+    assert new_state.hunt_timeout_latched is False
+    assert outcome.transition is not None
+    assert outcome.transition.trigger.value == "limb_arrival"
+    assert outcome.outcome.system_request is None
+
+
+def test_hunt_timeout_applies_on_stale_feedback(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """A stale-feedback hunt past the timeout requests SAFE once, then only inhibits."""
+    state = _state(
+        key,
+        params,
+        operate.OperateNode.FAST_REWIND,
+        loss_handled=True,
+        rewind_entered_s=0.0,
+    )
+    horizon = params.config.controller.outer.hunt_timeout_s
+    early_state, early = operate.step(
+        state, tick(horizon - 1.0, key, encoder_t_s=0.0, health=_STALE), params
+    )
+    assert isinstance(early.outcome.reference, InhibitReference)
+    assert early.outcome.reference.reason == "stale_feedback"
+    assert early_state.hunt_timeout_latched is False
+    new_state, outcome = operate.step(
+        early_state, tick(horizon, key, encoder_t_s=0.0, health=_STALE), params
+    )
+    assert new_state.hunt_timeout_latched is True
+    assert isinstance(outcome.outcome.reference, InhibitReference)
+    assert outcome.outcome.reference.reason == "hunt_timeout"
+    assert outcome.outcome.system_request is SystemRequestIntent.SAFE
+    assert outcome.outcome.faults == (FaultCode.GIMBAL_SAFETY_TIMEOUT,)
+    assert outcome.outcome.policy.imaging.acquisition_enabled is False
+    _, second = operate.step(
+        new_state, tick(horizon + 0.02, key, encoder_t_s=0.0, health=_STALE), params
+    )
+    assert isinstance(second.outcome.reference, InhibitReference)
+    assert second.outcome.reference.reason == "hunt_timeout_latched"
+    assert second.outcome.system_request is None
+    assert second.outcome.faults == ()
+
+
 def test_manual_hold_ignores_vision(
     params: GraphParameters,
     tick: TickBuilder,

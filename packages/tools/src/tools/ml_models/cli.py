@@ -223,7 +223,12 @@ def train_command(
     ] = None,
     seed: Annotated[
         int | None,
-        typer.Option(help="Seed for weight initialization and shuffle order."),
+        typer.Option(
+            help=(
+                "Seed for weight initialization and shuffle order. The loader seed is seed plus"
+                " epoch, so adjacent seeds reuse shuffle orders, shifted by one epoch."
+            )
+        ),
     ] = None,
 ) -> None:
     """Train a GSD-conditioned model on one finished dataset."""

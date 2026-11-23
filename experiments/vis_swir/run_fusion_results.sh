@@ -16,6 +16,23 @@ CFG=experiments/vis_swir/analyze_model.toml
 PAIRED=$P/paired_eval_fixed
 fusion() { uv run python -m tools.ml_models.fusion "$@"; }
 trained() { [ -f "$P/runs/$1/checkpoints/best.pt" ] || { echo "skip $1: no checkpoint" >&2; false; }; }
+# score_test RUN [--dataset DIR]: test-split scores of one run; skipped without a checkpoint.
+score_test() {
+  local run=$1
+  shift
+  trained "$run" || return 0
+  fusion test --config $CFG --run "$P/runs/$run" "$@" --out "$R/test/$run.json"
+}
+# score_late VIS SWIR REFERENCE METRIC: late-fusion search; skipped if a run has no checkpoint.
+score_late() {
+  local vis=$1 swir=$2 ref=$3 metric=$4 run missing=0
+  for run in "$vis" "$swir" "$ref"; do
+    trained "$run" || missing=1
+  done
+  [ "$missing" -eq 0 ] || return 0
+  fusion late --config $CFG --vis-run "$P/runs/$vis" --swir-run "$P/runs/$swir" \
+    --reference-run "$P/runs/$ref" --dataset $PAIRED --metric "$metric" --out "$R/late/$vis.json"
+}
 
 case "${1:-}" in
 seeds)
@@ -37,24 +54,18 @@ score)
   for run in fused_classifier fused_classifier_s1 fused_classifier_s2 \
              dual_nodrop_classifier_s0 dual_nodrop_classifier_s1 dual_nodrop_classifier_s2 \
              dual_classifier fused_shufflenet_classifier fused_segmentor dual_segmentor; do
-    trained "$run" || continue
-    fusion test --config $CFG --run "$P/runs/$run" --dataset $PAIRED --out "$R/test/$run.json"
+    score_test "$run" --dataset $PAIRED
   done
   for run in vis_classifier vis_classifier_s1 vis_classifier_s2 vis_segmentor; do
-    fusion test --config $CFG --run "$P/runs/$run" --out "$R/test/$run.json"
+    score_test "$run"
   done
   for run in swir_classifier swir_segmentor; do
-    fusion test --config $CFG --run "$P/runs/$run" --dataset $P/swir_eval_fixed \
-      --out "$R/test/$run.json"
+    score_test "$run" --dataset $P/swir_eval_fixed
   done
   for vis in vis_classifier vis_classifier_s1 vis_classifier_s2; do
-    fusion late --config $CFG --vis-run "$P/runs/$vis" --swir-run $P/runs/swir_classifier \
-      --reference-run $P/runs/fused_classifier --dataset $PAIRED \
-      --metric average_precision --out "$R/late/$vis.json"
+    score_late "$vis" swir_classifier fused_classifier average_precision
   done
-  fusion late --config $CFG --vis-run $P/runs/vis_segmentor --swir-run $P/runs/swir_segmentor \
-    --reference-run $P/runs/fused_segmentor --dataset $PAIRED \
-    --metric foreground_iou_mean_positive_images --out "$R/late/vis_segmentor.json"
+  score_late vis_segmentor swir_segmentor fused_segmentor foreground_iou_mean_positive_images
   ;;
 thresholds)
   for run in fused_classifier dual_classifier vis_classifier swir_classifier; do

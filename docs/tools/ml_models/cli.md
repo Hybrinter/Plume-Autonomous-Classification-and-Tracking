@@ -77,7 +77,8 @@ precision.
 - `--device`: torch device; default is CUDA when available, else CPU.
 - `--epochs`, `--batch-size`, `--max-steps`: loop controls.
 - `--seed`: seed for weight initialization and shuffle order. It overrides
-  the `seed` value in the configuration file.
+  the `seed` value in the configuration file. The loader seed is the seed plus
+  the epoch, so adjacent seeds reuse shuffle orders, shifted by one epoch.
 
 `export` options:
 

@@ -203,8 +203,8 @@ def _replace_with_retry(source: Path, target: Path) -> None:
         On Windows a rename over a file that another process holds open (an
         antivirus or indexer scanning the previous version) fails with access
         denied for a few milliseconds. ``execution.json`` is rewritten on every
-        step, so a rare lock would otherwise fail a long run. Delays double from
-        10 ms; the total wait is about 2.5 s before the last error propagates.
+        step, so a rare lock would otherwise fail a long run. Seven sleeps double
+        from 10 ms; the total wait is about 1.3 s before the last error propagates.
     """
     for attempt in range(_REPLACE_ATTEMPTS):
         try:

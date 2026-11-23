@@ -28,11 +28,19 @@ Example:
 input set with one shared recipe: SGD, learning rate 0.01, cosine schedule,
 seed 0. Classifiers run 12 epochs with patience 4; segmentors run 40 epochs
 with patience 10. Fused and SWIR-only models train on the randomized builds.
+`train_dual_{classifier,segmentor}.toml` train the two-branch mid-fusion models
+with the same recipe on the randomized paired build.
+`train_fused_shufflenet_classifier.toml` trains ShuffleNet V2 x0.5 on the
+randomized paired build with AdamW, learning rate 0.001, weight decay 0.001,
+cosine schedule, seed 0, 12 epochs, and patience 4.
 
-`run_training_chain.sh` runs the six configs in order. Before each run it
+`run_training_chain.sh` runs the nine configs in order. Before each run it
 waits for `dataset.json` in the configured dataset, so it can start while
-the builds are still in progress. Each run writes a log next to its run
-directory.
+the builds are still in progress. The wait is at most `PACT_DATASET_WAIT_MIN`
+minutes (default 720). The script skips a run whose dataset does not appear in
+that time or whose config has no `dataset` line, and writes a message to
+stderr. Each run writes a log next to its run directory. The `dual_nodrop`
+runs train in the `seeds` stage of `run_fusion_results.sh`.
 
 `analyze_model.toml` holds the model-analysis settings: final test on, GPU,
 batch 64, and a 2 GiB capture budget. The default 256 MiB budget is too small
@@ -46,7 +54,10 @@ the fixed builds:
       --dataset data/processed/paired_eval_fixed
 
 `run_analysis_chain.sh` analyzes each run after its training status is
-`COMPLETED` and skips runs that already have an analysis. One analysis is
+`COMPLETED` and skips runs that already have an analysis. It skips a run
+whose status is `FAILED` or `INTERRUPTED`. It waits for a missing or
+unreadable `execution.json` for at most `PACT_RUN_WAIT_MIN` minutes
+(default 60), then skips the run. Skip messages go to stderr. One analysis is
 about 1.2 GB.
 
 Camera values are estimates. See the paired source documentation.
@@ -62,7 +73,9 @@ time, and never during another training or analysis job:
     bash experiments/vis_swir/run_fusion_results.sh plots
 
 The `seeds` stage uses `train --seed N --run-id NAME` on the seed-0 configs.
-The `score` stage skips a run that has no `checkpoints/best.pt`. The tools are
+The `score` stage skips a run that has no `checkpoints/best.pt`. It skips a
+late-fusion search when any of its three runs (VIS, SWIR, reference) has no
+checkpoint. The tools are
 in `tools.ml_models.fusion` (`python -m tools.ml_models.fusion --help`).
 
 Options:
@@ -74,7 +87,9 @@ Options:
   `w * vis + (1 - w) * swir`. The validation split sets `w` on a 0 to 1 grid
   in steps of 0.1.
 
-All scores are on the test split of the fixed builds (15240 tiles).
+All scores are on a test split of 15240 tiles. Early, Mid, and Late runs are
+scored on the fixed paired build, SWIR-only runs on the fixed SWIR-only build,
+and VIS-only runs on the `vis_only` build.
 
 ### Classifier, three training seeds
 
@@ -94,7 +109,12 @@ The late-fusion weight is `w = 0.5` for all three VIS seeds
 (`results/late/vis_classifier*.json` holds the validation AP for each `w`).
 The seed spread of one option (up to 0.028 AP) is as large as the difference
 between Early, Mid, and Late. Early and Late are better than VIS only on all
-three seeds. Mid seed 0 is 0.003 AP below VIS seed 0.
+three seeds. Mid seed 0 is 0.003 AP below VIS seed 0. All three Late results
+use the seed-0 SWIR model, so the Late seeds change only the VIS branch. Early
+and Mid retrain all weights for each seed. The loader seed is the training
+seed plus the epoch, so seeds 0, 1, and 2 share most shuffle orders, offset by
+one epoch. The seed spread thus shows weight initialization more than data
+order.
 
 `train_fused_shufflenet_classifier.toml` trains the flight classifier
 architecture (ImageNet ShuffleNet V2 x0.5, AdamW) on the 4-band input. The
@@ -115,8 +135,14 @@ Test foreground IoU, mean over the positive images, seed 0.
 | SWIR only | 0.170 |
 
 The validation split sets the late-fusion weight to 1.0: the SWIR segmentor
-adds no IoU. The late value is on the paired build and the VIS-only value is
-on the VIS build, which gives the small difference.
+adds no IoU. The late value (0.2464) and the VIS-only value (0.2490) come from
+the same VIS segmentor on the same test scenes, so the inputs differ. With
+noise on, the SWIR lens changes the VIS noise of bins el15 to el45. The
+`vis_only` build was rendered with the earlier 40 mm SWIR lens and the paired
+build with the 50 mm lens. This follows from the commit history and this
+offset; it is not measured directly. This 0.003 IoU offset is as large as the
+differences between Early, Mid, and VIS only, so this table does not rank
+those three.
 
 ### Classifier thresholds per elevation
 

@@ -1,5 +1,10 @@
-# VIS-only build: same rendering, noise, and splits as the paired builds; the
-# SWIR mix does not affect VIS planes, so this build also serves for evaluation.
+# VIS-only build: same scenes and splits as the paired builds. The SWIR mix
+# does not affect the VIS planes. With noise on, the SWIR lens changes the VIS
+# noise draws of bins el15 to el45. The v0 build behind the committed results
+# was rendered with the 40 mm SWIR lens (from the commit history and the IoU
+# offset in README.md); the current default is 50 mm. So that build does not
+# match the VIS planes of the v1 paired builds in those bins, and a rebuild with
+# the current code differs from it.
 id = "vis_swir_paired_estimate_v0_vis"
 bands = ["BLUE", "GREEN", "RED"]
 swir_randomize = false

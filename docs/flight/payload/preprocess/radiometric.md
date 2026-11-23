@@ -28,7 +28,8 @@ pixels, subtracts dark signal, and divides by the flat field. Each artifact is
 
 1. `correct_bad_pixels` pads each channel by one pixel, averages the four neighbors,
    and replaces pixels where the mask is true.
-2. `calibrate_mosaic` checks that the stack shape matches the calibration artifacts.
+2. `calibrate_mosaic` checks that the stack shape is equal to the shape of each of the
+   three artifacts: dark frame, flat field, and bad-pixel mask.
 3. It runs bad-pixel repair, then computes `(repaired - dark) / flat` elementwise.
 4. It rejects the result when any value is non-finite.
 
@@ -36,7 +37,7 @@ pixels, subtracts dark signal, and divides by the flat field. Each artifact is
 
 | Result | Trigger |
 | --- | --- |
-| `Err(FRAME_MALFORMED)` | Stack shape differs from calibration shape |
+| `Err(FRAME_MALFORMED)` | Stack shape differs from the dark, flat, or bad-pixel mask shape |
 | `Err(INFERENCE_NAN)` | Any output pixel is NaN or Inf (includes zero flat field) |
 
 ## Messages

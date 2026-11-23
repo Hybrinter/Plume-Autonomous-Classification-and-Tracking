@@ -57,3 +57,30 @@ def test_calibrate_mosaic_nonfinite_is_inference_nan() -> None:
     result = calibrate_mosaic(np.ones((3, 4, 4), dtype=np.float32), cal2)
     assert isinstance(result, Err)
     assert result.error == FaultCode.INFERENCE_NAN
+
+
+def test_calibrate_mosaic_flat_shape_mismatch_is_frame_malformed() -> None:
+    """A flat field with a non-broadcastable wrong shape returns FRAME_MALFORMED."""
+    cal = _identity_cal(4, 4)
+    cal2 = MosaicCalibration(cal.dark_frame, np.ones((3, 6, 6), np.float32), cal.bad_pixel_mask)
+    result = calibrate_mosaic(np.ones((3, 4, 4), dtype=np.float32), cal2)
+    assert isinstance(result, Err)
+    assert result.error == FaultCode.FRAME_MALFORMED
+
+
+def test_calibrate_mosaic_mask_shape_mismatch_is_frame_malformed() -> None:
+    """A bad-pixel mask with a wrong shape returns FRAME_MALFORMED."""
+    cal = _identity_cal(4, 4)
+    cal2 = MosaicCalibration(cal.dark_frame, cal.flat_field, np.zeros((3, 6, 6), dtype=bool))
+    result = calibrate_mosaic(np.ones((3, 4, 4), dtype=np.float32), cal2)
+    assert isinstance(result, Err)
+    assert result.error == FaultCode.FRAME_MALFORMED
+
+
+def test_calibrate_mosaic_broadcastable_flat_is_frame_malformed() -> None:
+    """A broadcastable but wrong flat field shape returns FRAME_MALFORMED, not Ok."""
+    cal = _identity_cal(4, 4)
+    cal2 = MosaicCalibration(cal.dark_frame, np.ones((3, 4, 1), np.float32), cal.bad_pixel_mask)
+    result = calibrate_mosaic(np.ones((3, 4, 4), dtype=np.float32), cal2)
+    assert isinstance(result, Err)
+    assert result.error == FaultCode.FRAME_MALFORMED

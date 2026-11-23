@@ -39,8 +39,9 @@ importing the package never requires them.
 `export` builds models through `tools.ml_models.arch.registry` and reads
 nested training provenance from checkpoints written by
 `tools.ml_models.train.loop`. `accept` validates finished-dataset
-compatibility and reports an unavailable error while scoring is
-unimplemented. `session` uses onnxruntime lazily.
+compatibility, runs the shared test-split evaluation, and returns the
+measured acceptance dict; the CLI owns report publication. `session`
+uses onnxruntime lazily.
 
 ## Constraints
 

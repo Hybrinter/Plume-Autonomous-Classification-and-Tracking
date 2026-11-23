@@ -41,6 +41,12 @@ publishes on the bus.
 ## Constraints
 
 - `loader` is the only module in this package that imports torch.
+- Every stored row carries optional recorded provenance: an
+  `ObservationMetadata` whose fields name the original source
+  observation when the source supplied them, plus the
+  `prepared_mask_state` of the source mask. Fields a source never
+  recorded stay unknown. Old schema-2 rows decode both as unknown;
+  nothing is inferred from pixels or labels.
 - Stored images are float32 unit pixels, shaped `(N, C, H, W)`.
 - Stored GSD is float32 metres, shaped `(N, 2)`. Labels are float32
   `(N, 1)`. Segmentor masks are uint8 `(N, 1, H, W)`.

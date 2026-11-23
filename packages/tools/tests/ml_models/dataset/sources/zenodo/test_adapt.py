@@ -1,6 +1,7 @@
 """Tests for ZenodoSource and the zenodo build wrapper."""
 
 import io
+import json
 import tarfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -11,6 +12,7 @@ from tools.ml_models.cli import main
 from tools.ml_models.dataset.augment import AugmentRecipe
 from tools.ml_models.dataset.build import build_zenodo
 from tools.ml_models.dataset.manifest import load_manifest
+from tools.ml_models.dataset.raw import BinSpec
 from tools.ml_models.dataset.sources.zenodo.adapt import ZenodoSource
 from tools.ml_models.dataset.sources.zenodo.bins import DEFAULT_BINS, bin_hw
 from tools.ml_models.dataset.sources.zenodo.prism import load_weight_table
@@ -242,3 +244,129 @@ def test_cli_zenodo_rejects_bad_args(tmp_path: Path) -> None:
     assert main([*full, "--bin-id", "nope"]) != 0
     assert main([*full, "--bin-id", "elevation45"]) != 0
     assert main([*full, "--bin-id", "native10", "--bin-id", "native10"]) != 0
+
+
+def _append_member(tar_path: Path, name: str, payload: bytes) -> None:
+    """Append one member to an existing tar fixture."""
+    with tarfile.open(tar_path, "a") as bundle:
+        info = tarfile.TarInfo(name)
+        info.size = len(payload)
+        bundle.addfile(info, io.BytesIO(payload))
+
+
+def _empty_polygon_annotation() -> bytes:
+    """A degenerate zero-area polygon that rasterizes to an empty mask."""
+    points = [[50.0, 50.0], [50.0, 50.0], [50.0, 50.0]]
+    payload = {
+        "completions": [
+            {
+                "result": [
+                    {
+                        "type": "polygonlabels",
+                        "value": {"polygonlabels": ["smoke"], "points": points},
+                    }
+                ]
+            }
+        ]
+    }
+    return json.dumps(payload).encode("utf-8")
+
+
+def test_refs_keep_original_stem_time_and_annotation_ref(
+    archives: tuple[Path, Path, Path],
+) -> None:
+    """Every GSD variant keeps the original stem and label member reference."""
+    source = _source(archives)
+    bare = "10005_2020-01-03T00-00-00.000Z_0"
+    for ref in source.index():
+        stem = ref.tile_id.rsplit("-", 1)[0]
+        metadata = ref.metadata
+        assert metadata.observation_id == stem
+        assert metadata.acquired_at_utc is None
+        if stem == bare:
+            assert metadata.source_annotation_state == "MISSING"
+            assert metadata.annotation_source is None
+            assert not ref.has_mask
+        else:
+            assert metadata.source_annotation_state == "NONEMPTY"
+            assert metadata.annotation_source == f"{stem}_features.json"
+
+
+def test_nonempty_annotation_rasterizing_empty_keeps_both_states(
+    archives: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """A nonempty source annotation may rasterize empty; both states record."""
+    images, labels, weights = archives
+    stem = "10006_2020-01-05T00-00-00.000Z_0"
+    _append_member(images, f"positive/{stem}.tif", b"stack0")
+    _append_member(labels, f"{stem}_features.json", _empty_polygon_annotation())
+    bins = (BinSpec("native10", 10.0, 10.0),)
+    source = ZenodoSource(images, labels, load_weight_table(weights), bins)
+    tile = next(item for item in source.iter_tiles() if item.ref.tile_id == f"{stem}-native10")
+    assert tile.mask is not None and not np.any(tile.mask)
+    assert tile.ref.metadata.source_annotation_state == "NONEMPTY"
+    dest = tmp_path / "ds"
+    build_zenodo(
+        images,
+        labels,
+        weights,
+        dest,
+        BuildSpec(augment=AugmentRecipe(elements=("id",))),
+        bins=bins,
+    )
+    rows = [
+        row
+        for split_name in ("train", "val", "test")
+        for shard in (
+            (dest / "segmentor" / split_name).iterdir()
+            if (dest / "segmentor" / split_name).is_dir()
+            else ()
+        )
+        for row in read_rows(shard)
+        if row.tile_id == f"{stem}-native10"
+    ]
+    assert rows
+    for row in rows:
+        assert row.prepared_mask_state == "EMPTY"
+        assert row.metadata.source_annotation_state == "NONEMPTY"
+        assert row.metadata.observation_id == stem
+        assert row.metadata.annotation_source == f"{stem}_features.json"
+
+
+def test_valid_utc_stem_flows_through_index_source_and_build(
+    archives: tuple[Path, Path, Path], tmp_path: Path
+) -> None:
+    """A documented ISO-UTC stem keeps its literal time through the full chain."""
+    images, labels, weights = archives
+    stem = "10006_2020-02-29T10:56:41.330Z_0"
+    annotation_member = f"nested/{stem}_features.json"
+    _append_member(images, f"positive/{stem}.tif", b"stack0")
+    _append_member(labels, annotation_member, json.dumps({"completions": []}).encode("utf-8"))
+    bins = (BinSpec("native10", 10.0, 10.0), BinSpec("gsd20", 20.0, 20.0))
+    source = ZenodoSource(images, labels, load_weight_table(weights), bins)
+    refs = [ref for ref in source.index() if ref.tile_id.startswith(f"{stem}-")]
+    assert len(refs) == len(bins)
+    expected = refs[0].metadata
+    assert expected.observation_id == stem
+    assert expected.acquired_at_utc == "2020-02-29T10:56:41.330Z"
+    assert expected.annotation_source == annotation_member
+    assert expected.source_annotation_state == "EXPLICIT_EMPTY"
+    for ref in refs:
+        assert ref.has_mask
+        assert ref.metadata == expected
+    dest = tmp_path / "ds"
+    build_zenodo(images, labels, weights, dest, BuildSpec(), bins=bins)
+    for task in ("classifier", "segmentor"):
+        rows = [
+            row
+            for split_name in ("train", "val", "test")
+            for shard in (
+                (dest / task / split_name).iterdir() if (dest / task / split_name).is_dir() else ()
+            )
+            for row in read_rows(shard)
+            if row.tile_id.startswith(f"{stem}-")
+        ]
+        assert rows, task
+        for row in rows:
+            assert row.metadata == expected
+            assert row.prepared_mask_state == "EMPTY"

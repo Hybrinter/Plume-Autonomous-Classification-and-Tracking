@@ -15,7 +15,7 @@ from tools.ml_models.dataset.augment import AugmentRecipe
 from tools.ml_models.dataset.build import build_dataset, build_flight
 from tools.ml_models.dataset.gsd import to_model_gsd
 from tools.ml_models.dataset.loader import ShardDataset
-from tools.ml_models.dataset.raw import GsdPair
+from tools.ml_models.dataset.raw import ConditionTag, GsdPair, ObservationMetadata
 from tools.ml_models.dataset.sources.flight import (
     SCHEMA_VERSION,
     FlightTileDir,
@@ -518,3 +518,105 @@ def test_huge_index_numbers_are_value_errors(tmp_path: Path) -> None:
         path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
         with pytest.raises(ValueError, match=key):
             FlightTileDir(dest)
+
+
+def test_observation_metadata_round_trip_and_tile_id_fallback(tmp_path: Path) -> None:
+    """Provided metadata survives; a default or absent field falls back to tile_id."""
+    metadata = ObservationMetadata(
+        observation_id="t0",
+        acquired_at_utc="2024-01-02T03:04:05.500Z",
+        conditions=(ConditionTag(name="illumination", value="recorded-daylight"),),
+        annotation_source="imported-review",
+        annotation_version="r2",
+        source_annotation_state="NONEMPTY",
+    )
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(
+        dest,
+        [
+            _single_tile(metadata=metadata),
+            _single_tile(tile_id="t1", col=1),
+        ],
+    )
+    refs = FlightTileDir(dest).index()
+    assert refs[0].metadata == metadata
+    fallback = refs[1].metadata
+    assert fallback.observation_id == "t1"
+    assert fallback.acquired_at_utc is None
+    assert fallback.conditions == ()
+    assert fallback.source_annotation_state == "UNKNOWN"
+    path = dest / "index.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        del row["metadata"]
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    refs = FlightTileDir(dest).index()
+    assert refs[0].metadata == ObservationMetadata(observation_id="t0")
+    assert refs[0].metadata.acquired_at_utc is None
+
+
+def test_observation_id_must_match_the_tile_id(tmp_path: Path) -> None:
+    """A conflicting observation id is rejected by writer and reader."""
+    metadata = ObservationMetadata(observation_id="not-t0")
+    with pytest.raises(ValueError, match="observation_id"):
+        write_flight_tile_dir(tmp_path / "flight", [_single_tile(metadata=metadata)])
+    dest = tmp_path / "flight2"
+    write_flight_tile_dir(dest, [_single_tile()])
+    path = dest / "index.jsonl"
+    row = json.loads(path.read_text(encoding="utf-8").strip())
+    row["metadata"] = {"observation_id": "not-t0"}
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="observation_id"):
+        FlightTileDir(dest)
+
+
+def test_index_metadata_is_strictly_validated(tmp_path: Path) -> None:
+    """Malformed index metadata and non-metadata objects are rejected."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile()])
+    path = dest / "index.jsonl"
+    original = json.loads(path.read_text(encoding="utf-8").strip())
+    for bad in (
+        {"observation_id": "t0", "extra": 1},
+        {"observation_id": "t0", "acquired_at_utc": "yesterday"},
+        {"observation_id": "t0", "conditions": [{"name": "x", "value": 2}]},
+        {"observation_id": "t0", "source_annotation_state": "PARTIAL"},
+        "t0",
+        7,
+    ):
+        payload = dict(original)
+        payload["metadata"] = bad
+        path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        with pytest.raises(ValueError):
+            FlightTileDir(dest)
+    with pytest.raises(ValueError):
+        write_flight_tile_dir(
+            tmp_path / "flight2",
+            [_single_tile(metadata={"observation_id": "t0"})],
+        )
+
+
+def test_metadata_unknown_defaults_have_no_time(tmp_path: Path) -> None:
+    """A tile written without metadata keeps dates and conditions unavailable."""
+    dest = tmp_path / "flight"
+    write_flight_tile_dir(dest, [_single_tile()])
+    ref = FlightTileDir(dest).index()[0]
+    assert ref.metadata.observation_id == "t0"
+    assert ref.metadata.acquired_at_utc is None
+    assert ref.metadata.annotation_source is None
+    assert ref.metadata.source_annotation_state == "UNKNOWN"
+
+
+def test_metadata_mutated_after_construction_is_rejected_at_write(tmp_path: Path) -> None:
+    """Serialization revalidates, so a bypassed mutation cannot be written."""
+    mutated = ObservationMetadata(observation_id="t0", source_annotation_state="NONEMPTY")
+    object.__setattr__(mutated, "source_annotation_state", "BOGUS")
+    with pytest.raises(ValueError):
+        write_flight_tile_dir(tmp_path / "flight", [_single_tile(metadata=mutated)])
+    nested = ObservationMetadata(
+        observation_id="t0",
+        conditions=(ConditionTag(name="illumination", value="recorded-daylight"),),
+    )
+    object.__setattr__(nested.conditions[0], "value", 2)
+    with pytest.raises(ValueError):
+        write_flight_tile_dir(tmp_path / "flight2", [_single_tile(metadata=nested)])

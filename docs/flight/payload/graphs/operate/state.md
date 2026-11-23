@@ -26,7 +26,9 @@ helpers used by every node step.
 
 Data and helpers only: `State` carries the activation key, node, tracked
 ancestry, liveness, residual state and history, target, hold, seen-vision
-window, `last_rate_decision`, `last_e_az`, and `vision_disposition`.
+window, `last_rate_decision`, `last_e_az`, `vision_disposition`, and
+`hunt_timeout_latched`. `hunt_timeout_latched` is true after a hunt timeout
+requested SAFE; an exit from the hunt clears it.
 Signatures: `vision_window_s(params) -> float`,
 `accept_vision(state, inputs, params)`,
 `bookkeep_vision(state, vision, inputs, params) -> State`, and

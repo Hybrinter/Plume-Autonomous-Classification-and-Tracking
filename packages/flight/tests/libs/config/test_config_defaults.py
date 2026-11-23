@@ -21,6 +21,7 @@ from flight.libs.config import (
     GimbalConfig,
     InferenceConfig,
     LinkConfig,
+    OuterLoopConfig,
     PayloadPolicyConfig,
     PayloadPolicyOverrideConfig,
     PreprocessingConfig,
@@ -124,3 +125,15 @@ def test_inference_grid_defaults_and_divisibility() -> None:
         InferenceConfig(input_height_px=10, input_width_px=16, tile_rows=3, tile_cols=4)
     with pytest.raises(ValidationError):
         InferenceConfig(gsd_reference_m=float("inf"))
+
+
+def test_hunt_timeout_must_outlast_rewind_window() -> None:
+    """Outer config rejects a hunt timeout at or below the REWIND window."""
+    import pytest
+    from pydantic import ValidationError
+
+    assert OuterLoopConfig(rewind_sharp_max_s=2.0, hunt_timeout_s=2.5).hunt_timeout_s == 2.5
+    with pytest.raises(ValidationError, match="hunt_timeout_s must be greater"):
+        OuterLoopConfig(rewind_sharp_max_s=2.0, hunt_timeout_s=2.0)
+    with pytest.raises(ValidationError, match="hunt_timeout_s must be greater"):
+        OuterLoopConfig(rewind_sharp_max_s=2.0, hunt_timeout_s=1.0)

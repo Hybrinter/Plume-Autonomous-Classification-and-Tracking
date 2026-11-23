@@ -30,6 +30,17 @@ def test_step_always_inhibits_even_with_fresh_feedback(
     assert outcome.outcome.policy.imaging.acquisition_enabled is False
 
 
+def test_step_keeps_key_on_mismatched_activation(
+    params: GraphParameters, tick: TickBuilder, key: ActivationKey
+) -> None:
+    """A foreign activation key does not retarget SAFE and still inhibits."""
+    state = safe.initial_state(tick(0.0, key), params)
+    other = ActivationKey(epoch="other", sequence=key.sequence + 1)
+    new_state, outcome = safe.step(state, tick(0.02, other), params)
+    assert new_state.activation_key == key
+    assert isinstance(outcome.outcome.reference, InhibitReference)
+
+
 def test_step_inhibits_when_contained(
     params: GraphParameters, tick: TickBuilder, key: ActivationKey
 ) -> None:

@@ -147,7 +147,7 @@ def test_home_requires_nonempty_evidence(
 def test_ready_verified_emits_init_complete_once(
     params: GraphParameters, tick: TickBuilder, key: ActivationKey
 ) -> None:
-    """READY requests INIT_COMPLETE once on VERIFIED evidence; stays READY."""
+    """READY requests INIT_COMPLETE once. A later tick does not send it again."""
     state = init.initial_state(tick(0.0, key), params)
     state, _ = init.step(state, tick(0.0, key), params)
     for t_s, kind in (
